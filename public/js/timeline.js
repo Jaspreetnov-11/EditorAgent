@@ -8,14 +8,14 @@ import { fusionFromClip, rotoFromClip } from './fusionpage.js';
 import { seqList } from './model.js';
 import { sharedSeqId } from './store.js';
 import { copyClips, pasteClips, clipboard } from './clipboard.js';
-import { clipDur, uid, fmtTC, fmt, trackList, trackKind, addTrack, syncLinked, linkAudioOf, linkedPartner, freeAudioTrack } from './model.js';
+import { clipDur, uid, fmtTC, fmt, trackList, trackKind, addTrack, syncLinked, linkAudioOf, linkedPartner, freeAudioTrack, RAMPS } from './model.js';
 import { $, $$, h, esc, clamp, toast } from './ui.js';
 import { openTemplates } from './titlesui.js';
 import { openGraphics } from './gfxui.js';
 import { GFX } from './graphics.js';
 import { autoSoundDesign } from './sfxui.js';
 import { openReplace } from './replace.js';
-import { dropFx } from './fxpanel.js';
+import { dropFx, transitionLength } from './fxpanel.js';
 
 // row heights: the main story is tallest; voice-over and music get room for their waveforms
 // track heights: drag the bottom edge of a track header (double-click = back to normal); kept in this browser
@@ -53,6 +53,7 @@ export function mountTimeline(el) {
       <button data-act="title" title="Titles, lower thirds and cards - pick a template (T adds a plain title)">${ICON.text}<span>Title</span></button>
       <button data-act="gfx" title="Motion graphics: counters, charts, callouts, route lines"><b>📊</b><span>Graphic</span></button>
       <button data-act="adjust" title="Adjustment layer: colour / effects for every track below it, at the playhead"><b>◩</b><span>Adjust</span></button>
+      <button data-act="ramp" title="Speed ramp: pick a preset for the selected video clips (slow-mo hit, bullet time, whoosh…)"><b>⏩</b><span>Ramp</span></button>
       <button data-act="roto" title="Roto (AI): select a video clip - its subject (person / animal / vehicle) is cut out onto the track above. Put text on a track in between to have it behind the person"><b>✂</b><span>Roto</span></button>
       <button data-act="sfx" title="Auto sound design: whooshes, hits and a riser on A3, lined up with your cuts, transitions and effects"><b>🔊</b><span>SFX</span></button>
       <span class="sep"></span>
@@ -106,6 +107,7 @@ export function mountTimeline(el) {
     if (a === 'title') openTemplates();
     if (a === 'gfx') openGraphics();
     if (a === 'adjust') addAdjustmentLayer();
+    if (a === 'ramp') { const r = e.target.closest('[data-act]').getBoundingClientRect(); rampMenu({ clientX: r.right + 4, clientY: r.top }); }
     if (a === 'roto') {
       const id = [...S.sel].find((s) => findClip(s)?.clip.type === 'video');
       if (!id) toast('Select a video clip on the timeline first, then press ✂ Roto', 'err'); else rotoFromClip(id, findClip);
@@ -859,8 +861,22 @@ function fxTarget(e) {
   if (el) el.classList.add('fx-target');
   return el;
 }
+document.addEventListener('dragend', () => { const z = document.getElementById('tlFxZone'); if (z) z.hidden = true; });
+// a transition dragged over V1: like Premiere, a box on the cut it would go on, as long as the transition
+function fxZone(e, el) {
+  let z = $('#tlFxZone', root);
+  const id = el?.dataset.id, f = id && findClip(id);
+  if (!f || f.track !== 'V1' || ![...e.dataTransfer.types].includes('text/x-fx-transition')) { if (z) z.hidden = true; return; }
+  const L = layout().V1, i = L.findIndex((x) => x.clip.id === id), r = el.getBoundingClientRect();
+  const cutAt = (e.clientX - r.left) / Math.max(1, r.width) > 0.5 ? i + 1 : i; // (the same choice dropFx makes)
+  if (cutAt <= 0 || cutAt >= L.length) { if (z) z.hidden = true; return; } // (no cut before the first / after the last shot)
+  if (!z) { z = h('<div id="tlFxZone" class="tl-fxzone"></div>'); $('#tlCanvas', root).append(z); }
+  const d = transitionLength(), t = L[cutAt].start;
+  Object.assign(z.style, { left: `${(t - d / 2) * S.zoom}px`, width: `${Math.max(6, d * S.zoom)}px`, top: `${rowTop('V1')}px`, height: `${rowH('V1')}px` });
+  z.hidden = false;
+}
 function onDragOver(e) {
-  if ([...e.dataTransfer.types].includes('text/x-fx')) { if (fxTarget(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } return; }
+  if ([...e.dataTransfer.types].includes('text/x-fx')) { const el = fxTarget(e); fxZone(e, el); if (el) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } return; }
   if (![...e.dataTransfer.types].includes('text/x-media-id')) return;
   e.preventDefault();
   const tr = rowAt(e.clientY);
@@ -877,6 +893,7 @@ function onDrop(e) {
   const fxs = e.dataTransfer.getData('text/x-fx');
   if (fxs) {
     const el = fxTarget(e); el?.classList.remove('fx-target');
+    const z = $('#tlFxZone', root); if (z) z.hidden = true;
     if (!el) return;
     e.preventDefault();
     const r = el.getBoundingClientRect();
@@ -955,6 +972,7 @@ function onContext(e) {
     ...(clipboard()?.kind === 'clips' ? [['paste', `Paste ${clipboard().items.length > 1 ? `${clipboard().items.length} clips ` : ''}at playhead`, 'Ctrl+V']] : []),
     ['dup', 'Duplicate', 'Ctrl+D'], ['nest', S.sel.size > 1 ? `⤵ Nest ${S.sel.size} clips…` : '⤵ Nest…'],
     ...(c.type === 'video' ? [['comp', '🎬 Make Motion comp (animate it in Motion)'], ['roto', '✂ Roto: cut out the subject (AI)'], ['behind', '✂ Text behind subject (AI roto)'], ['fusion', '✨ Open in Fusion (node effects)']] : []), ['del', 'Delete', 'Del'], ...(f.track === 'V1' && !c.gap ? [['lift', 'Delete and leave a gap', 'Shift+Del']] : []), '-',
+    ...(c.type === 'video' ? [['ramp', `⏩ Speed ramp…${c.ramp ? ' (on)' : ''}`]] : []),
     ...(c.type === 'video' || c.type === 'audio' ? [['sp0.5', 'Speed 0.5× (slow-mo)'], ['sp1', 'Speed 1×'], ['sp2', 'Speed 2×'], ...(linkedPartner(S.project, c) ? [] : [['mute', c.mute ? 'Unmute' : 'Mute']])] : []),
     ...(linkedPartner(S.project, c) ? [['unlink', '⛓ Unlink audio / video']] : c.type === 'video' && S.mediaById[c.mediaId]?.hasAudio && !c.link ? [['linkA', '🔊 Separate audio onto its own track (linked)']] : c.type === 'video' && c.link && S.mediaById[c.mediaId]?.hasAudio ? [['linkA', '🔊 Bring back its sound (linked)']] : []),
     ...(f.track === 'V1' && f.index > 0 ? ['-', ['trans', c.transitionIn && c.transitionIn.type !== 'cut' ? 'Remove transition' : 'Add cross dissolve']] : []),
@@ -976,6 +994,7 @@ function onContext(e) {
     if (a === 'behind') textBehindFromClip(id, findClip);
     if (a === 'fusion') fusionFromClip(id, findClip); // (double-click the maroon clip to open it)
     if (a === 'roto') rotoFromClip(id, findClip);
+    if (a === 'ramp') rampMenu(e);
     if (a === 'copy') copyClips();
     if (a === 'paste') pasteClips().catch((err) => toast(err.message, 'err'));
     if (a === 'dup') duplicateSelected();
@@ -1012,6 +1031,18 @@ export function separateAudio() {
 }
 
 // a small right-click menu (one action)
+// ⏩ Speed ramp presets for the selected video clips (timeline tools button / right-click), so they are one click
+// away in Edit - not only inside Effect Controls. Custom: Effect Controls › Speed ramp, where the curve is drawn.
+function rampMenu(e) {
+  const vids = [...S.sel].map((id) => findClip(id)?.clip).filter((c) => c?.type === 'video');
+  if (!vids.length) return toast('Select a video clip first, then pick a speed ramp', 'err');
+  ctxMenu(e, [['', '✕ No speed ramp'], ...Object.entries(RAMPS).map(([k, r]) => [k, `⏩ ${r.label}`]), ['custom', '✏ Draw my own (Effect Controls)']], (k) => {
+    if (k === 'custom') { emit('select'); return toast('Effect Controls › ⏩ Speed ramp: click on the graph to draw your own'); }
+    for (const c of vids) { if (k) c.ramp = k; else delete c.ramp; delete c.rampPts; }
+    commit(k ? `Speed ramp: ${RAMPS[k].label}` : 'No speed ramp'); emit('select');
+    toast(k ? `⏩ ${RAMPS[k].label} - ${vids.length} clip${vids.length > 1 ? 's' : ''} (the shot length changes; Accurate preview shows it exactly)` : 'Speed ramp removed');
+  });
+}
 function ctxMenu(e, items, run) {
   const menu = h(`<div class="ctx" role="menu">${items.map((it) => `<button role="menuitem" data-c="${it[0]}">${it[1]}${it[2] ? `<kbd>${it[2]}</kbd>` : ''}</button>`).join('')}</div>`);
   document.body.append(menu);

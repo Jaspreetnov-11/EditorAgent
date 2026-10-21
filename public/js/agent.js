@@ -41,7 +41,7 @@ export function openAgent(setBusy) {
         <label class="fld"><span>Edit style</span><select name="editStyle"><option value="standard">Standard</option><option value="teaser">🎬 Cinematic teaser (trailer: slow open, build, fast climax)</option><option value="montage">⚡ Fast montage (cut on every beat)</option><option value="song">🎵 Song / music video (beat + lyrics)</option></select></label>
         <label class="fld"><span>Pace</span><select name="pace"><option value="fast">Fast cuts (~1.7 s)</option><option value="medium">Medium (~2.8 s)</option><option value="slow">Slow, cinematic (~4 s)</option></select></label>
         <label class="fld" data-novo><span>Length (when there is no voice-over)</span><select name="target">${[15, 30, 45, 60, 90, 120, 180, 300].map((s) => `<option value="${s}">${s < 60 ? `${s} s` : `${s / 60} min`}</option>`).join('')}</select></label>
-        <label class="fld" data-ref hidden><span>Reference video</span><select name="reference"><option value="">Choose…</option>${S.media.filter((m) => m.kind === 'video').map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join('')}</select></label>
+        <div class="fld" data-ref hidden><span>Reference video (the edit to copy - its shots are never used)</span><div class="row-in"><select name="reference"><option value="">Choose…</option>${S.media.filter((m) => m.kind === 'video').map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join('')}</select><label class="btn small" title="A reel / video you downloaded: it is added to the project and picked here">⬆ Upload<input type="file" accept="video/*,.mxf,.mts" hidden name="refFile"></label></div></div>
       </div>
     </div>
     <div class="ag-page" data-p="1" hidden>
@@ -114,6 +114,7 @@ export function openAgent(setBusy) {
   body.querySelector('[data-p="2"] .fgrid').append(scriptPicker(scr));
   f('voFile').onchange = (e) => uploadAudioInto(e.target, f('vo'));
   f('musicFile').onchange = (e) => uploadAudioInto(e.target, f('music'));
+  f('refFile').onchange = (e) => { toast('Uploading the reference…'); uploadAudioInto(e.target, f('reference')); }; // (any video file: it is read like a sound file is)
 
   const applyType = () => {
     const t = TYPES.find((x) => x.id === st.type);
@@ -201,9 +202,11 @@ export function openAgent(setBusy) {
   });
 
   const opts = () => ({
-    clips: [...st.clips], vo: f('vo').value || null, voLang: f('voLang').value, whisperModel: f('whisperModel').value,
+    clips: [...st.clips].filter((id) => st.type !== 'reference' || id !== f('reference').value), vo: f('vo').value || null, voLang: f('voLang').value, whisperModel: f('whisperModel').value,
     music: f('music').value || null, musicBest: f('musicBest').checked, keepSound: f('keepSound').checked, outline: f('outline').value,
-    aspect: f('aspect').value, pace: f('pace').value, clipSpeed: +f('clipSpeed').value, stabilize: f('stabilize').checked, cinematic: f('cinematic').checked, fx: f('fx').checked, sfx: f('sfx').checked, look: f('look').value, editStyle: f('editStyle').value, stock: false, ...(scr.scenes?.length ? { scenes: scr.scenes } : {}), target: +f('target').value, autoColor: f('autoColor').checked, detectLog: f('detectLog').checked,
+    // "Same as the reference" becomes the reference's real shape here ('ref' used to become the new sequence's
+    // frame size, which is no size at all, and Claude was told "Format ref")
+    aspect: f('aspect').value === 'ref' ? refAspect(S.mediaById[f('reference').value]) : f('aspect').value, pace: f('pace').value, clipSpeed: +f('clipSpeed').value, stabilize: f('stabilize').checked, cinematic: f('cinematic').checked, fx: f('fx').checked, sfx: f('sfx').checked, look: f('look').value, editStyle: f('editStyle').value, stock: false, ...(scr.scenes?.length ? { scenes: scr.scenes } : {}), target: +f('target').value, autoColor: f('autoColor').checked, detectLog: f('detectLog').checked,
     ...(st.type === 'reference' && f('reference').value ? { reference: f('reference').value } : {}),
     subtitles: f('subtitles').checked, style: f('style').value, title: f('title').value.trim(), endText: f('endText').value.trim(), names: f('names').value.trim(),
     styleName: f('styleName').value,
@@ -216,13 +219,22 @@ export function openAgent(setBusy) {
 
 // 🧠 The wizard's / Re-edit's choices as a brief for Claude (Assistant > Claude mode), who edits like it does in this
 // folder: footage first, a story, cuts on the beats, a self-check. No stock footage - only the project's own clips.
+// the frame shape of a reference video: 9:16 / 4:5 / 1:1 / 16:9 (a turned phone video counts as turned)
+function refAspect(m) {
+  if (!m?.width || !m?.height) return '16:9';
+  const turned = Math.abs(+m.rotation || 0) % 180 === 90, r = (turned ? m.height : m.width) / (turned ? m.width : m.height);
+  return r < 0.7 ? '9:16' : r < 0.9 ? '4:5' : r < 1.25 ? '1:1' : '16:9';
+}
 export function claudeBrief(o, label = 'edit', changes = null) {
   const nm = (id) => S.mediaById[id]?.name, yes = (b, s) => (b ? s : '');
+  const ref = o.reference && S.mediaById[o.reference];
   return [
+    // 🪞 Copy a reference: Claude was never told about the reference before, so it made an ordinary edit
+    ref ? `REFERENCE - make the SAME edit as this video, with this project's own footage: "${ref.name}" (id ${ref.id}, file "${ref.path}"). Never put the reference itself (or any of its shots) on the timeline. First take it apart: node engine/edtool.mjs ref "${ref.path}" and Read the sheet it prints (for a long one also look "${ref.path}" --from/--to). Then rebuild it: the same kinds of shots in the same order, the same shot lengths and cut rhythm (on the song's beats if there is one), the same kinds of transitions and effects, the same text style and position, the same look and frame shape. When done, say in 2-4 lines how close it is and what differs.` : '',
     changes ? `Re-edit the current edit on the timeline (it was made from these settings). What changes:\n${changes}\nKeep what still fits; rebuild what the changes need (e.g. a new song = recut to its beats).` : `Make a ${label} from this project's footage.`,
     `Format ${o.aspect}, ${o.music ? `song/music: "${nm(o.music)}" (id ${o.music})${o.editStyle === 'song' ? ` - cut the whole edit to the song (${o.songPart === 'best' ? `its best ${o.target}s` : 'the full song'})` : ''}${o.musicBest ? ' (its best part)' : ''}` : `length ~${o.target}s`}.`,
     o.vo ? `Voice-over: "${nm(o.vo)}" (id ${o.vo}) - the shots follow what is said.` : '',
-    `Footage: only these ${o.clips.length} files of the project (ids: ${o.clips.slice(0, 400).join(',')}). No stock footage.`,
+    `Footage: only these ${o.clips.length} files of the project (ids: ${o.clips.filter((id) => id !== o.reference).slice(0, 400).join(',')}). No stock footage.`,
     o.styleName && o.styleName !== 'none' ? `Style: cut like "${o.styleName}" (node engine/edtool.mjs styles).` : `Pace: ${o.pace}${o.editStyle ? `, edit style: ${o.editStyle}` : ''}.`,
     `Finish: look ${o.look || 'natural'}${yes(o.autoColor, ', auto colour each shot')}${yes(o.cinematic, ', cinematic finish')}${yes(o.stabilize, ', stabilize shaky shots')}${yes(o.fx, ', teaser effects on the cuts')}${yes(o.sfx, ', sound effects')}; transitions: ${o.style === 'cinematic' ? 'dissolves between ideas' : 'clean cuts'}${o.clipSpeed && o.clipSpeed !== 1 ? `; clip speed ${o.clipSpeed}x` : ''}${yes(o.keepSound, '; keep the clips\' own sound under the music')}.`,
     o.subtitles ? 'Subtitles: yes.' : '', o.outline ? `Story outline:\n${o.outline}` : '', o.scenes?.length ? `Script scenes: ${o.scenes.map((s, i) => `${i + 1}. ${s.vo || s.text || ''}`).join(' / ').slice(0, 1500)}` : '',

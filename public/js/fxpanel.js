@@ -3,20 +3,22 @@
 // it. Applied effects are then adjusted in Effect Controls (the Inspector).
 import { S, on, emit, commit, findClip } from './store.js';
 import { loadLib, libCached, applyFxPreset, deletePreset } from './library.js';
-import { TRANSITIONS } from './model.js';
+import { TRANSITIONS, RAMPS } from './model.js';
 import { CUTFX } from './fx.js';
 import { VFX, VFX_CATS, newEffect } from './effects.js';
 import { FX_PRESETS, FX_DEFAULT } from './audiofx.js';
 import { $, esc, toast } from './ui.js';
 
-const ICON = { transition: '⧓', cutfx: '⚡', vfx: '✦', afx: '🎚', preset: '⭐' };
-let root, query = '', open = new Set(['⭐ My presets', 'Transitions']), trDur = 0.5;
+const ICON = { transition: '⧓', cutfx: '⚡', vfx: '✦', afx: '🎚', preset: '⭐', ramp: '⏩' };
+const RAMP_CAT = '⏩ Speed ramp (presets)';
+let root, query = '', open = new Set(['⭐ My presets', 'Transitions', RAMP_CAT]), trDur = 0.5;
 
 function items() {
   const out = [];
   const mine = libCached()?.presets?.fx || [];
   if (mine.length) out.push(['⭐ My presets', mine.map((p) => ({ kind: 'preset', type: p.id, label: p.name }))]);
   out.push(['Transitions', TRANSITIONS.filter(([k]) => k !== 'cut').map(([k, l]) => ({ kind: 'transition', type: k, label: l }))]);
+  out.push([RAMP_CAT, Object.entries(RAMPS).map(([k, r]) => ({ kind: 'ramp', type: k, label: r.label }))]);
   out.push(['Cut effects (on the cut, keep the beat)', Object.entries(CUTFX).map(([k, x]) => ({ kind: 'cutfx', type: k, label: x.label }))]);
   for (const cat of VFX_CATS) out.push([`Video effects · ${cat}`, Object.entries(VFX).filter(([, x]) => x.cat === cat).map(([k, x]) => ({ kind: 'vfx', type: k, label: x.label, hint: x.v2only ? 'V2 overlays' : '' }))]);
   out.push(['Audio clean-up', Object.entries(FX_PRESETS).filter(([k]) => k !== 'flat').map(([k, x]) => ({ kind: 'afx', type: k, label: x.label }))]);
@@ -41,6 +43,8 @@ export function mountFxPanel(el) {
   el.addEventListener('dragstart', (e) => {
     const it = e.target.closest('[data-fx]'); if (!it) return;
     e.dataTransfer.setData('text/x-fx', it.dataset.fx); e.dataTransfer.effectAllowed = 'copy';
+    // (only the types can be read while dragging: this one tells the timeline to show where a transition would sit)
+    if (JSON.parse(it.dataset.fx).kind === 'transition') e.dataTransfer.setData('text/x-fx-transition', '1');
   });
   on('library', draw);
   loadLib().then(draw).catch(() => {});
@@ -69,6 +73,7 @@ export function applyFx(fx, clipId) {
     c.transitionIn = { type: fx.type, dur: trDur };
     return `${TRANSITIONS.find(([k]) => k === fx.type)?.[1]} on the cut`;
   }
+  if (fx.kind === 'ramp') { if (c.type !== 'video') return null; c.ramp = fx.type; delete c.rampPts; return `⏩ ${RAMPS[fx.type].label}`; }
   if (fx.kind === 'cutfx') { if (!visual || c.type === 'title') return null; c.cutFx = { type: fx.type, dur: CUTFX[fx.type].dur }; return CUTFX[fx.type].label; }
   if (fx.kind === 'vfx') {
     if (!visual) return null;
@@ -99,6 +104,7 @@ function applyToSelection(fx) {
   toast(`✨ ${msgs[msgs.length - 1]}${ids.length > 1 ? ` · ${ids.length} clips` : ''}`);
 }
 
+export const transitionLength = () => trDur;
 // timeline drop: a transition dropped near a clip's start goes on that cut, near its end on the next cut
 export function dropFx(fx, clipId, relX) {
   let id = clipId;

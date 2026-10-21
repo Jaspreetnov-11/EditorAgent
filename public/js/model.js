@@ -27,9 +27,12 @@ export const TRACKS = [
 // trackState[id].name can rename one. trackList() gives the order they are drawn in the timeline (top to bottom).
 export const trackKind = (id) => (String(id)[0] === 'A' ? 'audio' : 'video');
 export const trackNum = (id) => +String(id).slice(1) || 0;
-const DEFAULT_LABEL = { V1: 'Main story', V2: 'Overlays & titles', A1: 'Voice-over', A2: 'Music', A3: 'Sound FX' };
+const DEFAULT_LABEL = { V1: 'Main story', V2: 'Overlays & titles', V3: 'Overlays', A1: 'Voice-over', A2: 'Music', A3: 'Sound FX' };
+// a new project starts with V1-V3 and A1-A2 (like Premiere's default sequence); A3 (sound effects) comes when sound
+// design or another audio track is added. Older projects keep the tracks they have.
+const START_TRACKS = ['V3', 'V2', 'V1', 'A1', 'A2'];
 export function trackList(project) {
-  const ids = new Set(['V2', 'V1', 'A1', 'A2', 'A3', ...Object.keys(project?.tracks || {})]);
+  const ids = new Set(['V2', 'V1', 'A1', 'A2', ...Object.keys(project?.tracks || {})]);
   const v = [...ids].filter((id) => trackKind(id) === 'video').sort((a, b) => trackNum(b) - trackNum(a));
   const a = [...ids].filter((id) => trackKind(id) === 'audio').sort((x, y) => trackNum(x) - trackNum(y));
   return [...v, ...a].map((id) => ({ id, kind: trackKind(id), name: id, label: project?.trackState?.[id]?.name || DEFAULT_LABEL[id] || (trackKind(id) === 'video' ? 'Overlay' : 'Audio') }));
@@ -39,7 +42,7 @@ export const overlayTracks = (project) => trackList(project).filter((t) => t.kin
 export const audioTracks = (project) => trackList(project).filter((t) => t.kind === 'audio').map((t) => t.id);
 export function addTrack(project, kind) {
   const pre = kind === 'audio' ? 'A' : 'V';
-  const n = Math.max(kind === 'audio' ? 3 : 2, ...Object.keys(project.tracks).filter((id) => id[0] === pre).map(trackNum)) + 1;
+  const n = Math.max(2, ...Object.keys(project.tracks).filter((id) => id[0] === pre).map(trackNum)) + 1;
   const id = `${pre}${n}`;
   project.tracks[id] = [];
   project.trackState[id] = { mute: false, hide: false, lock: false, volume: 1 };
@@ -61,8 +64,8 @@ export function newProject(name, { aspect = '16:9', fps = 30 } = {}) {
   return {
     version: 2, name, created: now, modified: now,
     settings: { aspect, fps, loudness: -14, crf: 20, kenburns: true },
-    tracks: { V2: [], V1: [], A1: [], A2: [], A3: [] },
-    trackState: Object.fromEntries(TRACKS.map((t) => [t.id, { mute: false, hide: false, lock: false, volume: 1 }])),
+    tracks: Object.fromEntries(START_TRACKS.map((id) => [id, []])),
+    trackState: Object.fromEntries(START_TRACKS.map((id) => [id, { mute: false, hide: false, lock: false, volume: 1 }])),
     logo: { mediaId: '', pos: 'tr', scale: 0.12, opacity: 0.9 },
     subtitles: { file: '', style: {} },
     markers: [],
