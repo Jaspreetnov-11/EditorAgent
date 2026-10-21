@@ -52,7 +52,8 @@ export function maskTrack(mask, c, m, W, H, mode) {
   const at = (rel) => fitMap(mode, sw, sh, W, H, cropAt(c, 'cropX', rel), cropAt(c, 'cropY', rel));
   const pts = (mask.path || []).map((p) => { const t = (p.t - (c.in || 0)) / sp, f = at(t); return { t, cx: f.ox + (p.x + p.w / 2) * sw * f.s, cy: f.oy + (p.y + p.h / 2) * sh * f.s, w: p.w * sw * f.s, h: p.h * sh * f.s }; });
   if (!pts.length) return null;
-  const pad = 1.18, BW = Math.max(8, Math.round(Math.max(...pts.map((p) => p.w)) * pad / 2) * 2), BH = Math.max(8, Math.round(Math.max(...pts.map((p) => p.h)) * pad / 2) * 2);
+  // (a box drawn by hand is used as drawn; a tracked face gets some room around it)
+  const pad = mask.exact ? 1 : 1.18, BW = Math.max(8, Math.round(Math.max(...pts.map((p) => p.w)) * pad / 2) * 2), BH = Math.max(8, Math.round(Math.max(...pts.map((p) => p.h)) * pad / 2) * 2);
   return { BW, BH, a: pts[0].t, b: pts[pts.length - 1].t, xs: pts.map((p) => ({ t: +p.t.toFixed(3), v: Math.round(p.cx - BW / 2) })), ys: pts.map((p) => ({ t: +p.t.toFixed(3), v: Math.round(p.cy - BH / 2) })) };
 }
 

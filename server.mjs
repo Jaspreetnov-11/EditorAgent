@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import dns from 'node:dns';
 import { Readable } from 'node:stream';
+import zlib from 'node:zlib';
 import { newProject, uid, placed, clipDur, seqOf, seqHash, ASPECTS } from './public/js/model.js';
 import { gfxKey } from './public/js/graphics.js';
 import { ensureLuts, guessLogLut } from './engine/lutgen.mjs';
@@ -133,8 +134,15 @@ const safeName = (n) => String(n).replace(/[\\/:*?"<>|]+/g, '_').replace(/^[.\s]
 const err = (code, msg) => Object.assign(new Error(msg), { code });
 
 function send(res, code, body, type = 'application/json') {
+  const out = type === 'application/json' ? JSON.stringify(body) : body;
+  // big answers (a 1000-file media list is ~1.3 MB) go gzipped when the browser takes it - ~10x smaller over the
+  // internet (editor.limelightcorp.in), where the media list used to take a long while to arrive
+  if (typeof out === 'string' && out.length > 16384 && /\bgzip\b/.test(res.req?.headers['accept-encoding'] || '')) {
+    res.writeHead(code, { 'Content-Type': type, 'Cache-Control': 'no-store', 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding' });
+    return res.end(zlib.gzipSync(out, { level: 4 }));
+  }
   res.writeHead(code, { 'Content-Type': type, 'Cache-Control': 'no-store' });
-  res.end(type === 'application/json' ? JSON.stringify(body) : body);
+  res.end(out);
 }
 const readBody = (req) => new Promise((ok, bad) => {
   const chunks = []; req.on('data', (c) => chunks.push(c)); req.on('end', () => ok(Buffer.concat(chunks).toString('utf8'))); req.on('error', bad);
@@ -345,15 +353,19 @@ function viaMoves(p) {
 // tell everyone who has the project open (their media list refreshes, a short note shows)
 const notice = (name, text) => { const L = live.get(name); if (L) liveSend(L, { type: 'notice', text, media: true }); };
 const autoRelinked = new Map(); // project -> when the background search last ran
-function checkOffline(name, force = false) {
-  if (!force && Date.now() - (offlineChecked.get(name) || 0) < 10000) return;
-  offlineChecked.set(name, Date.now());
+// known: path -> there, already looked up (checkOfflineSoon); without it every file is asked here, one by one
+function checkOffline(name, force = false, known = null) {
+  if (!known) {
+    if (!force && Date.now() - (offlineChecked.get(name) || 0) < 10000) return;
+    offlineChecked.set(name, Date.now());
+  }
   let changed = false, fixed = 0, newlyOff = 0;
   // a drive that is not there (network drive dropped, USB unplugged) is asked once, not once per file - asking a
   // dead network path file by file can hold the editor for seconds
   const drives = new Map(), driveUp = (p) => { const r = path.parse(p).root; if (!drives.has(r)) drives.set(r, fs.existsSync(r)); return drives.get(r); };
   for (const m of mediaDb(name).items) {
-    const there = driveUp(m.path) && fs.existsSync(m.path);
+    if (known && !known.has(m.path)) continue; // (added while the background check ran: next time)
+    const there = known ? known.get(m.path) : driveUp(m.path) && fs.existsSync(m.path);
     if (!there && m.packRel) {
       const f = P(name, m.packRel);
       if (fs.existsSync(f)) { m.path = f; changed = true; continue; }
@@ -376,6 +388,24 @@ function checkOffline(name, force = false) {
     autoRelinked.set(name, Date.now());
     setTimeout(() => autoRelink(name).catch((e) => logCrash('auto relink', e)), 200);
   }
+}
+// The media list is asked for often (every open editor, every few seconds), so its check runs in the background with
+// many files at once and the list goes out right away. It used to ask every file one by one inside the request:
+// 1267 files on network drives held the whole editor - every user's every request - for ~12 s.
+const offlineBusy = new Set();
+function checkOfflineSoon(name) {
+  if (offlineBusy.has(name) || Date.now() - (offlineChecked.get(name) || 0) < 10000) return;
+  offlineChecked.set(name, Date.now()); offlineBusy.add(name);
+  const ok = (p) => fs.promises.access(p).then(() => true, () => false);
+  const paths = [...new Set(mediaDb(name).items.map((m) => m.path).filter(Boolean))], known = new Map(), drives = new Map();
+  (async () => {
+    for (const r of new Set(paths.map((p) => path.parse(p).root))) drives.set(r, await ok(r));
+    let i = 0;
+    await Promise.all(Array.from({ length: 16 }, async () => {
+      while (i < paths.length) { const p = paths[i++]; known.set(p, drives.get(path.parse(p).root) ? await ok(p) : false); }
+    }));
+    if (fs.existsSync(projDir(name))) checkOffline(name, false, known);
+  })().catch((e) => logCrash('offline check', e)).finally(() => offlineBusy.delete(name));
 }
 async function autoRelink(name) {
   if (!fs.existsSync(projDir(name))) return;
@@ -1360,7 +1390,8 @@ const teamCfg = () => config().team || { users: [], libraries: [] };
 const saveTeam = (t) => { const c = config(); c.team = t; fs.writeFileSync(CONFIG, JSON.stringify(c, null, 1)); };
 const hashPw = (pw, salt) => crypto.scryptSync(String(pw), salt, 32).toString('hex');
 const sessions = new Map(); // token -> { name, role, at }
-const OWNER_ONLY = [/^\/api\/(shutdown|settings|share|team|farm|projects\/(delete|restore|deleted|purge|empty-bin)|publish|health\/recheck|open-folder|open-sfx|open-stock|claude)/, /^\/api\/library\/(brand|template\/delete)/];
+// (🧠 Claude is open to editors too - Assistant, Copy a reference - with its reading kept to the projects, see claudeRun)
+const OWNER_ONLY = [/^\/api\/(shutdown|settings|share|team|farm|projects\/(delete|restore|deleted|purge|empty-bin)|publish|health\/recheck|open-folder|open-sfx|open-stock)/, /^\/api\/library\/(brand|template\/delete)/];
 function allowed(who, method, p) {
   if (who.role === 'owner') return true;
   if (/^\/api\/(me|lock|unlock)$/.test(p)) return true;
@@ -1620,7 +1651,7 @@ function limitHit(why) {
   mainLimitedUntil = t > Date.now() ? t : Date.now() + 3600e3;
   return true;
 }
-function claudeChat(name, message, reset) {
+function claudeChat(name, message, reset, who = null) {
   const exe = claudeExe();
   if (!exe) throw err(400, 'Claude Code is not installed on this computer');
   const sfile = P(name, 'cache', 'claude', 'session.json');
@@ -1632,6 +1663,9 @@ function claudeChat(name, message, reset) {
     const backup = CLAUDE_BACKUP(), main = CLAUDE_MAIN();
     let model = Date.now() < mainLimitedUntil ? backup : main;
     if (model !== main) ev({ k: 'wait', text: `Opus limit is used up for now - working with ${backup}…` });
+    // an editor's Claude reads only the projects and the editor's own engine (the owner's reads anything on this
+    // computer); Glob / Grep would let it look around the rest of the drives, so they are the owner's only
+    job.tools = who && who.role !== 'owner' ? ['Read(Projects/**)', 'Read(engine/**)', ...CLAUDE_TOOLS.filter((t) => !/^(Read|Glob|Grep)$/.test(t))] : CLAUDE_TOOLS;
     try { return await claudeRun(exe, name, sfile, String(message), model, job, ev); }
     catch (e) {
       // the main model's limit ran out (now or partway): the same conversation goes on with the backup model
@@ -1645,7 +1679,7 @@ function claudeChat(name, message, reset) {
 function claudeRun(exe, name, sfile, message, model, job, ev) {
   const sid = readJSON(sfile, {}).id || null;
   const args = ['-p', message, '--output-format', 'stream-json', '--verbose', '--append-system-prompt-file', path.join(ROOT, 'engine', 'claude-guide.md'),
-    '--allowedTools', CLAUDE_TOOLS.join(','), '--permission-mode', 'default', ...(sid ? ['--resume', sid] : []), '--model', model];
+    '--allowedTools', (job.tools || CLAUDE_TOOLS).join(','), '--permission-mode', 'default', ...(sid ? ['--resume', sid] : []), '--model', model];
   return new Promise((ok, bad) => {
     const p = spawn(exe, args, { cwd: ROOT, windowsHide: true, env: { ...process.env, VEDIT_PROJECT: name, VEDIT_PORT: String(PORT), VEDIT_NO_SNAP: '1', PYTHONIOENCODING: 'utf-8' } });
     job.proc = p;
@@ -1989,7 +2023,7 @@ const routes = {
   'GET /api/media': (req, res, u) => {
     const name = needProject(q(u, 'p'));
     if (activeProject !== name) { activeProject = name; pump(); }
-    checkOffline(name); // 🗂 files gone since they were read (moved, drive unplugged) show as offline
+    checkOfflineSoon(name); // 🗂 files gone since they were read (moved, drive unplugged) show as offline (next list)
     const items = mediaDb(name).items;
     // counts for this project only (other projects keep processing in the background)
     return { items: items.map((m) => publicMedia(name, m)), queue: {
@@ -2910,7 +2944,7 @@ const routes = {
     const name = needProject(q(u, 'p')), b = await readJson(req);
     if (!String(b.message || '').trim()) throw err(400, 'Type a message');
     if ([...jobs.values()].some((j) => j.kind === 'claude' && j.status === 'running' && j.project === name)) throw err(409, 'Claude is still working on the last message - wait or press Stop');
-    const job = claudeChat(name, b.message, !!b.reset);
+    const job = claudeChat(name, b.message, !!b.reset, req.who);
     return { id: job.id };
   },
   'GET /api/claude/events': (req, res, u) => {

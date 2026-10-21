@@ -467,9 +467,19 @@ function drawMasks(x, t) {
   const ts = srcTimeAt(c, t - x.start), boxes = c.masks.map((mk) => ({ mk, b: boxAt(mk.path, ts) })).filter((q) => q.b);
   el.hidden = !boxes.length;
   el.style.transform = look(c, t - x.start).transform;
-  el.innerHTML = boxes.map(({ mk, b }) => { const pad = 0.09;
+  el.innerHTML = boxes.map(({ mk, b }) => { const pad = mk.exact ? 0 : 0.09;
     const l = ((f.ox + (b.x - b.w * pad) * sw * f.s) / W) * 100, tp = ((f.oy + (b.y - b.h * pad) * sh * f.s) / H) * 100, w = ((b.w * (1 + 2 * pad) * sw * f.s) / W) * 100, h = ((b.h * (1 + 2 * pad) * sh * f.s) / H) * 100;
-    return `<i style="left:${l}%;top:${tp}%;width:${w}%;height:${h}%;backdrop-filter:blur(${mk.type === 'pixelate' ? 9 : 4 + 8 * (mk.amount ?? 0.6)}px)"></i>`; }).join('');
+    // (▭ Remove is filled in from the picture around it by the render; the viewer shows it as a strong blur)
+    const look = mk.type === 'black' ? 'background:#000' : `backdrop-filter:blur(${mk.type === 'remove' ? 18 : mk.type === 'pixelate' ? 9 : 4 + 8 * (mk.amount ?? 0.6)}px)`;
+    return `<i style="left:${l}%;top:${tp}%;width:${w}%;height:${h}%;${look}"></i>`; }).join('');
+}
+// A box drawn on the viewer (fractions of the frame) in clip c's own picture (fractions of the source), which is how
+// masks are kept - so the box stays on the logo when the shot is reframed. start: where c starts on the timeline.
+export function frameBoxToSource(c, start, b) {
+  const m = S.mediaById[c.mediaId], [W, H] = ASPECTS[S.project.settings.aspect] || [1920, 1080], rel = S.playhead - start, [sw, sh] = srcSize(m);
+  const f = fitMap(framingOf(c, S.project.settings, W, H), sw, sh, W, H, propAt(c, 'cropX', rel), propAt(c, 'cropY', rel));
+  const r = (v) => +v.toFixed(4);
+  return { x: r((b.x * W - f.ox) / (sw * f.s)), y: r((b.y * H - f.oy) / (sh * f.s)), w: r((b.w * W) / (sw * f.s)), h: r((b.h * H) / (sh * f.s)) };
 }
 // Draw a box on the viewer (motion tracking): resolves { x, y, w, h } as fractions of the frame, or null (Esc)
 export function pickBox(hint = 'Drag a box around the thing to follow (Esc cancels)') {

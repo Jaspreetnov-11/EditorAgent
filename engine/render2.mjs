@@ -257,11 +257,20 @@ function maskGraph(c, inL, g, mode) {
     const tr = maskTrack(mk, c, media[c.mediaId], W, H, mode);
     if (!tr || tr.BW >= W || tr.BH >= H) return;
     const p = `mk${segN}_${i}`, X = `clip(${keysExpr(tr.xs, 't')},0,${W - tr.BW})`, Y = `clip(${keysExpr(tr.ys, 't')},0,${H - tr.BH})`, amt = mk.amount ?? 0.6;
+    const on = `enable='between(t,${Math.max(0, tr.a).toFixed(3)},${tr.b.toFixed(3)})'`;
+    // ▭ a box drawn over a logo / text: Remove = filled in from the picture around it (delogo; the box must stay a
+    // pixel inside the frame), Black = a solid box. Both stay put (a drawn box does not move).
+    if (mk.type === 'remove' || mk.type === 'black') {
+      const x = Math.max(1, Math.min(W - 3, tr.xs[0].v)), y = Math.max(1, Math.min(H - 3, tr.ys[0].v));
+      const w = Math.max(2, Math.min(W - 1 - x, tr.BW)), h = Math.max(2, Math.min(H - 1 - y, tr.BH));
+      g.push(`[${cur}]${mk.type === 'remove' ? `delogo=x=${x}:y=${y}:w=${w}:h=${h}` : `drawbox=x=${x}:y=${y}:w=${w}:h=${h}:color=black:t=fill`}:${on}[${p}]`);
+      cur = p; return;
+    }
     const fx = mk.type === 'pixelate'
       ? `scale=${Math.max(2, Math.round(tr.BW / (4 + 18 * amt)))}:${Math.max(2, Math.round(tr.BH / (4 + 18 * amt)))},scale=${tr.BW}:${tr.BH}:flags=neighbor`
       : `boxblur=${Math.max(2, Math.round(Math.min(tr.BW, tr.BH) * (0.08 + 0.12 * amt)))}:3`;
     g.push(`[${cur}]split[${p}a][${p}b]`, `[${p}b]crop=${tr.BW}:${tr.BH}:'${X}':'${Y}',${fx}[${p}c]`,
-      `[${p}a][${p}c]overlay=x='${X}':y='${Y}':enable='between(t,${Math.max(0, tr.a).toFixed(3)},${tr.b.toFixed(3)})'[${p}]`);
+      `[${p}a][${p}c]overlay=x='${X}':y='${Y}':${on}[${p}]`);
     cur = p;
   });
   return cur;
