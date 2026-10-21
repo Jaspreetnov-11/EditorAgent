@@ -202,6 +202,50 @@ export function layoutV1(project, media) {
   });
 }
 
+// ⧓ Puts / changes / takes off the transition into V1 clip i - like Premiere: the cut stays where it is and nothing on
+// the timeline moves or gets shorter. The two shots lend frames from beyond their ends ("handles") for it, half after
+// the cut from the shot before and half before the cut from the shot after (one side short: the other gives more).
+// It used to slide the second shot back over the first, so every transition made the whole story shorter.
+// transitionIn.hA / hB: the seconds each side lent (given back when the transition changes or goes).
+const lendable = (c, side, want, media) => {
+  if (!c) return 0;
+  if (c.type !== 'video') return want; // a photo / title / graphic is simply made longer
+  if (rampPts(c)) return 0;
+  const m = media?.[c.mediaId], sp = c.speed || 1;
+  const room = side === 'tail' ? ((m?.duration ?? c.out ?? 0) - (c.out ?? m?.duration ?? 0)) / sp : (c.in || 0) / sp;
+  return Math.max(0, Math.min(want, room - 0.01));
+};
+function lend(c, sec, side, media) {
+  if (!c || !sec) return;
+  if (c.type !== 'video') { c.dur = +Math.max(0.2, clipDur(c, media) + sec).toFixed(3); return; }
+  const m = media?.[c.mediaId], sp = c.speed || 1;
+  if (side === 'tail') c.out = +((c.out ?? m?.duration ?? 0) + sec * sp).toFixed(3);
+  else c.in = +Math.max(0, (c.in || 0) - sec * sp).toFixed(3);
+}
+// how much of an existing transition each side lent (an older one does not say: nothing is taken back from it, so a
+// change never cuts into a shot - at worst the cut ends up a little later)
+export const trHandles = (tr) => ({ hA: tr?.hA ?? 0, hB: tr?.hB ?? 0 });
+// sides: { hA, hB } to set each side on its own (dragging one end of the box in the timeline); dur is then ignored
+export function setTransition(project, media, i, type, dur, sides = null) {
+  const V1 = project.tracks.V1, A = V1[i - 1], B = V1[i];
+  if (!B) return null;
+  const old = transIn(B);
+  if (old && A) { const h = trHandles(old); lend(A, -h.hA, 'tail', media); lend(B, -h.hB, 'head', media); }
+  if (sides) dur = (sides.hA || 0) + (sides.hB || 0);
+  if (!A || !type || type === 'cut' || !(dur > 0)) { delete B.transitionIn; return null; }
+  let hA, hB;
+  if (sides) { hA = lendable(A, 'tail', Math.max(0, sides.hA || 0), media); hB = lendable(B, 'head', Math.max(0, sides.hB || 0), media); }
+  else {
+    hA = lendable(A, 'tail', dur / 2, media); hB = lendable(B, 'head', dur / 2, media);
+    if (hA < dur / 2) hB = lendable(B, 'head', dur - hA, media);
+    if (hB < dur / 2) hA = lendable(A, 'tail', dur - hB, media);
+  }
+  if (hA + hB < 0.05) { delete B.transitionIn; return null; } // (neither shot has frames to spare)
+  lend(A, hA, 'tail', media); lend(B, hB, 'head', media);
+  B.transitionIn = { type, dur: +(hA + hB).toFixed(3), hA: +hA.toFixed(3), hB: +hB.toFixed(3) };
+  return B.transitionIn;
+}
+
 export function placed(project, media) {
   const out = { V1: layoutV1(project, media) };
   for (const id of Object.keys(project.tracks)) if (id !== 'V1')

@@ -780,7 +780,7 @@ function keepCutsInPlace(V1, media) {
       const m = media[p.mediaId], sp = (p.speed || 1) * (rampPts(p) ? rampAvg(rampPts(p)) : 1), room = ((m?.duration ?? p.out) - p.out) / sp;
       const d = Math.min(t.dur, Math.max(0, room - 0.02));
       if (d < 0.08) { delete V1[i].transitionIn; continue; }
-      t.dur = r3(d); p.out = r3(p.out + d * sp);
-    } else p.dur = r3((p.dur || 3) + t.dur);
+      t.dur = r3(d); p.out = r3(p.out + d * sp); t.hA = t.dur; t.hB = 0; // (what the shot before lent - model.js setTransition)
+    } else { p.dur = r3((p.dur || 3) + t.dur); t.hA = t.dur; t.hB = 0; }
   }
 }

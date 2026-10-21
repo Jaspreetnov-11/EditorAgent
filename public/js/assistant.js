@@ -3,7 +3,7 @@
 // against the commands below. All changes from one message are a single undo step ("undo" / Ctrl+Z).
 import { S, on, emit, commit, undo, redo, duration, layout } from './store.js';
 import { api, enc, watchJob, upload } from './api.js';
-import { uid, RAMPS, setRamp } from './model.js';
+import { uid, RAMPS, setRamp, setTransition } from './model.js';
 import { FX_PRESETS } from './audiofx.js';
 import { $, $$, h, esc, toast } from './ui.js';
 import { openReedit, currentEditOpts } from './reedit.js';
@@ -506,11 +506,11 @@ async function run(text) {
       const V1 = P.tracks.V1;
       if (/(fade ?in|shuru mein fade)/.test(p)) { if (V1[0]) V1[0].fadeIn = 0.8; done.push('Fade-in at the start'); continue; }
       if (/(fade ?out|end mein fade|aakhir mein fade)/.test(p)) { if (V1.length) V1[V1.length - 1].fadeOut = 1.2; done.push('Fade-out at the end'); continue; }
-      if (R.remove.test(p)) { V1.forEach((c) => delete c.transitionIn); done.push('Removed all transitions (straight cuts)'); continue; }
+      if (R.remove.test(p)) { V1.forEach((c, i) => setTransition(P, S.mediaById, i, null)); done.push('Removed all transitions (straight cuts)'); continue; }
       const type = /(white|safed)/.test(p) ? 'fadewhite' : /(black|dip|kaala)/.test(p) ? 'fadeblack' : /wipe/.test(p) ? 'wipeleft' : /slide/.test(p) ? 'slideleft' : /zoom/.test(p) ? 'zoomin' : 'fade';
       const dur = /(lamba|slow|dheem)/.test(p) ? 0.9 : /(chhota|quick|fast|tez)/.test(p) ? 0.3 : 0.5;
       const t2 = shots(p), list = Array.isArray(t2) ? t2 : V1.slice(1);
-      list.forEach((c) => { if (V1.indexOf(c) > 0) c.transitionIn = { type, dur }; });
+      list.forEach((c) => { const i = V1.indexOf(c); if (i > 0) setTransition(P, S.mediaById, i, type, dur); }); // (cuts stay put)
       done.push(`${{ fade: 'Cross dissolve', fadeblack: 'Dip to black', fadewhite: 'Dip to white', wipeleft: 'Wipe', slideleft: 'Slide', zoomin: 'Zoom' }[type]} ${Array.isArray(t2) ? `on shot ${t2.map((c) => V1.indexOf(c) + 1).join(', ')}` : 'on all cuts'} (${dur}s)`);
       continue;
     }

@@ -2590,6 +2590,35 @@ const routes = {
       return { mediaId: it?.id, file: path.basename(out), dur: +(t1 - t0).toFixed(3) };
     }, { project: name });
   },
+  // ✨ AI Enhance (like Topaz): Real-ESRGAN (engine/enhance.py, GPU) cleans noise / compression, brings back detail and
+  // can upscale the clip's piece [in, out]; a new file of the project (bin "AI enhance") takes the piece's place.
+  // Body { mediaId, in, out, model: 'fast' | 'detail', denoise: 0..1, height: 0 (same) | 1080 | 2160 }
+  'POST /api/enhance': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req), m = mediaItem(name, b.mediaId);
+    if (!m || m.kind !== 'video') throw err(400, 'This needs a video clip');
+    if (!fs.existsSync(path.join(ROOT, 'tools', 'models', 'realesr-general-x4v3.pth'))) throw err(400, 'The AI enhance models are not installed (tools/models)');
+    const t0 = Math.max(0, +(+b.in || 0).toFixed(3)), t1 = Math.min(m.duration || 1e9, +(+b.out || m.duration || 0).toFixed(3));
+    if (!(t1 - t0 > 0.05)) throw err(400, 'The clip is too short');
+    if (t1 - t0 > 300) throw err(400, 'Enhance at most 5 minutes at a time - split the clip first');
+    const [W, H] = Math.abs(m.rotation || 0) === 90 ? [m.height, m.width] : [m.width, m.height];
+    const th = [1080, 2160].includes(+b.height) ? +b.height : H, k = th / Math.min(W, H); // (the short side becomes the height asked)
+    const ow = Math.round((W * k) / 2) * 2, oh = Math.round((H * k) / 2) * 2, model = b.model === 'detail' ? 'detail' : 'fast';
+    const dir = P(name, 'imports'), base = `${path.parse(m.name).name} (AI enhance ${t0.toFixed(1)}-${t1.toFixed(1)})`;
+    fs.mkdirSync(dir, { recursive: true });
+    let out = path.join(dir, `${base}.mp4`);
+    for (let i = 2; fs.existsSync(out); i++) out = path.join(dir, `${base} ${i}.mp4`);
+    return startTask('inpaint', async (job) => { // (one GPU job at a time, like AI fill)
+      job.stage = 'Enhancing (AI)…';
+      const r = await run(PYTHON, [path.join(ROOT, 'engine', 'enhance.py'), m.path, String(t0), String(t1), `${out}.part.mp4`, String(W), String(H), String(m.fps || 25), String(ow), String(oh),
+        '--model', model, '--denoise', String(Math.max(0, Math.min(1, b.denoise ?? 0.5)))], {
+        onLine: (l) => { const x = /\[(\d+)\/(\d+)\]/.exec(l); if (x) job.progress = Math.min(99, Math.round((+x[1] / +x[2]) * 100)); } });
+      if (r.code !== 0 || !fs.existsSync(`${out}.part.mp4`)) { fs.rmSync(`${out}.part.mp4`, { force: true }); throw new Error(`AI enhance failed: ${r.stderr.trim().split(/\r?\n/).pop()}`); }
+      fs.renameSync(`${out}.part.mp4`, out);
+      const it = addMediaFile(name, out, { bin: 'AI enhance', imported: true });
+      saveMedia(name);
+      return { mediaId: it?.id, file: path.basename(out), dur: +(t1 - t0).toFixed(3) };
+    }, { project: name });
+  },
   'GET /api/matte/file': (req, res, u) => serveFile(req, res, P(needProject(q(u, 'p')), 'cache', 'mattes', path.basename(q(u, 'f') || '')), true),
   // 🧠 Smart scan: every video / photo gets shot tags (wide, close-up, drone, people…), and the scan finds near-identical
   // clips and clips worth a second look. Body { ids? } (default: all). Results go into media.json (m.tags, m.shot,

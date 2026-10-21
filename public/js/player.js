@@ -390,11 +390,17 @@ function syncVideo(v, m, c, start, t, play, vol, track = 'V1') {
   // speed ramps: the source position and playback rate follow the ramp curve (tighter resync while ramping)
   const D = clipDur(c, S.mediaById), sp = speedAt(c, t - start, D), target = sourceAt(c, t - start, D);
   // (browsers play 1/16x - 16x; it used to stop at 0.25x - 4x, so bullet time / time-lapse looked wrong and kept jumping)
-  v.playbackRate = clamp(sp, 0.07, 8);
-  const tol = rampPts(c) ? 0.12 : 0.3;
+  // Playing, a small drift is caught up by playing a little faster / slower for a moment - a jump (seek) makes the
+  // browser find a frame again and stutters; slow motion and ramps used to jump many times a second (DaVinci doesn't).
+  // Only a real gap (over half a second, or the shot just came on) is a jump.
+  const drift = target - v.currentTime;
   setVol(v, rampPts(c) ? 0 : vol, track); // ramped shots are silent, like the render
   if (v.readyState >= 1) {
-    if (play) { if (Math.abs(v.currentTime - target) > tol) v.currentTime = target; if (v.paused) v.play().catch(() => {}); }
+    if (play) {
+      if (Math.abs(drift) > 0.5 || v.paused) { v.currentTime = target; v.playbackRate = clamp(sp, 0.07, 8); }
+      else v.playbackRate = clamp(sp * (1 + clamp(drift * 2, -0.35, 0.35)), 0.07, 8);
+      if (v.paused) v.play().catch(() => {});
+    }
     else { if (!v.paused) v.pause(); if (Math.abs(v.currentTime - target) > 0.03) v.currentTime = target; }
   } else v.addEventListener('loadedmetadata', () => { v.currentTime = target; if (play && playing) v.play().catch(() => {}); }, { once: true });
 }

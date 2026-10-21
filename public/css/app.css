@@ -191,7 +191,12 @@ video.lyr, img.lyr { object-fit: contain; transform-origin: center; }
 .clip-lbl .bd { display: flex; gap: 2px; margin-left: auto; }
 .clip-lbl .bd i { font-style: normal; font-size: 9px; font-weight: 700; background: #000a; border-radius: 3px; padding: 0 3px; color: var(--accent-2); }
 .clip-dur { position: absolute; right: 5px; bottom: 2px; font-size: 10px; color: #fffc; text-shadow: 0 1px 2px #000; }
-.trim { position: absolute; top: 0; bottom: 0; width: 9px; cursor: col-resize; z-index: 1; }
+.trim { position: absolute; top: 0; bottom: 0; width: 10px; cursor: col-resize; z-index: 1; }
+/* Premiere's trim cursors: a red bracket - [ on a clip's start, ] on its end */
+.trim.l { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Cpath d='M9 3H6v18h3' fill='none' stroke='%23000' stroke-width='4'/%3E%3Cpath d='M9 3H6v18h3' fill='none' stroke='%23ff3030' stroke-width='2'/%3E%3Cpath d='M20 12h-9m3-3-3 3 3 3' fill='none' stroke='%23000' stroke-width='3.5'/%3E%3Cpath d='M20 12h-9m3-3-3 3 3 3' fill='none' stroke='%23ff3030' stroke-width='1.6'/%3E%3C/svg%3E") 6 12, w-resize; }
+.trim.r { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Cpath d='M15 3h3v18h-3' fill='none' stroke='%23000' stroke-width='4'/%3E%3Cpath d='M15 3h3v18h-3' fill='none' stroke='%23ff3030' stroke-width='2'/%3E%3Cpath d='M4 12h9m-3-3 3 3-3 3' fill='none' stroke='%23000' stroke-width='3.5'/%3E%3Cpath d='M4 12h9m-3-3 3 3-3 3' fill='none' stroke='%23ff3030' stroke-width='1.6'/%3E%3C/svg%3E") 18 12, e-resize; }
+.tr-box .tr-h.l { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Cpath d='M9 3H6v18h3' fill='none' stroke='%23000' stroke-width='4'/%3E%3Cpath d='M9 3H6v18h3' fill='none' stroke='%23ff3030' stroke-width='2'/%3E%3C/svg%3E") 6 12, ew-resize; }
+.tr-box .tr-h.r { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Cpath d='M15 3h3v18h-3' fill='none' stroke='%23000' stroke-width='4'/%3E%3Cpath d='M15 3h3v18h-3' fill='none' stroke='%23ff3030' stroke-width='2'/%3E%3C/svg%3E") 18 12, ew-resize; }
 .clip:hover .trim { background: #ff99333d; }
 .trim.l { border-left: 3px solid transparent; } .trim.r { border-right: 3px solid transparent; }
 .clip:hover .trim.l, .clip.sel .trim.l { border-left-color: var(--accent); } .clip:hover .trim.r, .clip.sel .trim.r { border-right-color: var(--accent); }
@@ -199,10 +204,14 @@ video.lyr, img.lyr { object-fit: contain; transform-origin: center; }
 .trim:hover, .clip.sel .trim { background: #ff99337a; }
 .tr-zone { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(90deg, #ffffff40, #ffffff00); pointer-events: none; }
 /* ⧓ a transition on the cut, like Premiere: a box with a bow-tie (one shot fading out, the next fading in) */
-.tr-box { position: absolute; left: 0; top: 18%; bottom: 18%; z-index: 4; padding: 0; border: 1.5px solid #b9d7f0; border-radius: 3px; cursor: pointer; overflow: hidden;
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'%3E%3Cpath d='M0 0L50 50L0 100Z' fill='%238ec5ee' fill-opacity='.55'/%3E%3Cpath d='M100 0L50 50L100 100Z' fill='%238ec5ee' fill-opacity='.3'/%3E%3C/svg%3E") center / 100% 100% no-repeat, #0f2a3dd9; box-shadow: 0 1px 6px #0008; }
-.tr-box span { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; color: #e8f3fc; text-shadow: 0 1px 2px #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 4px; pointer-events: none; }
-.tr-box:hover { border-color: var(--accent); }
+/* (like Premiere: under the clips' name bars, a flat box with thin white lines corner to corner; its ends drag) */
+.tr-box { position: absolute; left: 0; top: 17px; bottom: 2px; z-index: 4; padding: 0; border: 1px solid #e8eef2; border-radius: 0; cursor: pointer; overflow: hidden;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'%3E%3Cpath d='M0 100L100 0M0 0L100 100' stroke='%23ffffff' stroke-opacity='.75' stroke-width='1.2' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center / 100% 100% no-repeat, #0c2533cc; }
+.tr-box .tr-h { position: absolute; top: 0; bottom: 0; width: 7px; z-index: 1; cursor: ew-resize; }
+.tr-box .tr-h.l { left: -1px; } .tr-box .tr-h.r { right: -1px; }
+.tr-box .tr-h:hover, .tr-box.drag .tr-h { background: #ff3b3b99; }
+.tr-box span { position: absolute; left: 0; right: 0; bottom: 1px; text-align: center; font-size: 9.5px; color: #e8f3fc; text-shadow: 0 1px 2px #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 6px; pointer-events: none; }
+.tr-box:hover { border-color: #fff; background-color: #123447dd; }
 .clip-lbl .fxb { font-style: italic; font-family: Georgia, serif; font-weight: 700; color: #ffd35a; background: none; }
 .tr-btn { position: absolute; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; padding: 0; border-radius: 50%; font-size: 11px; z-index: 3; background: #000c; border-color: #ffffff44; opacity: 0; }
 .clip:hover .tr-btn, .tr-btn.has { opacity: 1; }
@@ -559,6 +568,19 @@ select.kfe { font-size: 10px; padding: 0 2px; height: 18px; width: auto; max-wid
 .kl-k { position: absolute; top: 3px; width: 9px; height: 9px; margin-left: -4.5px; background: var(--accent); transform: rotate(45deg); cursor: ew-resize; border-radius: 1px; }
 .kl-k.ease { border-radius: 50%; transform: none; }
 .kl-ph { position: absolute; top: -2px; bottom: -2px; width: 1px; background: #ff4d4d; pointer-events: none; }
+/* 🎬 Motion, like Premiere's Effect Controls: ⏱ | name | blue value | ◂◆▸ | the property's keyframes on the clip */
+.pm { display: grid; gap: 1px; margin-bottom: 6px; }
+.pm-row { display: grid; grid-template-columns: 18px minmax(64px, 84px) 58px 44px minmax(40px, 1fr); align-items: center; gap: 4px; height: 22px; font-size: 11.5px; }
+.pm-sw { padding: 0; width: 18px; height: 18px; background: none; border: 0; color: #6f6a62; font-size: 11px; cursor: pointer; }
+.pm-sw.on { color: #5aa7ff; }
+.pm-n { color: #c9c3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pm-v { color: #5aa7ff; cursor: ew-resize; font-variant-numeric: tabular-nums; user-select: none; white-space: nowrap; }
+.pm-v:hover { text-decoration: underline; text-underline-offset: 2px; }
+.pm-in { width: 56px; padding: 1px 3px; font-size: 11.5px; }
+.pm-k { display: flex; gap: 0; } .pm-k button { padding: 0 2px; background: none; border: 0; font-size: 10px; color: #8a847a; }
+.pm-k .kfd.has { color: #c9a26b; } .pm-k .kfd.on { color: var(--accent); text-shadow: 0 0 6px var(--accent); }
+.pm-row .kl-track { height: 14px; border-radius: 2px; background: #121110; }
+.pm-row .kl-k { top: 2px; width: 8px; height: 8px; margin-left: -4px; }
 .fgrid > .efx-list, .fgrid > .row-in, .fgrid > .kl, .fgrid > .hint { grid-column: 1 / -1; }
 .efx .fgrid { margin-top: 4px; }
 .efx-h b { font-size: 12px; }

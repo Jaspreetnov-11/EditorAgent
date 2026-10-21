@@ -8,7 +8,7 @@ import { fusionFromClip, rotoFromClip } from './fusionpage.js';
 import { seqList } from './model.js';
 import { sharedSeqId } from './store.js';
 import { copyClips, pasteClips, clipboard } from './clipboard.js';
-import { clipDur, uid, fmtTC, fmt, trackList, trackKind, addTrack, syncLinked, linkAudioOf, linkedPartner, freeAudioTrack, RAMPS, setRamp, TRANSITIONS } from './model.js';
+import { clipDur, uid, fmtTC, fmt, trackList, trackKind, addTrack, syncLinked, linkAudioOf, linkedPartner, freeAudioTrack, RAMPS, setRamp, TRANSITIONS, setTransition, trHandles } from './model.js';
 import { $, $$, h, esc, clamp, toast } from './ui.js';
 import { openTemplates } from './titlesui.js';
 import { openGraphics } from './gfxui.js';
@@ -343,12 +343,17 @@ function decoratePeers() {
 
 function clipHTML(track, x, i) {
   if (x.clip.gap) return `<div class="clip t-gap${S.sel.has(x.clip.id) ? ' sel' : ''}" data-id="${x.clip.id}" data-track="${track}" style="left:${x.start * S.zoom}px;width:${Math.max(2, (x.end - x.start) * S.zoom)}px" title="Gap ${fmt(x.end - x.start)} - select it and press Delete (or right-click > Close gap) to close it"><div class="trim l" data-trim="l"></div><div class="trim r" data-trim="r"></div></div>`;
-  const c = x.clip, m = S.mediaById[c.mediaId], w = Math.max(2, (x.end - x.start) * S.zoom);
+  const c = x.clip, m = S.mediaById[c.mediaId];
+  // V1 shots are drawn cut to cut (like Premiere): the frames lent to a transition beyond a cut sit under its box,
+  // not inside the shot's rectangle. vs / ve: where the rectangle starts / ends on the timeline (sec).
+  let vs = x.start, ve = x.end;
+  if (track === 'V1') { const L1 = layout().V1, nx = L1[i + 1]; vs = cutOf(x); if (nx?.overlap) ve = cutOf(nx); }
+  const w = Math.max(2, (ve - vs) * S.zoom);
   const missing = c.type !== 'title' && c.type !== 'adjust' && c.type !== 'graphic' && !m;
   let bg = '';
   if (c.type === 'video' && m?.urls?.strip && track !== 'A1' && track !== 'A2' && track !== 'A3') {
     const sp = c.speed || 1, full = (m.duration / sp) * S.zoom;
-    bg = `background-image:url('${m.urls.strip}');background-size:${full}px 100%;background-position:${-((c.in || 0) / sp) * S.zoom}px 0`;
+    bg = `background-image:url('${m.urls.strip}');background-size:${full}px 100%;background-position:${-((c.in || 0) / sp + (vs - x.start)) * S.zoom}px 0`;
   } else if (c.type === 'image' && m?.urls?.thumb) bg = `background-image:url('${m.urls.thumb}');background-size:auto 100%;background-repeat:repeat-x`;
   else if (KIND[track] === 'audio' && m?.urls?.wave) {
     const sp = c.speed || 1, seg = ((c.loop ? (c.out ?? m.duration) - (c.in || 0) : m.duration) / sp) * S.zoom;
@@ -369,10 +374,10 @@ function clipHTML(track, x, i) {
   const kt = [...new Set(Object.values(c.keys || {}).flat().map((k) => +k.t.toFixed(3)))];
   const kfs = kt.length ? `<div class="kfs">${kt.map((t) => `<i style="left:${t * S.zoom}px"></i>`).join('')}</div>` : '';
   return `<div class="clip t-${c.type}${kind}${S.sel.has(c.id) ? ' sel' : ''}${missing ? ' missing' : ''}${c.disabled ? ' off' : ''}" data-id="${c.id}" data-track="${track}"
-    style="left:${x.start * S.zoom}px;width:${w}px" title="${esc(mName(c))} · ${fmt(x.end - x.start)}">
+    style="left:${vs * S.zoom}px;width:${w}px" title="${esc(mName(c))} · ${fmt(ve - vs)}${c.color && Object.keys(c.color).length ? ' · colour graded' : ''}${c.speed && c.speed !== 1 ? ` · ${c.speed}×` : ''}${c.ramp ? ' · speed ramp' : ''}${c.mute ? ' · muted' : ''}">
     <div class="clip-bg" style="${bg}"></div>${ov}${kfs}
     <div class="clip-lbl"><span class="nm">${missing ? '⚠ ' : ''}${esc(mName(c))}</span><span class="bd">${badges}</span></div>
-    <div class="clip-dur">${fmt(x.end - x.start)}</div>
+    <div class="clip-dur">${fmt(ve - vs)}</div>
     <div class="trim l" data-trim="l"></div><div class="trim r" data-trim="r"></div>${trans}
   </div>`;
 }
@@ -381,8 +386,17 @@ function clipHTML(track, x, i) {
 // with its name and the bow-tie of one shot fading into the next; click it to change or remove it. (It is drawn on the
 // row, not inside a clip - inside the incoming clip it could only sit at that clip's start.)
 function transHTML(x) {
+  // the box is where the two shots mix: from the incoming shot's (lent) start, as long as the transition - the cut
+  // between the rectangles is inside it (in the middle when both shots lent the same)
   const c = x.clip, w = Math.max(10, x.overlap * S.zoom), name = TRANSITIONS.find(([k]) => k === c.transitionIn?.type)?.[1] || c.transitionIn?.type || 'Transition';
-  return `<button class="tr-box" data-trans="${c.id}" title="${esc(name)} ${x.overlap.toFixed(2)} s - click to change or remove" style="left:${x.start * S.zoom - w / 2}px;width:${w}px"><span>${w > 60 ? esc(name) : ''}</span></button>`;
+  return `<button class="tr-box" data-trans="${c.id}" title="${esc(name)} ${x.overlap.toFixed(2)} s - click to change it, drag an end to make it longer / shorter" style="left:${x.start * S.zoom}px;width:${w}px"><i class="tr-h l" data-trdur="${c.id}"></i><span>${w > 60 ? esc(name) : ''}</span><i class="tr-h r" data-trdur="${c.id}"></i></button>`;
+}
+// where the cut into V1 shot x is drawn: after what the shot before lent ("handles", model.js setTransition); an older
+// transition that does not say is drawn with its middle on the cut
+function cutOf(x) {
+  if (!x.overlap) return x.start;
+  const h = x.clip.transitionIn?.hA !== undefined ? trHandles(x.clip.transitionIn) : { hB: x.overlap / 2 };
+  return x.start + Math.min(x.overlap, h.hB);
 }
 function drawRuler() {
   if (!ruler || !scroller || !S.project) return; // (no project: back on the Projects page)
@@ -512,6 +526,28 @@ function select(id, additive, single = false) {
 
 function onRowsDown(e) {
   if (e.button !== 0) return;
+  // ⧓ an end of a transition box: drag it to make that side longer / shorter, on its own - the left end is how long
+  // it runs before the cut, the right end after it (like Premiere); the cut and every shot stay put
+  const trd = e.target.closest('[data-trdur]');
+  if (trd) {
+    e.stopPropagation(); e.preventDefault();
+    const id = trd.dataset.trdur, f = findClip(id), x = f && layout().V1.find((p) => p.clip.id === id);
+    if (!x?.overlap) return;
+    const cut = cutOf(x), type = f.clip.transitionIn.type, box = trd.closest('.tr-box'); box?.classList.add('drag');
+    const left = trd.classList.contains('l'), h0 = { hB: cut - x.start, hA: x.start + x.overlap - cut };
+    let moved = false;
+    const move = (ev) => {
+      const t = timeAt(ev.clientX), side = +Math.max(0, Math.min(5, left ? cut - t : t - cut)).toFixed(2);
+      const sides = left ? { hA: h0.hA, hB: side } : { hA: side, hB: h0.hB };
+      if (sides.hA + sides.hB < 0.1) sides[left ? 'hB' : 'hA'] = +(0.1 - sides[left ? 'hA' : 'hB']).toFixed(2);
+      const cur = findClip(id); if (!cur) return;
+      setTransition(S.project, S.mediaById, cur.index, type, 0, sides); moved = true; render();
+      toast(`⧓ ${findClip(id)?.clip.transitionIn?.dur?.toFixed(2) || d.toFixed(2)} s`);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', () => { window.removeEventListener('pointermove', move); if (moved) commit('Transition length'); }, { once: true });
+    return;
+  }
   const transBtn = e.target.closest('[data-trans]');
   if (transBtn) { e.stopPropagation(); toggleTransition(transBtn.dataset.trans); return; }
   const el = e.target.closest('.clip');
@@ -803,7 +839,7 @@ export function addTitle(text = 'Your title') {
 }
 function toggleTransition(id) {
   const f = findClip(id); if (!f) return;
-  if (!f.clip.transitionIn || f.clip.transitionIn.type === 'cut') f.clip.transitionIn = { type: 'fade', dur: 0.5 };
+  if ((!f.clip.transitionIn || f.clip.transitionIn.type === 'cut') && !setTransition(S.project, S.mediaById, f.index, 'fade', 0.5)) return toast('These shots have no frames to spare beyond their ends for a transition', 'err');
   S.sel = new Set([id]);
   commit('Transition');
   emit('inspect', 'transition');
@@ -1014,7 +1050,7 @@ function onContext(e) {
     if (a === 'mute') { c.mute = !c.mute || undefined; commit('Mute'); }
     if (a === 'unlink') unlinkSelected();
     if (a === 'linkA') separateAudio();
-    if (a === 'trans') { c.transitionIn = c.transitionIn && c.transitionIn.type !== 'cut' ? undefined : { type: 'fade', dur: 0.5 }; commit('Transition'); }
+    if (a === 'trans') { setTransition(S.project, S.mediaById, f.index, c.transitionIn && c.transitionIn.type !== 'cut' ? null : 'fade', 0.5); commit('Transition'); }
     if (a === 'src') emit('openSource', c.mediaId);
     if (a === 'replace') openReplace(id);
   };

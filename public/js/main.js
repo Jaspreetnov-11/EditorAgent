@@ -29,7 +29,7 @@ import { layout, duration } from './store.js';
 import { openSequences, seqName, openSequence, nestSelected } from './sequences.js';
 import { keyOf, commandFor, keyState, stepMany } from './keys.js';
 import { openShortcuts } from './keysui.js';
-import { linkedIds, uid } from './model.js';
+import { linkedIds, uid, setTransition } from './model.js';
 import { mountNotesPanel, addNote, watchPhoneNotes, openVersions, refreshNotes } from './review.js';
 import { loadFootage } from './smart.js';
 import { mountText, showText, hideText } from './textedit.js';
@@ -362,7 +362,7 @@ const ACTIONS = {
     const L = layout().V1; let xs = L.filter((x, i) => i > 0 && S.sel.has(x.clip.id));
     if (!xs.length) { const near = L.slice(1).sort((a, b) => Math.abs(a.start - S.playhead) - Math.abs(b.start - S.playhead))[0]; if (near) xs = [near]; }
     if (!xs.length) return toast('Put the playhead near a cut on the main story');
-    for (const x of xs) x.clip.transitionIn = { type: 'fade', dur: 0.5 };
+    for (const x of xs) setTransition(S.project, S.mediaById, S.project.tracks.V1.indexOf(x.clip), 'fade', 0.5); // (cuts stay put)
     commit(xs.length > 1 ? `Cross dissolve on ${xs.length} cuts` : 'Cross dissolve'); toast('Cross dissolve added (0.5 s)');
   },
   selectAtPlayhead: () => { const x = v1At(); if (!x) return toast('No clip under the playhead'); S.sel = linkedIds(S.project, [x.clip.id]); emit('select'); },

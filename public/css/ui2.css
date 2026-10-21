@@ -129,9 +129,20 @@ html.ui2 .tl-row { border-bottom: 1px solid #1b1917; }
 html.ui2 .tl-row:nth-child(odd) { background: #12110f; }
 html.ui2 .tl-row:nth-child(even) { background: #141311; }
 html.ui2 .clip { border-radius: 3px; box-shadow: inset 0 0 0 1px #ffffff1c; }
-/* every clip a rectangle of its own with a little space to the next one (like Premiere), the shot's pictures on it */
-html.ui2 .tl-row .clip { border-left: 2px solid #121110; border-right: 2px solid #121110; border-radius: 4px; background-clip: padding-box; }
-html.ui2 .tl-row .clip .clip-bg { border-radius: 2px; }
+/* 🎬 clips like Premiere's: a plain rectangle - a thin coloured bar with the name (and fx) on top, the shot's pictures
+   under it, a dark hairline to the next clip, square corners, no badges (they are in the tooltip / Effect Controls) */
+html.ui2 .tl-row .clip { top: 2px; bottom: 2px; border: 0; border-right: 1px solid #0a0a0a; border-radius: 0; box-shadow: none; background: #1d4a63; }
+html.ui2 .tl-row.audio .clip { background: #23460f; }
+html.ui2 .tl-row .clip .clip-bg { top: 15px; border-radius: 0; opacity: 1; }
+html.ui2 .tl-row .clip .clip-lbl { height: 15px; padding: 0 4px; background: #2a7aa6; text-shadow: none; font-size: 10px; font-weight: 600; color: #f2f7fa; }
+html.ui2 .tl-row.audio .clip .clip-lbl { background: #3f7a1c; }
+html.ui2 .tl-row .clip.t-title .clip-lbl, html.ui2 .tl-row .clip.t-graphic .clip-lbl { background: #8a4fa8; }
+html.ui2 .tl-row .clip .clip-lbl .bd i:not(.fxb):not(.lk) { display: none; }
+html.ui2 .tl-row .clip .clip-lbl .fxb { color: #ffd35a; font-size: 10px; padding: 0; }
+html.ui2 .tl-row .clip .clip-dur { display: none; }
+html.ui2 .tl-row .clip.sel { box-shadow: inset 0 0 0 1.5px #fff; z-index: 2; }
+html.ui2 .tl-row .clip.sel .clip-lbl { background: #3a95c8; }
+html.ui2 .tl-row.audio .clip.sel .clip-lbl { background: #57a02a; }
 html.ui2 .clip.sel { box-shadow: inset 0 0 0 2px #fff, 0 0 0 1px var(--accent), 0 0 14px -2px var(--accent); }
 html.ui2 .clip-lbl { font-size: 10.5px; font-weight: 600; text-shadow: 0 1px 2px #000c; }
 html.ui2 .clip-dur { font-family: var(--mono); font-size: 9.5px; }

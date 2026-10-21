@@ -47,12 +47,29 @@ export function aiHTML(c) {
     ${(c.masks || []).map((mk, i) => (mk.area ? `<div class="ai-row"><span class="small">▭ Box ${(c.masks || []).slice(0, i + 1).filter((x) => x.area).length}</span><select data-mk-mode="${i}">${MASK_MODES.map(([v, l]) => `<option value="${v}"${mk.type === v ? ' selected' : ''}>${l}</option>`).join('')}</select><button class="link small" data-mk-del="${i}" title="Take this box away">✕</button></div>` : '')).join('')}
     ${(c.masks || []).some((x) => x.area) ? `<div class="ai-row"><button class="small accent" data-ai="aifill" title="Content-aware fill (AI, on the GPU): the boxes are filled in with what would be behind the logo / text, frame by frame - a new copy of this piece of the shot goes on the timeline (Ctrl+Z or ↶ brings the original back)">✨ AI fill the boxes (content-aware)</button></div>
       <small class="hint">AI fill makes a new copy of this shot with the boxes filled in (~10 s of work per second of video). Quick options: Remove (fill from around) / Blur / Black - the viewer shows them blurred, the render applies them.</small>` : ''}
-    ${c.filled ? '<div class="ai-row"><button class="small" data-ai="unfill" title="Put the original shot (with its boxes) back">↶ Original shot (undo AI fill)</button></div>' : ''}
+    <div class="ai-row"><label class="fld"><span>✨ AI Enhance (like Topaz)</span><select data-enh-model><option value="fast">Fast</option><option value="detail">Most detail (slow)</option></select></label>
+      <label class="fld"><span>Size</span><select data-enh-h><option value="0">Same size</option><option value="1080">1080p</option><option value="2160">4K</option></select></label>
+      <label class="fld"><span>Noise</span><select data-enh-dn><option value="0.7">Clean it</option><option value="0.4">A little</option><option value="0">Keep the grain</option></select></label></div>
+    <div class="ai-row"><button class="small accent" data-ai="enhance" title="Real-ESRGAN on the GPU: noise and compression out, detail back, optionally bigger - a new copy of this piece of the shot goes on the timeline (↶ brings the original back). ~25 s of work per second of 1080p.">✨ Enhance this shot</button></div>
+    ${c.filled ? `<div class="ai-row"><button class="small" data-ai="unfill" title="Put the original shot back">↶ Original shot (undo AI ${c.filled.kind === 'enhance' ? 'enhance' : 'fill'})</button></div>` : ''}
     <label class="chk${slow ? '' : ' muted'}"><input type="checkbox" data-ai-smooth${c.smooth ? ' checked' : ''}${slow ? '' : ' disabled'}> ✨ Smooth slow motion (makes in-between frames)</label>
     ${slow ? '' : '<small class="hint">Set Speed below 1× (or a speed ramp) to use it.</small>'}
     <label class="fld"><span>🧽 Clean up picture</span><select data-ai-enh>${ENHANCE.map(([v, l]) => `<option value="${v}"${(c.enhance || '') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
     <div class="ai-row"><button class="small" data-ai="followall" title="🎯 Follow faces on every video shot of the main story (V1) - e.g. after making a 9:16 copy of a 16:9 film">🎯 Follow faces on all V1 shots</button></div>
     <small class="hint">Smooth slow motion and Clean up show in Accurate preview and renders (they make the render slower).</small>`;
+}
+
+// a new copy of the shot's piece (AI fill / AI enhance) takes its place on the timeline with the same timing; what was
+// there is kept (clip.filled) for ↶ Original shot. areas: the boxes the copy has baked in (they come off the clip)
+async function swapIn(clip, r, a0, a1, kind, areas) {
+  const { refreshMedia } = await import('./mediapool.js');
+  for (let i = 0; i < 60; i++) { await refreshMedia(); const n = S.mediaById[r.mediaId]; if (n && ['ready', 'error'].includes(n.status)) break; await new Promise((ok) => setTimeout(ok, 1000)); }
+  const now = clip(); if (!now) return false;
+  if (!now.filled) now.filled = { kind, mediaId: now.mediaId, in: a0, out: now.out, masks: areas };
+  else now.filled.kind = kind; // (a copy of a copy: ↶ still goes back to the very first)
+  now.mediaId = r.mediaId; now.in = 0; now.out = +(a1 - a0).toFixed(3);
+  if (areas.length) { now.masks = (now.masks || []).filter((x) => !x.area); if (!now.masks.length) delete now.masks; }
+  return true;
 }
 
 export function bindAi(root, id, render) {
@@ -93,15 +110,15 @@ export function bindAi(root, id, render) {
         emit('job', { running: true, label: '✨ AI fill…' });
         const job = await api('POST', `/api/inpaint?p=${enc(S.proj)}`, { mediaId: c.mediaId, in: a0, out: a1, boxes: areas.map((x) => { const { t, ...b } = x.path[0]; return b; }) });
         const j = await watchJob(job.id, (x) => emit('job', { running: true, label: x.stage?.startsWith('Waiting') ? `✨ ${x.stage}` : `✨ AI fill ${x.progress || 0}%` }));
-        // the filled copy is read by the editor like any new file; then it takes the shot's place (same timing)
-        const { refreshMedia } = await import('./mediapool.js');
-        for (let i = 0; i < 60; i++) { await refreshMedia(); const n = S.mediaById[j.result.mediaId]; if (n && ['ready', 'error'].includes(n.status)) break; await new Promise((ok) => setTimeout(ok, 1000)); }
-        const now = clip(); if (!now) return;
-        now.filled = { mediaId: now.mediaId, in: a0, out: now.out, masks: areas };
-        now.mediaId = j.result.mediaId; now.in = 0; now.out = +(a1 - a0).toFixed(3);
-        now.masks = (now.masks || []).filter((x) => !x.area); if (!now.masks.length) delete now.masks;
-        commit('AI fill'); render();
-        toast('✨ Filled - the shot now plays the AI-filled copy (↶ Original shot brings it back)');
+        if (await swapIn(clip, j.result, a0, a1, 'fill', areas)) { commit('AI fill'); render(); toast('✨ Filled - the shot now plays the AI-filled copy (↶ Original shot brings it back)'); }
+      }
+      if (a === 'enhance') {
+        const m = S.mediaById[c.mediaId]; if (!m) return;
+        const a0 = c.in || 0, a1 = c.out ?? m.duration, q = (s) => root.querySelector(s).value;
+        emit('job', { running: true, label: '✨ Enhancing…' });
+        const job = await api('POST', `/api/enhance?p=${enc(S.proj)}`, { mediaId: c.mediaId, in: a0, out: a1, model: q('[data-enh-model]'), height: +q('[data-enh-h]'), denoise: +q('[data-enh-dn]') });
+        const j = await watchJob(job.id, (x) => emit('job', { running: true, label: x.stage?.startsWith('Waiting') ? `✨ ${x.stage}` : `✨ Enhance ${x.progress || 0}%` }));
+        if (await swapIn(clip, j.result, a0, a1, 'enhance', [])) { commit('AI enhance'); render(); toast('✨ Enhanced - the shot now plays the enhanced copy (↶ Original shot brings it back)'); }
       }
       if (a === 'unfill') {
         const f = c.filled; if (!f) return;

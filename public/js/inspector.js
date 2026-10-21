@@ -1,6 +1,6 @@
 // Inspector: properties of the selected clip, or project settings when nothing is selected.
 import { S, on, emit, commit, findClip, layout, duration, saveNow } from './store.js';
-import { TRANSITIONS, clipDur, fmt, parseTime, fmtTC, KEYABLE, propAt, hasKeys, RAMPS, EASES, BLEND_MODES } from './model.js';
+import { TRANSITIONS, clipDur, fmt, parseTime, fmtTC, KEYABLE, propAt, hasKeys, RAMPS, EASES, BLEND_MODES, setTransition } from './model.js';
 import { api, enc } from './api.js';
 import { openTemplates } from './titlesui.js';
 import { CUTFX } from './fx.js';
@@ -14,7 +14,7 @@ import { aiHTML, bindAi } from './aiui.js';
 import { gfxInspector, bindGfxInspector } from './gfxui.js';
 import { FX_PRESETS, FX_DEFAULT } from './audiofx.js';
 import { FILM_LOOKS, lookLut, LETTERBOX, STABILIZE, applyCinematic, removeCinematic, stabilizeAll } from './looks.js';
-import { $, $$, esc, fieldsHTML, bindFields, toast, modal } from './ui.js';
+import { $, $$, esc, fieldsHTML, bindFields, toast, modal, getPath, setPath } from './ui.js';
 import { mountRamp } from './rampui.js';
 
 let root, selfCommit = false, openSections = new Set(['clip', 'transform', 'text', 'audio', 'transition', 'project', 'logo']);
@@ -91,21 +91,13 @@ function renderClip(id) {
   html += sec('clip', 'Clip', fieldsHTML(clipDefs, ang ? { ...obj, mcAngle: c.mediaId } : obj) + (m ? `<div class="srcinfo">${esc(m.width ? `${m.width}×${m.height} · ${m.fps} fps · ` : '')}${esc(m.vcodec || m.acodec || '')} · ${fmt(m.duration)}<br><span title="${esc(m.path)}">${esc(m.path)}</span></div>` : ''));
 
   if (!isAud && !isAdj && !(isTitle && track !== 'V1')) {
-    html += sec('transform', '🎬 Motion & opacity', fieldsHTML([
+    // 🎬 like Premiere's Effect Controls: one line per property - ⏱ animate on / off, its name, its value (drag it left /
+    // right, or click and type), ◂ ◆ ▸ and its keyframes on a little timeline of the clip, all in the same line
+    html += sec('transform', '🎬 Motion', motionHTML(c, (L?.end || 0) - (L?.start || 0), isVid) + fieldsHTML([
       { k: 'fit', label: 'Framing', type: 'select', options: [['', 'Project default'], ['fit', 'Fit (letterbox)'], ['fill', 'Fill (crop)'], ['blur', 'Blur background']] },
-      { k: 'cropX', label: 'Crop position ↔', type: 'range', min: 0, max: 1, step: 0.01, def: 0.5 },
-      { k: 'transform.zoom', label: 'Zoom', type: 'range', min: 0.5, max: 4, step: 0.01, def: 1 },
-      { k: 'transform.x', label: 'Position X', type: 'range', min: -100, max: 100, step: 0.5, def: 0, unit: '%' },
-      { k: 'transform.y', label: 'Position Y', type: 'range', min: -100, max: 100, step: 0.5, def: 0, unit: '%' },
-      { k: 'transform.rotation', label: 'Rotation', type: 'range', min: -180, max: 180, step: 0.5, def: 0, unit: '°' },
-      { k: 'opacity', label: track !== 'V1' ? 'Opacity' : 'Opacity (black shows through)', type: 'range', min: 0, max: 1, step: 0.01, def: 1 },
-      ...(track !== 'V1' && (isVid || isImg) ? [{ k: 'blend', label: 'Blend mode (with the tracks below)', type: 'select', options: BLEND_MODES }] : []),
-    ], obj) + `<div class="motion-presets"><span class="muted">Motion:</span>
-      <button class="small" data-motion="zin">Slow zoom in</button><button class="small" data-motion="zout">Slow zoom out</button>
-      <button class="small" data-motion="pan">Pan →</button><button class="small" data-motion="panl">← Pan</button>
-      <button class="small" data-motion="clear">Clear motion</button></div>
-      <small class="hint">◆ adds a keyframe at the playhead; with keyframes, moving a slider sets the value at the playhead.</small>`);
-    html += sec('keys', '⏱ Keyframes', keyLaneHTML(c, (L?.end || 0) - (L?.start || 0)));
+      ...(track !== 'V1' && (isVid || isImg) ? [{ k: 'blend', label: 'Blend mode', type: 'select', options: BLEND_MODES }] : []),
+    ], obj) + `<div class="motion-presets"><button class="small" data-motion="zin">Zoom in</button><button class="small" data-motion="zout">Zoom out</button>
+      <button class="small" data-motion="pan">Pan →</button><button class="small" data-motion="panl">← Pan</button><button class="small" data-motion="clear">Reset</button></div>`);
   }
   if (isVid) html += sec('ai', '🤖 AI picture tools', aiHTML(c));
   if (isVid || (track !== 'V1' && (isImg || isTitle))) html += sec('trk', '🎯 Tracking', trackingHTML(c, track));
@@ -167,6 +159,7 @@ function renderClip(id) {
   const rampBox = root.querySelector('[data-ramp-ed]');
   if (rampBox) mountRamp(rampBox, () => findClip(id)?.clip, () => emit('live'), (label) => { doCommit(label); const s = root.querySelector('[data-k="ramp"], select[name="ramp"]'); if (s) s.value = findClip(id)?.clip.ramp || ''; });
   addKeyButtons(id);
+  bindMotion(id);
   bindEffects(id);
   bindTracking(root, id, render);
   bindAi(root, id, render);
@@ -199,7 +192,8 @@ function renderClip(id) {
   $$('[data-sec="transition"] [data-k]', root).forEach((el) => el.addEventListener('change', () => {
     const cl = findClip(id)?.clip, type = $('[data-sec="transition"] [data-k="transitionIn.type"]', root).value;
     const dur = +$('[data-sec="transition"] [data-k="transitionIn.dur"]', root).value || 0.5;
-    cl.transitionIn = type === 'cut' ? undefined : { type, dur };
+    // (the cut stays put and no shot gets shorter: model.js setTransition)
+    if (!setTransition(S.project, S.mediaById, findClip(id).index, type === 'cut' ? null : type, dur) && type !== 'cut') toast('These shots have no frames to spare beyond their ends for a transition', 'err');
     doCommit('Transition');
   }));
   root.onclick = async (e) => {
@@ -213,7 +207,7 @@ function renderClip(id) {
     if (a === 'split') emit('splitAtPlayhead');
     if (a === 'transAll') {
       const tr = findClip(id)?.clip.transitionIn;
-      S.project.tracks.V1.forEach((cl, i) => { if (i > 0) cl.transitionIn = tr ? { ...tr } : undefined; });
+      S.project.tracks.V1.forEach((cl, i) => { if (i > 0) setTransition(S.project, S.mediaById, i, tr?.type || null, tr?.dur || 0); });
       commit('Transition on all cuts'); toast(tr ? `${tr.type} on every cut` : 'All transitions removed');
     }
     if (a === 'dub') return openDub(id);
@@ -292,6 +286,73 @@ function bindEffects(id) {
     if (a === 'down' && i < c.effects.length - 1) [c.effects[i + 1], c.effects[i]] = [c.effects[i], c.effects[i + 1]];
     if (!c.effects.length) delete c.effects;
     doCommit(`Effect ${a}`); render();
+  }));
+}
+
+// ---------------- 🎬 Motion, Premiere style ----------------
+// show: how the value reads (Scale / Opacity / Crop as %), min / max / step in the stored units
+const MOTION = [
+  { p: 'transform.x', label: 'Position X', min: -200, max: 200, step: 0.5, unit: '%' },
+  { p: 'transform.y', label: 'Position Y', min: -200, max: 200, step: 0.5, unit: '%' },
+  { p: 'transform.zoom', label: 'Scale', min: 0.1, max: 5, step: 0.01, k: 100, unit: '%' },
+  { p: 'transform.rotation', label: 'Rotation', min: -720, max: 720, step: 0.5, unit: '°' },
+  { p: 'opacity', label: 'Opacity', min: 0, max: 1, step: 0.01, k: 100, unit: '%' },
+  { p: 'cropX', label: 'Reframe ↔', min: 0, max: 1, step: 0.01, k: 100, unit: '%' },
+  { p: 'cropY', label: 'Reframe ↕', min: 0, max: 1, step: 0.01, k: 100, unit: '%' },
+  { p: 'volume', label: 'Volume', min: 0, max: 2, step: 0.01, k: 100, unit: '%', vid: true },
+];
+const mShow = (r, v) => `${+((+v || 0) * (r.k || 1)).toFixed(r.k ? 0 : 1)}${r.unit}`;
+function motionVal(c, p, rel) { return hasKeys(c, p) && rel !== null ? propAt(c, p, rel) : getPath(c, p) ?? KEYABLE[p].def; }
+function motionHTML(c, D, isVid) {
+  const rel = relTime(c.id);
+  return `<div class="pm" data-kl data-d="${D}">${MOTION.filter((r) => !r.vid || isVid).map((r) => {
+    const keys = c.keys?.[r.p] || [];
+    return `<div class="pm-row" data-kp="${r.p}" data-kpath="${r.p}">
+      <button class="pm-sw${keys.length ? ' on' : ''}" data-sw="${r.p}" title="${keys.length ? 'Animated - click to stop animating (removes its keyframes)' : 'Animate: a keyframe at the playhead, then change the value elsewhere'}">⏱</button>
+      <span class="pm-n">${r.label}</span>
+      <span class="pm-v" data-pv="${r.p}" tabindex="0" title="Drag left / right (Shift: faster) or click to type">${mShow(r, motionVal(c, r.p, rel))}</span>
+      <span class="pm-k"><button class="kfb" data-kprev="${r.p}" title="Previous keyframe">◂</button><button class="kfd" data-kf="${r.p}" title="Add / remove a keyframe at the playhead">◆</button><button class="kfb" data-knext="${r.p}" title="Next keyframe">▸</button></span>
+      <div class="kl-track">${keys.map((k, j) => `<i class="kl-k${k.ease ? ' ease' : ''}" data-kj="${j}" style="left:${Math.min(100, (k.t / Math.max(0.01, D)) * 100).toFixed(2)}%" title="${fmt(k.t)} · ${mShow(r, k.v)} - drag to move, double-click to delete"></i>`).join('')}<b class="kl-ph"></b></div>
+    </div>`;
+  }).join('')}</div>`;
+}
+function bindMotion(id) {
+  const box = root.querySelector('.pm'); if (!box) return;
+  const def = (p) => MOTION.find((r) => r.p === p);
+  const setVal = (p, v) => {
+    const c = findClip(id)?.clip, r = def(p); if (!c) return;
+    v = +Math.min(r.max, Math.max(r.min, v)).toFixed(4);
+    if (hasKeys(c, p)) keyValue(id, p, v); else setPath(c, p, v);
+    const el = box.querySelector(`[data-pv="${p}"]`); if (el) el.textContent = mShow(r, v);
+    emit('live');
+  };
+  const done = (p) => { const c = findClip(id)?.clip; if (!c) return; cleanup(c); doCommit(`Change ${def(p).label}`, `${id}:${p}`); };
+  box.querySelectorAll('[data-pv]').forEach((el) => {
+    const p = el.dataset.pv, r = def(p);
+    el.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      const c = findClip(id)?.clip, v0 = +motionVal(c, p, relTime(id)), x0 = e.clientX;
+      let moved = false;
+      const mv = (ev) => { const dx = ev.clientX - x0; if (!moved && Math.abs(dx) < 3) return; moved = true; setVal(p, v0 + dx * r.step * (ev.shiftKey ? 10 : 1)); };
+      const up = () => {
+        window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up);
+        if (moved) return done(p);
+        // a click: type the value (in the units shown)
+        const inp = document.createElement('input'); inp.className = 'pm-in'; inp.value = +((+motionVal(findClip(id)?.clip, p, relTime(id))) * (r.k || 1)).toFixed(2);
+        el.replaceWith(inp); inp.focus(); inp.select();
+        const fin = (ok) => { if (ok && inp.value.trim() !== '' && !isNaN(+inp.value)) { setVal(p, +inp.value / (r.k || 1)); done(p); } render(); };
+        inp.addEventListener('keydown', (ev) => { ev.stopPropagation(); if (ev.key === 'Enter') fin(true); if (ev.key === 'Escape') fin(false); });
+        inp.addEventListener('blur', () => fin(true), { once: true });
+      };
+      window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+    });
+  });
+  // ⏱ animate on (a first keyframe at the playhead, with the value now) / off (its keyframes go, the value stays)
+  box.querySelectorAll('[data-sw]').forEach((b) => b.addEventListener('click', () => {
+    const c = findClip(id)?.clip, p = b.dataset.sw; if (!c) return;
+    if (c.keys?.[p]?.length) { const v = motionVal(c, p, relTime(id)); delete c.keys[p]; if (!Object.keys(c.keys).length) delete c.keys; setPath(c, p, v); doCommit(`Stop animating ${def(p).label}`); }
+    else { const rel = relTime(id); if (rel === null) return toast('Move the playhead over this clip first'); (c.keys ||= {})[p] = [{ t: +rel.toFixed(3), v: +motionVal(c, p, null) }]; doCommit(`Animate ${def(p).label}`); }
+    render();
   }));
 }
 
@@ -457,7 +518,9 @@ export function updateKeyUI() {
     d.classList.toggle('has', keys.length > 0);
     d.classList.toggle('on', rel !== null && keyAt(keys, rel) >= 0);
     d.disabled = rel === null;
-    const ks = el.querySelector('[data-kease]'); if (document.activeElement !== ks) ks.value = keys.length > 1 ? (keys[0].ease === true ? 'io' : keys[0].ease || '') : '';
+    const ks = el.querySelector('[data-kease]'); if (ks && document.activeElement !== ks) ks.value = keys.length > 1 ? (keys[0].ease === true ? 'io' : keys[0].ease || '') : '';
+    const pv = el.querySelector('[data-pv]'), md = MOTION.find((r) => r.p === path);
+    if (pv && md) pv.textContent = mShow(md, motionVal(c, path, rel)); // (🎬 the value at the playhead)
     el.querySelector('[data-kprev]').disabled = !keys.some((k) => rel !== null && k.t < rel - 1e-3);
     el.querySelector('[data-knext]').disabled = !keys.some((k) => rel === null || k.t > rel + 1e-3);
     if (keys.length && rel !== null) {
