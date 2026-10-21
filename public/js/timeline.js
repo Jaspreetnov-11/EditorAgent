@@ -491,6 +491,9 @@ function onRowsDown(e) {
   const trim = e.target.closest('[data-trim]')?.dataset.trim;
   const f = findClip(id);
   drag = { id, track, el, x0: e.clientX, y0: e.clientY, moved: false, trim, orig: JSON.parse(JSON.stringify(f.clip)), index: f.index,
+    // where on the clip it was taken (sec from its start) - from the timeline, not the element: select() above has
+    // already redrawn the clips, so `el` may be a removed one (its position read as 0 and drops landed seconds off)
+    grab: timeAt(e.clientX) - (layout()[track]?.find((x) => x.clip.id === id)?.start ?? f.clip.start ?? 0),
     others: [...S.sel].filter((s) => s !== id && !(f.clip.link && findClip(s)?.clip.link === f.clip.link)).map((s) => ({ id: s, ...findClip(s) })).filter((o) => o.track !== 'V1').map((o) => ({ id: o.id, start: o.clip.start || 0 })) };
   window.addEventListener('pointermove', onDragMove);
   window.addEventListener('pointerup', onDragUp, { once: true });
@@ -530,6 +533,9 @@ function onDragMove(e) {
   // move
   const overTrack = rowAt(e.clientY);
   const overOverlay = overTrack && trackKind(overTrack) === 'video' && overTrack !== 'V1';
+  // the clip as drawn now: the timeline may have been redrawn since the press (select, moves on overlay tracks), and
+  // moving the old, removed element made the clip freeze and then jump
+  const live = root.querySelector(`.clip[data-id="${drag.id}"]`) || drag.el;
   if (drag.track === 'V1' && !overOverlay) {
     // V1 is magnetic: show where the clip would be inserted
     const t = timeAt(e.clientX), L = layout().V1;
@@ -540,7 +546,7 @@ function onDragMove(e) {
     ins.hidden = false;
     ins.style.left = `${(idx < L.length ? L[idx].start : L.length ? L[L.length - 1].end : 0) * S.zoom}px`;
     ins.style.top = `${rowTop('V1')}px`; ins.style.height = `${rowH('V1')}px`;
-    drag.el.style.transform = `translateX(${dx}px)`; drag.el.classList.add('dragging');
+    live.style.transform = `translateX(${dx}px)`; live.classList.add('dragging');
     drag.toTrack = 'V1';
     return;
   }
@@ -550,21 +556,33 @@ function onDragMove(e) {
   if (drag.track === 'V1') {
     // dragged up from V1 onto an overlay track: becomes a free overlay clip there
     drag.toTrack = overTrack;
-    drag.newStart = snap(Math.max(0, timeAt(e.clientX) - (drag.x0 - drag.el.getBoundingClientRect().left + dx) / S.zoom), pts);
-    drag.el.style.transform = `translate(${dx}px, ${rowTop(overTrack) - rowTop('V1')}px)`; drag.el.classList.add('dragging');
+    drag.newStart = snap(Math.max(0, timeAt(e.clientX) - drag.grab), pts); // (it used to stay where it was taken from)
+    const from = layout().V1.find((x) => x.clip.id === drag.id)?.start || 0;
+    live.style.transform = `translate(${(drag.newStart - from) * S.zoom}px, ${rowTop(overTrack) - rowTop('V1')}px)`; live.classList.add('dragging');
     return;
   }
   if (target === 'V1') {
-    const t = timeAt(e.clientX), L = layout().V1;
-    let idx = L.findIndex((x) => t < (x.start + x.end) / 2);
-    if (idx < 0) idx = L.length;
-    drag.toTrack = 'V1'; drag.insertAt = idx;
+    // an overlay clip coming down onto V1: over a gap it drops exactly there (Premiere overwrite, nothing moves);
+    // anywhere else it goes in at the nearest cut and the story after it moves along
+    const L = layout().V1, t0 = snap(Math.max(0, timeAt(e.clientX) - drag.grab), pts);
+    const gap = L.find((x) => x.clip.gap && t0 >= x.start - 0.001 && t0 < x.end - 0.04);
     const ins = $('#tlInsert');
-    ins.hidden = false; ins.style.left = `${(idx < L.length ? L[idx].start : L.length ? L[L.length - 1].end : 0) * S.zoom}px`;
-    ins.style.top = `${rowTop('V1')}px`; ins.style.height = `${rowH('V1')}px`;
-    drag.el.style.transform = `translate(${dx}px, ${rowTop('V1') - rowTop(drag.track)}px)`; drag.el.classList.add('dragging');
+    drag.toTrack = 'V1'; drag.dropT = t0; drag.gapId = gap?.clip.id || null;
+    if (gap) { drag.insertAt = undefined; ins.hidden = true; } else {
+      const t = timeAt(e.clientX);
+      let idx = L.findIndex((x) => t < (x.start + x.end) / 2);
+      if (idx < 0) idx = L.length;
+      drag.insertAt = idx;
+      ins.hidden = false; ins.style.left = `${(idx < L.length ? L[idx].start : L.length ? L[L.length - 1].end : 0) * S.zoom}px`;
+      ins.style.top = `${rowTop('V1')}px`; ins.style.height = `${rowH('V1')}px`;
+    }
+    const at = gap ? t0 : drag.insertAt < L.length ? L[drag.insertAt].start : L.at(-1)?.end || 0;
+    live.style.transform = `translate(${(at - (c.start || 0)) * S.zoom}px, ${rowTop('V1') - rowTop(f.track)}px)`; live.classList.add('dragging');
     return;
   }
+  // back on an overlay track: it stays there (it used to still drop on V1 if it had passed over V1 on the way)
+  drag.toTrack = undefined; drag.insertAt = undefined; drag.gapId = null;
+  live.style.transform = ''; live.classList.remove('dragging');
   const ns = snap(Math.max(0, (o.start || 0) + dt), pts);
   const delta = ns - (o.start || 0);
   c.start = +ns.toFixed(3);
@@ -578,9 +596,10 @@ function onDragMove(e) {
   render();
 }
 
-function onDragUp() {
+function onDragUp(e) {
   window.removeEventListener('pointermove', onDragMove);
-  snapEl.hidden = true; $('#tlInsert').hidden = true;
+  // where the mouse is let go decides the drop (a fast drag can end before the last move was handled)
+  if (drag?.moved && e) onDragMove(e);  snapEl.hidden = true; $('#tlInsert').hidden = true;
   const d = drag; drag = null;
   if (!d || !d.moved) { S.linkLead = null; return; }
   const f = findClip(d.id);
@@ -607,7 +626,17 @@ function onDragUp() {
     const [c] = S.project.tracks[f.track].splice(f.index, 1);
     delete c.start;
     if (c.type === 'audio' || c.type === 'adjust') { toast(c.type === 'audio' ? 'Audio clips go on the A tracks' : 'Adjustment layers go on V2 or higher'); S.project.tracks[f.track].push(c); return render(); }
-    S.project.tracks.V1.splice(d.insertAt, 0, c);
+    const V1 = S.project.tracks.V1, gi = d.gapId ? V1.findIndex((x) => x.id === d.gapId) : -1;
+    if (gi >= 0) {
+      // into the gap at the spot it was dropped: the gap before and after it stays, nothing else moves
+      const g = layout().V1.find((x) => x.clip.id === d.gapId), len = clipDur(c, S.mediaById);
+      const pre = d.dropT - g.start, post = g.end - (Math.max(d.dropT, g.start) + len), parts = [];
+      if (pre >= 0.04) parts.push({ ...V1[gi], dur: +pre.toFixed(3) });
+      parts.push(c);
+      if (post >= 0.04) parts.push({ id: uid(), type: 'title', gap: true, text: '', bg: '#000000', dur: +post.toFixed(3) });
+      V1.splice(gi, 1, ...parts);
+      tidyGaps();
+    } else V1.splice(d.insertAt ?? V1.length, 0, c);
     commit('Move to V1'); return;
   }
   commit('Move clip');
