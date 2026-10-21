@@ -86,6 +86,8 @@ export function mountViewer(el) {
   try { grader = new Grader(els.lyGrade); } catch { grader = null; } // without WebGL2 the CSS approximation is used
   // a paused frame arrives after the seek finishes: redraw then so the graded canvas is up to date
   [els.lyA, els.lyB, els.lyImg].forEach((m) => m.addEventListener(m.tagName === 'IMG' ? 'load' : 'seeked', () => { if (mode === 'program' && !playing) drawProgram(S.playhead, false); }));
+  // (and once a new file has its first picture: the frame held up while it loaded goes away)
+  [els.lyA, els.lyB].forEach((v) => v.addEventListener('loadeddata', () => { if (mode === 'program' && !playing) drawProgram(S.playhead, false); }));
   [els.lyA, els.lyB, els.lyOv].forEach((v) => { v.addEventListener('error', () => {}); });
   $$('[data-mode]', el).forEach((b) => (b.onclick = () => setMode(b.dataset.mode)));
   el.addEventListener('click', (e) => {
@@ -609,7 +611,10 @@ function drawProgram(t, isPlay) {
   els.lyCard.hidden = true; els.lyImg.hidden = true; els.lyBlur.hidden = true; els.lyGrade.hidden = true;
   if (prev) drawV1(prev, 1);
   if (cur) drawV1(cur, prev ? String(clamp((t - cur.start) / Math.max(0.01, cur.overlap), 0, 1)) : 1);
-  for (const s of slots) if (!used.has(s)) { s.hidden = true; s.pause(); }
+  // the shot that just came is still loading (a jump to a new place in the file, over the internet): the last frame of
+  // the one before stays up under it instead of black, until the new one has a picture
+  const loading = [...used].some((s) => s.readyState < 2 || s.seeking);
+  for (const s of slots) if (!used.has(s)) { s.pause(); if (!(loading && !s.hidden && s.readyState >= 2)) s.hidden = true; }
   if (!cur && !act.length && L.V1.length && t < duration()) { /* gap after V1: black */ }
   // V1 clip text (lower third)
   const tx = cur?.clip;

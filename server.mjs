@@ -692,15 +692,34 @@ async function makeWave(file, out) {
   return fs.existsSync(out);
 }
 
+// 🌐 A file the browser can play but that is heavy (a 21 Mbps 1080p camera file, 4K) gets a light copy too - the same
+// small 540p proxy - for editors over the internet: streaming the camera file to them, every 2 s cut jumping to a new
+// place in it, kept the viewer black. On this computer the file itself still plays (full quality, it is right here).
+const heavy = (m) => m.kind === 'video' && m.proxy === 'none' && ((m.bitrate || 0) > 8e6 || (m.width || 0) * (m.height || 0) > 1920 * 1080);
+const liteQueued = new Set(); // projects whose light copies were asked for since the start
+function ensureLite(proj) {
+  if (liteQueued.has(proj)) return;
+  liteQueued.add(proj);
+  for (const m of mediaDb(proj).items) {
+    if (!heavy(m) || m.lite === 'ready' && fs.existsSync(P(proj, 'cache', 'proxies', `${m.id}.mp4`))) continue;
+    m.lite = 'queued'; proxyQ.push({ proj, id: m.id });
+  }
+  pump();
+}
 async function processProxy(proj, id) {
   const m = mediaItem(proj, id);
   if (!m || !fs.existsSync(m.path)) return;
-  m.proxy = 'making'; m.proxyPct = 0;
+  const lite = m.proxy === 'none'; // (a light copy of a file that plays as it is)
+  if (lite) { m.lite = 'making'; } else { m.proxy = 'making'; m.proxyPct = 0; }
   const out = P(proj, 'cache', 'proxies', `${id}.mp4`), tmp = `${out}.part.mp4`;
   const r = await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-i', m.path, '-map', '0:v:0', '-map', '0:a:0?',
     '-vf', 'scale=-2:540,format=yuv420p', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26', '-g', '12', '-c:a', 'aac', '-b:a', '128k', '-ac', '2',
     '-movflags', '+faststart', '-progress', 'pipe:1', '-nostats', tmp],
-  { onLine: (l) => { const k = /^out_time_ms=(\d+)/.exec(l); if (k && m.duration) m.proxyPct = Math.min(99, Math.round((+k[1] / 1e6 / m.duration) * 100)); } });
+  { onLine: (l) => { const k = /^out_time_ms=(\d+)/.exec(l); if (k && m.duration && !lite) m.proxyPct = Math.min(99, Math.round((+k[1] / 1e6 / m.duration) * 100)); } });
+  if (lite) {
+    if (r.code === 0 && fs.existsSync(tmp)) { fs.renameSync(tmp, out); m.lite = 'ready'; } else { fs.rmSync(tmp, { force: true }); m.lite = 'error'; }
+    return;
+  }
   if (r.code === 0 && fs.existsSync(tmp)) {
     fs.renameSync(tmp, out); m.proxy = 'ready'; m.proxyPct = 100;
     if (m.hasAudio && !m.wave) m.wave = await makeWave(out, P(proj, 'cache', 'waves', `${id}.png`));
@@ -2024,6 +2043,7 @@ const routes = {
     const name = needProject(q(u, 'p'));
     if (activeProject !== name) { activeProject = name; pump(); }
     checkOfflineSoon(name); // 🗂 files gone since they were read (moved, drive unplugged) show as offline (next list)
+    if (!req.who?.local) ensureLite(name); // 🌐 someone over the internet has it open: light copies of its heavy files
     const items = mediaDb(name).items;
     // counts for this project only (other projects keep processing in the background)
     return { items: items.map((m) => publicMedia(name, m)), queue: {
@@ -3366,7 +3386,9 @@ async function handle(req, res, who) {
       if (!it) return send(res, 404, { error: 'media not found' });
       const C = (d, f) => P(proj, 'cache', d, f);
       const file = { thumb: C('thumbs', `${it.id}.jpg`), strip: C('strips', `${it.id}.jpg`), wave: C('waves', `${it.id}.png`), orig: it.path,
-        play: it.kind === 'video' && it.proxy !== 'none' ? (it.proxy === 'ready' ? C('proxies', `${it.id}.mp4`) : null) : it.path }[m[3]];
+        play: it.kind === 'video' && it.proxy !== 'none' ? (it.proxy === 'ready' ? C('proxies', `${it.id}.mp4`) : null)
+          // over the internet a heavy file plays from its light copy once made (ensureLite); here, the file itself
+          : it.lite === 'ready' && !req.who?.local && fs.existsSync(C('proxies', `${it.id}.mp4`)) ? C('proxies', `${it.id}.mp4`) : it.path }[m[3]];
       if (!file) return send(res, 409, { error: 'proxy not ready yet' });
       return serveFile(req, res, file, m[3] !== 'play' && m[3] !== 'orig');
     }
