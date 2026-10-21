@@ -398,14 +398,18 @@ function transHTML(x) {
   // the box is where the two shots mix: from the incoming shot's (lent) start, as long as the transition - the cut
   // between the rectangles is inside it (in the middle when both shots lent the same)
   const c = x.clip, w = Math.max(10, x.overlap * S.zoom), name = TRANSITIONS.find(([k]) => k === c.transitionIn?.type)?.[1] || c.transitionIn?.type || 'Transition';
-  return `<button class="tr-box" data-trans="${c.id}" title="${esc(name)} ${x.overlap.toFixed(2)} s - click to change it, drag an end to make it longer / shorter" style="left:${x.start * S.zoom}px;width:${w}px"><i class="tr-h l" data-trdur="${c.id}"></i><span>${w > 60 ? esc(name) : ''}</span><i class="tr-h r" data-trdur="${c.id}"></i></button>`;
+  // the box takes the mouse only on its ends (length) and its two sides (slide / move); a strip on the cut itself is left
+  // open, so the shots' ends under it can still be trimmed there (it used to cover them - no trimming a shot with a transition)
+  const cx = (cutOf(x) - x.start) * S.zoom, gap = 6;
+  return `<div class="tr-box" data-trans="${c.id}" title="${esc(name)} ${x.overlap.toFixed(2)} s - click to change it, drag an end to make it longer / shorter, drag it to slide it or move it to another cut; on the cut line: trim the shots" style="left:${x.start * S.zoom}px;width:${w}px">
+    <i class="tr-s" style="left:7px;width:${Math.max(0, cx - gap - 7)}px"></i><i class="tr-s" style="left:${cx + gap}px;width:${Math.max(0, w - 7 - cx - gap)}px"></i>
+    <i class="tr-h l" data-trdur="${c.id}"></i><span>${w > 60 ? esc(name) : ''}</span><i class="tr-h r" data-trdur="${c.id}"></i></div>`;
 }
 // where the cut into V1 shot x is drawn: after what the shot before lent ("handles", model.js setTransition); an older
 // transition that does not say is drawn with its middle on the cut
 function cutOf(x) {
   if (!x.overlap) return x.start;
-  const h = x.clip.transitionIn?.hA !== undefined ? trHandles(x.clip.transitionIn) : { hB: x.overlap / 2 };
-  return x.start + Math.min(x.overlap, h.hB);
+  return x.start + Math.min(x.overlap, trHandles(x.clip.transitionIn).hB);
 }
 function drawRuler() {
   if (!ruler || !scroller || !S.project) return; // (no project: back on the Projects page)
@@ -558,23 +562,37 @@ function onRowsDown(e) {
     return;
   }
   const transBtn = e.target.closest('[data-trans]');
-  // ⧓ a transition box: drag it onto another cut to move it there (same kind and length); a click opens its settings
+  // ⧓ a transition box: drag it along its cut to slide it (more before / after the cut, same length - like Premiere),
+  // or onto another cut to move it there; a click opens its settings
   if (transBtn?.classList.contains('tr-box')) {
     e.stopPropagation(); e.preventDefault();
-    const id = transBtn.dataset.trans, x0 = e.clientX, r0 = transBtn.getBoundingClientRect();
-    let moved = false, to = null;
-    const nearCut = (t) => { const L = layout().V1; let best = null; for (let j = 1; j < L.length; j++) { const ct = cutOf(L[j]); if (!best || Math.abs(ct - t) < Math.abs(best.t - t)) best = { j, t: ct }; } return best; };
+    const id = transBtn.dataset.trans, x0 = e.clientX, f0 = findClip(id), lay0 = layout().V1.find((p) => p.clip.id === id);
+    if (!f0 || !lay0?.overlap) return;
+    const cut = cutOf(lay0), dur0 = lay0.overlap, h0 = { hB: cut - lay0.start, hA: lay0.start + dur0 - cut }, type = f0.clip.transitionIn.type;
+    let moved = false, to = null, slid = false;
+    const nearCut = (t) => { const L = layout().V1; let best = null; for (let j = 1; j < L.length; j++) { if (L[j].clip.id === id) continue; const ct = cutOf(L[j]); if (!best || Math.abs(ct - t) < Math.abs(best.t - t)) best = { j, t: ct }; } return best; };
     const move = (ev) => {
       if (!moved && Math.abs(ev.clientX - x0) < 5) return;
-      moved = true; to = nearCut(timeAt(ev.clientX));
-      transBtn.style.transform = `translateX(${ev.clientX - x0}px)`; transBtn.style.opacity = '.75';
-      const ins = $('#tlInsert'); if (to) { ins.hidden = false; ins.style.left = `${to.t * S.zoom}px`; ins.style.top = `${rowTop('V1')}px`; ins.style.height = `${rowH('V1')}px`; }
+      moved = true;
+      const t = timeAt(ev.clientX), d = (ev.clientX - x0) / S.zoom, ins = $('#tlInsert');
+      const other = nearCut(t);
+      // far from its own cut and nearer another: it will go there
+      if (other && Math.abs(t - cut) > dur0 / 2 + 0.25 && Math.abs(other.t - t) < Math.abs(t - cut)) {
+        to = other; transBtn.style.transform = `translateX(${ev.clientX - x0}px)`; transBtn.style.opacity = '.7';
+        ins.hidden = false; ins.style.left = `${other.t * S.zoom}px`; ins.style.top = `${rowTop('V1')}px`; ins.style.height = `${rowH('V1')}px`;
+        return;
+      }
+      // along its own cut: slide - what runs after the cut grows as much as what runs before it shrinks
+      to = null; ins.hidden = true; transBtn.style.transform = ''; transBtn.style.opacity = '';
+      const hA = +Math.max(0, Math.min(dur0, h0.hA + d)).toFixed(2), cur = findClip(id);
+      if (cur) { setTransition(S.project, S.mediaById, cur.index, type, 0, { hA, hB: +(dur0 - hA).toFixed(2) }); slid = true; render(); }
     };
     const up = () => {
       window.removeEventListener('pointermove', move); $('#tlInsert').hidden = true;
       if (!moved) return toggleTransition(id);
+      if (!to) { if (slid) commit('Slide transition'); return render(); }
       const f = findClip(id), tr = f?.clip.transitionIn ? { ...f.clip.transitionIn } : null;
-      if (!f || !tr || !to || S.project.tracks.V1[to.j]?.id === id) return render();
+      if (!f || !tr || S.project.tracks.V1[to.j]?.id === id) return render();
       const target = S.project.tracks.V1[to.j];
       if (target.gap || S.project.tracks.V1[to.j - 1]?.gap) { toast('A transition goes between two shots, not next to a gap', 'err'); return render(); }
       setTransition(S.project, S.mediaById, f.index, null); // (gives back the frames it took there)
@@ -604,6 +622,12 @@ function onRowsDown(e) {
   // a main-story (V1) trim keeps every other shot in place, like Premiere: what is cut off becomes a gap and a shot only
   // grows into a gap next to it. Ctrl while trimming: ripple (the story after it closes up / moves along), as before.
   let v1 = null, roll = null;
+  // trimming a shot's end at a cut that has a transition: the transition comes off first (its lent frames given back)
+  // - a gap or a moved cut cannot keep it between the two shots. (Ctrl+Z brings both back.)
+  if (trim && track === 'V1' && S.tool !== 'rolling') {
+    const k = trim === 'l' ? f.index : f.index + 1, tc = S.project.tracks.V1[k];
+    if (tc?.transitionIn && tc.transitionIn.type !== 'cut') { setTransition(S.project, S.mediaById, k, null); render(); toast('Transition taken off this cut to trim it (Ctrl+Z brings it back)'); }
+  }
   if (trim && track === 'V1') {
     const L0 = layout().V1, nb = S.project.tracks.V1[f.index + (trim === 'r' ? 1 : -1)];
     v1 = { s0: L0[f.index]?.start || 0, ripple: e.ctrlKey || S.tool === 'ripple', gapId: nb?.gap ? nb.id : null, gap0: nb?.gap ? clipDur(nb, S.mediaById) : 0,

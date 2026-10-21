@@ -225,9 +225,10 @@ function lend(c, sec, side, media) {
   if (side === 'tail') c.out = +((c.out ?? m?.duration ?? 0) + sec * sp).toFixed(3);
   else c.in = +Math.max(0, (c.in || 0) - sec * sp).toFixed(3);
 }
-// how much of an existing transition each side lent (an older one does not say: nothing is taken back from it, so a
-// change never cuts into a shot - at worst the cut ends up a little later)
-export const trHandles = (tr) => ({ hA: tr?.hA ?? 0, hB: tr?.hB ?? 0 });
+// how much of an existing transition each side lent. An older one does not say: it is taken as all from the shot before
+// - its tail was under the next shot (made by the agent it was even added for it), so taking it back changes nothing on
+// screen and the story after it stays where it is (taking back nothing made every later shot move by its length)
+export const trHandles = (tr) => (tr?.hA !== undefined || tr?.hB !== undefined ? { hA: tr.hA ?? 0, hB: tr.hB ?? 0 } : { hA: tr?.dur || 0, hB: 0 });
 // sides: { hA, hB } to set each side on its own (dragging one end of the box in the timeline); dur is then ignored
 export function setTransition(project, media, i, type, dur, sides = null) {
   const V1 = project.tracks.V1, A = V1[i - 1], B = V1[i];

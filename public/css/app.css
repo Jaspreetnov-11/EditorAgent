@@ -217,7 +217,9 @@ video.lyr, img.lyr { object-fit: contain; transform-origin: center; }
 /* (like Premiere: under the clips' name bars, a flat box with thin white lines corner to corner; its ends drag) */
 .tr-box { position: absolute; left: 0; top: 17px; bottom: 2px; z-index: 4; padding: 0; border: 1px solid #e8eef2; border-radius: 0; cursor: pointer; overflow: hidden;
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'%3E%3Cpath d='M0 100L100 0M0 0L100 100' stroke='%23ffffff' stroke-opacity='.75' stroke-width='1.2' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center / 100% 100% no-repeat, #0c2533cc; }
-.tr-box .tr-h { position: absolute; top: 0; bottom: 0; width: 7px; z-index: 1; cursor: ew-resize; }
+.tr-box { pointer-events: none; } /* (only its parts below take the mouse - the cut line under it stays trimmable) */
+.tr-box .tr-s { position: absolute; top: 0; bottom: 0; pointer-events: auto; cursor: grab; }
+.tr-box .tr-h { position: absolute; top: 0; bottom: 0; width: 7px; z-index: 1; cursor: ew-resize; pointer-events: auto; }
 .tr-box .tr-h.l { left: -1px; } .tr-box .tr-h.r { right: -1px; }
 .tr-box .tr-h:hover, .tr-box.drag .tr-h { background: #ff3b3b99; }
 .tr-box span { position: absolute; left: 0; right: 0; bottom: 1px; text-align: center; font-size: 9.5px; color: #e8f3fc; text-shadow: 0 1px 2px #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 6px; pointer-events: none; }

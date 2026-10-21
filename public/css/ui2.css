@@ -141,6 +141,10 @@ html.ui2 .tl-row .clip .clip-lbl .bd i:not(.fxb):not(.lk) { display: none; }
 html.ui2 .tl-row .clip .clip-lbl .fxb { color: #ffd35a; font-size: 10px; padding: 0; }
 html.ui2 .tl-row .clip .clip-dur { display: none; }
 html.ui2 .tl-row .clip.sel { box-shadow: inset 0 0 0 1.5px #fff; z-index: 2; }
+/* a gap is just empty timeline (like Premiere) - an outline only on hover / when selected, so it can still be closed */
+html.ui2 .tl-row .clip.t-gap { background: transparent; border-right: 0; }
+html.ui2 .tl-row .clip.t-gap:hover { box-shadow: inset 0 0 0 1px #ffffff26; }
+html.ui2 .tl-row .clip.t-gap.sel { background: #ffffff0d; box-shadow: inset 0 0 0 1px #ffffff80; }
 html.ui2 .tl-row .clip.sel .clip-lbl { background: #3a95c8; }
 html.ui2 .tl-row.audio .clip.sel .clip-lbl { background: #57a02a; }
 html.ui2 .clip.sel { box-shadow: inset 0 0 0 2px #fff, 0 0 0 1px var(--accent), 0 0 14px -2px var(--accent); }
