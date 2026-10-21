@@ -153,6 +153,9 @@ video.lyr, img.lyr { object-fit: contain; transform-origin: center; }
 .tl-heads { width: 168px; flex: none; overflow: hidden; border-right: 1px solid var(--line); background: var(--bg-2); }
 .th-ruler { height: 28px; border-bottom: 1px solid var(--line); }
 .th { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0 4px; padding: 0 6px; border-bottom: 1px solid var(--line); align-content: center; }
+.th { position: relative; }
+.th-resize { position: absolute; left: 0; right: 0; bottom: -3px; height: 7px; cursor: ns-resize; z-index: 3; }
+.th-resize:hover { background: linear-gradient(transparent 2px, var(--accent) 2px 4px, transparent 4px); }
 .th .th-volrow { grid-column: 1/-1; display: flex; align-items: center; gap: 4px; }
 .th-volrow .th-vlbl { font-size: 9px; opacity: .7; } .th-volrow .th-vol { flex: 1; min-width: 0; }
 .th-volrow .th-vpct { font-size: 10px; color: var(--muted); min-width: 30px; text-align: right; font-variant-numeric: tabular-nums; }

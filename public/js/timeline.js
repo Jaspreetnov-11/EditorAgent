@@ -4,7 +4,7 @@ import { S, on, emit, commit, layout, duration, findClip, saveNow } from './stor
 import { zoneBandsHTML } from './zones.js';
 import { seqMenu, seqName, openSequence, nestSelected, renameSequence } from './sequences.js';
 import { makeCompFromClip, textBehindFromClip } from './motionpage.js';
-import { fusionFromClip } from './fusionpage.js';
+import { fusionFromClip, rotoFromClip } from './fusionpage.js';
 import { seqList } from './model.js';
 import { sharedSeqId } from './store.js';
 import { copyClips, pasteClips, clipboard } from './clipboard.js';
@@ -18,7 +18,15 @@ import { openReplace } from './replace.js';
 import { dropFx } from './fxpanel.js';
 
 // row heights: the main story is tallest; voice-over and music get room for their waveforms
-const rowH = (id) => (id === 'V1' ? 66 : trackKind(id) === 'video' ? 46 : id === 'A1' || id === 'A2' ? 44 : 36);
+// track heights: drag the bottom edge of a track header (double-click = back to normal); kept in this browser
+const ROW_DEF = (id) => (id === 'V1' ? 66 : trackKind(id) === 'video' ? 46 : id === 'A1' || id === 'A2' ? 44 : 36);
+let rowSizes = (() => { try { return JSON.parse(localStorage.getItem('ve-track-h') || '{}'); } catch { return {}; } })();
+const rowH = (id) => rowSizes[id] || ROW_DEF(id);
+function setRowH(id, h) {
+  if (h) rowSizes[id] = Math.round(Math.max(24, Math.min(240, h))); else delete rowSizes[id];
+  try { localStorage.setItem('ve-track-h', JSON.stringify(rowSizes)); } catch {}
+  render();
+}
 const KIND = new Proxy({}, { get: (_, id) => trackKind(id) });
 // a row's top inside the timeline canvas (the insert marker and dragged clips are placed with it)
 const rowTop = (id) => { const r = rowsEl?.querySelector(`[data-track="${id}"]`), cv = $('#tlCanvas', root); return r && cv ? r.getBoundingClientRect().top - cv.getBoundingClientRect().top : 0; };
@@ -45,6 +53,7 @@ export function mountTimeline(el) {
       <button data-act="title" title="Titles, lower thirds and cards - pick a template (T adds a plain title)">${ICON.text}<span>Title</span></button>
       <button data-act="gfx" title="Motion graphics: counters, charts, callouts, route lines"><b>📊</b><span>Graphic</span></button>
       <button data-act="adjust" title="Adjustment layer: colour / effects for every track below it, at the playhead"><b>◩</b><span>Adjust</span></button>
+      <button data-act="roto" title="Roto (AI): select a video clip - its subject (person / animal / vehicle) is cut out onto the track above. Put text on a track in between to have it behind the person"><b>✂</b><span>Roto</span></button>
       <button data-act="sfx" title="Auto sound design: whooshes, hits and a riser on A3, lined up with your cuts, transitions and effects"><b>🔊</b><span>SFX</span></button>
       <span class="sep"></span>
       <button data-act="snap" class="tog" title="Snapping on/off (N)">${ICON.magnet}<span>Snap</span></button>
@@ -97,6 +106,10 @@ export function mountTimeline(el) {
     if (a === 'title') openTemplates();
     if (a === 'gfx') openGraphics();
     if (a === 'adjust') addAdjustmentLayer();
+    if (a === 'roto') {
+      const id = [...S.sel].find((s) => findClip(s)?.clip.type === 'video');
+      if (!id) toast('Select a video clip on the timeline first, then press ✂ Roto', 'err'); else rotoFromClip(id, findClip);
+    }
     if (a === 'sfx') autoSoundDesign().catch((err) => toast(err.message, 'err'));
     if (a === 'snap') { S.snap = !S.snap; syncBar(); }
     if (a === 'fit') fitZoom();
@@ -273,6 +286,7 @@ function drawHeads(TR, ts) {
         ${t.kind === 'audio' ? `<button class="tbtn solo${st.solo ? ' on' : ''}" data-tst="solo" title="Solo Track: hear only the soloed tracks">S</button><button class="tbtn rec" data-rec="${t.id}" title="Voice-over record: 3-2-1, then the edit plays and your voice goes onto ${t.name} from the playhead (click again or Esc to stop)">🎙</button>` : ''}
         <button class="tbtn${st.lock ? ' on' : ''}" data-tst="lock" title="Lock track">${ICON.lock}</button>
       </div>
+      <div class="th-resize" data-rowh="${t.id}" title="Drag to make ${t.name} taller / shorter (double-click: normal)"></div>
       ${t.kind === 'audio' || t.id === 'V1' ? `<div class="th-volrow" title="${t.id === 'V1' ? "Volume of the clips' own sound" : 'Track volume'}: drag (double-click = 100%)"><span class="th-vlbl">🔊</span><input class="th-vol" type="range" min="0" max="2" step="0.05" value="${st.volume ?? 1}" data-tvol="${t.id}" aria-label="${t.name} volume"><span class="th-vpct">${Math.round((st.volume ?? 1) * 100)}%</span></div>` : ''}
     </div>`;
   }).join('');
@@ -283,6 +297,17 @@ function drawHeads(TR, ts) {
     emit('mix'); // (the preview mix follows mute / solo at once)
   }));
   $$('[data-rec]', headsEl).forEach((b) => (b.onclick = () => import('./vorecord.js').then((m) => m.toggleRecord(b.dataset.rec))));
+  $$('[data-rowh]', headsEl).forEach((g) => {
+    const id = g.dataset.rowh;
+    g.ondblclick = () => setRowH(id, 0);
+    g.onpointerdown = (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const y0 = e.clientY, h0 = rowH(id);
+      const move = (ev) => setRowH(id, h0 + ev.clientY - y0);
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', () => window.removeEventListener('pointermove', move), { once: true });
+    };
+  });
   $$('[data-tvol]', headsEl).forEach((r) => {
     const id = r.dataset.tvol, pct = r.nextElementSibling;
     // (a track with no state yet - e.g. one just added - gets it here; it used to throw and the slider did nothing)
@@ -502,7 +527,7 @@ function onRowsDown(e) {
 function onDragMove(e) {
   if (!drag) return;
   const dx = e.clientX - drag.x0;
-  if (!drag.moved && Math.abs(dx) < 4 && Math.abs(e.clientY - drag.y0) < 4) return;
+  if (!drag.moved && Math.abs(dx) < 5 && Math.abs(e.clientY - drag.y0) < 5) return; // (a click's small wobble is not a drag)
   drag.moved = true;
   const f = findClip(drag.id); if (!f) return;
   const c = f.clip, o = drag.orig, m = S.mediaById[c.mediaId], sp = c.speed || 1;
@@ -530,24 +555,16 @@ function onDragMove(e) {
     render();
     return;
   }
-  // move
-  const overTrack = rowAt(e.clientY);
+  // move - onto another track only once the mouse has clearly gone up / down (a clip taken near its top edge used to
+  // jump onto the track above at the first wobble and show there as a faded copy)
+  const overTrack = Math.abs(e.clientY - drag.y0) < 12 ? f.track : rowAt(e.clientY);
   const overOverlay = overTrack && trackKind(overTrack) === 'video' && overTrack !== 'V1';
   // the clip as drawn now: the timeline may have been redrawn since the press (select, moves on overlay tracks), and
   // moving the old, removed element made the clip freeze and then jump
   const live = root.querySelector(`.clip[data-id="${drag.id}"]`) || drag.el;
   if (drag.track === 'V1' && !overOverlay) {
-    // V1 is magnetic: show where the clip would be inserted
-    const t = timeAt(e.clientX), L = layout().V1;
-    let idx = L.findIndex((x) => t < (x.start + x.end) / 2);
-    if (idx < 0) idx = L.length;
-    drag.insertAt = idx;
-    const ins = $('#tlInsert');
-    ins.hidden = false;
-    ins.style.left = `${(idx < L.length ? L[idx].start : L.length ? L[L.length - 1].end : 0) * S.zoom}px`;
-    ins.style.top = `${rowTop('V1')}px`; ins.style.height = `${rowH('V1')}px`;
-    live.style.transform = `translateX(${dx}px)`; live.classList.add('dragging');
-    drag.toTrack = 'V1';
+    // along V1: like Premiere it goes exactly where it is let go (Ctrl: inserted at the nearest cut)
+    v1Target(e, pts, live, layout().V1.find((x) => x.clip.id === drag.id)?.start || 0, 0);
     return;
   }
   $('#tlInsert').hidden = true;
@@ -562,26 +579,12 @@ function onDragMove(e) {
     return;
   }
   if (target === 'V1') {
-    // an overlay clip coming down onto V1: over a gap it drops exactly there (Premiere overwrite, nothing moves);
-    // anywhere else it goes in at the nearest cut and the story after it moves along
-    const L = layout().V1, t0 = snap(Math.max(0, timeAt(e.clientX) - drag.grab), pts);
-    const gap = L.find((x) => x.clip.gap && t0 >= x.start - 0.001 && t0 < x.end - 0.04);
-    const ins = $('#tlInsert');
-    drag.toTrack = 'V1'; drag.dropT = t0; drag.gapId = gap?.clip.id || null;
-    if (gap) { drag.insertAt = undefined; ins.hidden = true; } else {
-      const t = timeAt(e.clientX);
-      let idx = L.findIndex((x) => t < (x.start + x.end) / 2);
-      if (idx < 0) idx = L.length;
-      drag.insertAt = idx;
-      ins.hidden = false; ins.style.left = `${(idx < L.length ? L[idx].start : L.length ? L[L.length - 1].end : 0) * S.zoom}px`;
-      ins.style.top = `${rowTop('V1')}px`; ins.style.height = `${rowH('V1')}px`;
-    }
-    const at = gap ? t0 : drag.insertAt < L.length ? L[drag.insertAt].start : L.at(-1)?.end || 0;
-    live.style.transform = `translate(${(at - (c.start || 0)) * S.zoom}px, ${rowTop('V1') - rowTop(f.track)}px)`; live.classList.add('dragging');
+    // an overlay clip coming down onto V1: it goes exactly where it is let go (Ctrl: inserted at the nearest cut)
+    v1Target(e, pts, live, c.start || 0, rowTop('V1') - rowTop(f.track));
     return;
   }
   // back on an overlay track: it stays there (it used to still drop on V1 if it had passed over V1 on the way)
-  drag.toTrack = undefined; drag.insertAt = undefined; drag.gapId = null;
+  drag.toTrack = undefined; drag.insertAt = undefined; drag.dropT = undefined;
   live.style.transform = ''; live.classList.remove('dragging');
   const ns = snap(Math.max(0, (o.start || 0) + dt), pts);
   const delta = ns - (o.start || 0);
@@ -596,10 +599,49 @@ function onDragMove(e) {
   render();
 }
 
+// Where a clip dragged over V1 would go, shown while dragging. Like Premiere: it overwrites what is under it at that
+// time and nothing else on the timeline moves. With Ctrl held it is inserted at the nearest cut instead (the story
+// after it moves along). from: where the clip is drawn now (sec); yOff: px down to V1.
+function v1Target(e, pts, live, from, yOff) {
+  const L = layout().V1, ins = $('#tlInsert');
+  drag.toTrack = 'V1'; drag.dropT = snap(Math.max(0, timeAt(e.clientX) - drag.grab), pts); drag.insertAt = undefined;
+  let at = drag.dropT;
+  if (e.ctrlKey) {
+    const t = timeAt(e.clientX);
+    let idx = L.findIndex((x) => t < (x.start + x.end) / 2);
+    if (idx < 0) idx = L.length;
+    drag.insertAt = idx;
+    at = idx < L.length ? L[idx].start : L.at(-1)?.end || 0;
+    ins.hidden = false; ins.style.left = `${at * S.zoom}px`;
+    ins.style.top = `${rowTop('V1')}px`; ins.style.height = `${rowH('V1')}px`;
+  } else ins.hidden = true;
+  live.style.transform = `translate(${(at - from) * S.zoom}px, ${yOff}px)`; live.classList.add('dragging');
+}
+// an empty stretch of the main story (black, silent) - what a clip leaves behind when it is lifted out of V1
+const gapClip = (len) => ({ id: uid(), type: 'title', gap: true, text: '', bg: '#000000', dur: +Math.max(0.04, len).toFixed(3) });
+// Premiere's overwrite on V1: clip c goes in at time t0 and replaces whatever is there for its length (cut where it
+// starts and ends); everything before and after stays exactly where it was. Past the end: a gap, then the clip.
+export function overwriteV1(c, t0) {
+  const V1 = S.project.tracks.V1, len = clipDur(c, S.mediaById), t1 = t0 + len;
+  delete c.start; delete c.transitionIn;
+  const end = layout().V1.at(-1)?.end || 0;
+  if (t0 >= end - 0.02) { if (t0 - end >= 0.04) V1.push(gapClip(t0 - end)); V1.push(c); return; }
+  for (const t of [t0, t1]) { const x = layout().V1.find((p) => t > p.start + 0.05 && t < p.end - 0.05); if (x) splitClip(x.clip.id, t); }
+  const L = layout().V1;
+  const under = new Set(L.filter((p) => p.start >= t0 - 0.05 && p.end <= t1 + 0.05).map((p) => p.clip));
+  const first = L.find((p) => p.start >= t0 - 0.05)?.clip;
+  let at = first ? V1.indexOf(first) : V1.length;
+  for (let i = V1.length - 1; i >= 0; i--) if (under.has(V1[i])) { V1.splice(i, 1); if (i < at) at--; }
+  V1.splice(at, 0, c);
+  if (V1[at + 1]) delete V1[at + 1].transitionIn;
+  tidyGaps();
+}
+
 function onDragUp(e) {
   window.removeEventListener('pointermove', onDragMove);
   // where the mouse is let go decides the drop (a fast drag can end before the last move was handled)
-  if (drag?.moved && e) onDragMove(e);  snapEl.hidden = true; $('#tlInsert').hidden = true;
+  if (drag?.moved && e) onDragMove(e);
+  snapEl.hidden = true; $('#tlInsert').hidden = true;
   const d = drag; drag = null;
   if (!d || !d.moved) { S.linkLead = null; return; }
   const f = findClip(d.id);
@@ -607,17 +649,27 @@ function onDragUp(e) {
   if (lp?.track === 'V1') toast('This sound is linked to its picture on V1 - move the picture, or right-click › Unlink to move the sound alone');
   if (!f) return render();
   if (d.trim) { commit('Trim'); return; }
+  // the length a V1 clip takes on the timeline (what it leaves as a gap when it is lifted out)
+  const v1Len = (id) => { const x = layout().V1.find((p) => p.clip.id === id); return x ? x.end - x.start - (x.overlap || 0) : 0; };
   if (d.toTrack === 'V1' && f.track === 'V1') {
-    if (d.insertAt !== undefined) {
+    if (d.insertAt !== undefined) { // Ctrl: inserted at a cut, the story after it moves along
       const [c] = S.project.tracks.V1.splice(f.index, 1);
       const to = d.insertAt > f.index ? d.insertAt - 1 : d.insertAt;
       S.project.tracks.V1.splice(to, 0, c);
       if (to === 0) delete c.transitionIn;
+    } else if (d.dropT !== undefined) {
+      // lifted out (a gap stays where it was) and laid over the spot it was let go: nothing else moves
+      const x = layout().V1.find((p) => p.clip.id === d.id);
+      if (x && Math.abs(d.dropT - x.start) < 0.01) return render();
+      const [c] = S.project.tracks.V1.splice(f.index, 1, gapClip(v1Len(d.id)));
+      overwriteV1(c, d.dropT);
     }
     commit('Move clip'); return;
   }
   if (d.toTrack && d.toTrack !== 'V1' && f.track === 'V1') {
-    const [c] = S.project.tracks.V1.splice(f.index, 1);
+    // up from V1 onto an overlay track: a gap stays in its place, so the rest of the story does not move
+    const [c] = S.project.tracks.V1.splice(f.index, 1, gapClip(v1Len(d.id)));
+    tidyGaps();
     delete c.transitionIn; c.start = +d.newStart.toFixed(3);
     S.project.tracks[d.toTrack].push(c);
     commit(`Move to ${d.toTrack}`); return;
@@ -626,17 +678,8 @@ function onDragUp(e) {
     const [c] = S.project.tracks[f.track].splice(f.index, 1);
     delete c.start;
     if (c.type === 'audio' || c.type === 'adjust') { toast(c.type === 'audio' ? 'Audio clips go on the A tracks' : 'Adjustment layers go on V2 or higher'); S.project.tracks[f.track].push(c); return render(); }
-    const V1 = S.project.tracks.V1, gi = d.gapId ? V1.findIndex((x) => x.id === d.gapId) : -1;
-    if (gi >= 0) {
-      // into the gap at the spot it was dropped: the gap before and after it stays, nothing else moves
-      const g = layout().V1.find((x) => x.clip.id === d.gapId), len = clipDur(c, S.mediaById);
-      const pre = d.dropT - g.start, post = g.end - (Math.max(d.dropT, g.start) + len), parts = [];
-      if (pre >= 0.04) parts.push({ ...V1[gi], dur: +pre.toFixed(3) });
-      parts.push(c);
-      if (post >= 0.04) parts.push({ id: uid(), type: 'title', gap: true, text: '', bg: '#000000', dur: +post.toFixed(3) });
-      V1.splice(gi, 1, ...parts);
-      tidyGaps();
-    } else V1.splice(d.insertAt ?? V1.length, 0, c);
+    if (d.insertAt !== undefined) S.project.tracks.V1.splice(d.insertAt, 0, c); // Ctrl: inserted, the story moves along
+    else overwriteV1(c, d.dropT ?? 0); // exactly where it was let go; nothing else moves
     commit('Move to V1'); return;
   }
   commit('Move clip');
@@ -777,7 +820,8 @@ export function placeMedia(mediaId, track, time, marks = {}) {
   if (KIND[track] === 'audio') Object.assign(c, { type: 'audio', in: marks.in ?? 0, ...(marks.out !== undefined ? { out: marks.out } : {}), volume: track === 'A2' ? 0.5 : 1, ...(track === 'A2' ? { duck: true } : {}) });
   else if (m.kind === 'image') Object.assign(c, { type: 'image', dur: 4 });
   else Object.assign(c, { type: 'video', in: marks.in ?? 0, ...(marks.out !== undefined ? { out: marks.out } : {}), ...(only === 'video' && m.hasAudio ? { mute: true } : {}) }); // (video only = no sound)
-  if (track === 'V1') {
+  if (track === 'V1' && marks.overwrite && time < 1e8) overwriteV1(c, Math.max(0, time)); // dragged in from Media: at the mouse
+  else if (track === 'V1') {
     const L = layout().V1;
     const g = L.findIndex((x) => x.clip.gap && time >= x.start && time < x.end);
     if (g >= 0) {
@@ -821,10 +865,11 @@ function onDragOver(e) {
   e.preventDefault();
   const tr = rowAt(e.clientY);
   if (tr === 'V1') {
+    // where it lands: at the mouse (overwrite, nothing moves); Ctrl: at the nearest cut (insert, the story moves along)
     const t = timeAt(e.clientX), L = layout().V1;
     let idx = L.findIndex((x) => t < (x.start + x.end) / 2); if (idx < 0) idx = L.length;
     const ins = $('#tlInsert'); ins.hidden = false;
-    ins.style.left = `${(idx < L.length ? L[idx].start : L.length ? L[L.length - 1].end : 0) * S.zoom}px`;
+    ins.style.left = `${(e.ctrlKey ? (idx < L.length ? L[idx].start : L.length ? L[L.length - 1].end : 0) : Math.max(0, t)) * S.zoom}px`;
     ins.style.top = `${rowTop('V1')}px`; ins.style.height = `${rowH('V1')}px`;
   } else $('#tlInsert').hidden = true;
 }
@@ -846,7 +891,7 @@ function onDrop(e) {
   const only = e.dataTransfer.getData('text/x-media-only') || undefined; // 🎞 / 🔊 from the Source monitor's V / A chips
   let t = timeAt(e.clientX), placedN = 0;
   for (const id of ids) {
-    const c = placeMedia(id, track, t, { ...(S.sourceMarks?.[id] || {}), ...(only ? { only } : {}) });
+    const c = placeMedia(id, track, t, { ...(S.sourceMarks?.[id] || {}), ...(only ? { only } : {}), overwrite: !e.ctrlKey });
     if (c) { placedN++; t += clipDur(c, S.mediaById); }
   }
   if (placedN) commit(`Add ${placedN} clip${placedN > 1 ? 's' : ''}`);
@@ -909,7 +954,7 @@ function onContext(e) {
     ['split', 'Split at playhead', 'S'], ['copy', S.sel.size > 1 ? `Copy ${S.sel.size} clips` : 'Copy', 'Ctrl+C'],
     ...(clipboard()?.kind === 'clips' ? [['paste', `Paste ${clipboard().items.length > 1 ? `${clipboard().items.length} clips ` : ''}at playhead`, 'Ctrl+V']] : []),
     ['dup', 'Duplicate', 'Ctrl+D'], ['nest', S.sel.size > 1 ? `⤵ Nest ${S.sel.size} clips…` : '⤵ Nest…'],
-    ...(c.type === 'video' ? [['comp', '🎬 Make Motion comp (animate it in Motion)'], ['behind', '✂ Text behind subject (AI roto)'], ['fusion', '✨ Open in Fusion (node effects)']] : []), ['del', 'Delete', 'Del'], ...(f.track === 'V1' && !c.gap ? [['lift', 'Delete and leave a gap', 'Shift+Del']] : []), '-',
+    ...(c.type === 'video' ? [['comp', '🎬 Make Motion comp (animate it in Motion)'], ['roto', '✂ Roto: cut out the subject (AI)'], ['behind', '✂ Text behind subject (AI roto)'], ['fusion', '✨ Open in Fusion (node effects)']] : []), ['del', 'Delete', 'Del'], ...(f.track === 'V1' && !c.gap ? [['lift', 'Delete and leave a gap', 'Shift+Del']] : []), '-',
     ...(c.type === 'video' || c.type === 'audio' ? [['sp0.5', 'Speed 0.5× (slow-mo)'], ['sp1', 'Speed 1×'], ['sp2', 'Speed 2×'], ...(linkedPartner(S.project, c) ? [] : [['mute', c.mute ? 'Unmute' : 'Mute']])] : []),
     ...(linkedPartner(S.project, c) ? [['unlink', '⛓ Unlink audio / video']] : c.type === 'video' && S.mediaById[c.mediaId]?.hasAudio && !c.link ? [['linkA', '🔊 Separate audio onto its own track (linked)']] : c.type === 'video' && c.link && S.mediaById[c.mediaId]?.hasAudio ? [['linkA', '🔊 Bring back its sound (linked)']] : []),
     ...(f.track === 'V1' && f.index > 0 ? ['-', ['trans', c.transitionIn && c.transitionIn.type !== 'cut' ? 'Remove transition' : 'Add cross dissolve']] : []),
@@ -930,6 +975,7 @@ function onContext(e) {
     if (a === 'comp') makeCompFromClip(id, findClip); // (stays on the timeline: double-click the orange clip to open it)
     if (a === 'behind') textBehindFromClip(id, findClip);
     if (a === 'fusion') fusionFromClip(id, findClip); // (double-click the maroon clip to open it)
+    if (a === 'roto') rotoFromClip(id, findClip);
     if (a === 'copy') copyClips();
     if (a === 'paste') pasteClips().catch((err) => toast(err.message, 'err'));
     if (a === 'dup') duplicateSelected();

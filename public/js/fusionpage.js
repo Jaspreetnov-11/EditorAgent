@@ -75,9 +75,9 @@ function renderLib() {
   $('#fuStyles', root).innerHTML = Object.entries(F.STYLES).map(([k, s]) => `<button class="mo-preset" data-style="${k}">${esc(s.name)}</button>`).join('');
   $('#fuNodes', root).innerHTML = F.GROUPS.map((g) => `<div class="fu-grp">${g}</div>` + Object.entries(F.NODES).filter(([k, d]) => d.group === g && k !== 'mediaOut').map(([k, d]) => `<button class="fu-nb" data-add="${k}" style="--nc:${d.color}">${esc(d.label)}</button>`).join('')).join('');
 }
-function newFrom(mediaId, srcIn = 0, speed = 1, dur = 5, name) {
+function newFrom(mediaId, srcIn = 0, speed = 1, dur = 5, name, style = 'plain') {
   const [w, h] = frameSize(), m = S.mediaById[mediaId];
-  const f = F.newFusion(name || `${(m?.name || 'Fusion').replace(/\.[^.]+$/, '')} fusion`, w, h, dur, { mediaId, srcIn, speed });
+  const f = F.newFusion(name || `${(m?.name || 'Fusion').replace(/\.[^.]+$/, '')} fusion`, w, h, dur, { mediaId, srcIn, speed }, style);
   fusions()[f.id] = f; fid = f.id; selId = null; T = 0;
   return f;
 }
@@ -131,7 +131,9 @@ function pick(anchor, items, fn) {
 
 // ---------------- the fusion on the edit ----------------
 function placeOver(f, start, track) {
-  const ids = trackList(S.project).filter((x) => x.kind === 'video').map((x) => x.id), from = Math.max(0, ids.indexOf(track));
+  // the video tracks bottom (V1) up, so "after the clip's track" means the tracks above it (trackList is top first:
+  // read as it was, nothing was ever above, and every fusion / roto made a new track even with V2 empty)
+  const ids = trackList(S.project).filter((x) => x.kind === 'video').map((x) => x.id).reverse(), from = Math.max(0, ids.indexOf(track));
   const free = (id) => !(S.project.tracks[id] || []).some((x) => (x.start || 0) < start + f.dur && (x.start || 0) + clipDur(x, S.mediaById) > start);
   const tr = ids.slice(from + 1).find(free) || addTrack(S.project, 'video');
   S.project.tracks[tr].push({ id: uid(), type: 'graphic', start: +start.toFixed(3), dur: f.dur, gfx: { tpl: 'fusion', fusionId: f.id, fusion: JSON.parse(JSON.stringify(f)) } });
@@ -147,6 +149,20 @@ export function fusionFromClip(clipId, findClip) {
   const tr = placeOver(f, start, f0.track);
   commit(`Open in Fusion: ${m.name}`);
   toast(`✨ "${f.name}" made on ${tr} over the clip (maroon) - double-click it to open it in Fusion`);
+  return true;
+}
+// ✂ Roto (Edit page button / right-click): the selected video clip's subject cut out by the AI and laid on the track
+// above it, exactly over it - put text or graphics on a track in between to have them behind the person, or hide
+// the clip below to keep only the subject. The matte is made right away (engine/matte.py, on the GPU).
+export function rotoFromClip(clipId, findClip) {
+  const f0 = findClip(clipId), c = f0?.clip, m = c && S.mediaById[c.mediaId];
+  if (!c || c.type !== 'video' || !m) { toast('Select a video clip on the timeline first, then press ✂ Roto', 'err'); return false; }
+  const start = Object.values(layout()).flat().find((x) => x.clip.id === c.id)?.start ?? c.start ?? 0, dur = +clipDur(c, S.mediaById).toFixed(3);
+  const f = newFrom(m.id, +(c.in || 0), c.speed || 1, dur, `${m.name.replace(/\.[^.]+$/, '')} roto`, 'roto');
+  const tr = placeOver(f, start, f0.track);
+  commit(`Roto: ${m.name}`);
+  toast(`✂ Roto on ${tr} over the clip - finding the subject (AI)…`);
+  findSubject(f.nodes.find((x) => x.type === 'subject'));
   return true;
 }
 export function openFusionClip(clip) {

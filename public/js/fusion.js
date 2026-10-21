@@ -286,6 +286,7 @@ export const STYLES = {
     const out = newNode('mediaOut', 600, src.y); out.in.input = mg.id;
     return { nodes: [src, bg, key, mg, out], out: out.id };
   } },
+  roto: { name: '✂ Roto: the subject only (AI)', make: (src) => chain(src, [['subject', { mode: 'cutout' }]]) },
   behind: { name: '✂ Text behind the subject (AI roto)', make: (src) => {
     const tx = newNode('text', 220, src.y - 120, { text: 'LIMELIGHT', size: 260, weight: '900', y: 42 }); tx.in.input = src.id;
     const sb = newNode('subject', 220, src.y + 120, { mode: 'cutout' }); sb.in.input = src.id;
