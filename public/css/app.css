@@ -1111,3 +1111,19 @@ button.pulse { animation: dvpulse 1.6s ease-out; }
 
 /* overlay effects (vignette) over the V1 shot, live */
 .lyr.fxover { pointer-events: none; transform-origin: center; }
+
+/* 🌑 a fade from / to black at a clip's end (one-sided Dip to Black), drawn like a transition box */
+.fd-box { position: absolute; top: 17px; bottom: 2px; z-index: 3; border: 1px solid #e8eef2; cursor: pointer; overflow: hidden;
+  background: linear-gradient(to right, #000c, #0000); }
+.fd-box.l { left: 0; } .fd-box.r { right: 0; background: linear-gradient(to left, #000c, #0000); }
+.fd-box span { position: absolute; left: 0; right: 0; bottom: 1px; text-align: center; font-size: 9.5px; color: #e8f3fc; text-shadow: 0 1px 2px #000; white-space: nowrap; overflow: hidden; pointer-events: none; }
+.fd-box:hover { border-color: #fff; background-color: #123447aa; }
+.clip .trim { z-index: 4; } /* (above a fade box at the same end: the edge still trims) */
+.vw-pq { width: auto; padding: 2px 4px; }
+.lyr.pixfx { pointer-events: none; transform-origin: center; }
+
+/* T Type tool on the Program monitor (player.js) */
+.vw-frame.type-cursor { cursor: text; }
+.vw-frame.over-text { cursor: move; }
+.type-box { position: absolute; z-index: 25; margin: 0; padding: 0 2px; border: 1px dashed #ffd24a; outline: none; resize: none; overflow: hidden;
+  white-space: pre; caret-color: #ffd24a; box-sizing: content-box; }

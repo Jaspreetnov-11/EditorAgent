@@ -1,7 +1,7 @@
 // 🎬 motion graphics (Phase 19): every template, every style, Hindi and English, wide and tall frames - drawn from the
 // first frame to the last without an error, nothing drawn at NaN, and the typewriter never cuts a Hindi letter apart.
-import { test, assert } from './harness.mjs';
-import { GFX, drawGraphic, newGraphic, gfxFields, brandTheme, gfxKey } from '../public/js/graphics.js';
+import { test, assert, eq as same } from './harness.mjs';
+import { GFX, drawGraphic, newGraphic, gfxFields, brandTheme, gfxKey, textLayout } from '../public/js/graphics.js';
 
 // a stand-in for a canvas 2D context: records text drawn and checks every number it gets
 function fakeCtx() {
@@ -25,7 +25,16 @@ const MOTION = Object.entries(GFX).filter(([, x]) => x.motion).map(([k]) => k);
 
 test('motion templates are there with their fields', () => {
   for (const k of ['lower3', 'kinetic', 'logoreveal', 'endcard', 'ticker']) assert(MOTION.includes(k), `${k} missing`);
-  for (const k of MOTION) { const f = gfxFields(k).map((x) => x.k); assert(f.includes('theme') && f.includes('scale'), `${k}: look + size`); assert(!f.includes('title') || k === 'endcard', `${k}: no stray heading field`); }
+  // (the Type tool's text has its own look - font size, fill, stroke, background - not a theme / size)
+  for (const k of MOTION.filter((m) => m !== 'text')) { const f = gfxFields(k).map((x) => x.k); assert(f.includes('theme') && f.includes('scale'), `${k}: look + size`); assert(!f.includes('title') || k === 'endcard', `${k}: no stray heading field`); }
+});
+
+test('Type tool text: placed where it was put, its box grows with the words and lines', () => {
+  const g = { ...newGraphic('text'), text: 'Hello', x: 25, y: 75, size: 100 }, ctx = fakeCtx();
+  const a = textLayout(ctx, 1920, 1080, g), b = textLayout(ctx, 1920, 1080, { ...g, text: 'Hello there\nsecond line' });
+  assert(Math.abs(a.cx - 480) < 1e-6 && Math.abs(a.cy - 810) < 1e-6, 'centre at 25% / 75%');
+  assert(b.w > a.w && Math.abs(b.h - 2 * a.h) < 1e-6, 'wider for more words, twice as tall for two lines');
+  same(newGraphic('text').tpl, 'text');
 });
 
 test('every template x style x frame shape draws first to last frame without errors', () => {

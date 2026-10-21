@@ -55,7 +55,8 @@ export const VFX = {
   fliph: { label: 'Flip horizontal', cat: 'Transform', params: {}, ff: () => 'hflip', css: () => ({ transform: 'scaleX(-1)' }) },
   flipv: { label: 'Flip vertical', cat: 'Transform', params: {}, ff: () => 'vflip', css: () => ({ transform: 'scaleY(-1)' }) },
   mirror: { label: 'Mirror (left half)', cat: 'Transform', params: {},
-    ff: () => ({ graph: (a, b) => `[${a}]split[${b}l][${b}m];[${b}m]crop=iw/2:ih:0:0,hflip[${b}r];[${b}l][${b}r]overlay=W/2:0[${b}]` }), css: null },
+    ff: () => ({ graph: (a, b) => `[${a}]split[${b}l][${b}m];[${b}m]crop=iw/2:ih:0:0,hflip[${b}r];[${b}l][${b}r]overlay=W/2:0[${b}]` }),
+    css: () => ({}) }, // (live: the viewer draws it on a canvas - player.js pixFx)
   crop: { label: 'Crop', cat: 'Transform', params: { left: { label: 'Left', min: 0, max: 45, step: 0.5, def: 0, unit: '%' }, right: { label: 'Right', min: 0, max: 45, step: 0.5, def: 0, unit: '%' }, top: { label: 'Top', min: 0, max: 45, step: 0.5, def: 0, unit: '%' }, bottom: { label: 'Bottom', min: 0, max: 45, step: 0.5, def: 0, unit: '%' } },
     // cropped edges go black (on V2 they are black bars over the shot below)
     ff: (p) => { const e = (k) => n(p[k], 0) / 100, f = [];
@@ -81,7 +82,8 @@ export const VFX = {
   chromakey: { label: 'Green screen (chroma key)', cat: 'Keying', v2only: true,
     params: { color: { label: 'Key colour', type: 'color', def: '#00ff00' }, similarity: { label: 'Similarity', min: 0.01, max: 0.5, step: 0.01, def: 0.15 }, blend: { label: 'Edge softness', min: 0, max: 0.3, step: 0.01, def: 0.05 } },
     // applied in the final pass, where the overlay keeps its transparency (render2.mjs)
-    ff: () => 'null', key: (p) => `chromakey=${String(p.color || '#00ff00').replace('#', '0x')}:${n(p.similarity, 0.15)}:${n(p.blend, 0.05)}`, css: null },
+    ff: () => 'null', key: (p) => `chromakey=${String(p.color || '#00ff00').replace('#', '0x')}:${n(p.similarity, 0.15)}:${n(p.blend, 0.05)}`,
+    css: () => ({}) }, // (live: keyed on a canvas by the viewer - player.js pixFx)
 };
 export const VFX_CATS = [...new Set(Object.values(VFX).map((x) => x.cat))];
 export const defaultsOf = (type) => Object.fromEntries(Object.entries(VFX[type]?.params || {}).map(([k, d]) => [k, d.def]));

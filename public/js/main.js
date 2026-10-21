@@ -10,7 +10,7 @@ import { $, $$, h, esc, toast } from './ui.js';
 import { renderHome } from './home.js';
 import { mountPool, refreshMedia, uploadFiles } from './mediapool.js';
 import { mountTimeline, splitAtPlayhead, trimAtPlayhead, deleteSelected, duplicateSelected, addTitle, setTool, setZoom, fitZoom, unlinkSelected } from './timeline.js';
-import { mountViewer, toggle, shuttle, seek, isPlaying, isPlayingProgram, viewerMode, pause, setMode, sourceKey, toggleFullscreen } from './player.js';
+import { mountViewer, toggle, shuttle, seek, isPlaying, isPlayingProgram, viewerMode, pause, setMode, sourceKey, toggleFullscreen, editTextClip } from './player.js';
 import { mountInspector } from './inspector.js';
 import { mountFxPanel } from './fxpanel.js';
 import { mountCapsPanel, refreshCaps } from './capspanel.js';
@@ -173,6 +173,7 @@ function runMenu(r) {
   if (r === 'logo') return openLogo();
   if (r === 'backups') return openBackups();
   if (r === 'titles') return openTemplates();
+  if (r === 'title') return addTitle();
   if (r === 'accurate') return emit('accuratePreview');
   if (r === 'fx' || r === 'cc') { edit(); return selectTab(r); }
   if (r === 'ec') { edit(); return editorEl.querySelector('.ui-dock [data-dock="ec"]')?.click(); }
@@ -247,6 +248,11 @@ on('openClip', (id) => {
   const f = findClip(id), c = f?.clip, m = c?.mediaId && S.mediaById[c.mediaId];
   if (c?.type === 'graphic' && c.gfx?.tpl === 'comp') return openComp(c); // 🎬 a Motion comp: open it on the Motion page
   if (c?.type === 'graphic' && c.gfx?.tpl === 'fusion') return openFusion(c); // ✨ a Fusion: open it on the Fusion page
+  if (c?.type === 'graphic' && c.gfx?.tpl === 'text') { // T a Type tool text: type in it on the monitor (the playhead goes onto it)
+    const x = layout()[f.track]?.find((p) => p.clip.id === id);
+    if (x && (S.playhead < x.start || S.playhead >= x.end)) emit('seek', x.start + Math.min(0.5, (x.end - x.start) / 2));
+    return setTimeout(() => editTextClip(id), 60);
+  }
   if (!m) return;
   // a nested sequence: open that sequence (its inside), like Premiere
   if (m.seqOf && S.project.sequences?.[m.seqOf]) return openSequence(m.seqOf);
@@ -379,7 +385,7 @@ const ACTIONS = {
     emit('openSource', { id: m.id, t: +((x.clip.in || 0) + (S.playhead - x.start) * (x.clip.speed || 1)).toFixed(3) });
   },
   markIn: () => src('i'), markOut: () => src('o'), goIn: () => src('i', true), goOut: () => src('o', true), insert: () => src(','), overwrite: () => src('.'),
-  selectTool: () => setTool('select'), razorTool: () => setTool('blade'), typeTool: () => addTitle(),
+  selectTool: () => setTool('select'), razorTool: () => setTool('blade'), typeTool: () => { setTool('type'); toast('T Type tool: click on the picture and type (Esc when done; V = back to selection)'); },
   rippleTool: () => setTool('ripple'), rollingTool: () => setTool('rolling'), rateTool: () => setTool('rate'), penTool: () => setTool('pen'), remixTool: () => setTool('remix'),
   addEdit: () => splitAtPlayhead(), addEditAll: () => { S.sel = new Set(); splitAtPlayhead(); },
   rippleTrimPrev: () => trimAtPlayhead('start'), rippleTrimNext: () => trimAtPlayhead('end'),

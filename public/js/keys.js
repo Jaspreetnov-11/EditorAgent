@@ -15,7 +15,7 @@ export const COMMANDS = [
   ['goStart', 'Go to sequence start', 'Playback'], ['goEnd', 'Go to sequence end', 'Playback'], ['matchFrame', 'Match frame (open the shot in Source)', 'Playback'],
   ['markIn', 'Mark In', 'Source monitor'], ['markOut', 'Mark Out', 'Source monitor'], ['goIn', 'Go to In', 'Source monitor'], ['goOut', 'Go to Out', 'Source monitor'],
   ['insert', 'Insert', 'Source monitor'], ['overwrite', 'Overwrite (overlay)', 'Source monitor'],
-  ['selectTool', 'Selection tool', 'Tools'], ['razorTool', 'Razor tool', 'Tools'], ['typeTool', 'Type tool (new title)', 'Tools'],
+  ['selectTool', 'Selection tool', 'Tools'], ['razorTool', 'Razor tool', 'Tools'], ['typeTool', 'Type tool (write on the monitor)', 'Tools'],
   ['rippleTool', 'Ripple edit tool', 'Tools'], ['rollingTool', 'Rolling edit tool', 'Tools'], ['rateTool', 'Rate stretch tool', 'Tools'], ['penTool', 'Pen tool', 'Tools'], ['remixTool', 'Remix tool', 'Tools'],
   ['addEdit', 'Add edit (split selected / at playhead)', 'Timeline'], ['addEditAll', 'Add edit to all tracks', 'Timeline'],
   ['rippleTrimPrev', 'Ripple trim previous edit to playhead', 'Timeline'], ['rippleTrimNext', 'Ripple trim next edit to playhead', 'Timeline'],

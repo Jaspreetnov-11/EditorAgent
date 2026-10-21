@@ -57,6 +57,19 @@ export function addGraphic(tpl) {
   toast(`${GFX[tpl].label} added on ${id} - edit its words and numbers in Effect Controls`);
 }
 
+// T the Type tool: a text where the Program monitor was clicked (x, y: % of the frame), on the first free overlay track
+export function addTextAt(x, y) {
+  const t = S.playhead, dur = GFX.text.dur;
+  const free = (id) => !(S.project.tracks[id] || []).some((c) => (c.start || 0) < t + dur && (c.start || 0) + clipDur(c, S.mediaById) > t);
+  const ov = trackList(S.project).filter((k) => k.kind === 'video' && k.id !== 'V1').map((k) => k.id).reverse();
+  const id = ov.find(free) || addTrack(S.project, 'video');
+  const c = { id: uid(), type: 'graphic', start: +t.toFixed(3), dur, gfx: { ...made('text'), text: '', x: +x.toFixed(2), y: +y.toFixed(2) } };
+  S.project.tracks[id].push(c);
+  S.sel = new Set([c.id]);
+  emit('select');
+  return c;
+}
+
 // ---- Effect Controls ----
 export function gfxInspector(c) {
   const g = c.gfx || {};

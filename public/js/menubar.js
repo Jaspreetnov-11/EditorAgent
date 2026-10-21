@@ -17,7 +17,7 @@ const MENUS = [
   ['Sequence', [['Add default transition', 'k:transition'], ['Split all tracks at playhead', 'k:addEditAll'], ['Ripple trim previous edit', 'k:rippleTrimPrev'], ['Ripple trim next edit', 'k:rippleTrimNext'], '-',
     ['Snapping on / off', 'k:snap'], ['Select clip at playhead', 'k:selectAtPlayhead'], '-', ['Sequences…', 'a:seq'], ['Render accurate preview', 'accurate']]],
   ['Markers', [['Add marker', 'k:marker'], ['Next marker', 'k:nextMarker'], ['Previous marker', 'k:prevMarker'], '-', ['Add review note', 'k:note']]],
-  ['Graphics and Titles', [['New title', 'k:typeTool'], ['Title templates…', 'titles'], ['Captions', 'cc'], '-', ['Motion page', 'p:motion'], ['Fusion page', 'p:fusion']]],
+  ['Graphics and Titles', [['Type tool (write on the monitor)', 'k:typeTool'], ['New title card', 'title'], ['Title templates…', 'titles'], ['Captions', 'cc'], '-', ['Motion page', 'p:motion'], ['Fusion page', 'p:fusion']]],
   ['View', [['Zoom in', 'k:zoomIn'], ['Zoom out', 'k:zoomOut'], ['Zoom to sequence', 'k:zoomFit'], '-', ['Maximize panel', 'k:maximize'], ['Full screen', 'k:fullscreen'], '-', ['Workspaces…', 'a:workspace']]],
   ['Window', [['Media', 'p:media'], ['Edit', 'p:edit'], ['Motion', 'p:motion'], ['Fusion', 'p:fusion'], ['Color', 'p:color'], ['Audio', 'p:audio'], ['Deliver', 'p:deliver'], '-',
     ['Effects', 'fx'], ['Effect Controls', 'ec'], ['Activity', 'a:activity'], ['Zones', 'a:zones'], ['Team', 'a:team'], '-', ['Agent', 'a:agent'], ['Re-edit', 'a:reedit'], ['Assistant (Claude)', 'a:assistant']]],

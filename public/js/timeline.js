@@ -10,7 +10,7 @@ import { sharedSeqId } from './store.js';
 import { openAudioGain, soundClips } from './audiogain.js';
 import { copyClips, pasteClips, clipboard } from './clipboard.js';
 import { clipDur, uid, fmtTC, fmt, trackList, trackKind, addTrack, syncLinked, linkAudioOf, linkedPartner, freeAudioTrack, RAMPS, setRamp, TRANSITIONS, setTransition, trHandles, propAt } from './model.js';
-import { $, $$, h, esc, clamp, toast } from './ui.js';
+import { $, $$, h, esc, clamp, toast, modal } from './ui.js';
 import { api, enc } from './api.js';
 import { openTemplates } from './titlesui.js';
 import { openGraphics } from './gfxui.js';
@@ -47,6 +47,7 @@ export function mountTimeline(el) {
         <button data-tool="ripple" title="Ripple Edit (B): drag a clip's end - the story after it closes up / moves along" aria-label="Ripple edit tool"><b>⇤</b></button>
         <button data-tool="rolling" title="Rolling Edit (N): drag a cut - one shot gets longer, the other shorter, nothing else moves" aria-label="Rolling edit tool"><b>⇹</b></button>
         <button data-tool="rate" title="Rate Stretch (R): drag a clip's end - its speed changes so the same shot fills the new length" aria-label="Rate stretch tool"><b>⟷</b></button>
+        <button data-tool="type" title="Type tool (T): click on the Program monitor and type - text where you click, like Premiere" aria-label="Type tool"><b>T</b></button>
         <button data-tool="pen" title="Pen (P): click on a clip to put a keyframe on its opacity (video) / volume (audio) line - higher = more" aria-label="Pen tool"><b>✒</b></button>
         <button data-tool="remix" title="Remix: drag a music clip's end to the length you need - the music is re-cut to fit, from its best part" aria-label="Remix tool"><b>♫</b></button>
       </div>
@@ -389,7 +390,10 @@ function clipHTML(track, x, i) {
     c.effects?.length || c.cutFx?.type || c.afx || c.masks?.length ? `<i class="fxb" title="Effects: ${esc([...(c.effects || []).map((e) => e.type), c.cutFx?.type, c.afx && 'audio clean-up', c.masks?.length && `${c.masks.length} mask${c.masks.length > 1 ? 's' : ''}`].filter(Boolean).join(', '))} (Effect Controls)">fx</i>` : '', c.sfx ? `<i title="Sound effect (auto)">${esc(c.sfx)}</i>` : '', c.ramp ? '<i title="Speed ramp">⤳</i>' : '', c.transform && (c.transform.zoom !== 1 || c.transform.x || c.transform.y || c.transform.rotation) ? '<i title="Transformed">◰</i>' : ''].join('');
   // (no + on the cut any more: it sat - invisible - over the left trim edge, so taking a shot's start to trim it often
   // added a transition instead. Transitions: Effects panel, Ctrl+D, right-click. A transition's box is drawn on the row.)
-  const trans = '';
+  // 🌑 a fade from / to black at an end of the clip (a one-sided Dip to Black): a box like a transition's, click to change it
+  const fdName = c.type === 'audio' ? 'Fade' : 'Dip to black', len = Math.max(0.01, x.end - x.start);
+  const fdBox = (end, d) => `<div class="fd-box ${end === 'in' ? 'l' : 'r'}" data-fade="${end}" title="${fdName} (${end === 'in' ? 'fade in' : 'fade out'}) ${(+d).toFixed(2)} s - click to change or remove" style="width:${Math.max(8, Math.min(len, +d) * S.zoom)}px"><span>${Math.min(len, +d) * S.zoom > 70 ? fdName : ''}</span></div>`;
+  const trans = (+c.fadeIn > 0 ? fdBox('in', c.fadeIn) : '') + (+c.fadeOut > 0 ? fdBox('out', c.fadeOut) : '');
   const ov = '';
   const kt = [...new Set(Object.values(c.keys || {}).flat().map((k) => +k.t.toFixed(3)))];
   const kfs = kt.length ? `<div class="kfs">${kt.map((t) => `<i style="left:${t * S.zoom}px"></i>`).join('')}</div>` : '';
@@ -400,6 +404,20 @@ function clipHTML(track, x, i) {
     <div class="clip-dur">${fmt(ve - vs)}</div>
     <div class="trim l" data-trim="l"></div><div class="trim r" data-trim="r"></div>${trans}
   </div>`;
+}
+
+// 🌑 change or remove a fade from / to black (its box at the clip's end)
+function editFade(id, end) {
+  const c = findClip(id)?.clip; if (!c) return;
+  const k = end === 'in' ? 'fadeIn' : 'fadeOut', sound = c.type === 'audio';
+  const body = h(`<div><label class="fld"><span>${sound ? 'Fade' : 'Dip to black'} - ${end === 'in' ? 'fade in at the start' : 'fade out at the end'} (seconds)</span><input type="number" data-fd min="0.05" max="10" step="0.05" value="${(+c[k] || 0.5).toFixed(2)}"></label>
+    <div class="iactions"><button class="danger" data-fdx>Remove</button><span class="grow"></span><button data-close>Cancel</button><button class="primary" data-fdok>OK</button></div></div>`);
+  const dlg = modal(sound ? 'Fade' : 'Dip to black', body, { width: 360 });
+  const inp = body.querySelector('[data-fd]'); inp.focus(); inp.select();
+  const ok = () => { const v = +inp.value; if (v > 0) { c[k] = +Math.min(10, v).toFixed(2); commit(`${end === 'in' ? 'Fade in' : 'Fade out'} ${c[k]} s`); } dlg.close(); };
+  inp.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') ok(); });
+  body.querySelector('[data-fdok]').onclick = ok;
+  body.querySelector('[data-fdx]').onclick = () => { delete c[k]; commit(`Remove ${end === 'in' ? 'fade in' : 'fade out'}`); dlg.close(); };
 }
 
 // ⧓ a transition, like Premiere's: a box ON the cut between the two shots (half over each), as long as the transition,
@@ -554,6 +572,8 @@ function onRowsDown(e) {
   if (e.button !== 0) return;
   // ⧓ an end of a transition box: drag it to make that side longer / shorter, on its own - the left end is how long
   // it runs before the cut, the right end after it (like Premiere); the cut and every shot stay put
+  const fdb = e.target.closest('[data-fade]');
+  if (fdb) { e.stopPropagation(); e.preventDefault(); editFade(fdb.closest('.clip').dataset.id, fdb.dataset.fade); return; }
   const trd = e.target.closest('[data-trdur]');
   if (trd) {
     e.stopPropagation(); e.preventDefault();
@@ -1255,6 +1275,7 @@ function onContext(e) {
     ...(c.type === 'video' || c.type === 'audio' ? [['sp0.5', 'Speed 0.5× (slow-mo)'], ['sp1', 'Speed 1×'], ['sp2', 'Speed 2×'], ...(linkedPartner(S.project, c) ? [] : [['mute', c.mute ? 'Unmute' : 'Mute']])] : []),
     ...(linkedPartner(S.project, c) ? [['unlink', '⛓ Unlink audio / video']] : c.type === 'video' && S.mediaById[c.mediaId]?.hasAudio && !c.link ? [['linkA', '🔊 Separate audio onto its own track (linked)']] : c.type === 'video' && c.link && S.mediaById[c.mediaId]?.hasAudio ? [['linkA', '🔊 Bring back its sound (linked)']] : []),
     ...(f.track === 'V1' && f.index > 0 ? ['-', ['trans', c.transitionIn && c.transitionIn.type !== 'cut' ? 'Remove transition' : 'Add cross dissolve']] : []),
+    ...(['video', 'image', 'title', 'audio'].includes(c.type) && !c.gap ? [...(f.track === 'V1' && f.index > 0 ? [] : ['-']), ['fadein', c.fadeIn ? `Remove fade in (${c.fadeIn} s)` : c.type === 'audio' ? 'Fade in' : 'Fade in from black'], ['fadeout', c.fadeOut ? `Remove fade out (${c.fadeOut} s)` : c.type === 'audio' ? 'Fade out' : 'Fade out to black']] : []),
     ...(c.mediaId ? ['-', ['replace', '🔄 Replace clip…'], ['src', 'Open in source viewer']] : []),
   ];
   const menu = h(`<div class="ctx" role="menu">${items.map((it) => (it === '-' ? '<hr>' : `<button role="menuitem" data-c="${it[0]}">${it[1]}${it[2] ? `<kbd>${it[2]}</kbd>` : ''}</button>`)).join('')}</div>`);
@@ -1282,6 +1303,7 @@ function onContext(e) {
     if (a.startsWith('sp')) { c.speed = +a.slice(2) === 1 ? undefined : +a.slice(2); commit('Speed'); }
     if (a === 'mute') { c.mute = !c.mute || undefined; commit('Mute'); }
     if (a === 'gain') openAudioGain();
+    if (a === 'fadein' || a === 'fadeout') { const k = a === 'fadein' ? 'fadeIn' : 'fadeOut'; if (c[k]) delete c[k]; else c[k] = transitionLength(); commit(c[k] ? `${a === 'fadein' ? 'Fade in' : 'Fade out'} ${c[k]} s` : `Remove ${a === 'fadein' ? 'fade in' : 'fade out'}`); }
     if (a === 'unlink') unlinkSelected();
     if (a === 'linkA') separateAudio();
     if (a === 'trans') { setTransition(S.project, S.mediaById, f.index, c.transitionIn && c.transitionIn.type !== 'cut' ? null : 'fade', 0.5); commit('Transition'); }

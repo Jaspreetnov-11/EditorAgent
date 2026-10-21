@@ -63,6 +63,26 @@ export const GFX = {
   route: { label: '🧭 Route line (journey on a map / shot)', dur: 5, def: { title: '', data: 'Raipur, 30, 60\nBilaspur, 45, 35\nAmbikapur, 62, 18', pos: 'center', theme: 'mygov' },
     fields: [{ k: 'data', label: 'Stops - one per line: Name, x %, y %', type: 'area', rows: 4, wide: true }] },
 
+  // T text written with the Type tool (Premiere's Type tool / Essential Graphics text): placed where it was clicked on
+  // the Program monitor, typed in place, styled in Effect Controls. No in / out animation (fade it with a transition).
+  text: { label: 'T Text (Type tool)', dur: 5, motion: true, common: [],
+    def: { text: 'Your text', size: 90, bold: true, italic: false, align: 'center', color: '#ffffff', stroke: false, strokeColor: '#000000', strokeW: 6,
+      shadow: true, bg: false, bgColor: '#000000', bgOpacity: 0.6, x: 50, y: 50, track: 0, lead: 1.2 },
+    fields: [{ k: 'text', label: 'Text (or type on the monitor)', type: 'area', rows: 3, wide: true },
+      { k: 'size', label: 'Font size (px at 1080)', type: 'num', min: 8, max: 600, step: 2 },
+      { k: 'bold', label: 'Bold', type: 'check' }, { k: 'italic', label: 'Italic', type: 'check' },
+      { k: 'align', label: 'Align', type: 'select', options: [['left', 'Left'], ['center', 'Centre'], ['right', 'Right']] },
+      { k: 'track', label: 'Letter spacing', type: 'range', min: -10, max: 60, step: 1, def: 0 },
+      { k: 'lead', label: 'Line spacing', type: 'range', min: 0.8, max: 2.5, step: 0.05, def: 1.2 },
+      { k: 'color', label: 'Fill', type: 'color', def: '#ffffff' },
+      { k: 'stroke', label: 'Stroke', type: 'check' }, { k: 'strokeColor', label: 'Stroke colour', type: 'color', def: '#000000' },
+      { k: 'strokeW', label: 'Stroke width', type: 'range', min: 1, max: 40, step: 1, def: 6 },
+      { k: 'shadow', label: 'Shadow', type: 'check' },
+      { k: 'bg', label: 'Background', type: 'check' }, { k: 'bgColor', label: 'Background colour', type: 'color', def: '#000000' },
+      { k: 'bgOpacity', label: 'Background opacity', type: 'range', min: 0, max: 1, step: 0.05, def: 0.6 },
+      { k: 'x', label: 'Position ↔ (% of frame)', type: 'range', min: -20, max: 120, step: 0.5, def: 50 },
+      { k: 'y', label: 'Position ↕ (% of frame)', type: 'range', min: -20, max: 120, step: 0.5, def: 50 }] },
+
   // 🎬 motion templates (Phase 19): lower thirds, kinetic text, logo reveal, end card, news strip
   lower3: { label: '🪪 Lower third (name + title)', dur: 5, motion: true, common: ['theme', 'scale'],
     def: { name: 'Shri Vishnu Deo Sai', role: 'Chief Minister, Chhattisgarh', style: 'bar', side: 'left', pos: 'lower', theme: 'mygov' },
@@ -146,7 +166,7 @@ export function drawGraphic(ctx, W, H, g, t, dur, extra = {}) {
   const th = g.theme === 'brand' ? brandTheme(g.brand) : THEMES[g.theme] || THEMES.mygov;
   FAM = `${g.font ? `"${String(g.font).replace(/"/g, '')}", ` : ''}"Nirmala UI", "Segoe UI", Arial, sans-serif`;
   ctx.clearRect(0, 0, W, H);
-  const fade = clamp((dur - t) / 0.4);
+  const fade = g.tpl === 'text' ? 1 : clamp((dur - t) / 0.4); // (Type tool text: no built-in fade, like Premiere)
   ctx.save();
   ctx.globalAlpha = fade;
   if (g.pos === 'full' && g.tpl !== 'route' && g.tpl !== 'callout') { ctx.fillStyle = th.solid || th.card.replace(/[\d.]+\)$/, '1)'); ctx.fillRect(0, 0, W, H); }
@@ -172,6 +192,24 @@ function heading(ctx, p, g, th, t) {
 }
 
 const DRAW = {
+  // T Type tool text: fill, optional stroke, shadow and a background box behind the block
+  text(ctx, W, H, g) {
+    const L = textLayout(ctx, W, H, g), pad = L.px * 0.28;
+    if (g.bg) {
+      ctx.save(); ctx.globalAlpha *= Math.min(1, Math.max(0, g.bgOpacity ?? 0.6)); ctx.fillStyle = g.bgColor || '#000000';
+      rr(ctx, L.x - pad, L.y - pad * 0.6, L.w + pad * 2, L.h + pad * 1.2, pad * 0.5); ctx.fill(); ctx.restore();
+    }
+    ctx.textBaseline = 'middle'; ctx.textAlign = g.align || 'center'; ctx.lineJoin = 'round';
+    const ax = g.align === 'left' ? L.x : g.align === 'right' ? L.x + L.w : L.cx;
+    L.lines.forEach((line, i) => {
+      const y = L.y + L.lh * (i + 0.5);
+      if (g.shadow) { ctx.shadowColor = 'rgba(0,0,0,0.65)'; ctx.shadowBlur = L.px * 0.12; ctx.shadowOffsetX = ctx.shadowOffsetY = L.px * 0.04; }
+      if (g.stroke) { ctx.strokeStyle = g.strokeColor || '#000000'; ctx.lineWidth = (+g.strokeW || 6) * L.k * 2; ctx.strokeText(line, ax, y); ctx.shadowColor = 'transparent'; }
+      ctx.fillStyle = g.color || '#ffffff'; ctx.fillText(line, ax, y);
+      ctx.shadowColor = 'transparent';
+    });
+    if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+  },
   counter(ctx, W, H, g, t, dur, th) {
     const p = panel(W, H, g, 0.42, 0.34);
     card(ctx, p, th, t);
@@ -578,6 +616,20 @@ const DRAW = {
     ctx.restore();
   },
 };
+
+// T where a Type tool text sits on a W x H frame: its lines, font, line height and box (x, y = its top-left, w, h);
+// the viewer uses it to hit-test and to put the typing box exactly over the text
+export function textLayout(ctx, W, H, g) {
+  const k = Math.min(W, H) / 1080, px = Math.max(4, (+g.size || 90) * k), lh = px * (+g.lead || 1.2);
+  const fam = `${g.font ? `"${String(g.font).replace(/"/g, '')}", ` : ''}"Nirmala UI", "Segoe UI", Arial, sans-serif`;
+  const font = `${g.italic ? 'italic ' : ''}${g.bold === false ? 400 : 700} ${Math.round(px)}px ${fam}`;
+  ctx.font = font;
+  if ('letterSpacing' in ctx) ctx.letterSpacing = `${((+g.track || 0) * px) / 100}px`;
+  const lines = String(g.text ?? '').split(/\r?\n/);
+  const widths = lines.map((l) => ctx.measureText(l || ' ').width), w = Math.max(px * 0.5, ...widths), h = lh * lines.length;
+  const cx = ((g.x ?? 50) / 100) * W, cy = ((g.y ?? 50) / 100) * H;
+  return { lines, widths, px, lh, font, k, x: cx - w / 2, y: cy - h / 2, w, h, cx, cy };
+}
 
 // fingerprint of a graphic as it will be baked (content + frame size + rate + length)
 export function gfxKey(g, W, H, fps, dur) {

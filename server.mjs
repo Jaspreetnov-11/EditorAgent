@@ -935,7 +935,7 @@ function prepareRender(name, b, o = {}) {
   const jobFile = o.jobFile || P(name, 'cache', preview ? 'render-job-preview.json' : `render-job-${safeName(out)}.json`);
   fs.mkdirSync(path.dirname(jobFile), { recursive: true });
   // segCache: shots that did not change since an earlier render are reused from cache/segments (engine/render2.mjs)
-  writeJSON(jobFile, { project: pj, media, output: P(name, 'renders', out), preview, luts: lutMap(name), export: exp, segCache: P(name, 'cache', 'segments'), gfxDir: P(name, 'cache', 'graphics'),
+  writeJSON(jobFile, { project: pj, media, output: P(name, 'renders', out), preview, fastPreview: preview && !!b.fast, luts: lutMap(name), export: exp, segCache: P(name, 'cache', 'segments'), gfxDir: P(name, 'cache', 'graphics'),
     farm: !preview && farmCfg().on ? { url: APP_URL } : null,
     subtitlesPath: pj.subtitles?.file ? P(name, 'subs', path.basename(pj.subtitles.file)) : null });
   return { jobFile, out, preview, duration: Math.max(0, ...Object.values(placed(pj, byId)).flat().map((x) => x.end)) };

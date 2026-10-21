@@ -12,7 +12,8 @@ import { api, enc } from './api.js';
 import { Grader, loadLut, cachedLut } from './colorgl.js';
 import { isNeutral } from './colormath.js';
 import { fxPreview, wordWindows, isKinetic } from './fx.js';
-import { drawGraphic } from './graphics.js';
+import { drawGraphic, textLayout } from './graphics.js';
+import { addTextAt } from './gfxui.js';
 import { effectsCss, maskedEffectsCss, grainCss } from './effects.js';
 import { maskAlpha, movedMask, unmovedMask, maskKey } from './shapemask.js';
 import { captionAt } from './captions.js';
@@ -37,7 +38,8 @@ export function mountViewer(el) {
     <span class="vw-title" id="vwTitle"></span>
     <span class="grow"></span>
     <button class="tog small" data-act="guides" title="Title/action-safe guides">Guides</button>
-    <button class="small" data-act="accurate" title="Render an exact low-res preview with FFmpeg">Accurate preview</button>
+    <select class="small vw-pq" data-pq title="Accurate preview quality: 1080p from the camera files (sharp), or Fast 720p from the small proxy copies (much quicker - for checking timing)"><option value="hq">1080p</option><option value="fast">⚡ Fast 720p</option></select>
+    <button class="small" data-act="accurate" title="Render the exact result with FFmpeg (quality: the choice next to it)">Accurate preview</button>
   </div>
   <div class="vw-stage" id="vwStage">
     <div class="vw-frame" id="vwFrame">
@@ -110,6 +112,7 @@ export function mountViewer(el) {
     window.addEventListener('pointermove', go); window.addEventListener('pointerup', up);
   });
   new ResizeObserver(sizeFrame).observe($('#vwStage', el));
+  { const pq = $('[data-pq]', el); try { pq.value = localStorage.getItem('ve-preview-q') === 'fast' ? 'fast' : 'hq'; } catch {} pq.onchange = () => { try { localStorage.setItem('ve-preview-q', pq.value); } catch {} }; }
   // ⏱ Program monitor's time ruler (like Premiere's): timecodes along the whole edit; drag anywhere on it to scrub
   const vr = $('#vwRuler', el);
   vr.addEventListener('pointerdown', (e) => {
@@ -123,6 +126,7 @@ export function mountViewer(el) {
   new ResizeObserver(drawRuler).observe(vr);
   on('change', drawRuler);
   bindDirectMove();
+  bindTypeTool();
   els.lyA.addEventListener('timeupdate', () => { if (mode === 'source') { srcUI(); } });
   els.lyA.addEventListener('ended', () => { if (mode === 'source') setPlayingUI(false); });
 
@@ -452,6 +456,7 @@ function textStyle(el, c, st, t, start, end, overlay) {
 // Exact grade (same maths as the renderer) drawn by WebGL over the media element, which is kept but made invisible.
 function gradeLayer(src, c, opacity) {
   const col = c.color;
+  src._gradeHidden = false;
   if (!grader || isNeutral(col)) { src.style.visibility = ''; return; }
   if (col.lut && grader.lutName !== col.lut) {
     const cube = cachedLut(col.lut);
@@ -464,11 +469,11 @@ function gradeLayer(src, c, opacity) {
   if (cv.width !== Math.round(w * k)) { cv.width = Math.round(w * k); cv.height = Math.round(hh * k); }
   grader.setSource(src); grader.setGrade(col);
   if (!grader.draw()) return;
-  cv.hidden = false;
+  cv.hidden = false; cv.style.visibility = ''; // (a mirror / green screen canvas may have hidden it last frame)
   cv.style.objectFit = src.style.objectFit; cv.style.objectPosition = src.style.objectPosition;
   cv.style.transform = src.style.transform; cv.style.opacity = opacity; cv.style.filter = src._fxFilter || ''; cv.style.clipPath = src.style.clipPath;
   cv.style.maskImage = cv.style.webkitMaskImage = src.style.maskImage; cv.style.maskSize = cv.style.webkitMaskSize = '100% 100%';
-  src.style.visibility = 'hidden';
+  src.style.visibility = 'hidden'; src._gradeHidden = true;
 }
 
 // One element per active overlay clip (video / image / title), reused by clip id, stacked in track order.
@@ -510,6 +515,131 @@ function placeRuler(t) {
   const ph = root && $('#vwRuler .vr-ph', root); if (!ph) return;
   ph.style.left = `${clamp(t / Math.max(1, duration()), 0, 1) * 100}%`;
 }
+
+// T ---------------- the Type tool: write straight on the Program monitor (like Premiere) ----------------
+// Type tool (T): click on the picture -> a new text there, typed in place; click an existing text -> type in it.
+// Selection tool: drag a text to move it, double-click it to type. The words, font and look are in Effect Controls.
+let typing = null; // { id, box } while a text is being typed
+const measureCtx = typeof document !== 'undefined' ? document.createElement('canvas').getContext('2d') : null;
+const frameDims = () => ASPECTS[S.project.settings.aspect] || [1920, 1080];
+function textsAt(t = S.playhead) { // Type tool texts on screen now, the top one first
+  const L = layout(), out = [];
+  for (const id of overlayTracks(S.project).reverse()) {
+    if (S.project.trackState[id]?.hide) continue;
+    for (const x of L[id] || []) if (x.clip.type === 'graphic' && x.clip.gfx?.tpl === 'text' && t >= x.start && t < x.end && !x.clip.disabled) out.push(x.clip);
+  }
+  return out;
+}
+function textHit(e) { // the text under the mouse (frame px -> project frame px)
+  const r = frame.getBoundingClientRect(), [FW, FH] = frameDims(), px = ((e.clientX - r.left) / r.width) * FW, py = ((e.clientY - r.top) / r.height) * FH;
+  return { c: textsAt().find((c) => { const b = textLayout(measureCtx, FW, FH, c.gfx); const m = b.px * 0.3; return px >= b.x - m && px <= b.x + b.w + m && py >= b.y - m && py <= b.y + b.h + m; }), fx: px / FW, fy: py / FH };
+}
+function placeTyping() {
+  if (!typing) return;
+  const c = findClipAny(typing.id); if (!c) return endTyping(false);
+  const [FW, FH] = frameDims(), r = frame.getBoundingClientRect(), k = r.width / FW, g = c.gfx, b = textLayout(measureCtx, FW, FH, { ...g, text: typing.box.value || ' ' });
+  Object.assign(typing.box.style, { left: `${b.x * k - 4}px`, top: `${b.y * k}px`, width: `${Math.max(40, b.w * k + 12)}px`, height: `${b.h * k + 4}px`,
+    font: b.font.replace(/(\d+(?:\.\d+)?)px/, `${(b.px * k).toFixed(2)}px`), lineHeight: `${b.lh * k}px`, color: g.color || '#fff', textAlign: g.align || 'center',
+    letterSpacing: `${((+g.track || 0) * b.px * k) / 100}px`, webkitTextStroke: g.stroke ? `${Math.max(0.5, (+g.strokeW || 6) * b.k * k)}px ${g.strokeColor || '#000'}` : '',
+    textShadow: g.shadow ? '0 0 6px rgba(0,0,0,.7)' : '', background: g.bg ? `${g.bgColor || '#000'}${Math.round((g.bgOpacity ?? 0.6) * 255).toString(16).padStart(2, '0')}` : 'transparent' });
+}
+const findClipAny = (id) => Object.values(S.project.tracks).flat().find((c) => c.id === id);
+function startTyping(c, isNew = false) {
+  endTyping(true);
+  pause();
+  const box = document.createElement('textarea');
+  box.className = 'type-box'; box.spellcheck = false; box.value = c.gfx.text || '';
+  frame.append(box);
+  typing = { id: c.id, box, isNew };
+  S.sel = new Set([c.id]); emit('select');
+  placeTyping(); drawProgram(S.playhead, false);
+  box.focus(); box.select();
+  box.addEventListener('input', () => { const cl = findClipAny(c.id); if (!cl) return; cl.gfx.text = box.value; placeTyping(); emit('live'); });
+  box.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape') { e.preventDefault(); endTyping(true); } });
+  box.addEventListener('pointerdown', (e) => e.stopPropagation());
+  box.addEventListener('blur', () => setTimeout(() => { if (typing?.box === box) endTyping(true); }, 0));
+}
+function endTyping(keep) {
+  if (!typing) return;
+  const { id, box, isNew } = typing; typing = null; box.remove();
+  const c = findClipAny(id);
+  if (c && !String(c.gfx.text || '').trim()) { // nothing typed: no empty text left behind
+    for (const l of Object.values(S.project.tracks)) { const i = l.indexOf(c); if (i >= 0) l.splice(i, 1); }
+    S.sel.clear(); emit('select');
+    if (!isNew) commit('Delete empty text');
+  } else if (c && keep) commit(isNew ? 'Type tool: new text' : 'Type text', `type:${id}`);
+  drawProgram(S.playhead, false);
+}
+function bindTypeTool() {
+  // capture: before the drag-to-move of shots, so a text on top of a shot is the one taken
+  frame.addEventListener('pointerdown', (e) => {
+    if (mode !== 'program' || e.button !== 0 || e.target.closest('.type-box, .maskui .mk-shape, .maskui .mk-h')) return;
+    const hit = textHit(e);
+    if (S.tool === 'type') {
+      e.preventDefault(); e.stopPropagation();
+      if (hit.c) return startTyping(hit.c);
+      return startTyping(addTextAt(hit.fx * 100, hit.fy * 100), true);
+    }
+    if (!hit.c) return;
+    // selection tool on a text: select it and drag it about (its position in % of the frame)
+    e.preventDefault(); e.stopPropagation();
+    const c = hit.c, r = frame.getBoundingClientRect(), x0 = +c.gfx.x || 50, y0 = +c.gfx.y || 50;
+    if (!S.sel.has(c.id)) { S.sel = new Set([c.id]); emit('select'); }
+    let moved = false;
+    const mv = (ev) => { c.gfx.x = +clamp(x0 + ((ev.clientX - e.clientX) / r.width) * 100, -20, 120).toFixed(2); c.gfx.y = +clamp(y0 + ((ev.clientY - e.clientY) / r.height) * 100, -20, 120).toFixed(2); moved = true; drawProgram(S.playhead, false); };
+    const up = () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); if (moved) commit('Move text', `move-text:${c.id}`); };
+    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+  }, true);
+  frame.addEventListener('dblclick', (e) => { const hit = textHit(e); if (hit.c) { e.preventDefault(); startTyping(hit.c); } });
+  frame.addEventListener('pointermove', (e) => { if (e.buttons) return; frame.classList.toggle('type-cursor', S.tool === 'type'); frame.classList.toggle('over-text', S.tool !== 'type' && !!textHit(e).c); });
+  new ResizeObserver(() => placeTyping()).observe(frame);
+}
+export const editTextClip = (id) => { const c = findClipAny(id); if (c?.gfx?.tpl === 'text') startTyping(c); };
+
+// ✦ ---------------- effects CSS cannot do: drawn into a canvas each frame ----------------
+// Mirror (left half + its reflection) and Green screen (the key colour made see-through). The shot's own element keeps
+// playing but is hidden; the canvas beside it takes its place, size, Motion and filters. Exact: Accurate preview / render.
+const pixCanvas = new WeakMap(); // picture element -> its canvas
+const hexRgb = (hx) => { const v = parseInt(String(hx || '#00ff00').replace('#', '').padEnd(6, '0').slice(0, 6), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; };
+function pixFx(el, c, after = el) {
+  const fx = (c.effects || []).filter((e) => e.on !== false && !e.mask?.shape && (e.type === 'mirror' || e.type === 'chromakey'));
+  let cv = pixCanvas.get(el);
+  if (!fx.length || el.hidden) { if (cv) cv.hidden = true; el.style.visibility = el._gradeHidden ? 'hidden' : ''; return null; }
+  if (!cv) { cv = document.createElement('canvas'); cv.className = 'lyr pixfx'; pixCanvas.set(el, cv); }
+  if (cv.previousSibling !== after) after.after(cv);
+  // the source: the shot, or its exact colour layer when that is showing
+  const src = el._gradeHidden && !els.lyGrade.hidden ? els.lyGrade : el;
+  const sw = src.videoWidth || src.naturalWidth || src.width, sh = src.videoHeight || src.naturalHeight || src.height;
+  if (!sw || !sh) return cv;
+  const key = fx.find((e) => e.type === 'chromakey'), W = Math.min(key ? 640 : 1280, Math.round((frame?.clientWidth || 640) * Math.min(2, devicePixelRatio || 1))), [FW, FH] = ASPECTS[S.project.settings.aspect] || [16, 9], H = Math.round((W * FH) / FW);
+  if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+  const g = cv.getContext('2d', { willReadFrequently: !!key });
+  g.clearRect(0, 0, W, H);
+  // object-fit (contain / cover) and object-position, like the element
+  const cover = getComputedStyle(src).objectFit === 'cover', s = cover ? Math.max(W / sw, H / sh) : Math.min(W / sw, H / sh);
+  const pos = (src.style.objectPosition || '50% 50%').split(' ').map((p) => (parseFloat(p) || 50) / 100);
+  const dw = sw * s, dh = sh * s;
+  g.drawImage(src, (W - dw) * pos[0], (H - dh) * (pos[1] ?? 0.5), dw, dh);
+  for (const e of fx) {
+    if (e.type === 'mirror') { g.save(); g.translate(W, 0); g.scale(-1, 1); g.drawImage(cv, 0, 0, W / 2, H, 0, 0, W / 2, H); g.restore(); }
+    if (e.type === 'chromakey') {
+      const [kr, kg, kb] = hexRgb(e.p?.color), sim = +(e.p?.similarity ?? 0.15), bl = Math.max(0.001, +(e.p?.blend ?? 0.05));
+      const im = g.getImageData(0, 0, W, H), d = im.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const dist = Math.sqrt((d[i] - kr) ** 2 + (d[i + 1] - kg) ** 2 + (d[i + 2] - kb) ** 2) / 441.7;
+        if (dist < sim) d[i + 3] = 0; else if (dist < sim + bl) d[i + 3] = Math.round(d[i + 3] * ((dist - sim) / bl));
+      }
+      g.putImageData(im, 0, 0);
+    }
+  }
+  cv.hidden = false;
+  for (const k of ['transform', 'opacity', 'clipPath', 'maskImage', 'webkitMaskImage', 'maskSize', 'webkitMaskSize', 'mixBlendMode']) cv.style[k] = src.style[k] || el.style[k];
+  cv.style.filter = src === el ? el.style.filter : src.style.filter;
+  src.style.visibility = 'hidden';
+  return cv;
+}
+// a clip's own fade from / to black (one-sided Dip to Black), as a factor on its opacity
+const fadeK = (c, rel, len) => Math.min(+c.fadeIn > 0 ? clamp(rel / c.fadeIn, 0, 1) : 1, +c.fadeOut > 0 ? clamp((len - rel) / c.fadeOut, 0, 1) : 1);
 
 // ◯ ---------------- masks (public/js/shapemask.js) ----------------
 // A mask as a small picture for CSS mask-image (kept per mask: drawing one costs a few ms)
@@ -675,7 +805,9 @@ function drawOverlays(t, isPlay) {
         const cw = Math.max(2, Math.round((frame?.clientWidth || 640) * Math.min(2, devicePixelRatio || 1))), ch = Math.round((cw * FH) / FW);
         if (el.width !== cw || el.height !== ch) { el.width = cw; el.height = ch; }
         const ctx = el.getContext('2d'); ctx.setTransform(cw / FW, 0, 0, ch / FH, 0, 0);
-        drawGraphic(ctx, FW, FH, c.gfx || {}, rel, x.end - x.start);
+        if (typing?.id === c.id) ctx.clearRect(0, 0, FW, FH); // (being typed: the typing box shows it)
+        else drawGraphic(ctx, FW, FH, c.gfx || {}, rel, x.end - x.start);
+        el.style.opacity = String(fadeK(c, rel, x.end - x.start));
         live.add(c.id); order.push(el); el.hidden = false; el.style.pointerEvents = 'none';
         continue;
       }
@@ -689,15 +821,16 @@ function drawOverlays(t, isPlay) {
       if (c.type === 'title') { textStyle(el, c, null, t, x.start, x.end, true); continue; }
       const lk = look(c, rel);
       fitStyle(el, c, rel);
-      el.style.opacity = propAt(c, 'opacity', rel); el.style.transform = lk.transform; el.style.filter = lk.filter; el.style.clipPath = lk.clip || ''; setMask(el, c.omask);
+      el.style.opacity = propAt(c, 'opacity', rel) * fadeK(c, rel, x.end - x.start); el.style.transform = lk.transform; el.style.filter = lk.filter; el.style.clipPath = lk.clip || ''; setMask(el, c.omask);
       if (c.type === 'image') { if (el.dataset.src !== m.urls.play) { el.src = m.urls.play; el.dataset.src = m.urls.play; } }
       else syncVideo(el, m, c, x.start, t, isPlay, c.volume ?? 0, id);
-      below.push(el);
+      const pc = pixFx(el, c); if (pc) order.push(pc); // (mirror / green screen: its canvas stacks right above it)
+      below.push(pc || el);
     }
   }
   // stacking order = track order
   order.forEach((el, i) => { if (stack.children[i] !== el) stack.insertBefore(el, stack.children[i] || null); });
-  for (const [id, sl] of ovSlots) if (!live.has(id)) { sl.el.hidden = true; if (sl.el.tagName === 'VIDEO') sl.el.pause(); if (!findAny(id)) { sl.el.remove(); ovSlots.delete(id); } }
+  for (const [id, sl] of ovSlots) if (!live.has(id)) { sl.el.hidden = true; const pc = pixCanvas.get(sl.el); if (pc) pc.hidden = true; if (sl.el.tagName === 'VIDEO') sl.el.pause(); if (!findAny(id)) { sl.el.remove(); pc?.remove(); ovSlots.delete(id); } }
 }
 
 // 🛡 a clip the viewer cannot draw (missing file, odd data) is skipped - the editor keeps working; the error is logged once
@@ -730,7 +863,7 @@ function drawProgramNow(t, isPlay) {
   let blurSet = false;
   const drawV1 = (x, opacity) => {
     const c = x.clip, m = S.mediaById[c.mediaId];
-    opacity = String(+opacity * propAt(c, 'opacity', t - x.start)); // the clip's own (keyframed) opacity over black
+    opacity = String(+opacity * propAt(c, 'opacity', t - x.start) * fadeK(c, t - x.start, x.end - x.start)); // its own (keyframed) opacity and fades, over black
     if (c.type === 'title') {
       els.lyCard.hidden = false; els.lyCard.style.background = c.bg || '#0b2545'; els.lyCard.style.opacity = opacity;
       els.lyCard.innerHTML = `<span style="color:${esc(c.textColor || '#fff')};font-size:${c.size ? (c.size / 1080) * 100 : 6}cqh${c.accent ? `;border-bottom:.12em solid ${esc(c.accent)};padding-bottom:.3em` : ''}">${esc(c.text || '')}</span>${c.tricolour ? '<i class="tri card"></i>' : ''}`;
@@ -745,6 +878,7 @@ function drawProgramNow(t, isPlay) {
       fitStyle(img, kb ? { ...c, fit: 'fill' } : c, t - x.start);
       img.style.transform = `${lk.transform} scale(${z})`; img.style.filter = lk.filter; img.style.opacity = opacity; img.style.clipPath = lk.clip || ''; img._fxFilter = lk.fxFilter; setMask(img, c.omask);
       gradeLayer(img, c, opacity);
+      pixFx(img, c, els.lyGrade.hidden ? img : els.lyGrade);
       return;
     }
     if (!m.playable) { showMsg(proxyMsg(m), m.urls.thumb); return; }
@@ -760,6 +894,7 @@ function drawProgramNow(t, isPlay) {
       syncVideo(v, m, c, x.start, t, isPlay, pa.a.mute || !trackAudible(pa.id) ? 0 : propAt(pa.a, 'volume', rel) * fade, pa.id);
     } else syncVideo(v, m, c, x.start, t, isPlay, v1vol(c, t - x.start));
     gradeLayer(v, c, opacity);
+    pixFx(v, c, els.lyGrade.hidden ? v : els.lyGrade);
   };
   els.lyCard.hidden = true; els.lyImg.hidden = true; els.lyBlur.hidden = true; els.lyGrade.hidden = true;
   if (prev) drawV1(prev, 1);
@@ -771,6 +906,7 @@ function drawProgramNow(t, isPlay) {
   // the one before stays up under it instead of black, until the new one has a picture
   const loading = [...used].some((s) => s.readyState < 2 || s.seeking);
   for (const s of slots) if (!used.has(s)) { s.pause(); if (!(loading && !s.hidden && s.readyState >= 2)) s.hidden = true; }
+  for (const s of [...slots, els.lyImg]) if (s.hidden && pixCanvas.get(s)) pixCanvas.get(s).hidden = true;
   if (!cur && !act.length && L.V1.length && t < duration()) { /* gap after V1: black */ }
   // V1 clip text (lower third)
   const tx = cur?.clip;

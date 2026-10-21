@@ -342,7 +342,9 @@ async function render(preview, job = null) {
   $('#dvBar', root).style.width = '3%';
   emit('job', { running: true, label: preview ? 'Preview' : 'Rendering' });
   try {
-    const started = await api('POST', `/api/render?p=${enc(S.proj)}`, preview ? { preview, seq: S.seqMap?.mine } : { seq: S.seqMap?.mine, ...job, filename: job.filename || $('#dvName', root).value.trim() });
+    // ⚡ the Accurate preview's quality, chosen next to its button on the monitor: 1080p (camera files) or Fast 720p (proxies)
+    let fast = false; try { fast = localStorage.getItem('ve-preview-q') === 'fast'; } catch {}
+    const started = await api('POST', `/api/render?p=${enc(S.proj)}`, preview ? { preview, fast, seq: S.seqMap?.mine } : { seq: S.seqMap?.mine, ...job, filename: job.filename || $('#dvName', root).value.trim() });
     const clock = progressClock();
     const j = await watchJob(started.id, (j) => {
       $('#dvBar', root).style.width = `${Math.max(3, j.progress)}%`;

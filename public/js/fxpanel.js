@@ -64,12 +64,22 @@ function draw() {
 }
 
 // Apply one effect to a clip. Returns a short message, or null when it does not fit that clip.
-export function applyFx(fx, clipId) {
+// side: 'in' / 'out' - which end of the clip a dropped transition went on (null: work it out)
+export function applyFx(fx, clipId, side = null) {
   const f = findClip(clipId), c = f?.clip; if (!c) return null;
   const visual = c.type === 'video' || c.type === 'image' || c.type === 'title';
   if (fx.kind === 'transition') {
-    if (f.track !== 'V1') return 'Transitions go between shots on V1';
-    if (f.index === 0) return 'The first shot has no cut before it';
+    // 🌑 at an end with no shot next to it (start / end of the story, beside a gap, any clip on V2+ or an audio track) a
+    // transition is a fade from / to black, like Premiere's one-sided Dip to Black (a sound clip: fade in / out)
+    const V1 = S.project.tracks.V1, alone = (i) => !V1[i] || V1[i].gap;
+    const fade = (end) => {
+      if (!visual && c.type !== 'audio') return null;
+      c[end === 'in' ? 'fadeIn' : 'fadeOut'] = trDur;
+      return `${visual ? (end === 'in' ? 'Fade in from black' : 'Fade out to black') : end === 'in' ? 'Sound fades in' : 'Sound fades out'} (${trDur} s)`;
+    };
+    if (f.track !== 'V1') return fade(side || 'in');
+    if (side === 'out') return alone(f.index + 1) ? fade('out') : null;
+    if (f.index === 0 || alone(f.index - 1)) return fade('in');
     if (!setTransition(S.project, S.mediaById, f.index, fx.type, trDur)) return 'Neither shot has frames to spare beyond its ends for a transition';
     return `${TRANSITIONS.find(([k]) => k === fx.type)?.[1]} on the cut`;
   }
@@ -110,12 +120,14 @@ function showInEC(fx) { if (EC_SECTION[fx.kind]) emit('inspect', EC_SECTION[fx.k
 export const transitionLength = () => trDur;
 // timeline drop: a transition dropped near a clip's start goes on that cut, near its end on the next cut
 export function dropFx(fx, clipId, relX) {
-  let id = clipId;
+  let id = clipId, side = null;
   if (fx.kind === 'transition') {
     const f = findClip(clipId);
-    if (f?.track === 'V1' && relX > 0.5) { const nx = S.project.tracks.V1[f.index + 1]; if (nx) id = nx.id; }
+    side = relX > 0.5 ? 'out' : 'in';
+    // the right half of a V1 shot: the cut into the next shot (or, at the end of the story, a fade out)
+    if (f?.track === 'V1' && side === 'out') { const nx = S.project.tracks.V1[f.index + 1]; if (nx && !nx.gap) { id = nx.id; side = null; } }
   }
-  const msg = applyFx(fx, id);
+  const msg = applyFx(fx, id, side);
   if (!msg) return toast('That effect does not fit this clip', 'err');
   S.sel = new Set([id]);
   commit(`Apply ${fx.type}`); emit('select'); showInEC(fx);

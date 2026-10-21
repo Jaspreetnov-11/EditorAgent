@@ -33,7 +33,9 @@ const [FW, FH] = ASPECTS[EX.aspect || S.aspect] || ASPECTS['16:9'];
 const reframed = !!EX.aspect && EX.aspect !== S.aspect;
 // EX.res = an exact output size chosen on Deliver (4K renders at 2160 even from a 1080 edit); EX.short = a preset's ceiling
 // (the Accurate preview is 1080p - it used to be 37.5% size from the small proxies, too soft to judge the picture)
-const scale = job.preview ? Math.min(1, 1080 / Math.min(FW, FH)) : EX.res ? EX.res / Math.min(FW, FH) : Math.min(1, (EX.short || Infinity) / Math.min(FW, FH));
+// ⚡ Fast preview (chosen on the monitor): 720p from the small proxy copies, quick to encode - for checking timing, not the picture
+const FAST = !!(job.preview && job.fastPreview);
+const scale = job.preview ? Math.min(1, (FAST ? 720 : 1080) / Math.min(FW, FH)) : EX.res ? EX.res / Math.min(FW, FH) : Math.min(1, (EX.short || Infinity) / Math.min(FW, FH));
 const even = (x) => Math.max(2, Math.round(x / 2) * 2);
 const W = even(FW * scale), H = even(FH * scale), F = job.preview ? Math.min(30, S.fps || 30) : EX.fpsOut || Math.min(EX.fps || Infinity, S.fps || 30);
 const DEVA = /[\u0900-\u097F]/;
@@ -52,9 +54,9 @@ const FF7 = path.join(HERE, '..', 'tools', 'ffmpeg-7.1.1-essentials_build', 'bin
 const NV = job.preview || EX.gpu === false || job.gpu === false ? null : [fs.existsSync(FF7) ? FF7 : null, 'ffmpeg'].filter(Boolean).find((b) =>
   spawnSync(b, ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=s=256x256:d=0.2', '-c:v', 'h264_nvenc', '-f', 'null', '-'], { windowsHide: true }).status === 0) || null;
 // shot pieces stay on the CPU: they are small, and on the GPU they measured slower (the decode is the slow part)
-const SEG_ENC = job.preview ? ENC(20, 'veryfast') : ENC(16, 'veryfast');
+const SEG_ENC = job.preview ? (FAST ? ENC(26, 'ultrafast') : ENC(20, 'veryfast')) : ENC(16, 'veryfast');
 // shots rendered side by side (each FFmpeg already uses several cores; camera files come from a slow drive)
-const PAR = Math.max(1, +job.parallel || 3); // (the preview too: it reads the camera files now)
+const PAR = Math.max(1, +job.parallel || (FAST ? 4 : 3)); // (a 1080p preview reads the camera files too)
 
 const die = (m) => { console.error(`render: ${m}`); process.exit(1); };
 const wd = fs.mkdtempSync(path.join(os.tmpdir(), 'vedit2-'));
@@ -92,7 +94,7 @@ const short = (f) => (path.dirname(path.resolve(f)) === path.resolve(wd) ? path.
 // preview renders read the small proxy copy (cache/proxies/<id>.mp4) instead of the camera file when there is one
 // (not any more: a 1080p preview needs the camera files - the proxies are small, and made it soft)
 const proxyOf = (id) => {
-  if (!job.preview || !job.segCache || !id || job.useProxies !== true) return null;
+  if (!job.preview || !job.segCache || !id || !(FAST || job.useProxies === true)) return null;
   const f = path.resolve(path.dirname(job.segCache), 'proxies', `${id}.mp4`);
   return fs.existsSync(f) ? f : null;
 };
@@ -768,7 +770,7 @@ let finalEnc, cpuEnc;
 if (!job.preview && EX.codec === 'prores') {
   finalEnc = ['-c:v', 'prores_ks', '-profile:v', '3', '-vendor', 'apl0', '-pix_fmt', 'yuv422p10le', '-r', String(F), '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2'];
 } else {
-  finalEnc = ENC(job.preview ? 21 : EX.crf ?? S.crf ?? 20, job.preview ? 'veryfast' : 'medium');
+  finalEnc = ENC(job.preview ? (FAST ? 27 : 21) : EX.crf ?? S.crf ?? 20, job.preview ? (FAST ? 'ultrafast' : 'veryfast') : 'medium');
   if (!job.preview && EX.codec === 'hevc') {
     // H.265: about half the size of H.264 at the same quality; hvc1 tag so Apple devices / QuickTime play it
     const i = finalEnc.indexOf('libx264'); finalEnc.splice(i, 1, 'libx265'); finalEnc.push('-tag:v', 'hvc1', '-x265-params', 'log-level=error');
