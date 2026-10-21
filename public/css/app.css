@@ -154,6 +154,16 @@ video.lyr, img.lyr { object-fit: contain; transform-origin: center; }
 .th-ruler { height: 28px; border-bottom: 1px solid var(--line); }
 .th { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0 4px; padding: 0 6px; border-bottom: 1px solid var(--line); align-content: center; }
 .th { position: relative; }
+/* ✒ the opacity / volume line on a clip (Pen tool, or once it has keyframes) and its keyframes */
+.clip .band { position: absolute; left: 0; right: 0; top: 15px; bottom: 0; width: 100%; height: calc(100% - 15px); pointer-events: none; z-index: 1; }
+.clip .band polyline { fill: none; stroke: #ffe066; stroke-width: 1.5; }
+.clip .band-k { position: absolute; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; background: #ffe066; transform: rotate(45deg); pointer-events: none; z-index: 2; }
+/* tools' cursors on the clips (like Premiere) */
+.timeline[data-tool="pen"] .clip { cursor: crosshair; }
+.timeline[data-tool="rolling"] .trim { cursor: col-resize; }
+.timeline[data-tool="rate"] .trim { cursor: ew-resize; }
+.timeline[data-tool="ripple"] .trim.l { cursor: w-resize; } .timeline[data-tool="ripple"] .trim.r { cursor: e-resize; }
+.timeline[data-tool="remix"] .tl-row.audio .trim { cursor: ew-resize; }
 /* a transition dragged onto a cut: where it would sit (Premiere's drop box) */
 .tl-fxzone { position: absolute; z-index: 6; pointer-events: none; border: 2px solid var(--accent); border-radius: 4px; background: repeating-linear-gradient(135deg, #ff993355 0 6px, #ff993322 6px 12px); box-shadow: 0 0 12px -2px var(--accent); }
 .th-resize { position: absolute; left: 0; right: 0; bottom: -3px; height: 7px; cursor: ns-resize; z-index: 3; }

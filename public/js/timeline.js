@@ -8,8 +8,9 @@ import { fusionFromClip, rotoFromClip } from './fusionpage.js';
 import { seqList } from './model.js';
 import { sharedSeqId } from './store.js';
 import { copyClips, pasteClips, clipboard } from './clipboard.js';
-import { clipDur, uid, fmtTC, fmt, trackList, trackKind, addTrack, syncLinked, linkAudioOf, linkedPartner, freeAudioTrack, RAMPS, setRamp, TRANSITIONS, setTransition, trHandles } from './model.js';
+import { clipDur, uid, fmtTC, fmt, trackList, trackKind, addTrack, syncLinked, linkAudioOf, linkedPartner, freeAudioTrack, RAMPS, setRamp, TRANSITIONS, setTransition, trHandles, propAt } from './model.js';
 import { $, $$, h, esc, clamp, toast } from './ui.js';
+import { api, enc } from './api.js';
 import { openTemplates } from './titlesui.js';
 import { openGraphics } from './gfxui.js';
 import { GFX } from './graphics.js';
@@ -41,7 +42,12 @@ export function mountTimeline(el) {
     <div class="tl-tools" role="toolbar" aria-label="Tools">
       <div class="segbtns" role="radiogroup" aria-label="Tool">
         <button data-tool="select" title="Select / move (V)" aria-label="Select tool">${ICON.pointer}</button>
-        <button data-tool="blade" title="Blade - click a clip to cut it (B)" aria-label="Blade tool">${ICON.blade}</button>
+        <button data-tool="blade" title="Razor - click a clip to cut it (C)" aria-label="Razor tool">${ICON.blade}</button>
+        <button data-tool="ripple" title="Ripple Edit (B): drag a clip's end - the story after it closes up / moves along" aria-label="Ripple edit tool"><b>⇤</b></button>
+        <button data-tool="rolling" title="Rolling Edit (N): drag a cut - one shot gets longer, the other shorter, nothing else moves" aria-label="Rolling edit tool"><b>⇹</b></button>
+        <button data-tool="rate" title="Rate Stretch (R): drag a clip's end - its speed changes so the same shot fills the new length" aria-label="Rate stretch tool"><b>⟷</b></button>
+        <button data-tool="pen" title="Pen (P): click on a clip to put a keyframe on its opacity (video) / volume (audio) line - higher = more" aria-label="Pen tool"><b>✒</b></button>
+        <button data-tool="remix" title="Remix: drag a music clip's end to the length you need - the music is re-cut to fit, from its best part" aria-label="Remix tool"><b>♫</b></button>
       </div>
       <span class="sep"></span>
       <button data-act="split" title="Split clips under the playhead (S)">${ICON.split}<span>Split</span></button>
@@ -162,7 +168,7 @@ export function mountTimeline(el) {
   render();
 }
 
-export function setTool(t) { S.tool = t; syncBar(); root.classList.toggle('blade', t === 'blade'); }
+export function setTool(t) { S.tool = t; syncBar(); root.classList.toggle('blade', t === 'blade'); root.dataset.tool = t; render(); }
 function syncBar() {
   $$('[data-tool]', root).forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tool === S.tool)));
   const sn = $('#tlSeqName', root); if (sn && S.project) sn.textContent = seqName(); // 🎞 the open sequence
@@ -236,6 +242,8 @@ function render() {
   const ts = S.project.trackState;
 
   const TR = trackList(S.project);
+  // a track the list shows always exists in the project (an older project has no V3 yet: dropping on it must work)
+  for (const t of TR) { S.project.tracks[t.id] ||= []; ts[t.id] ||= { mute: false, hide: false, lock: false, volume: 1 }; }
   drawHeads(TR, ts);
   const many = Object.values(L).reduce((n, l) => n + l.length, 0) > VIRTUAL_AT, vw = scroller.clientWidth || 1200;
   drawn = many ? { a: Math.max(0, scroller.scrollLeft - vw), b: scroller.scrollLeft + vw * 2 } : null;
@@ -368,14 +376,15 @@ function clipHTML(track, x, i) {
     c.mute && !(c.link && c.type === 'video') ? '<i title="Muted">M</i>' : '',
     // fx (like Premiere): the clip has effects - video effects, a cut effect, audio clean-up or masks
     c.effects?.length || c.cutFx?.type || c.afx || c.masks?.length ? `<i class="fxb" title="Effects: ${esc([...(c.effects || []).map((e) => e.type), c.cutFx?.type, c.afx && 'audio clean-up', c.masks?.length && `${c.masks.length} mask${c.masks.length > 1 ? 's' : ''}`].filter(Boolean).join(', '))} (Effect Controls)">fx</i>` : '', c.sfx ? `<i title="Sound effect (auto)">${esc(c.sfx)}</i>` : '', c.ramp ? '<i title="Speed ramp">⤳</i>' : '', c.transform && (c.transform.zoom !== 1 || c.transform.x || c.transform.y || c.transform.rotation) ? '<i title="Transformed">◰</i>' : ''].join('');
-  // without a transition: a small + on the cut (on hover); with one, its box is drawn on the row (transHTML)
-  const trans = track === 'V1' && i > 0 && !x.overlap ? `<button class="tr-btn" data-trans="${c.id}" title="Add transition" style="left:${-Math.min(10, w / 2)}px">+</button>` : '';
+  // (no + on the cut any more: it sat - invisible - over the left trim edge, so taking a shot's start to trim it often
+  // added a transition instead. Transitions: Effects panel, Ctrl+D, right-click. A transition's box is drawn on the row.)
+  const trans = '';
   const ov = '';
   const kt = [...new Set(Object.values(c.keys || {}).flat().map((k) => +k.t.toFixed(3)))];
   const kfs = kt.length ? `<div class="kfs">${kt.map((t) => `<i style="left:${t * S.zoom}px"></i>`).join('')}</div>` : '';
   return `<div class="clip t-${c.type}${kind}${S.sel.has(c.id) ? ' sel' : ''}${missing ? ' missing' : ''}${c.disabled ? ' off' : ''}" data-id="${c.id}" data-track="${track}"
     style="left:${vs * S.zoom}px;width:${w}px" title="${esc(mName(c))} · ${fmt(ve - vs)}${c.color && Object.keys(c.color).length ? ' · colour graded' : ''}${c.speed && c.speed !== 1 ? ` · ${c.speed}×` : ''}${c.ramp ? ' · speed ramp' : ''}${c.mute ? ' · muted' : ''}">
-    <div class="clip-bg" style="${bg}"></div>${ov}${kfs}
+    <div class="clip-bg" style="${bg}"></div>${ov}${kfs}${bandHTML(c, track, x.end - x.start)}
     <div class="clip-lbl"><span class="nm">${missing ? '⚠ ' : ''}${esc(mName(c))}</span><span class="bd">${badges}</span></div>
     <div class="clip-dur">${fmt(ve - vs)}</div>
     <div class="trim l" data-trim="l"></div><div class="trim r" data-trim="r"></div>${trans}
@@ -549,6 +558,34 @@ function onRowsDown(e) {
     return;
   }
   const transBtn = e.target.closest('[data-trans]');
+  // ⧓ a transition box: drag it onto another cut to move it there (same kind and length); a click opens its settings
+  if (transBtn?.classList.contains('tr-box')) {
+    e.stopPropagation(); e.preventDefault();
+    const id = transBtn.dataset.trans, x0 = e.clientX, r0 = transBtn.getBoundingClientRect();
+    let moved = false, to = null;
+    const nearCut = (t) => { const L = layout().V1; let best = null; for (let j = 1; j < L.length; j++) { const ct = cutOf(L[j]); if (!best || Math.abs(ct - t) < Math.abs(best.t - t)) best = { j, t: ct }; } return best; };
+    const move = (ev) => {
+      if (!moved && Math.abs(ev.clientX - x0) < 5) return;
+      moved = true; to = nearCut(timeAt(ev.clientX));
+      transBtn.style.transform = `translateX(${ev.clientX - x0}px)`; transBtn.style.opacity = '.75';
+      const ins = $('#tlInsert'); if (to) { ins.hidden = false; ins.style.left = `${to.t * S.zoom}px`; ins.style.top = `${rowTop('V1')}px`; ins.style.height = `${rowH('V1')}px`; }
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move); $('#tlInsert').hidden = true;
+      if (!moved) return toggleTransition(id);
+      const f = findClip(id), tr = f?.clip.transitionIn ? { ...f.clip.transitionIn } : null;
+      if (!f || !tr || !to || S.project.tracks.V1[to.j]?.id === id) return render();
+      const target = S.project.tracks.V1[to.j];
+      if (target.gap || S.project.tracks.V1[to.j - 1]?.gap) { toast('A transition goes between two shots, not next to a gap', 'err'); return render(); }
+      setTransition(S.project, S.mediaById, f.index, null); // (gives back the frames it took there)
+      const j = S.project.tracks.V1.indexOf(target), h = trHandles(tr);
+      if (!setTransition(S.project, S.mediaById, j, tr.type, tr.dur, h.hA || h.hB ? h : null)) toast('Those shots have no frames to spare for a transition', 'err');
+      S.sel = new Set([target.id]); commit('Move transition');
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up, { once: true });
+    return;
+  }
   if (transBtn) { e.stopPropagation(); toggleTransition(transBtn.dataset.trans); return; }
   const el = e.target.closest('.clip');
   if (!el) { marqueeStart(e); return; }
@@ -559,17 +596,115 @@ function onRowsDown(e) {
   lastDown = { id, t: Date.now(), x: e.clientX, y: e.clientY };
   if (S.project.trackState[track]?.lock) { toast(`${track} is locked`); return; }
   if (S.tool === 'blade') { splitClip(id, snap(timeAt(e.clientX), snapPoints(new Set([id])))); commit('Blade'); return; }
+  if (S.tool === 'pen' && !e.target.closest('[data-trim]')) { penKey(id, track, e, el); return; }
   if (!S.sel.has(id) || e.shiftKey || e.ctrlKey || e.altKey) select(id, e.shiftKey || e.ctrlKey, e.altKey);
   S.linkLead = id; // (the linked half follows the one you drag / trim)
   const trim = e.target.closest('[data-trim]')?.dataset.trim;
   const f = findClip(id);
-  drag = { id, track, el, x0: e.clientX, y0: e.clientY, moved: false, trim, orig: JSON.parse(JSON.stringify(f.clip)), index: f.index,
+  // a main-story (V1) trim keeps every other shot in place, like Premiere: what is cut off becomes a gap and a shot only
+  // grows into a gap next to it. Ctrl while trimming: ripple (the story after it closes up / moves along), as before.
+  let v1 = null, roll = null;
+  if (trim && track === 'V1') {
+    const L0 = layout().V1, nb = S.project.tracks.V1[f.index + (trim === 'r' ? 1 : -1)];
+    v1 = { s0: L0[f.index]?.start || 0, ripple: e.ctrlKey || S.tool === 'ripple', gapId: nb?.gap ? nb.id : null, gap0: nb?.gap ? clipDur(nb, S.mediaById) : 0,
+      open: trim === 'r' && f.index === S.project.tracks.V1.length - 1 }; // (the last shot may grow freely to the right)
+    // ⇹ Rolling edit: the cut between this shot and the one next to it moves; one gets longer, the other shorter
+    if (S.tool === 'rolling' && nb) {
+      const A = trim === 'r' ? f.clip : nb, B = trim === 'r' ? nb : f.clip, iB = S.project.tracks.V1.indexOf(B);
+      roll = { aId: A.id, bId: B.id, a0: JSON.parse(JSON.stringify(A)), b0: JSON.parse(JSON.stringify(B)), cut0: L0[iB].start };
+    }
+  }
+  drag = { id, track, el, x0: e.clientX, y0: e.clientY, moved: false, trim, v1, roll, rate: !!trim && S.tool === 'rate', remix: !!trim && S.tool === 'remix' && f.clip.type === 'audio', orig: JSON.parse(JSON.stringify(f.clip)), index: f.index,
     // where on the clip it was taken (sec from its start) - from the timeline, not the element: select() above has
     // already redrawn the clips, so `el` may be a removed one (its position read as 0 and drops landed seconds off)
     grab: timeAt(e.clientX) - (layout()[track]?.find((x) => x.clip.id === id)?.start ?? f.clip.start ?? 0),
     others: [...S.sel].filter((s) => s !== id && !(f.clip.link && findClip(s)?.clip.link === f.clip.link)).map((s) => ({ id: s, ...findClip(s) })).filter((o) => o.track !== 'V1').map((o) => ({ id: o.id, start: o.clip.start || 0 })) };
   window.addEventListener('pointermove', onDragMove);
   window.addEventListener('pointerup', onDragUp, { once: true });
+}
+
+// A V1 shot just trimmed (c; o = as it was): the gap next to the trimmed end takes up the difference so nothing else
+// moves - a shorter shot leaves a gap, a longer one only uses up a gap that is there (it never covers the next shot).
+function v1KeepPlace(c, o, m, stretched = false) {
+  const V1 = S.project.tracks.V1, v = drag.v1, sp = c.speed || 1, right = drag.trim === 'r';
+  const d0 = clipDur(o, S.mediaById);
+  let delta = clipDur(c, S.mediaById) - d0;
+  if (!v.open && delta > v.gap0) { // no room to grow: stop at the shot next to it
+    delta = v.gap0;
+    if (stretched) { const span = (o.out ?? m?.duration ?? 0) - (o.in || 0); c.speed = +(span / Math.max(0.05, d0 + delta)).toFixed(4); }
+    else if (c.type === 'video' || c.type === 'audio') { if (right) c.out = +((o.out ?? m?.duration ?? 0) + delta * sp).toFixed(3); else c.in = +Math.max(0, (o.in || 0) - delta * sp).toFixed(3); }
+    else c.dur = +(d0 + delta).toFixed(3);
+  }
+  if (v.open) return; // (the end of the story: nothing after it to keep in place)
+  const want = +(v.gap0 - delta).toFixed(3);
+  let g = v.gapId ? V1.find((x) => x.id === v.gapId) : null;
+  if (want >= 0.01) {
+    if (!g) { g = { id: uid(), type: 'title', gap: true, text: '', bg: '#000000', dur: want }; v.gapId = g.id; V1.splice(V1.indexOf(c) + (right ? 1 : 0), 0, g); }
+    g.dur = want;
+  } else if (g) { V1.splice(V1.indexOf(g), 1); v.gapId = null; }
+}
+
+// ♫ Remix: a music clip dragged to a new length is re-cut to fit it - the best stretch of the song that long (the
+// server finds it on the beats, /api/music/best), faded out at the end
+async function remixTo(id) {
+  const c = findClip(id)?.clip; if (!c) return;
+  const len = +clipDur(c, S.mediaById).toFixed(2);
+  try {
+    toast(`♫ Remixing to ${fmt(len)}…`);
+    const best = await api('GET', `/api/music/best?p=${enc(S.proj)}&id=${c.mediaId}&dur=${len}`);
+    const now = findClip(id)?.clip; if (!now) return;
+    Object.assign(now, { in: best.in, out: best.out, fadeOut: Math.max(now.fadeOut || 0, 1.5) });
+    if (now.loop) now.dur = len;
+    commit('Remix'); toast(`♫ Remixed to ${fmt(clipDur(now, S.mediaById))} from the best part of the music`);
+  } catch (err) { commit('Trim'); toast(`Remix: ${err.message}`, 'err'); }
+}
+// ⇹ Rolling edit: the cut moves by dt; the shot before gets longer / shorter by as much as the shot after gets shorter /
+// longer (each only as far as its file allows), so nothing else on the timeline moves
+function rollCut(dt, pts) {
+  const r = drag.roll, V1 = S.project.tracks.V1, A = V1.find((x) => x.id === r.aId), B = V1.find((x) => x.id === r.bId);
+  if (!A || !B) return;
+  const media = S.mediaById, dA = clipDur(r.a0, media), dB = clipDur(r.b0, media);
+  const vid = (c) => c.type === 'video' || (c.type === 'audio' && !c.loop);
+  const growA = vid(A) ? ((media[A.mediaId]?.duration ?? r.a0.out ?? 0) - (r.a0.out ?? media[A.mediaId]?.duration ?? 0)) / (A.speed || 1) : 1e9;
+  const growB = vid(B) ? (r.b0.in || 0) / (B.speed || 1) : 1e9;
+  const d = Math.max(-Math.min(dA - 0.1, growB), Math.min(snap(r.cut0 + dt, pts) - r.cut0, growA, dB - 0.1));
+  if (vid(A)) A.out = +((r.a0.out ?? media[A.mediaId]?.duration ?? 0) + d * (A.speed || 1)).toFixed(3); else A.dur = +(dA + d).toFixed(3);
+  if (vid(B)) B.in = +Math.max(0, (r.b0.in || 0) + d * (B.speed || 1)).toFixed(3); else B.dur = +(dB - d).toFixed(3);
+  for (const c of [A, B]) if (c.link) syncLinked(S.project, media, c.id);
+}
+// ⟷ Rate stretch: the end moves, the shot keeps the same frames and its speed changes to fill the new length
+function rateStretch(c, o, m, dt, pts) {
+  const d0 = clipDur(o, S.mediaById), right = drag.trim === 'r', L = layout()[drag.track].find((x) => x.clip.id === c.id);
+  const s0 = drag.v1 ? drag.v1.s0 : o.start || 0;
+  const edge = snap(right ? s0 + d0 + dt : s0 + dt, pts), nd = Math.max(0.1, right ? edge - s0 : s0 + d0 - edge);
+  if (c.type === 'video' || c.type === 'audio') {
+    const span = (o.out ?? m?.duration ?? 0) - (o.in || 0), sp = Math.max(0.05, Math.min(16, span / nd));
+    if (Math.abs(sp - 1) < 0.005) delete c.speed; else c.speed = +sp.toFixed(4);
+  } else c.dur = +nd.toFixed(3);
+  if (!right && drag.track !== 'V1') c.start = +Math.max(0, (o.start || 0) + (d0 - clipDur(c, S.mediaById))).toFixed(3);
+  toast(`⟷ ${fmt(clipDur(c, S.mediaById))} · speed ${Math.round((c.speed || 1) * 100)}%`);
+  return L;
+}
+// ✒ Pen: a keyframe on the clip's opacity (picture) / volume (sound) line where it was clicked - the higher on the clip,
+// the more (top = 100% opacity / 200% volume, bottom = 0)
+function penKey(id, track, e, el) {
+  const f = findClip(id), c = f?.clip, x = layout()[track]?.find((p) => p.clip.id === id); if (!c || !x) return;
+  const prop = KIND[track] === 'audio' ? 'volume' : 'opacity', top = KIND[track] === 'audio' ? 2 : 1;
+  const r = el.getBoundingClientRect(), y = clamp((e.clientY - (r.top + 15)) / Math.max(1, r.height - 15), 0, 1);
+  const t = +clamp(timeAt(e.clientX) - x.start, 0, x.end - x.start).toFixed(3), v = +((1 - y) * top).toFixed(3);
+  const keys = ((c.keys ||= {})[prop] ||= []);
+  const i = keys.findIndex((k) => Math.abs(k.t - t) < 0.05);
+  if (i >= 0) keys[i].v = v; else { keys.push({ t, v }); keys.sort((a, b) => a.t - b.t); }
+  S.sel = new Set([id]); commit(`Pen: ${prop} keyframe`);
+  toast(`✒ ${prop === 'volume' ? 'Volume' : 'Opacity'} ${Math.round(v * 100)}% at ${fmt(t)}`);
+}
+// the opacity / volume line drawn on a clip (with the Pen, or once it has keyframes), like Premiere's rubber band
+function bandHTML(c, track, D) {
+  const prop = KIND[track] === 'audio' ? 'volume' : 'opacity', top = KIND[track] === 'audio' ? 2 : 1, keys = c.keys?.[prop] || [];
+  if (S.tool !== 'pen' && !keys.length) return '';
+  const y = (v) => (1 - Math.min(top, Math.max(0, v)) / top) * 100;
+  const pts = Array.from({ length: 33 }, (_, k) => { const t = (D * k) / 32; return `${((k / 32) * 100).toFixed(2)},${y(propAt(c, prop, t)).toFixed(2)}`; }).join(' ');
+  return `<svg class="band" viewBox="0 0 100 100" preserveAspectRatio="none"><polyline points="${pts}" vector-effect="non-scaling-stroke"/></svg>${keys.map((k) => `<i class="band-k" style="left:${((k.t / Math.max(0.01, D)) * 100).toFixed(2)}%;top:calc(15px + (100% - 15px) * ${(y(k.v) / 100).toFixed(3)})"></i>`).join('')}`;
 }
 
 function onDragMove(e) {
@@ -580,18 +715,20 @@ function onDragMove(e) {
   const f = findClip(drag.id); if (!f) return;
   const c = f.clip, o = drag.orig, m = S.mediaById[c.mediaId], sp = c.speed || 1;
   const dt = dx / S.zoom, pts = snapPoints(new Set([drag.id]));
+  if (drag.roll) { rollCut(dt, pts); render(); return; }
+  if (drag.rate) { rateStretch(c, o, m, dt, pts); if (drag.v1 && !drag.v1.ripple) v1KeepPlace(c, o, m, true); if (c.link) syncLinked(S.project, S.mediaById, drag.id); render(); return; }
   if (drag.trim) {
-    const L = layout()[f.track].find((x) => x.clip.id === c.id);
+    const L = layout()[f.track].find((x) => x.clip.id === c.id), s0 = drag.v1 ? drag.v1.s0 : L.start;
     if (drag.trim === 'l') {
-      const tEdge = snap((drag.track === 'V1' ? L.start : o.start || 0) + dt, pts);
-      let d = tEdge - (drag.track === 'V1' ? L.start : o.start || 0);
+      const tEdge = snap((drag.track === 'V1' ? s0 : o.start || 0) + dt, pts);
+      let d = tEdge - (drag.track === 'V1' ? s0 : o.start || 0);
       if (c.type === 'video' || (c.type === 'audio' && !c.loop)) {
         const ni = clamp((o.in || 0) + d * sp, 0, (o.out ?? m?.duration ?? 0) - 0.1 * sp);
         d = (ni - (o.in || 0)) / sp; c.in = +ni.toFixed(3);
       } else { const nd = Math.max(0.2, clipDur(o, S.mediaById) - d); d = clipDur(o, S.mediaById) - nd; c.dur = +nd.toFixed(3); }
       if (drag.track !== 'V1') c.start = +Math.max(0, (o.start || 0) + d).toFixed(3);
     } else {
-      const startT = drag.track === 'V1' ? L.start : o.start || 0;
+      const startT = drag.track === 'V1' ? s0 : o.start || 0;
       const endT = snap(startT + clipDur(o, S.mediaById) + dt, pts);
       const nd = Math.max(0.2, endT - startT);
       if (c.type === 'video' || (c.type === 'audio' && !c.loop)) {
@@ -599,6 +736,7 @@ function onDragMove(e) {
         c.out = +clamp((o.in || 0) + nd * sp, (o.in || 0) + 0.1 * sp, max).toFixed(3);
       } else c.dur = +nd.toFixed(3);
     }
+    if (drag.v1 && !drag.v1.ripple && !e.ctrlKey) v1KeepPlace(c, o, m);
     if (c.link) syncLinked(S.project, S.mediaById, drag.id);
     render();
     return;
@@ -696,7 +834,8 @@ function onDragUp(e) {
   const lp = f && !d.trim && f.clip.type === 'audio' ? linkedPartner(S.project, f.clip) : null;
   if (lp?.track === 'V1') toast('This sound is linked to its picture on V1 - move the picture, or right-click › Unlink to move the sound alone');
   if (!f) return render();
-  if (d.trim) { commit('Trim'); return; }
+  if (d.trim && d.remix) { remixTo(d.id); return; }
+  if (d.trim || d.roll || d.rate) { commit(d.roll ? 'Rolling edit' : d.rate ? 'Rate stretch' : 'Trim'); return; }
   // the length a V1 clip takes on the timeline (what it leaves as a gap when it is lifted out)
   const v1Len = (id) => { const x = layout().V1.find((p) => p.clip.id === id); return x ? x.end - x.start - (x.overlap || 0) : 0; };
   if (d.toTrack === 'V1' && f.track === 'V1') {

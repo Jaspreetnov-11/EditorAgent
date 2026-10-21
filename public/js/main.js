@@ -355,6 +355,7 @@ const ACTIONS = {
   },
   markIn: () => src('i'), markOut: () => src('o'), goIn: () => src('i', true), goOut: () => src('o', true), insert: () => src(','), overwrite: () => src('.'),
   selectTool: () => setTool('select'), razorTool: () => setTool('blade'), typeTool: () => addTitle(),
+  rippleTool: () => setTool('ripple'), rollingTool: () => setTool('rolling'), rateTool: () => setTool('rate'), penTool: () => setTool('pen'), remixTool: () => setTool('remix'),
   addEdit: () => splitAtPlayhead(), addEditAll: () => { S.sel = new Set(); splitAtPlayhead(); },
   rippleTrimPrev: () => trimAtPlayhead('start'), rippleTrimNext: () => trimAtPlayhead('end'),
   clear: () => deleteSelected(false), rippleDelete: () => deleteSelected(true), duplicate: () => duplicateSelected(),

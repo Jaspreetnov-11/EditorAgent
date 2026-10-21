@@ -32,7 +32,10 @@ const DEFAULT_LABEL = { V1: 'Main story', V2: 'Overlays & titles', V3: 'Overlays
 // design or another audio track is added. Older projects keep the tracks they have.
 const START_TRACKS = ['V3', 'V2', 'V1', 'A1', 'A2'];
 export function trackList(project) {
-  const ids = new Set(['V2', 'V1', 'A1', 'A2', ...Object.keys(project?.tracks || {})]);
+  // every timeline shows V1-V3 and A1-A2 (older projects too); an empty, unnamed A3 stays out of the way until sound
+  // effects (or a new audio track) need it
+  const has = Object.keys(project?.tracks || {}).filter((id) => !(id === 'A3' && !(project.tracks.A3 || []).length && !project.trackState?.A3?.name));
+  const ids = new Set([...START_TRACKS, ...has]);
   const v = [...ids].filter((id) => trackKind(id) === 'video').sort((a, b) => trackNum(b) - trackNum(a));
   const a = [...ids].filter((id) => trackKind(id) === 'audio').sort((x, y) => trackNum(x) - trackNum(y));
   return [...v, ...a].map((id) => ({ id, kind: trackKind(id), name: id, label: project?.trackState?.[id]?.name || DEFAULT_LABEL[id] || (trackKind(id) === 'video' ? 'Overlay' : 'Audio') }));

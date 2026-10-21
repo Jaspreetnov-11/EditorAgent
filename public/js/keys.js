@@ -16,6 +16,7 @@ export const COMMANDS = [
   ['markIn', 'Mark In', 'Source monitor'], ['markOut', 'Mark Out', 'Source monitor'], ['goIn', 'Go to In', 'Source monitor'], ['goOut', 'Go to Out', 'Source monitor'],
   ['insert', 'Insert', 'Source monitor'], ['overwrite', 'Overwrite (overlay)', 'Source monitor'],
   ['selectTool', 'Selection tool', 'Tools'], ['razorTool', 'Razor tool', 'Tools'], ['typeTool', 'Type tool (new title)', 'Tools'],
+  ['rippleTool', 'Ripple edit tool', 'Tools'], ['rollingTool', 'Rolling edit tool', 'Tools'], ['rateTool', 'Rate stretch tool', 'Tools'], ['penTool', 'Pen tool', 'Tools'], ['remixTool', 'Remix tool', 'Tools'],
   ['addEdit', 'Add edit (split selected / at playhead)', 'Timeline'], ['addEditAll', 'Add edit to all tracks', 'Timeline'],
   ['rippleTrimPrev', 'Ripple trim previous edit to playhead', 'Timeline'], ['rippleTrimNext', 'Ripple trim next edit to playhead', 'Timeline'],
   ['clear', 'Delete and leave a gap (lift)', 'Timeline'], ['rippleDelete', 'Delete (the next clip moves up - ripple)', 'Timeline'],
@@ -34,7 +35,7 @@ const PREMIERE = {
   playStop: ['Space'], shuttleL: ['J'], shuttleStop: ['K'], shuttleR: ['L'], stepBack: ['Left'], stepFwd: ['Right'], stepBack5: ['Shift+Left'], stepFwd5: ['Shift+Right'],
   prevEdit: ['Up', 'PageUp'], nextEdit: ['Down', 'PageDown'], goStart: ['Home'], goEnd: ['End'], matchFrame: ['F'],
   markIn: ['I'], markOut: ['O'], goIn: ['Shift+I'], goOut: ['Shift+O'], insert: [','], overwrite: ['.'],
-  selectTool: ['V'], razorTool: ['C'], typeTool: ['T'],
+  selectTool: ['V'], razorTool: ['C'], typeTool: ['T'], rippleTool: ['B'], rollingTool: ['N'], rateTool: ['R'], penTool: ['P'], remixTool: [],
   addEdit: ['Ctrl+K'], addEditAll: ['Ctrl+Shift+K'], rippleTrimPrev: ['Q'], rippleTrimNext: ['W'],
   // Delete closes up (the next clip takes the deleted one's place); Shift+Delete leaves a gap. (The other way round
   // from Premiere, on purpose: the gaps Delete used to leave meant shuffling clips by hand every time.)
@@ -46,7 +47,7 @@ const PREMIERE = {
 const CLASSIC = {
   ...PREMIERE,
   stepBack5: ['Shift+Left'], stepFwd5: ['Shift+Right'], prevEdit: ['Up'], nextEdit: ['Down'], matchFrame: [],
-  razorTool: ['B'], addEdit: ['S'], addEditAll: [], duplicate: ['Ctrl+D'], transition: [], selectAtPlayhead: [], link: [], enable: [],
+  razorTool: ['B'], rippleTool: [], rollingTool: [], rateTool: [], addEdit: ['S'], addEditAll: [], duplicate: ['Ctrl+D'], transition: [], selectAtPlayhead: [], link: [], enable: [],
   snap: ['N'], nextMarker: [], prevMarker: [], note: ['Shift+M'], deselectAll: ['Esc'], zoomFit: ['Shift+Z'], exportMedia: [], maximize: [],
 };
 export const BUILTIN = { premiere: { name: 'Adobe Premiere Pro Default', map: PREMIERE }, classic: { name: 'Limelight Classic', map: CLASSIC } };
