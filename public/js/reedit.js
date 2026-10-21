@@ -138,7 +138,9 @@ export function openReedit(setBusy, { focus = null, changes = {} } = {}) {
         clips: [...new Set([...(f('footage').value === 'all' ? allFootage.map((m) => m.id) : base.clips), ...extra])],
       };
       if (!next.clips.length) return toast('No footage to edit with', 'err');
-      if (next.vo && next.vo === next.music) return toast('Voice-over and music are the same file', 'err');
+      // a song picked as both: it is the voice-over (the shots follow its lyrics) and the music at once, laid once
+      if (next.vo && next.vo === next.music) next.music = null;
+      if (base.vo && base.vo === base.music) base.music = null;
       dlg.close();
       if (e.target.closest('[data-a="go"]').dataset.quick) return runAgentWith(next, setBusy, { ask: false });
       // 🧠 Claude re-edits: it gets what changed and the full settings, and rebuilds the edit the way it edits
