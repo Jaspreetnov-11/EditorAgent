@@ -350,7 +350,9 @@ function decoratePeers() {
 }
 
 function clipHTML(track, x, i) {
-  if (x.clip.gap) return `<div class="clip t-gap${S.sel.has(x.clip.id) ? ' sel' : ''}" data-id="${x.clip.id}" data-track="${track}" style="left:${x.start * S.zoom}px;width:${Math.max(2, (x.end - x.start) * S.zoom)}px" title="Gap ${fmt(x.end - x.start)} - select it and press Delete (or right-click > Close gap) to close it"><div class="trim l" data-trim="l"></div><div class="trim r" data-trim="r"></div></div>`;
+  // a gap is just empty timeline, like Premiere: nothing drawn, nothing to select or grab (it only holds the place so
+  // nothing after it moves). Right-click the empty place › Ripple delete closes it.
+  if (x.clip.gap) return `<div class="clip t-gap" data-id="${x.clip.id}" data-track="${track}" style="left:${x.start * S.zoom}px;width:${Math.max(2, (x.end - x.start) * S.zoom)}px"></div>`;
   const c = x.clip, m = S.mediaById[c.mediaId];
   // V1 shots are drawn cut to cut (like Premiere): the frames lent to a transition beyond a cut sit under its box,
   // not inside the shot's rectangle. vs / ve: where the rectangle starts / ends on the timeline (sec).
@@ -1166,10 +1168,17 @@ function onContext(e) {
   const el = e.target.closest('.clip');
   // 📋 an empty spot: paste copied clips right there
   if (!el) {
-    if (clipboard()?.kind !== 'clips' || !e.target.closest('.tl-row')) return;
+    const row = e.target.closest('.tl-row'); if (!row) return;
+    const at = Math.max(0, timeAt(e.clientX)), n = clipboard()?.kind === 'clips' ? clipboard().items.length : 0;
+    // an empty place on the main story (a gap): Ripple delete closes it, like Premiere
+    const gap = row.dataset.track === 'V1' ? layout().V1.find((x) => x.clip.gap && at >= x.start && at < x.end) : null;
+    const items = [...(gap ? [['ripple', `⇤ Ripple delete (close this ${fmt(gap.end - gap.start)} gap)`]] : []), ...(n ? [['pasteHere', `Paste ${n} clip${n > 1 ? 's' : ''} here`, 'Ctrl+V']] : [])];
+    if (!items.length) return;
     e.preventDefault();
-    const at = Math.max(0, timeAt(e.clientX)), n = clipboard().items.length;
-    return ctxMenu(e, [['pasteHere', `Paste ${n} clip${n > 1 ? 's' : ''} here`, 'Ctrl+V']], () => { S.playhead = at; emit('playhead'); pasteClips().catch((err) => toast(err.message, 'err')); });
+    return ctxMenu(e, items, (a) => {
+      if (a === 'ripple') { const i = S.project.tracks.V1.indexOf(gap.clip); if (i >= 0) { S.project.tracks.V1.splice(i, 1); commit('Close gap'); } return; }
+      S.playhead = at; emit('playhead'); pasteClips().catch((err) => toast(err.message, 'err'));
+    });
   }
   e.preventDefault();
   const id = el.dataset.id;
