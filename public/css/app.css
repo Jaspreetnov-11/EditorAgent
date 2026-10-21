@@ -1006,3 +1006,7 @@ button.pulse { animation: dvpulse 1.6s ease-out; }
 .ks-foot { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
 /* the ` key: the panel under the mouse fills the window */
 .panel.panel-max { position: fixed !important; inset: var(--hdr, 46px) 0 40px 0 !important; z-index: 800; width: auto !important; height: auto !important; max-width: none !important; max-height: none !important; }
+/* 🧠 Assistant: Claude's progress (no commands in the chat) */
+.as-msg.as-prog { align-self: stretch; max-width: none; background: var(--panel-2); border: 1px solid var(--accent-line, #ff993355); }
+.as-prog-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; } .as-prog-top b { color: var(--accent); min-width: 54px; }
+.as-prog .bar { height: 6px; background: var(--bg); border-radius: 99px; overflow: hidden; } .as-prog .bar > div { height: 100%; background: var(--accent); border-radius: 99px; transition: width .4s; }

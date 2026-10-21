@@ -82,6 +82,11 @@ Settings you may change with `apply {"settings":{…}}`: `aspect` ("16:9","9:16"
 Captions (lyrics/subtitles burnt in, word by word): `{"captions":{"on":true,"style":{"preset":"karaoke"},"cues":[{"start":1,"end":3,"text":"…"}]}}`.
 
 ## Rules
+- **Run edtool as one plain command:** `node engine/edtool.mjs <command> <args>` - nothing else. No `cd`, `&&`, `;`, pipes,
+  `$VARIABLES`, `node -e`, PowerShell or your own scripts: they are not allowed here and stop with "requires approval".
+  Make JSON (edits, ops) with the Write tool in `Projects/<name>/cache/claude/` and pass that file path to edtool.
+- The user sees only your messages and a progress bar (not the commands): write your last message as the answer -
+  2-4 plain lines in their language on what you made and what to check.
 - Only change the project through edtool (never edit project.json or media files by hand; never delete footage).
 - Keep the user's music, logo and A3 sound effects unless asked.
 - Long jobs (scan, song, render) take minutes - say so before starting them.

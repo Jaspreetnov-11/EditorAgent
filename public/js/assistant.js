@@ -77,10 +77,19 @@ export function toggleAssistant(show = root.hidden) {
 }
 
 function say(text, who = 'ai') { log.push({ who, text }); draw(); }
+// what Claude is doing, in plain words (from the editor tool it runs)
+function friendlyStep(e) {
+  const t = String(e.text || ''), c = /edtool\.mjs\s+(\w+)/.exec(t)?.[1];
+  const L = { state: 'Reading the timeline', media: 'Going through the footage', find: 'Searching the footage', scan: 'Scanning the footage', look: 'Looking at the footage', sheet: 'Checking the edit', frames: 'Checking the edit', song: 'Listening to the song', styles: 'Reading your edit style', apply: 'Editing the timeline', ops: 'Fine-tuning the edit', agent: 'Making a first cut', preview: 'Making a preview', render: 'Rendering the video', ref: 'Studying the reference' };
+  if (c && L[c]) return L[c];
+  if (e.name === 'Read') return /\.(jpe?g|png|webp)/i.test(t) ? 'Looking at the footage' : 'Reading the notes';
+  if (e.name === 'Write' || e.name === 'Edit') return 'Planning the edit';
+  return 'Working on it';
+}
 function draw() {
   if (!root) return;
   const el = $('.as-log', root);
-  el.innerHTML = log.map((m) => `<div class="as-msg ${m.who}">${esc(m.text).replace(/\n/g, '<br>')}</div>`).join('') + (cl.job ? '<div class="as-msg tool working">🧠 Claude is working… <button class="link small" data-clstop>■ Stop</button></div>' : '');
+  el.innerHTML = log.map((m) => `<div class="as-msg ${m.who}">${esc(m.text).replace(/\n/g, '<br>')}</div>`).join('') + (cl.job ? `<div class="as-msg as-prog"><div class="as-prog-top"><b>🧠 ${cl.prog ? `${cl.prog.pct}%` : ''}</b><span class="grow">${esc(cl.prog?.label || 'Working')}…</span><span class="muted small">${cl.prog ? Math.floor((Date.now() - cl.prog.t0) / 60000) + ' min' : ''}</span><button class="link small" data-clstop>■ Stop</button></div><div class="bar"><div style="width:${cl.prog?.pct || 2}%"></div></div></div>` : '');
   el.scrollTop = el.scrollHeight;
 }
 
@@ -140,24 +149,33 @@ export async function askClaude(text, { show = true, display = null } = {}) {
   try { job = await api('POST', `/api/claude/chat?p=${enc(S.proj)}`, { message: text }); } catch (e) { return say(e.message, 'err'); }
   cl.job = job.id; draw();
   setBusy?.(true, '🧠 Claude working…');
-  let from = 0, lastText = '', changed = false;
+  let from = 0, lastText = '', changed = false, steps = 0;
+  cl.prog = { pct: 2, label: 'Reading your message', t0: Date.now() }; draw();
   try {
     for (;;) {
       const r = await api('GET', `/api/claude/events?id=${job.id}&from=${from}`);
       from = r.next;
       for (const e of r.events) {
-        if (e.k === 'text') { lastText = e.text; say(e.text); }
-        else if (e.k === 'tool') { if (/edtool\.mjs\s+(apply|ops|agent)\b/.test(e.text)) changed = true; const t = e.name === 'Bash' ? e.text.replace(/^node engine\/edtool\.mjs\s*/, '') : `${e.name} ${e.text}`; say(`🔧 ${t}`, 'tool'); setBusy?.(true, `🧠 ${t.slice(0, 40)}`); }
-        else if (e.k === 'result' && e.error) say(`⚠ ${e.text.slice(0, 300)}`, 'tool');
-        else if (e.k === 'done' && e.text && e.text.trim() !== lastText.trim()) say(e.text);
+        if (e.k === 'text') lastText = e.text; // (Claude's working notes stay hidden; its last words are the answer)
+        else if (e.k === 'tool') {
+          if (/edtool\.mjs\s+(apply|ops|agent)\b/.test(e.text)) changed = true;
+          steps++;
+          cl.prog = { ...cl.prog, pct: Math.min(95, Math.max(cl.prog.pct, Math.round(100 * (1 - Math.exp(-steps / 14))))), label: friendlyStep(e) };
+          setBusy?.(true, `🧠 ${cl.prog.pct}% · ${cl.prog.label}`); draw();
+        }
+        else if (e.k === 'done' && e.text) lastText = e.text;
         else if (e.k === 'error') say(`Claude stopped: ${e.text}`, 'err');
       }
-      if (r.status !== 'running') { if (r.status === 'error' && !r.events.some((e) => e.k === 'error') && r.error) say(`Claude stopped: ${r.error}`, 'err'); break; }
+      if (r.status !== 'running') {
+        if (r.status === 'error' && !r.events.some((e) => e.k === 'error') && r.error) say(`Claude stopped: ${r.error}`, 'err');
+        else if (lastText.trim()) say(lastText.trim()); // ✅ the answer
+        break;
+      }
       await new Promise((ok) => setTimeout(ok, 1000));
     }
   } catch (e) { say(e.message, 'err'); }
   finally {
-    cl.job = null; draw(); setBusy?.(false);
+    cl.job = null; cl.prog = null; draw(); setBusy?.(false);
     // Claude changed the timeline: one click takes it back (the server kept the edit from before this message)
     if (changed) import('./aiundo.js').then((m) => m.offerAiUndo("Claude's change")).catch(() => {});
   }
