@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Limelight Editor - Sign in</title>
 <link rel="icon" type="image/png" href="/img/favicon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#070706">
 <style>
   :root { --bg: #070706; --panel: #141311; --line: #2a2620; --text: #ece9e2; --muted: #8e887d; --accent: #d4a24c; --green: #36c27e; --red: #ff5d5d; color-scheme: dark; }
   * { box-sizing: border-box; }
@@ -20,6 +22,8 @@
   button { font: inherit; font-weight: 600; background: linear-gradient(180deg, #f6d48a, #d9a650 55%, #b5812f); color: #170f03; border: 0; border-radius: 8px; padding: 10px; cursor: pointer; }
   p { margin: 0; color: var(--muted); font-size: 13px; }
   .err { color: var(--red); min-height: 18px; }
+  .inst { background: none; color: var(--accent); border: 1px solid #d4a24c66; font-weight: 600; }
+  .inst[hidden] { display: none; }
   .sc { color: var(--accent); font-size: 12px; text-align: center; text-decoration: none; } .sc:hover { text-decoration: underline; }
 </style>
 </head>
@@ -31,9 +35,18 @@
   <label>Password <input id="p" type="password" autocomplete="current-password" required></label>
   <button>Sign in</button>
   <div class="err" id="e" role="alert"></div>
-  <a class="sc" href="/team/shortcut.url" download>⬇ Put a shortcut to the editor on this PC's Desktop</a>
+  <button type="button" class="inst" id="inst" hidden>🖥 Install on this PC (Desktop icon)</button>
+  <p class="sc" id="instHow">🖥 Desktop icon: in Chrome / Edge press <b>⋮</b> › <b>Cast, save and share</b> › <b>Install page as app</b> (Edge: <b>Apps › Install this site as an app</b>)</p>
 </form>
 <script>
+// 🖥 Chrome / Edge offer to install the editor as an app: one click puts its icon on the Desktop and in the Start menu
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+let ask = null;
+const inst = document.getElementById('inst'), how = document.getElementById('instHow');
+if (matchMedia('(display-mode: standalone)').matches) how.hidden = true; // (already opened as the app)
+addEventListener('beforeinstallprompt', (ev) => { ev.preventDefault(); ask = ev; inst.hidden = false; how.hidden = true; });
+addEventListener('appinstalled', () => { inst.hidden = true; how.hidden = false; how.textContent = '✅ Installed - the Limelight Editor icon is on the Desktop'; });
+inst.onclick = async () => { if (!ask) return; ask.prompt(); await ask.userChoice.catch(() => null); ask = null; inst.hidden = true; };
 document.getElementById('f').onsubmit = async (ev) => {
   ev.preventDefault();
   const e = document.getElementById('e'); e.textContent = '';

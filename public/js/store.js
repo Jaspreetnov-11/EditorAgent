@@ -26,7 +26,11 @@ export const S = {
 
 const listeners = {};
 export const on = (evt, fn) => { (listeners[evt] ||= []).push(fn); };
-export const emit = (evt, data) => (listeners[evt] || []).forEach((fn) => fn(data));
+// 🛡 one panel's mistake never stops the others (or the editor): each listener runs on its own; errors are logged once
+const seenErr = new Set();
+export const emit = (evt, data) => (listeners[evt] || []).forEach((fn) => {
+  try { fn(data); } catch (e) { const k = `${evt}:${e?.stack || e}`; if (!seenErr.has(k)) { seenErr.add(k); console.error(`"${evt}" listener failed`, e); } }
+});
 
 // ---- history + 🔴 live editing ----
 // Every change is turned into small ops (public/js/livepatch.js) against `base` - the project as this browser last

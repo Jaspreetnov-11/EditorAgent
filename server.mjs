@@ -23,6 +23,7 @@ import { ensureLooks } from './engine/looklut.mjs';
 import { keywords, searchStock, downloadStock } from './engine/stock.mjs';
 import { measure, autoGrade, looksLog, matchGrade } from './engine/colorstats.mjs';
 import { colorFilters, stager, isNeutral } from './engine/color.mjs';
+import { cutFxDur } from './public/js/fx.js';
 import { exportTimeline } from './engine/nlexport.mjs';
 import { presetById } from './public/js/presets.js';
 import { applyOps } from './public/js/livepatch.js';
@@ -31,6 +32,7 @@ import { analyzeClip, extractFrames } from './engine/analyze.mjs';
 import { addBeat, prune as prunePresence, summary as presenceSummary, KEEP_DAYS } from './engine/presence.mjs';
 import { toEnglishQuery } from './engine/searchwords.mjs';
 import { ensureSfx, listSfx, SFX_KINDS } from './engine/sfx.mjs';
+import { gyroflowExe, findLog, gyroSamples, stabilise, LOG_EXT as GF_LOG } from './engine/gyroflow.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 // VEDIT_DATA: where projects, settings and queues live (default: this folder). The auto-tests run a second editor
@@ -121,7 +123,7 @@ const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml',
   '.json': 'application/json', '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm', '.m4v': 'video/mp4',
   '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.flac': 'audio/flac',
-  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.srt': 'text/plain; charset=utf-8', '.ass': 'text/plain; charset=utf-8',
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json', '.srt': 'text/plain; charset=utf-8', '.ass': 'text/plain; charset=utf-8',
 };
 const EXT_KIND = (ext) => (/\.(mp4|mov|m4v|mkv|webm|avi|mts|m2ts|mxf|mpg|mpeg|3gp|wmv|flv)$/i.test(ext) ? 'video'
   : /\.(jpg|jpeg|png|webp|bmp|tif|tiff|heic)$/i.test(ext) ? 'image'
@@ -1455,6 +1457,7 @@ function startTeam() {
     if (!s || !usr) {
       if (u.pathname.startsWith('/api/') || u.pathname.startsWith('/pm/') || u.pathname.startsWith('/pf/')) return send(res, 401, { error: 'Sign in again' });
       if (/^\/(css|js|img)\//.test(u.pathname)) return serveFile(req, res, path.join(ROOT, 'public', path.normalize(decodeURIComponent(u.pathname)))); // (img: the logo on the sign-in page)
+      if (/^\/(manifest\.webmanifest|sw\.js)$/.test(u.pathname)) return serveFile(req, res, path.join(ROOT, 'public', u.pathname.slice(1))); // (🖥 install as a Desktop app, from the sign-in page)
       return serveFile(req, res, path.join(ROOT, 'public', 'team', 'login.html'));
     }
     return handle(req, res, { name: usr.name, role: usr.role, local: false });
@@ -1673,10 +1676,14 @@ function limitHit(why) {
   mainLimitedUntil = t > Date.now() ? t : Date.now() + 3600e3;
   return true;
 }
-function claudeChat(name, message, reset, who = null) {
+// 🎞 every sequence has its own Claude conversation, so people on different sequences each talk to their own Claude
+// (the team's main sequence keeps the old session.json)
+const claudeSeq = (name, seq) => { const s = String(seq || ''); return s && /^[\w-]{1,80}$/.test(s) && s !== seqOf(liveOf(name).pj).id ? s : ''; };
+const claudeSession = (name, seq) => P(name, 'cache', 'claude', seq ? `session-${seq}.json` : 'session.json');
+function claudeChat(name, message, reset, who = null, seq = '') {
   const exe = claudeExe();
   if (!exe) throw err(400, 'Claude Code is not installed on this computer');
-  const sfile = P(name, 'cache', 'claude', 'session.json');
+  const sfile = claudeSession(name, seq);
   fs.mkdirSync(path.dirname(sfile), { recursive: true });
   if (reset) fs.rmSync(sfile, { force: true });
   try { aiSnap(name, `Claude: ${String(message).replace(/\s+/g, ' ').slice(0, 80)}`); } catch {}
@@ -1688,22 +1695,22 @@ function claudeChat(name, message, reset, who = null) {
     // an editor's Claude reads only the projects and the editor's own engine (the owner's reads anything on this
     // computer); Glob / Grep would let it look around the rest of the drives, so they are the owner's only
     job.tools = who && who.role !== 'owner' ? ['Read(Projects/**)', 'Read(engine/**)', ...CLAUDE_TOOLS.filter((t) => !/^(Read|Glob|Grep)$/.test(t))] : CLAUDE_TOOLS;
-    try { return await claudeRun(exe, name, sfile, String(message), model, job, ev); }
+    try { return await claudeRun(exe, name, sfile, String(message), model, job, ev, seq); }
     catch (e) {
       // the main model's limit ran out (now or partway): the same conversation goes on with the backup model
       if (model === backup || job.stopped || !limitHit(e.message)) throw e;
       model = backup;
       ev({ k: 'wait', text: `Opus limit reached - carrying on with ${backup}…` });
-      return claudeRun(exe, name, sfile, readJSON(sfile, {}).id ? 'Your usage limit stopped you partway through. Carry on from where you stopped and finish the task I gave you.' : String(message), model, job, ev);
+      return claudeRun(exe, name, sfile, readJSON(sfile, {}).id ? 'Your usage limit stopped you partway through. Carry on from where you stopped and finish the task I gave you.' : String(message), model, job, ev, seq);
     }
-  }, { project: name, events: [] });
+  }, { project: name, seq, events: [] });
 }
-function claudeRun(exe, name, sfile, message, model, job, ev) {
+function claudeRun(exe, name, sfile, message, model, job, ev, seq = '') {
   const sid = readJSON(sfile, {}).id || null;
   const args = ['-p', message, '--output-format', 'stream-json', '--verbose', '--append-system-prompt-file', path.join(ROOT, 'engine', 'claude-guide.md'),
     '--allowedTools', (job.tools || CLAUDE_TOOLS).join(','), '--permission-mode', 'default', ...(sid ? ['--resume', sid] : []), '--model', model];
   return new Promise((ok, bad) => {
-    const p = spawn(exe, args, { cwd: ROOT, windowsHide: true, env: { ...process.env, VEDIT_PROJECT: name, VEDIT_PORT: String(PORT), VEDIT_NO_SNAP: '1', PYTHONIOENCODING: 'utf-8' } });
+    const p = spawn(exe, args, { cwd: ROOT, windowsHide: true, env: { ...process.env, VEDIT_PROJECT: name, VEDIT_SEQ: seq, VEDIT_PORT: String(PORT), VEDIT_NO_SNAP: '1', PYTHONIOENCODING: 'utf-8' } });
     job.proc = p;
     let part = '', final = null, errText = '';
     p.stdout.on('data', (d) => {
@@ -2562,6 +2569,35 @@ const routes = {
   // ✨ AI fill (content-aware): the boxes drawn over a logo / text (fractions of the picture) are filled in by LaMa
   // (engine/inpaint.py, GPU) for the clip's piece [in, out] of the file; the filled piece becomes a new file of the
   // project (bin "AI fill"), which the editor puts on the timeline in place of that piece. Body { mediaId, in, out, boxes }
+  // 🛸 Gyroflow: a shaky shot stabilised with the camera's gyro data (engine/gyroflow.mjs) -> a new media item
+  'GET /api/gyroflow/status': () => ({ installed: !!gyroflowExe(ROOT) }),
+  'POST /api/gyroflow': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req), m = mediaItem(name, b.mediaId), exe = gyroflowExe(ROOT);
+    if (!exe) throw err(400, 'Gyroflow is not installed (tools/gyroflow)');
+    if (!m || m.kind !== 'video') throw err(400, 'Pick a video clip');
+    if (!fs.existsSync(m.path)) throw err(400, `File is offline: ${m.path}`);
+    const given = String(b.gyroFile || '').trim().replace(/^"|"$/g, '');
+    if (given && (!fs.existsSync(given) || !GF_LOG.test(given))) throw err(400, 'The flight log was not found (a .bbl / .bfl / .csv / .gcsv file)');
+    const gyroFile = given || findLog(m.path);
+    return startTask('gyroflow', async (job) => {
+      const work = P(name, 'cache', 'gyroflow');
+      fs.mkdirSync(work, { recursive: true });
+      job.stage = gyroFile ? `Reading the flight log ${path.basename(gyroFile)}…` : 'Looking for gyro data in the file…'; job.progress = 2;
+      const n = await gyroSamples(exe, m.path, gyroFile, work, job);
+      if (n < 5) throw new Error(gyroFile ? `No motion data found in ${path.basename(gyroFile)} for this video` : 'This video has no gyro data inside. GoPro / DJI / Insta360 / Sony files have it; for an FPV drone give its flight log (.bbl / .bfl / .csv). Otherwise use Warp Stabilizer.');
+      job.stage = 'Stabilising with Gyroflow…'; job.progress = 5;
+      const out = await stabilise({ exe, video: m.path, gyroFile, outDir: path.join(work, `${m.id}_${Date.now().toString(36)}`), job,
+        opts: { smoothness: +b.smoothness || 0.5, zoom: +b.zoom || 1, horizon: +b.horizon || 0 }, onProgress: (p) => { job.progress = Math.round(5 + 85 * p); } });
+      job.stage = 'Adding it to Media…'; job.progress = 92;
+      const it = addMediaFile(name, out, { bin: 'Gyroflow' });
+      if (!it) throw new Error('Could not add the stabilised file to Media');
+      saveMedia(name, true);
+      if (activeProject !== name) { activeProject = name; pump(); }
+      for (let i = 0; i < 300 && !['ready', 'error', 'offline'].includes(mediaItem(name, it.id)?.status); i++) await new Promise((ok) => setTimeout(ok, 1000));
+      if (mediaItem(name, it.id)?.status !== 'ready') throw new Error('The stabilised file could not be read');
+      return { mediaId: it.id, from: m.id, gyroFile: gyroFile ? path.basename(gyroFile) : null };
+    }, { project: name });
+  },
   'POST /api/inpaint': async (req, res, u) => {
     const name = needProject(q(u, 'p')), b = await readJson(req), m = mediaItem(name, b.mediaId);
     if (!m || m.kind !== 'video') throw err(400, 'This needs a video clip');
@@ -2814,9 +2850,14 @@ const routes = {
       subtitlesPath: pj.subtitles?.file ? P(name, 'subs', path.basename(pj.subtitles.file)) : null }), folder, path: outDir, color, collect, ...extra });
     if (color !== 'bake' && collect === 'none') return make();
     const all = Object.keys(pj.tracks).flatMap((t) => pj.tracks[t].map((c) => ({ c, video: t[0] === 'V' })));
+    // 🎞 the film look (Settings > LUT, with its mix) is baked into every clip too, and so are the cut effects that are a
+    // brightness change (flash, strobe) - the rest of the cut effects stay a note in the README
+    const lk = pj.settings?.look || {}, lookLut = color === 'bake' && lk.lut && luts[lk.lut] && fs.existsSync(luts[lk.lut]) ? luts[lk.lut] : null;
+    const cutBake = (c) => color === 'bake' && ['flash', 'strobe'].includes(c.cutFx?.type) && cutFxDur(c) > 0.04;
+    const needsBake = (c) => color === 'bake' && ((c.color && !isNeutral(c.color)) || lookLut || cutBake(c));
     // clips rendered into new files (1 s handles each side): graded ones when the colour is baked in; with 'trim', every
     // video clip (without colour unless baked) - ProRes, so any editor reads them and they cut frame-exact
-    const todo = all.filter(({ c, video }) => video && c.type === 'video' && byId[c.mediaId] && (collect === 'trim' || (color === 'bake' && c.color && !isNeutral(c.color)))).map((x) => x.c);
+    const todo = all.filter(({ c, video }) => video && c.type === 'video' && byId[c.mediaId] && (collect === 'trim' || needsBake(c))).map((x) => x.c);
     return startTask(collect !== 'none' ? 'xml-collect' : 'xml-graded', async (job) => {
       const mdir = path.join(outDir, 'Media'), gdir = collect !== 'none' ? mdir : path.join(outDir, `${base}_v${v} graded`), work = fs.mkdtempSync(path.join(P(name, 'cache'), 'grade-'));
       fs.mkdirSync(gdir, { recursive: true });
@@ -2825,14 +2866,32 @@ const routes = {
       for (const [k, c] of todo.entries()) {
         const m = byId[c.mediaId], dur = m.duration || 0, start = Math.max(0, (+c.in || 0) - 1), end = Math.min(dur, (c.out ?? dur) + 1);
         if (!fs.existsSync(m.path)) { missing.push(m.name); continue; }
-        const bake = color === 'bake' && c.color && !isNeutral(c.color);
+        const bake = needsBake(c), stage = stager(work);
         const file = path.join(gdir, `${String(k + 1).padStart(3, '0')}_${safeName(path.parse(m.name).name).slice(0, 40)}.mov`);
         job.stage = `${bake ? 'Colouring' : 'Cutting out'} clip ${k + 1} of ${todo.length}: ${m.name}`; job.log.push(job.stage); job.progress = Math.round((k / todo.length) * 95 * share);
-        const vf = bake ? colorFilters(c.color, { luts, stage: stager(work) }).join(',') || 'null' : 'null';
-        const r = await run('ffmpeg', ['-hide_banner', '-y', '-loglevel', 'error', '-ss', String(start), '-t', String(end - start), '-i', m.path, '-map', '0:v:0', '-map', '0:a?',
-          '-vf', vf, '-c:v', 'prores_ks', '-profile:v', bake ? '2' : '1', '-pix_fmt', 'yuv422p10le', '-c:a', 'pcm_s16le', file], { cwd: work });
+        // the same order as the render: clip grade, then the film look over it, then the cut effect at the clip's start
+        const g = [`[0:v]${(bake ? colorFilters(c.color, { luts, stage }) : []).join(',') || 'null'}[c0]`];
+        let cur = 'c0';
+        if (bake && lookLut) {
+          const mixK = Math.min(1, Math.max(0, lk.mix ?? 1)), f = `lut3d=file=${stage(lookLut)}:interp=tetrahedral`;
+          g.push(mixK >= 0.99 ? `[c0]${f}[c1]` : `[c0]split[la][lb];[lb]${f}[lc];[la][lc]blend=all_mode=normal:all_opacity=${mixK.toFixed(2)}[c1]`);
+          cur = 'c1';
+        }
+        const cut = bake && cutBake(c);
+        if (cut) {
+          // t counts from the start of the handle; the clip (and its effect) starts at its In point, d in source seconds
+          const t0 = ((+c.in || 0) - start).toFixed(3), d = (cutFxDur(c) * (c.speed || 1)).toFixed(3);
+          const kx = `if(lt(t,${t0}),0,max(0,1-(t-${t0})/${d}))`;
+          g.push(c.cutFx.type === 'flash'
+            ? `[${cur}]eq=brightness='0.85*pow(${kx},1.5)':contrast='1-0.5*${kx}':eval=frame[c2]`
+            : `[${cur}]eq=brightness='if(between(t,${t0},${t0}+${d}),if(mod(floor((t-${t0})*20),2),0.6,-0.45),0)':eval=frame[c2]`);
+          cur = 'c2';
+        }
+        g.push(`[${cur}]null[vout]`);
+        const r = await run('ffmpeg', ['-hide_banner', '-y', '-loglevel', 'error', '-ss', String(start), '-t', String(end - start), '-i', m.path, '-filter_complex', g.join(';'), '-map', '[vout]', '-map', '0:a?',
+          '-c:v', 'prores_ks', '-profile:v', bake ? '2' : '1', '-pix_fmt', 'yuv422p10le', '-c:a', 'pcm_s16le', file], { cwd: work });
         if (r.code !== 0) { job.log.push(`  failed: ${r.stderr.trim().split(/[\r\n]+/).pop()} - this clip keeps the original file`); continue; }
-        graded[c.id] = { file, start, duration: end - start };
+        graded[c.id] = { file, start, duration: end - start, cut };
       }
       fs.rmSync(work, { recursive: true, force: true });
       // whole files for everything not cut out above: photos, music, voice-over, the logo, clips that failed
@@ -3026,8 +3085,11 @@ const routes = {
   'POST /api/claude/chat': async (req, res, u) => {
     const name = needProject(q(u, 'p')), b = await readJson(req);
     if (!String(b.message || '').trim()) throw err(400, 'Type a message');
-    if ([...jobs.values()].some((j) => j.kind === 'claude' && j.status === 'running' && j.project === name)) throw err(409, 'Claude is still working on the last message - wait or press Stop');
-    const job = claudeChat(name, b.message, !!b.reset, req.who);
+    const seq = claudeSeq(name, b.seq);
+    if (seq && !liveOf(name).pj.sequences?.[seq]) throw err(400, 'That sequence no longer exists');
+    // one Claude at a time per sequence; people on other sequences of the same project can ask theirs meanwhile
+    if ([...jobs.values()].some((j) => j.kind === 'claude' && j.status === 'running' && j.project === name && (j.seq || '') === seq)) throw err(409, 'Claude is still working on the last message for this sequence - wait or press Stop');
+    const job = claudeChat(name, b.message, !!b.reset, req.who, seq);
     return { id: job.id };
   },
   'GET /api/claude/events': (req, res, u) => {
@@ -3049,10 +3111,10 @@ const routes = {
     out.on('finish', () => { fs.renameSync(tmp, dest); ok({ name: fname, path: dest, kind: /^\.(jpe?g|png|webp|gif|bmp)$/i.test(ext) ? 'image' : 'video', size: fs.statSync(dest).size }); });
     req.on('error', (e) => { fs.rmSync(tmp, { force: true }); bad(e); });
   }),
-  'POST /api/claude/new': (req, res, u) => { fs.rmSync(P(needProject(q(u, 'p')), 'cache', 'claude', 'session.json'), { force: true }); return { ok: true }; },
+  'POST /api/claude/new': (req, res, u) => { const name = needProject(q(u, 'p')); fs.rmSync(claudeSession(name, claudeSeq(name, q(u, 'seq'))), { force: true }); return { ok: true }; },
   // 🗂 an earlier chat opened in the Assistant: Claude carries on in that conversation (no id: a fresh one)
   'POST /api/claude/use': async (req, res, u) => {
-    const name = needProject(q(u, 'p')), b = await readJson(req), f = P(name, 'cache', 'claude', 'session.json');
+    const name = needProject(q(u, 'p')), b = await readJson(req), f = claudeSession(name, claudeSeq(name, q(u, 'seq')));
     if (b.id && /^[\w-]{8,80}$/.test(String(b.id))) { fs.mkdirSync(path.dirname(f), { recursive: true }); writeJSON(f, { id: String(b.id), at: Date.now() }); } else fs.rmSync(f, { force: true });
     return { ok: true };
   },
@@ -3165,6 +3227,17 @@ const routes = {
     if (v.length < 10) throw err(400, 'Too little sound to measure');
     const { autoCleanFx } = await import('./public/js/audiofx.js');
     return autoCleanFx(v[Math.floor(v.length * 0.1)], v[Math.floor(v.length * 0.9)]);
+  },
+  // 🔊 Audio gain › Normalize: the loudest moment (dB below full scale) of a clip's part of its file
+  'GET /api/audio/peak': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), m = mediaItem(name, q(u, 'id'));
+    if (!m) throw err(404, 'media not found');
+    if (m.kind === 'video' && !m.hasAudio) throw err(400, 'This clip has no sound');
+    const file = analysisFile(name, m), tin = +q(u, 'in') || 0, tout = +q(u, 'out') || 0;
+    const r = await run('ffmpeg', ['-hide_banner', '-nostats', ...(tin ? ['-ss', String(tin)] : []), ...(tout > tin ? ['-t', String(tout - tin)] : []), '-i', file, '-vn', '-af', 'volumedetect', '-f', 'null', '-']);
+    const peak = /max_volume:\s*(-?[\d.]+) dB/.exec(r.stderr)?.[1];
+    if (peak === undefined) throw err(400, 'Could not measure this clip');
+    return { peak: +peak };
   },
   // 🎯 Motion tracking (engine/track.py): body { mediaId, t0, t1, box: { x, y, w, h } } (seconds in the file, box as
   // fractions of the picture). Result { points: [{ t, x, y, w, h }], lost: [t] } - read from the preview copy when there is one.

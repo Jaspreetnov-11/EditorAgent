@@ -8,7 +8,8 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { placed, totalDuration } from '../public/js/model.js';
+import { placed, totalDuration, seqOf, SEQ_FIELDS } from '../public/js/model.js';
+import { viewOf, toShared } from '../public/js/myseq.js';
 import { analyzeReference, describeRef } from './refstyle.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -18,6 +19,8 @@ for (let i = 0, a = process.argv.slice(2); i < a.length; i++) { if (/^--[a-z]/.t
 const flag = (k, d = null) => (k in flags ? flags[k] : d);
 const PROJ = flag('p') || process.env.VEDIT_PROJECT;
 const BASE = `http://127.0.0.1:${process.env.VEDIT_PORT || 3000}`;
+// 🎞 the sequence to work on: the one the person who asked has open (the Assistant sends it); none = the team's main one
+const SEQ = flag('seq') || process.env.VEDIT_SEQ || null;
 const DEBUG = !!process.env.EDTOOL_DEBUG;
 const enc = encodeURIComponent;
 const r2 = (x) => Math.round(x * 100) / 100;
@@ -52,7 +55,28 @@ async function waitJob(id, label = 'job') {
     await new Promise((ok) => setTimeout(ok, 2000));
   }
 }
-const project = () => api('GET', `/api/project?p=${enc(PROJ)}`);
+// the project as the person sees it: their sequence at the top level (myseq.js viewOf), map says how to send changes back
+let seqMap = null;
+async function project() {
+  const shared = await api('GET', `/api/project?p=${enc(PROJ)}`);
+  if (SEQ && SEQ !== seqOf(shared).id && !shared.sequences?.[SEQ]) die('the sequence you were asked to work on no longer exists - ask the user to open one');
+  const v = SEQ ? viewOf(shared, SEQ) : null;
+  seqMap = v ? { mine: SEQ, shared: seqOf(shared).id, noSeq: !shared.seq } : null;
+  return v || shared;
+}
+// changes go as live ops (only the fields that changed), so someone else's edits on other sequences are never overwritten
+async function sendOps(ops, label = 'Claude') {
+  const s = toShared(ops, seqMap);
+  if (!s) die('that change cannot be made on this sequence');
+  return s.length ? api('POST', `/api/live/ops?p=${enc(PROJ)}&client=claude`, { ops: s, label }) : { rev: null };
+}
+async function saveView(before, after, label) {
+  const keys = [...new Set([...SEQ_FIELDS, 'logo', 'agentReport', 'agentOpts'])];
+  const ops = keys.filter((k) => JSON.stringify(before[k]) !== JSON.stringify(after[k])).map((k) => ({ o: 'set', p: [k], v: after[k] }));
+  await sendOps(ops, label);
+  await api('POST', `/api/live/save?p=${enc(PROJ)}&backup=1`).catch(() => {});
+}
+const seqArg = () => (seqMap ? { seq: seqMap.mine } : {});
 // ↶ AI undo: a copy of the edit before this change (the editor's Claude chat makes one per message instead)
 const snap = (label) => (process.env.VEDIT_NO_SNAP ? null : api('POST', `/api/aiundo/snap?p=${enc(PROJ)}`, { label: `Claude (edtool ${label})` }).catch(() => null));
 const mediaList = async () => (await api('GET', `/api/media?p=${enc(PROJ)}`)).items;
@@ -90,7 +114,7 @@ FINISH
 async function cmdState() {
   const pj = await project(), items = await mediaList(), by = Object.fromEntries(items.map((m) => [m.id, m]));
   const L = placed(pj, by), D = totalDuration(pj, by);
-  const lines = [`project "${pj.name}" ${pj.settings.aspect} ${pj.settings.fps}fps, ${r2(D)}s; look ${JSON.stringify(pj.settings.look || {})}; kenburns ${!!pj.settings.kenburns}`];
+  const lines = [`project "${pj.name}"${pj.seq ? `, sequence "${pj.seq.name}"` : ''} ${pj.settings.aspect} ${pj.settings.fps}fps, ${r2(D)}s; look ${JSON.stringify(pj.settings.look || {})}; kenburns ${!!pj.settings.kenburns}`];
   for (const [t, list] of Object.entries(L)) {
     if (!list.length) continue;
     lines.push(`${t}: ${list.length} clips`);
@@ -217,14 +241,14 @@ async function cmdApply(f) {
   if (!f || !fs.existsSync(f)) die('apply <file.json>');
   const patch = JSON.parse(fs.readFileSync(f, 'utf8').replace(/^﻿/, ''));
   await snap('apply');
-  const pj = await project(); delete pj._rev;
+  const pj = await project(); delete pj._rev; const before = JSON.parse(JSON.stringify(pj));
   if (patch.tracks) for (const [k, v] of Object.entries(patch.tracks)) { if (!Array.isArray(v)) die(`tracks.${k} must be a list`); pj.tracks[k] = v.map((c) => ({ id: c.id || crypto.randomBytes(4).toString('hex'), ...c })); }
   if (patch.settings) pj.settings = { ...pj.settings, ...patch.settings };
   for (const k of ['captions', 'trackState', 'markers', 'logo', 'subtitles']) if (k in patch) pj[k] = k === 'trackState' ? { ...pj.trackState, ...patch[k] } : patch[k];
   const items = await mediaList(), ids = new Set(items.map((m) => m.id));
   const bad = Object.values(pj.tracks).flat().filter((c) => c.mediaId && !ids.has(c.mediaId));
   if (bad.length) die(`${bad.length} clips point to media that is not in the project (e.g. ${bad[0].mediaId}) - use ids from "media"`);
-  await api('PUT', `/api/project?p=${enc(PROJ)}&backup=1`, pj);
+  await saveView(before, pj, 'Claude');
   const by = Object.fromEntries(items.map((m) => [m.id, m]));
   out(`applied - the edit is now ${r2(totalDuration(pj, by))}s, ${Object.entries(pj.tracks).filter(([, l]) => l.length).map(([k, l]) => `${k} ${l.length}`).join(', ')} (a backup of the version before was kept)`);
 }
@@ -232,7 +256,8 @@ async function cmdOps(f) {
   if (!f || !fs.existsSync(f)) die('ops <file.json>');
   const ops = JSON.parse(fs.readFileSync(f, 'utf8'));
   await snap('ops');
-  const r = await api('POST', `/api/live/ops?p=${enc(PROJ)}&client=claude`, { ops, label: 'Claude' });
+  await project(); // (works out which sequence the ops' paths mean)
+  const r = await sendOps(ops);
   out(`applied ${ops.length} change(s), revision ${r.rev}`);
 }
 async function cmdAgent(f) {
@@ -242,7 +267,7 @@ async function cmdAgent(f) {
   const job = await api('POST', `/api/agent?p=${enc(PROJ)}`, o);
   const r = await waitJob(job.id, 'agent');
   await api('POST', `/api/agent/applied?p=${enc(PROJ)}`).catch(() => {});
-  const pj = await project(); delete pj._rev;
+  const pj = await project(); delete pj._rev; const before = JSON.parse(JSON.stringify(pj));
   for (const k of ['V1', 'V2', 'A1', 'A2']) pj.tracks[k] = r.tracks[k] || [];
   if (r.tracks.A3?.length) pj.tracks.A3 = [...(pj.tracks.A3 || []).filter((c) => !c.sfx), ...r.tracks.A3];
   for (const [k, v] of Object.entries(r.trackState || {})) pj.trackState[k] = { ...pj.trackState[k], ...v };
@@ -251,20 +276,20 @@ async function cmdAgent(f) {
   if (r.subtitles) pj.subtitles = { ...pj.subtitles, file: r.subtitles };
   if (r.settings) { if (r.settings.look) pj.settings.look = r.settings.look; if ('kenburns' in r.settings) pj.settings.kenburns = r.settings.kenburns; }
   pj.agentReport = { at: Date.now(), ...r.report }; pj.agentOpts = o;
-  await api('PUT', `/api/project?p=${enc(PROJ)}&backup=1`, pj);
+  await saveView(before, pj, 'Claude (agent edit)');
   out(`agent edit applied: ${r.tracks.V1.length} shots, ${r.duration}s. ${r.report.warnings.join(' / ')}`);
   const weak = r.report.slots.filter((s) => s.weak).slice(0, 15);
   if (weak.length) out(`weak matches (clip id - sung/spoken text):\n${weak.map((s) => `  ${s.clipId} at ${s.start}s "${(s.text || '').slice(0, 60)}"`).join('\n')}`);
 }
 async function cmdRender(preview) {
+  const pj = await project();
   if (preview) {
-    const j = await api('POST', `/api/render?p=${enc(PROJ)}`, { preview: true });
+    const j = await api('POST', `/api/render?p=${enc(PROJ)}`, { preview: true, ...seqArg() });
     const r = await waitJob(j.id, 'preview');
     return out(`preview: ${P('renders', r.output)}`);
   }
   const preset = flag('preset', 'youtube'), res = flag('res'), name = flag('name');
-  const pj = await project();
-  const q = await api('POST', `/api/queue?p=${enc(PROJ)}`, { items: [{ preset, aspect: pj.settings.aspect, ...(res ? { quality: { res: +res } } : {}), filename: name || pj.name }] });
+  const q = await api('POST', `/api/queue?p=${enc(PROJ)}`, { items: [{ ...seqArg(), preset, aspect: pj.settings.aspect, ...(res ? { quality: { res: +res } } : {}), filename: name || pj.name }] });
   const id = q.added[0].id;
   for (let i = 0; ; i++) {
     const it = (await api('GET', '/api/queue')).items.find((x) => x.id === id);

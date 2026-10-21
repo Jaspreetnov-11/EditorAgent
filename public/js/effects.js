@@ -7,6 +7,16 @@
 import { uid } from './model.js';
 
 const n = (v, d) => (Number.isFinite(+v) ? +v : d);
+// 🖥 live looks that CSS alone cannot do are SVG filters, added once to the page (only in the browser; the render uses FFmpeg)
+const svgFx = (id, body) => {
+  if (typeof document === 'undefined') return '';
+  let defs = document.getElementById('vfxDefs');
+  if (!defs) { defs = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); defs.id = 'vfxDefs'; defs.setAttribute('width', '0'); defs.setAttribute('height', '0'); defs.style.position = 'absolute'; document.body.append(defs); }
+  if (!document.getElementById(id)) defs.insertAdjacentHTML('beforeend', `<filter id="${id}" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">${body}</filter>`);
+  return `url(#${id})`;
+};
+// film grain as a small noise picture tiled over the shot; a = how strong (0..1)
+export const grainCss = (a) => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 ${(0.12 + 0.5 * a).toFixed(2)} 0'/></filter><rect width='100%' height='100%' filter='url(#g)'/></svg>`)}")`;
 export const VFX = {
   blur: { label: 'Gaussian blur', cat: 'Blur & sharpen', params: { amount: { label: 'Blurriness', min: 0, max: 60, step: 1, def: 12 } },
     ff: (p, { W }) => `gblur=sigma=${Math.max(0.1, (n(p.amount, 12) * W) / 1920 / 2).toFixed(2)}`,
@@ -26,16 +36,22 @@ export const VFX = {
     ff: (p, { W }) => ({ graph: (a, b) => `[${a}]split[${b}x][${b}y];[${b}y]gblur=sigma=${((n(p.radius, 20) * W) / 1920).toFixed(1)},format=gbrp[${b}g];[${b}x]format=gbrp[${b}o];[${b}o][${b}g]blend=all_mode=screen:all_opacity=${n(p.amount, 0.45).toFixed(2)},format=yuv420p[${b}]` }),
     css: (p) => ({ filter: `brightness(${(1 + n(p.amount, 0.45) * 0.18).toFixed(3)}) saturate(1.08)` }) },
   vignette: { label: 'Vignette', cat: 'Stylize', params: { amount: { label: 'Amount', min: 0, max: 1, step: 0.05, def: 0.5 } },
-    ff: (p) => `vignette=angle=${(0.2 + 0.5 * n(p.amount, 0.5)).toFixed(3)}`, css: null },
+    ff: (p) => `vignette=angle=${(0.2 + 0.5 * n(p.amount, 0.5)).toFixed(3)}`,
+    // live: darker edges drawn over the picture (the render's vignette filter is the exact one)
+    css: (p) => { const a = n(p.amount, 0.5); return { overlay: `radial-gradient(ellipse at center, rgba(0,0,0,0) ${Math.round(68 - 38 * a)}%, rgba(0,0,0,${(0.3 + 0.6 * a).toFixed(2)}) 100%)` }; } },
   grain: { label: 'Film grain', cat: 'Stylize', params: { amount: { label: 'Amount', min: 0, max: 1, step: 0.05, def: 0.4 } },
-    ff: (p) => `noise=alls=${Math.round(4 + 20 * n(p.amount, 0.4))}:allf=t`, css: null },
+    ff: (p) => `noise=alls=${Math.round(4 + 20 * n(p.amount, 0.4))}:allf=t`, css: (p) => ({ overlay: grainCss(n(p.amount, 0.4)), grain: true }) },
   oldfilm: { label: 'Old film', cat: 'Stylize', params: { amount: { label: 'Amount', min: 0, max: 1, step: 0.05, def: 0.7 } },
     ff: (p) => { const a = n(p.amount, 0.7); return `hue=s=${(1 - 0.7 * a).toFixed(2)},colorchannelmixer=rr=1:gg=${(1 - 0.08 * a).toFixed(3)}:bb=${(1 - 0.22 * a).toFixed(3)},noise=alls=${Math.round(8 + 18 * a)}:allf=t,eq=brightness='0.03*${a.toFixed(2)}*sin(t*37)':eval=frame,vignette=angle=${(0.3 + 0.35 * a).toFixed(2)}`; },
     css: (p) => ({ filter: `sepia(${(0.5 * n(p.amount, 0.7)).toFixed(2)}) contrast(1.05)` }) },
   rgbsplit: { label: 'RGB split', cat: 'Stylize', params: { amount: { label: 'Offset', min: 0, max: 40, step: 1, def: 8, unit: 'px' } },
-    ff: (p, { W }) => { const o = Math.max(1, Math.round((n(p.amount, 8) * W) / 1920)); return `rgbashift=rh=${o}:bh=-${o}`; }, css: null },
+    ff: (p, { W }) => { const o = Math.max(1, Math.round((n(p.amount, 8) * W) / 1920)); return `rgbashift=rh=${o}:bh=-${o}`; },
+    // live: red moved right, blue left (an SVG filter per offset in viewer px)
+    css: (p, k) => { const o = Math.max(1, Math.round(n(p.amount, 8) * k)); return { filter: svgFx(`vfx-rgb-${o}`, `<feColorMatrix in="SourceGraphic" values="1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0" result="r"/><feOffset in="r" dx="${o}" result="r2"/><feColorMatrix in="SourceGraphic" values="0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 1 0" result="g"/><feColorMatrix in="SourceGraphic" values="0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 1 0" result="b"/><feOffset in="b" dx="${-o}" result="b2"/><feBlend in="r2" in2="g" mode="screen" result="rg"/><feBlend in="rg" in2="b2" mode="screen"/>`) }; } },
   pixelate: { label: 'Pixelate (mosaic)', cat: 'Stylize', params: { size: { label: 'Block size', min: 4, max: 80, step: 1, def: 24, unit: 'px' } },
-    ff: (p, { W, H }) => { const s = Math.max(2, Math.round((n(p.size, 24) * W) / 1920)); return `scale=${Math.max(2, Math.round(W / s))}:${Math.max(2, Math.round(H / s))},scale=${W}:${H}:flags=neighbor`; }, css: null },
+    ff: (p, { W, H }) => { const s = Math.max(2, Math.round((n(p.size, 24) * W) / 1920)); return `scale=${Math.max(2, Math.round(W / s))}:${Math.max(2, Math.round(H / s))},scale=${W}:${H}:flags=neighbor`; },
+    // live: the classic SVG mosaic (a dot per block, grown to fill it)
+    css: (p, k) => { const s = Math.max(2, Math.round(n(p.size, 24) * k)), h = Math.max(1, Math.floor(s / 2)); return { filter: svgFx(`vfx-px-${s}`, `<feFlood x="${h}" y="${h}" width="1" height="1"/><feComposite width="${s}" height="${s}"/><feTile result="a"/><feComposite in="SourceGraphic" in2="a" operator="in"/><feMorphology operator="dilate" radius="${h}"/>`) }; } },
   fliph: { label: 'Flip horizontal', cat: 'Transform', params: {}, ff: () => 'hflip', css: () => ({ transform: 'scaleX(-1)' }) },
   flipv: { label: 'Flip vertical', cat: 'Transform', params: {}, ff: () => 'vflip', css: () => ({ transform: 'scaleY(-1)' }) },
   mirror: { label: 'Mirror (left half)', cat: 'Transform', params: {},
@@ -73,15 +89,21 @@ export const newEffect = (type) => ({ id: uid(), type, on: true, p: defaultsOf(t
 export const activeEffects = (c) => (c?.effects || []).filter((e) => e.on !== false && VFX[e.type]);
 
 // live preview: the combined CSS of a clip's effects; k = viewer px per 1920-wide output px
+// (an effect with a mask is left out here - the viewer lays it over just the masked part, maskedEffectsCss)
 export function effectsCss(c, k = 0.3) {
-  const f = [], t = [];
-  let clip = '';
+  const f = [], t = [], ov = [];
+  let clip = '', grain = false;
   for (const e of activeEffects(c)) {
+    if (e.mask?.shape) continue;
     const r = VFX[e.type].css?.(e.p || {}, k);
     if (!r) continue;
     if (r.filter) f.push(r.filter);
     if (r.transform) t.push(r.transform);
     if (r.clip) clip = r.clip;
+    if (r.grain) grain = r.overlay; else if (r.overlay) ov.push(r.overlay);
   }
-  return { filter: f.join(' '), transform: t.join(' '), clip };
+  // overlay: backgrounds laid over the picture (vignette) - the viewer draws them on a layer above the shot
+  return { filter: f.join(' '), transform: t.join(' '), clip, overlay: ov.join(', '), grain };
 }
+// ◯ the masked effects that have a live look: [{ id, filter, mask }]
+export const maskedEffectsCss = (c, k = 0.3) => activeEffects(c).filter((e) => e.mask?.shape).map((e) => ({ id: e.id, filter: VFX[e.type].css?.(e.p || {}, k)?.filter || '', mask: e.mask })).filter((x) => x.filter);

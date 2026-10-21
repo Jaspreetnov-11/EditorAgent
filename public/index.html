@@ -5,10 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Limelight Editor</title>
 <link rel="icon" type="image/png" href="/img/favicon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#070706">
 <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
 <div id="app"></div>
 <script type="module" src="/js/main.js"></script>
+<script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});</script>
 </body>
 </html>

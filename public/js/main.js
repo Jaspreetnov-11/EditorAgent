@@ -35,6 +35,9 @@ import { loadFootage } from './smart.js';
 import { mountText, showText, hideText } from './textedit.js';
 import { mountMotion, showMotion, hideMotion, openCompClip } from './motionpage.js';
 import { mountFusion, showFusion, hideFusion, openFusionClip } from './fusionpage.js';
+import { mountMenuBar, openLogo, openBackups } from './menubar.js';
+import { openTemplates } from './titlesui.js';
+import { openAudioGain } from './audiogain.js';
 import './presence.js'; // 📊 session time (Team & users > Sessions)
 
 applyLook(); // 🖥 Studio (Premiere-style) look unless this browser chose Classic (⚙ in the header)
@@ -113,6 +116,7 @@ function shell() {
     <section class="page" data-page="deliver" id="deliverPage" hidden></section>
   </main>
   <nav class="pagebar" aria-label="Pages">${PAGES.map(([k, l]) => `<button data-page-btn="${k}">${l}</button>`).join('')}</nav>`;
+  mountMenuBar(editorEl, runMenu); // ☰ File · Edit · Clip · Sequence · Markers · Graphics and Titles · View · Window · Help
   mountWorkspaces(editorEl.querySelector('.edit-grid')); // 🪟 workspaces: Premiere / Resolve / Limelight / your own layouts
   mountSourceMonitor($('#srcMon')); mountDock(editorEl.querySelector('.edit-grid')); // 🎬 Premiere's two monitors (Studio look)
   editorEl.addEventListener('click', (e) => {
@@ -158,6 +162,22 @@ function shell() {
   mountAssistant(setBusy);
 }
 
+// a menu item (menubar.js): a keyboard command, a top-bar button, a page, or one of these
+function runMenu(r) {
+  const [kind, x] = r.includes(':') ? r.split(':') : [r, ''];
+  if (kind === 'k') { if (ACTIONS[x]?.() === false) toast('Select something first'); return; }
+  if (kind === 'a') return editorEl.querySelector(`header [data-a="${x}"]`)?.click();
+  if (kind === 'p') return showPage(x);
+  const edit = () => { if (S.page !== 'edit') showPage('edit'); };
+  if (r === 'import') { edit(); selectTab('media'); return $('#pool [data-file]')?.click(); }
+  if (r === 'logo') return openLogo();
+  if (r === 'backups') return openBackups();
+  if (r === 'titles') return openTemplates();
+  if (r === 'accurate') return emit('accuratePreview');
+  if (r === 'fx' || r === 'cc') { edit(); return selectTab(r); }
+  if (r === 'ec') { edit(); return editorEl.querySelector('.ui-dock [data-dock="ec"]')?.click(); }
+  if (r === 'gyro') { edit(); if (S.sel.size !== 1) return toast('Select one video clip first'); return emit('inspect', 'gyro'); }
+}
 function selectTab(t) {
   editorEl.querySelectorAll('[data-ptab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.ptab === t)));
   $('#pool').hidden = t !== 'media'; $('#fxPanel').hidden = t !== 'fx'; $('#ccPanel').hidden = t !== 'cc'; $('#notesPanel').hidden = t !== 'notes';
@@ -263,9 +283,14 @@ export function showPage(p) {
 
 async function loadLuts() { try { S.luts = await api('GET', `/api/luts?p=${enc(S.proj)}`); } catch { S.luts = []; } emit('select'); }
 
+// 🛡 a step of opening a project that goes wrong is logged and skipped - the project stays open (only a project that
+// cannot be read at all goes back to Home)
+const safely = (label, fn) => { try { const r = fn(); return r?.catch ? r.catch((e) => console.error(`${label} failed`, e)) : r; } catch (e) { console.error(`${label} failed`, e); } };
 async function openProject(name) {
+  let project;
+  try { project = await api('GET', `/api/project?p=${enc(name)}`); }
+  catch (e) { toast(e.message, 'err'); goHome(); return; }
   try {
-    let project = await api('GET', `/api/project?p=${enc(name)}`);
     S.liveRev = project._rev || 0; delete project._rev;
     let recovered = null;
     // changes this browser kept that never reached the server (tab crashed / editor closed while saving)
@@ -280,29 +305,29 @@ async function openProject(name) {
     // built: such a part is then a change like any other and reaches the server with the next edit (it used to be
     // taken after, so the server never got it - and every later caption edit went to a path the server did not have)
     resetHistory();
-    if (!editorEl.querySelector('.top')) shell();
+    if (!editorEl.querySelector('.top')) safely('Building the editor', shell);
     homeEl.hidden = true; editorEl.hidden = false;
     $('#pName').textContent = name;
     document.title = `${name} - Limelight Editor`;
     history.replaceState(null, '', `#/p/${enc(name)}`);
     // recovered changes go to the server like any other change (only what differs from the saved project)
     if (recovered) { delete recovered._rev; S.project = recovered; commit('Recovered changes'); }
-    connectLive();
-    restoreMySeq(); // 🎞 the sequence this browser had open (only here - nobody else's timeline changes)
-    syncClipboard(); // 📋 what was copied in another tab / browser / link
-    await Promise.all([refreshMedia(), loadLuts(), loadFootage(), api('GET', '/api/health').then((hh) => (S.health = hh))]);
+    safely('Live editing', connectLive);
+    safely('My sequence', restoreMySeq); // 🎞 the sequence this browser had open (only here - nobody else's timeline changes)
+    safely('Clipboard', syncClipboard); // 📋 what was copied in another tab / browser / link
+    await Promise.all([safely('Media', refreshMedia), safely('LUTs', loadLuts), safely('Footage search', loadFootage), api('GET', '/api/health').then((hh) => (S.health = hh)).catch(() => {})]);
     let pg = 'edit'; try { pg = localStorage.getItem('ve-page') || 'edit'; } catch {}
     if (!PAGES.some(([k]) => k === pg)) pg = 'edit'; // (a page no longer in the bar, e.g. the old Text page)
-    showPage(S.media.length ? (pg === 'deliver' ? 'edit' : pg) : 'media');
-    setMode('program'); // also refreshes the viewer title when switching projects
+    safely('Page', () => showPage(S.media.length ? (pg === 'deliver' ? 'edit' : pg) : 'media'));
+    safely('Viewer', () => setMode('program')); // also refreshes the viewer title when switching projects
     // everyone with edit rights edits together (🔴 live); only viewers watch
-    await whoAmI(); S.readOnly = S.me?.role === 'viewer'; S.lockHolder = null; emit('readonly', {}); sendPresence();
-    resumeAgentJob(setBusy); // an agent edit still running on the server (page refreshed / reopened)
-    pollQueue(); // renders still running / waiting in the background queue
-    watchPhoneNotes(); // notes sent from a phone (📱 review)
+    await safely('Who am I', whoAmI); S.readOnly = S.me?.role === 'viewer'; S.lockHolder = null; emit('readonly', {}); safely('Presence', sendPresence);
+    safely('Agent job', () => resumeAgentJob(setBusy)); // an agent edit still running on the server (page refreshed / reopened)
+    safely('Render queue', pollQueue); // renders still running / waiting in the background queue
+    safely('Phone notes', watchPhoneNotes); // notes sent from a phone (📱 review)
     emit('change', {}); emit('save');
     setTimeout(fitZoom, 50);
-  } catch (e) { toast(e.message, 'err'); goHome(); }
+  } catch (e) { console.error('openProject: a step failed - the project stays open', e); toast(`Something in this project could not be shown (${e.message}) - the rest works`, 'err'); }
 }
 
 async function goHome() {
@@ -377,6 +402,7 @@ const ACTIONS = {
   enable: () => { const sel = [...S.sel].map((id) => findClip(id)?.clip).filter(Boolean); if (!sel.length) return toast('Select a clip first'); const off = !sel.every((c) => c.disabled); for (const c of sel) c.disabled = off || undefined; commit(off ? 'Disable' : 'Enable'); },
   snap: () => { S.snap = !S.snap; emit('change', {}); toast(`Snapping ${S.snap ? 'on' : 'off'}`); },
   nest: () => nestSelected(),
+  audioGain: () => openAudioGain(),
   marker: () => { (S.project.markers ||= []).push({ t: +S.playhead.toFixed(3) }); commit('Marker'); },
   nextMarker: () => goMarker(1), prevMarker: () => goMarker(-1), note: () => addNote(),
   zoomIn: () => setZoom(S.zoom * 1.25, true), zoomOut: () => setZoom(S.zoom / 1.25, true), zoomFit: () => fitZoom(),

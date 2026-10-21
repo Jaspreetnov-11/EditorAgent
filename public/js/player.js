@@ -13,7 +13,8 @@ import { Grader, loadLut, cachedLut } from './colorgl.js';
 import { isNeutral } from './colormath.js';
 import { fxPreview, wordWindows, isKinetic } from './fx.js';
 import { drawGraphic } from './graphics.js';
-import { effectsCss } from './effects.js';
+import { effectsCss, maskedEffectsCss, grainCss } from './effects.js';
+import { maskAlpha, movedMask, unmovedMask, maskKey } from './shapemask.js';
 import { captionAt } from './captions.js';
 import { fitMap, framingOf, srcSize, boxAt, srcTimeAt } from './tracking.js';
 
@@ -46,6 +47,8 @@ export function mountViewer(el) {
       <canvas class="lyr" id="lyGrade" hidden></canvas>
       <img class="lyr" id="lyImg" alt="">
       <div class="lyr title-card" id="lyCard"></div>
+      <div class="lyr fxmask" id="lyFxm"></div>
+      <div class="lyr fxover" id="lyFxo" hidden></div>
       <div class="lyr fxov" id="lyFx" hidden></div>
       <div class="lyr txt" id="lyText"></div>
       <div class="lyr maskl" id="lyMask"></div>
@@ -57,9 +60,11 @@ export function mountViewer(el) {
       <img class="lyr logo" id="lyLogo" alt="">
       <div class="lyr look" id="lyLook"></div>
       <div class="lyr guides" id="lyGuides" hidden><i class="g-action"></i><i class="g-title"></i><i class="g-h"></i><i class="g-v"></i></div>
+      <div class="lyr maskui" id="lyMaskUi" hidden></div>
       <div class="vw-msg" id="vwMsg" hidden></div>
     </div>
   </div>
+  <div class="vw-ruler" id="vwRuler" title="Drag to move through the edit"><div class="vr-ticks"></div><div class="vr-ph"><i></i></div></div>
   <div class="vw-src" id="vwSrc" hidden>
     <div class="src-bar" id="srcBar"><div class="src-range" id="srcRange"></div><div class="src-head" id="srcHead"></div></div>
   </div>
@@ -82,7 +87,7 @@ export function mountViewer(el) {
     <span class="tc" id="vwDur"></span>
   </div>`;
   frame = $('#vwFrame', el);
-  for (const k of ['lyA', 'lyB', 'lyImg', 'lyCard', 'lyText', 'lyOv', 'lyOvImg', 'lyOvText', 'lyLogo', 'lyBlur', 'vwMsg', 'lyGrade', 'lyFx', 'lyOvStack', 'lyCap', 'lyMask']) els[k] = $(`#${k}`, el);
+  for (const k of ['lyA', 'lyB', 'lyImg', 'lyCard', 'lyText', 'lyOv', 'lyOvImg', 'lyOvText', 'lyLogo', 'lyBlur', 'vwMsg', 'lyGrade', 'lyFx', 'lyOvStack', 'lyCap', 'lyMask', 'lyFxm', 'lyMaskUi', 'lyFxo']) els[k] = $(`#${k}`, el);
   try { grader = new Grader(els.lyGrade); } catch { grader = null; } // without WebGL2 the CSS approximation is used
   // a paused frame arrives after the seek finishes: redraw then so the graded canvas is up to date
   [els.lyA, els.lyB, els.lyImg].forEach((m) => m.addEventListener(m.tagName === 'IMG' ? 'load' : 'seeked', () => { if (mode === 'program' && !playing) drawProgram(S.playhead, false); }));
@@ -105,6 +110,18 @@ export function mountViewer(el) {
     window.addEventListener('pointermove', go); window.addEventListener('pointerup', up);
   });
   new ResizeObserver(sizeFrame).observe($('#vwStage', el));
+  // ⏱ Program monitor's time ruler (like Premiere's): timecodes along the whole edit; drag anywhere on it to scrub
+  const vr = $('#vwRuler', el);
+  vr.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault(); try { vr.setPointerCapture(e.pointerId); } catch {}
+    const go = (ev) => { const b = vr.getBoundingClientRect(); emit('seek', clamp((ev.clientX - b.left) / b.width, 0, 1) * duration()); };
+    go(e);
+    const up = () => { vr.removeEventListener('pointermove', go); vr.removeEventListener('pointerup', up); };
+    vr.addEventListener('pointermove', go); vr.addEventListener('pointerup', up);
+  });
+  new ResizeObserver(drawRuler).observe(vr);
+  on('change', drawRuler);
   bindDirectMove();
   els.lyA.addEventListener('timeupdate', () => { if (mode === 'source') { srcUI(); } });
   els.lyA.addEventListener('ended', () => { if (mode === 'source') setPlayingUI(false); });
@@ -163,14 +180,17 @@ function drawLook() {
   const el = $('#lyLook', root); if (!el || !S.project) return;
   const lk = S.project.settings.look || {}, [w, h] = ASPECTS[S.project.settings.aspect] || [16, 9];
   const ratio = { '2.39': 2.39, '2.0': 2, '1.85': 1.85 }[lk.letterbox], bar = ratio && w / h < ratio ? ((1 - w / h / ratio) / 2) * 100 : 0;
-  const v = +lk.vignette || 0;
-  el.hidden = mode !== 'program' || (!bar && !v);
+  const v = +lk.vignette || 0, gr = +lk.grain || 0;
+  el.hidden = mode !== 'program' || (!bar && !v && !gr);
+  el.dataset.grain = gr ? String((bar ? 1 : 0) + (v ? 1 : 0)) : ''; // (how many layers come before the grain)
   // the film look, roughly (Accurate preview / renders use the exact LUT)
   lookFilter = mode === 'program' ? lookCss(lk) : '';
   if (els.lyBlur) els.lyBlur.style.filter = lookFilter;
   if (mode === 'program' && !playing) drawProgram(S.playhead, false);
-  el.style.background = [bar ? `linear-gradient(#000 0 ${bar}%, transparent ${bar}% ${100 - bar}%, #000 ${100 - bar}%)` : '', v ? `radial-gradient(ellipse at center, transparent ${70 - 30 * v}%, rgba(0,0,0,${(0.35 + 0.45 * v).toFixed(2)}) 100%)` : ''].filter(Boolean).join(',');
+  el.style.background = [bar ? `linear-gradient(#000 0 ${bar}%, transparent ${bar}% ${100 - bar}%, #000 ${100 - bar}%)` : '', v ? `radial-gradient(ellipse at center, transparent ${70 - 30 * v}%, rgba(0,0,0,${(0.35 + 0.45 * v).toFixed(2)}) 100%)` : '', gr ? grainCss(gr * 0.8) : ''].filter(Boolean).join(',');
 }
+// grain moves every frame while playing (still noise looks like dirt on the lens)
+const grainShift = () => (playing ? `${Math.floor(Math.random() * 160)}px ${Math.floor(Math.random() * 160)}px` : '0 0');
 export const isPlaying = () => playing || (mode === 'source' && !els.lyA.paused);
 export const viewerMode = () => mode;
 
@@ -189,6 +209,7 @@ export function setMode(m) {
   mode = m;
   $$('[data-mode]', root).forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mode === m)));
   $('#vwSrc', root).hidden = m !== 'source';
+  $('#vwRuler', root).hidden = m !== 'program';
   $('.src-only', root).hidden = m !== 'source';
   hideAll();
   sizeFrame();
@@ -198,7 +219,7 @@ export function setMode(m) {
 }
 
 function hideAll() {
-  for (const k of ['lyA', 'lyB', 'lyImg', 'lyCard', 'lyText', 'lyOv', 'lyOvImg', 'lyOvText', 'lyLogo', 'lyBlur', 'vwMsg', 'lyFx', 'lyCap', 'lyMask']) { els[k].hidden = true; els[k].style.opacity = ''; }
+  for (const k of ['lyA', 'lyB', 'lyImg', 'lyCard', 'lyText', 'lyOv', 'lyOvImg', 'lyOvText', 'lyLogo', 'lyBlur', 'vwMsg', 'lyFx', 'lyCap', 'lyMask', 'lyFxo', 'lyFxm']) { els[k].hidden = true; els[k].style.opacity = ''; }
   // the program's colour layer and cinematic overlay must not show through the source monitor
   els.lyGrade.hidden = true; const lk = $('#lyLook', root); if (lk) lk.hidden = true;
   for (const v of [els.lyA, els.lyB, els.lyOv]) v.pause();
@@ -373,7 +394,7 @@ function look(c, rel = 0) {
   if (lookFilter && mode === 'program') filt.push(lookFilter);
   const tf = [z !== 1 || x || y || r ? `translate(${x}%, ${y}%) scale(${z}) rotate(${r}deg)` : '', fx?.transform || '', ef.transform].filter(Boolean).join(' ');
   // fxFilter: only the effects (no colour approximation) - the exact WebGL grade layer adds just these
-  return { filter: filt.join(' '), transform: tf, clip: ef.clip, fxFilter: [fx?.filter, ef.filter, mode === 'program' ? lookFilter : ''].filter(Boolean).join(' ') };
+  return { filter: filt.join(' '), transform: tf, clip: ef.clip, overlay: ef.overlay, grain: ef.grain, fxFilter: [fx?.filter, ef.filter, mode === 'program' ? lookFilter : ''].filter(Boolean).join(' ') };
 }
 function fitStyle(el, c, rel = 0) {
   const mode = c.fit || S.project.settings.fit || (isVertical() ? 'blur' : 'fit');
@@ -446,6 +467,7 @@ function gradeLayer(src, c, opacity) {
   cv.hidden = false;
   cv.style.objectFit = src.style.objectFit; cv.style.objectPosition = src.style.objectPosition;
   cv.style.transform = src.style.transform; cv.style.opacity = opacity; cv.style.filter = src._fxFilter || ''; cv.style.clipPath = src.style.clipPath;
+  cv.style.maskImage = cv.style.webkitMaskImage = src.style.maskImage; cv.style.maskSize = cv.style.webkitMaskSize = '100% 100%';
   src.style.visibility = 'hidden';
 }
 
@@ -466,6 +488,122 @@ function ovSlot(c) {
   }
   return sl;
 }
+// ⏱ the time ruler under the Program monitor: about one label every 90 px, at a round step (1 s … 30 min)
+let rulerKey = '';
+function drawRuler(t) {
+  const el = $('#vwRuler', root); if (!el || !S.project) return;
+  const D = Math.max(1, duration()), w = el.clientWidth || 1, key = `${D.toFixed(2)}|${w}|${S.project.settings.fps}`;
+  if (key !== rulerKey) {
+    rulerKey = key;
+    const want = (D * 90) / w, step = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800].find((x) => x >= want) || 3600, minor = step / 5;
+    const tc = (t) => fmtTC(t, S.project.settings.fps).replace(/:\d\d$/, ''); // (hh:mm:ss, like Premiere's)
+    let h = '';
+    for (let t = 0; t <= D + 1e-6; t += minor) {
+      const major = Math.abs(t / step - Math.round(t / step)) < 1e-6, x = ((t / D) * 100).toFixed(3);
+      h += major ? `<b style="left:${x}%"></b>${t < D - step * 0.4 || t === 0 ? `<span style="left:${x}%">${tc(t)}</span>` : ''}` : `<i style="left:${x}%"></i>`;
+    }
+    $('.vr-ticks', el).innerHTML = h;
+  }
+  placeRuler(typeof t === 'number' ? t : S.playhead);
+}
+function placeRuler(t) {
+  const ph = root && $('#vwRuler .vr-ph', root); if (!ph) return;
+  ph.style.left = `${clamp(t / Math.max(1, duration()), 0, 1) * 100}%`;
+}
+
+// ◯ ---------------- masks (public/js/shapemask.js) ----------------
+// A mask as a small picture for CSS mask-image (kept per mask: drawing one costs a few ms)
+const maskUrls = new Map();
+function maskUrl(m) {
+  const key = maskKey(m);
+  let u = maskUrls.get(key);
+  if (u) return u;
+  const [FW, FH] = ASPECTS[S.project.settings.aspect] || [1920, 1080], w = 320, hh = Math.max(2, Math.round((w * FH) / FW));
+  const a = maskAlpha(m, w, hh), cv = document.createElement('canvas');
+  cv.width = w; cv.height = hh;
+  const ctx = cv.getContext('2d'), img = ctx.createImageData(w, hh);
+  for (let i = 0; i < a.length; i++) img.data[i * 4 + 3] = a[i];
+  ctx.putImageData(img, 0, 0);
+  u = `url(${cv.toDataURL()})`;
+  if (maskUrls.size > 60) maskUrls.clear();
+  maskUrls.set(key, u);
+  return u;
+}
+// ◐ the clip's Opacity mask on its picture element (it moves with the element's Motion transform)
+function setMask(el, m) {
+  const u = m?.shape ? maskUrl(m) : '';
+  if (el._mask === u) return;
+  el._mask = u;
+  el.style.maskImage = el.style.webkitMaskImage = u; el.style.maskSize = el.style.webkitMaskSize = u ? '100% 100%' : '';
+}
+// effects with a mask on the V1 shot: the effect's look over just that part of the picture (exact in Accurate preview)
+function drawFxMasks(x, t) {
+  const el = els.lyFxm, c = x?.clip;
+  const list = c && !c.disabled && (c.type === 'video' || c.type === 'image') ? maskedEffectsCss(c, (frame?.clientWidth || 640) / ((ASPECTS[S.project.settings.aspect] || [1920])[0])) : [];
+  el.hidden = !list.length;
+  if (!list.length) { el.innerHTML = ''; return; }
+  const tf = look(c, t - x.start).transform;
+  el.innerHTML = list.map((e) => { const u = maskUrl(e.mask); return `<i style="transform:${tf};backdrop-filter:${e.filter};-webkit-backdrop-filter:${e.filter};mask-image:${u};-webkit-mask-image:${u};mask-size:100% 100%;-webkit-mask-size:100% 100%"></i>`; }).join('');
+}
+// ✎ editing a mask on the monitor: S.maskEdit = { clipId, effId } (effId null: the clip's Opacity mask). The shape is
+// drawn where it is seen (after Motion); drag inside to move it, the handles to size it.
+function maskTarget() {
+  const me = S.maskEdit; if (!me || mode !== 'program' || !S.project) return null;
+  for (const list of Object.values(layout())) {
+    const x = list.find((p) => p.clip.id === me.clipId); if (!x) continue;
+    const c = x.clip, m = me.effId ? c.effects?.find((e) => e.id === me.effId)?.mask : c.omask;
+    if (!m?.shape) return null;
+    const rel = clamp(S.playhead - x.start, 0, x.end - x.start);
+    const tf = { zoom: propAt(c, 'transform.zoom', rel), x: propAt(c, 'transform.x', rel), y: propAt(c, 'transform.y', rel) };
+    return { c, m, tf, set: (nm) => { if (me.effId) c.effects.find((e) => e.id === me.effId).mask = nm; else c.omask = nm; } };
+  }
+  return null;
+}
+function drawMaskUI() {
+  const el = els.lyMaskUi; if (!el) return;
+  const mt = maskTarget();
+  el.hidden = !mt;
+  if (!mt) return;
+  const v = movedMask(mt.m, mt.tf), pc = (n) => `${(n * 100).toFixed(3)}%`;
+  if (!el.firstChild) {
+    el.innerHTML = `<div class="mk-shape" data-mk="move"></div>${['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].map((k) => `<b class="mk-h" data-mk="${k}"></b>`).join('')}<span class="mk-tip">Drag to move · handles to size · Esc to finish</span>`;
+    el.addEventListener('pointerdown', maskDrag);
+  }
+  const sh = el.querySelector('.mk-shape');
+  sh.style.cssText = `left:${pc(v.x - v.w / 2)};top:${pc(v.y - v.h / 2)};width:${pc(v.w)};height:${pc(v.h)}`;
+  sh.classList.toggle('ell', mt.m.shape !== 'rect'); sh.classList.toggle('inv', !!mt.m.invert);
+  const at = { nw: [0, 0], n: [0.5, 0], ne: [1, 0], e: [1, 0.5], se: [1, 1], s: [0.5, 1], sw: [0, 1], w: [0, 0.5] };
+  el.querySelectorAll('.mk-h').forEach((b) => { const [fx, fy] = at[b.dataset.mk]; b.style.left = pc(v.x - v.w / 2 + v.w * fx); b.style.top = pc(v.y - v.h / 2 + v.h * fy); });
+}
+function maskDrag(e) {
+  const kind = e.target.closest('[data-mk]')?.dataset.mk, mt = maskTarget();
+  if (!kind || !mt) return;
+  e.preventDefault(); e.stopPropagation(); pause();
+  const r = frame.getBoundingClientRect(), v0 = movedMask(mt.m, mt.tf);
+  let moved = false;
+  const mv = (ev) => {
+    const dx = (ev.clientX - e.clientX) / r.width, dy = (ev.clientY - e.clientY) / r.height;
+    let { x, y, w, h } = v0;
+    if (kind === 'move') { x += dx; y += dy; } else {
+      let l = v0.x - v0.w / 2, rt = v0.x + v0.w / 2, tp = v0.y - v0.h / 2, bt = v0.y + v0.h / 2;
+      if (kind.includes('w')) l = Math.min(rt - 0.01, l + dx);
+      if (kind.includes('e')) rt = Math.max(l + 0.01, rt + dx);
+      if (kind.includes('n')) tp = Math.min(bt - 0.01, tp + dy);
+      if (kind.includes('s')) bt = Math.max(tp + 0.01, bt + dy);
+      x = (l + rt) / 2; w = rt - l; y = (tp + bt) / 2; h = bt - tp;
+    }
+    const cur = maskTarget(); if (!cur) return;
+    const back = unmovedMask({ ...cur.m, x, y, w, h }, cur.tf), r4 = (n) => +n.toFixed(4);
+    cur.set({ ...cur.m, x: r4(back.x), y: r4(back.y), w: r4(back.w), h: r4(back.h) });
+    moved = true; drawProgram(S.playhead, false); emit('maskMoved');
+  };
+  const up = () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); if (moved) commit('Move mask', `mask:${S.maskEdit?.clipId}`); };
+  window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+}
+on('maskEdit', () => { if (mode === 'program' && !playing) drawProgram(S.playhead, false); else drawMaskUI(); });
+on('select', () => { if (S.maskEdit && !S.sel.has(S.maskEdit.clipId)) { S.maskEdit = null; drawMaskUI(); } });
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.maskEdit) { S.maskEdit = null; drawMaskUI(); emit('maskEdit'); } });
+
 // Tracked blur / mosaic boxes of the V1 shot (exact in renders; here a blur over the same place)
 function drawMasks(x, t) {
   const el = els.lyMask, c = x?.clip;
@@ -542,7 +680,8 @@ function drawOverlays(t, isPlay) {
         continue;
       }
       const m = S.mediaById[c.mediaId];
-      if (c.type === 'video' && !m?.playable) continue;
+      if (c.type !== 'title' && !m) continue; // (its file is not loaded yet / was removed: skip it, never stop the viewer)
+      if (c.type === 'video' && !m.playable) continue;
       const sl = ovSlot(c), el = sl.el;
       live.add(c.id); order.push(el);
       el.hidden = false;
@@ -550,7 +689,7 @@ function drawOverlays(t, isPlay) {
       if (c.type === 'title') { textStyle(el, c, null, t, x.start, x.end, true); continue; }
       const lk = look(c, rel);
       fitStyle(el, c, rel);
-      el.style.opacity = propAt(c, 'opacity', rel); el.style.transform = lk.transform; el.style.filter = lk.filter; el.style.clipPath = lk.clip || '';
+      el.style.opacity = propAt(c, 'opacity', rel); el.style.transform = lk.transform; el.style.filter = lk.filter; el.style.clipPath = lk.clip || ''; setMask(el, c.omask);
       if (c.type === 'image') { if (el.dataset.src !== m.urls.play) { el.src = m.urls.play; el.dataset.src = m.urls.play; } }
       else syncVideo(el, m, c, x.start, t, isPlay, c.volume ?? 0, id);
       below.push(el);
@@ -561,11 +700,19 @@ function drawOverlays(t, isPlay) {
   for (const [id, sl] of ovSlots) if (!live.has(id)) { sl.el.hidden = true; if (sl.el.tagName === 'VIDEO') sl.el.pause(); if (!findAny(id)) { sl.el.remove(); ovSlots.delete(id); } }
 }
 
+// 🛡 a clip the viewer cannot draw (missing file, odd data) is skipped - the editor keeps working; the error is logged once
+let drawErr = '';
 function drawProgram(t, isPlay) {
+  try { drawProgramNow(t, isPlay); }
+  catch (e) { const k = String(e?.stack || e); if (k !== drawErr) { drawErr = k; console.error('viewer: a clip could not be drawn', e); } }
+}
+function drawProgramNow(t, isPlay) {
   if (!S.project || mode !== 'program') return;
   applyMix();
   const L = layout(), ts = S.project.trackState;
   $('#vwTC').textContent = fmtTC(t, S.project.settings.fps);
+  { const lkEl = els.lyLook || (els.lyLook = $('#lyLook', root)); if (lkEl?.dataset.grain) lkEl.style.backgroundPosition = [...Array(+lkEl.dataset.grain).fill('0 0'), grainShift()].join(', '); }
+  drawRuler(t); // (redrawn only when the edit's length or the monitor's width changed)
   $('#vwDur').textContent = fmtTC(duration(), S.project.settings.fps);
   els.vwMsg.hidden = true;
   const used = new Set();
@@ -596,7 +743,7 @@ function drawProgram(t, isPlay) {
       const kb = c.kenburns ?? (S.project.settings.kenburns ? 'in' : false), p = clamp((t - x.start) / (x.end - x.start), 0, 1);
       const z = kb ? (kb === 'out' ? 1.15 - 0.15 * p : 1 + 0.15 * p) : 1;
       fitStyle(img, kb ? { ...c, fit: 'fill' } : c, t - x.start);
-      img.style.transform = `${lk.transform} scale(${z})`; img.style.filter = lk.filter; img.style.opacity = opacity; img.style.clipPath = lk.clip || ''; img._fxFilter = lk.fxFilter;
+      img.style.transform = `${lk.transform} scale(${z})`; img.style.filter = lk.filter; img.style.opacity = opacity; img.style.clipPath = lk.clip || ''; img._fxFilter = lk.fxFilter; setMask(img, c.omask);
       gradeLayer(img, c, opacity);
       return;
     }
@@ -604,7 +751,7 @@ function drawProgram(t, isPlay) {
     const v = slotFor(x); used.add(v);
     v.hidden = false; v.style.opacity = opacity;
     const fm = fitStyle(v, c, t - x.start);
-    v.style.transform = lk.transform; v.style.filter = lk.filter; v.style.clipPath = lk.clip || ''; v._fxFilter = lk.fxFilter;
+    v.style.transform = lk.transform; v.style.filter = lk.filter; v.style.clipPath = lk.clip || ''; v._fxFilter = lk.fxFilter; setMask(v, c.omask);
     if (fm === 'blur' && m.urls.thumb && !blurSet) { els.lyBlur.hidden = false; els.lyBlur.style.backgroundImage = `url('${m.urls.thumb}')`; blurSet = true; }
     const pa = partnerOf(c);
     if (pa && !pa.a.disabled) {
@@ -617,6 +764,9 @@ function drawProgram(t, isPlay) {
   els.lyCard.hidden = true; els.lyImg.hidden = true; els.lyBlur.hidden = true; els.lyGrade.hidden = true;
   if (prev) drawV1(prev, 1);
   if (cur) drawV1(cur, prev ? String(clamp((t - cur.start) / Math.max(0.01, cur.overlap), 0, 1)) : 1);
+  // the shot's overlay effects (vignette), over its picture and moving with it
+  { const lk2 = cur && !cur.clip.disabled && cur.clip.type !== 'title' ? look(cur.clip, t - cur.start) : null; const lay = lk2 ? [lk2.overlay, lk2.grain].filter(Boolean) : []; els.lyFxo.hidden = !lay.length;
+    if (lay.length) { els.lyFxo.style.background = lay.join(', '); els.lyFxo.style.transform = lk2.transform; els.lyFxo.style.backgroundPosition = lay.map((l) => (l === lk2.grain ? grainShift() : '0 0')).join(', '); } }
   // the shot that just came is still loading (a jump to a new place in the file, over the internet): the last frame of
   // the one before stays up under it instead of black, until the new one has a picture
   const loading = [...used].some((s) => s.readyState < 2 || s.seeking);
@@ -634,6 +784,7 @@ function drawProgram(t, isPlay) {
   }
 
   drawMasks(cur, t);
+  drawFxMasks(cur, t);
   // ---- overlay tracks (V2, V3, … bottom to top) ----
   drawOverlays(t, isPlay);
   drawCaption(t);
@@ -679,6 +830,7 @@ function drawProgram(t, isPlay) {
     }
   }
   for (const [id, a] of audioPool) if (!live.has(id)) { a.pause(); if (!S.project || !findAny(id)) { a.src = ''; audioPool.delete(id); } }
+  drawMaskUI();
 }
 const findAny = (id) => Object.values(S.project.tracks).some((l) => l.some((c) => c.id === id));
 

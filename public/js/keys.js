@@ -22,7 +22,7 @@ export const COMMANDS = [
   ['clear', 'Delete and leave a gap (lift)', 'Timeline'], ['rippleDelete', 'Delete (the next clip moves up - ripple)', 'Timeline'],
   ['duplicate', 'Duplicate', 'Timeline'], ['transition', 'Apply default video transition', 'Timeline'],
   ['selectAtPlayhead', 'Select clip at playhead', 'Timeline'], ['link', 'Link / unlink audio and video', 'Timeline'],
-  ['enable', 'Enable / disable clip', 'Timeline'], ['snap', 'Snap in timeline', 'Timeline'], ['nest', 'Nest…', 'Timeline'],
+  ['enable', 'Enable / disable clip', 'Timeline'], ['audioGain', 'Audio gain…', 'Timeline'], ['snap', 'Snap in timeline', 'Timeline'], ['nest', 'Nest…', 'Timeline'],
   ['marker', 'Add marker', 'Markers'], ['nextMarker', 'Go to next marker', 'Markers'], ['prevMarker', 'Go to previous marker', 'Markers'], ['note', 'Add review note', 'Markers'],
   ['zoomIn', 'Zoom in (timeline)', 'View'], ['zoomOut', 'Zoom out (timeline)', 'View'], ['zoomFit', 'Zoom to sequence', 'View'],
   ['maximize', 'Maximize / restore the panel under the mouse', 'View'], ['fullscreen', 'Full screen (Program monitor)', 'View'],
@@ -40,7 +40,7 @@ const PREMIERE = {
   // Delete closes up (the next clip takes the deleted one's place); Shift+Delete leaves a gap. (The other way round
   // from Premiere, on purpose: the gaps Delete used to leave meant shuffling clips by hand every time.)
   clear: ['Shift+Delete', 'Shift+Backspace'], rippleDelete: ['Delete', 'Backspace'], duplicate: [], transition: ['Ctrl+D'],
-  selectAtPlayhead: ['D'], link: ['Ctrl+L'], enable: ['Shift+E'], snap: ['S'], nest: [],
+  selectAtPlayhead: ['D'], link: ['Ctrl+L'], enable: ['Shift+E'], audioGain: ['G'], snap: ['S'], nest: [],
   marker: ['M'], nextMarker: ['Shift+M'], prevMarker: ['Ctrl+Shift+M'], note: ['Alt+M'],
   zoomIn: ['='], zoomOut: ['-'], zoomFit: ['\\'], maximize: ['`'], fullscreen: ['Ctrl+`'],
 };

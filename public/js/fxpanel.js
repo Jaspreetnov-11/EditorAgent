@@ -18,7 +18,7 @@ function items() {
   const mine = libCached()?.presets?.fx || [];
   if (mine.length) out.push(['⭐ My presets', mine.map((p) => ({ kind: 'preset', type: p.id, label: p.name }))]);
   out.push(['Transitions', TRANSITIONS.filter(([k]) => k !== 'cut').map(([k, l]) => ({ kind: 'transition', type: k, label: l }))]);
-  out.push([RAMP_CAT, Object.entries(RAMPS).map(([k, r]) => ({ kind: 'ramp', type: k, label: r.label }))]);
+  // (speed ramp presets live in Effect Controls › ⏩ Speed ramp, not in the Effects panel)
   out.push(['Cut effects (on the cut, keep the beat)', Object.entries(CUTFX).map(([k, x]) => ({ kind: 'cutfx', type: k, label: x.label }))]);
   for (const cat of VFX_CATS) out.push([`Video effects · ${cat}`, Object.entries(VFX).filter(([, x]) => x.cat === cat).map(([k, x]) => ({ kind: 'vfx', type: k, label: x.label, hint: x.v2only ? 'V2 overlays' : '' }))]);
   out.push(['Audio clean-up', Object.entries(FX_PRESETS).filter(([k]) => k !== 'flat').map(([k, x]) => ({ kind: 'afx', type: k, label: x.label }))]);
@@ -100,9 +100,12 @@ function applyToSelection(fx) {
   if (!ids.length) return toast('Select clips on the timeline first (or drag the effect onto one)', 'err');
   const msgs = ids.map((id) => applyFx(fx, id)).filter(Boolean);
   if (!msgs.length) return toast("That effect does not fit the selected clips", 'err');
-  commit(`Apply ${fx.type}`); emit('select');
+  commit(`Apply ${fx.type}`); emit('select'); showInEC(fx);
   toast(`✨ ${msgs[msgs.length - 1]}${ids.length > 1 ? ` · ${ids.length} clips` : ''}`);
 }
+// 🎛 an effect just put on a clip opens in Effect Controls, ready to adjust by hand
+const EC_SECTION = { vfx: 'vfx', preset: 'vfx', cutfx: 'cutfx', ramp: 'ramp', transition: 'transition', afx: 'audio' };
+function showInEC(fx) { if (EC_SECTION[fx.kind]) emit('inspect', EC_SECTION[fx.kind]); }
 
 export const transitionLength = () => trDur;
 // timeline drop: a transition dropped near a clip's start goes on that cut, near its end on the next cut
@@ -115,6 +118,6 @@ export function dropFx(fx, clipId, relX) {
   const msg = applyFx(fx, id);
   if (!msg) return toast('That effect does not fit this clip', 'err');
   S.sel = new Set([id]);
-  commit(`Apply ${fx.type}`); emit('select');
+  commit(`Apply ${fx.type}`); emit('select'); showInEC(fx);
   toast(`✨ ${msg}`);
 }

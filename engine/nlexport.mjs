@@ -1,9 +1,9 @@
 // nlexport.mjs - hands the timeline to Premiere Pro / DaVinci Resolve as a Final Cut Pro 7 XML (xmeml v4), which both import.
 //
 // What carries over: every clip on its track with the same source in/out and timeline position (original camera files,
-// not proxies), cross dissolves, speed changes, clip volume, V2 opacity, fit-to-frame scale, the logo, markers,
-// and the subtitle file (.srt next to the XML). Titles become PNG stills (+ a marker with the text) so nothing is lost.
-// What does not: colour grades/LUTs, zoom/position/rotation and keyframes, audio effects and ducking - listed in notes.
+// not proxies), cross dissolves, speed changes, clip volume, V2 opacity, fit-to-frame scale x zoom, position, rotation,
+// the logo, markers, and the subtitle file (.srt next to the XML). Titles become PNG stills (+ a marker with the text).
+// What does not: colour grades/LUTs, keyframes, masks, audio effects and ducking - listed in notes.
 //
 // exportTimeline({ project, media, outDir, base, subtitlesPath }) -> { xml, files: [...], notes: [...] }
 import fs from 'node:fs';
@@ -105,14 +105,35 @@ export function exportTimeline({ project, media, outDir, base, subtitlesPath, co
     return +(s * 100 * (c.transform?.zoom || 1)).toFixed(3);
   }
 
+  // ▭ a rectangle Opacity mask -> Premiere's Crop effect (% of the source picture from each edge; applied before Motion)
+  function cropFilter(m, c) {
+    const k = c.omask;
+    if (k?.shape !== 'rect' || k.invert) return '';
+    const rot = Math.abs(m.rotation || 0) % 180 === 90;
+    const w = (rot ? m.height : m.width) || W, h = (rot ? m.width : m.height) || H;
+    const mode = c.fit || S.fit || (H > W ? 'blur' : 'fit');
+    const s = mode === 'fill' ? Math.max(W / w, H / h) : Math.min(W / w, H / h);
+    // the mask is in fractions of the frame the picture was fitted into; the picture fills pw x ph of it, centred
+    const pw = (w * s) / W, ph = (h * s) / H;
+    const pct = (v) => +Math.min(100, Math.max(0, v * 100)).toFixed(3);
+    const L = pct(((k.x ?? 0.5) - (k.w ?? 0.3) / 2 - (0.5 - pw / 2)) / pw), R = pct((0.5 + pw / 2 - ((k.x ?? 0.5) + (k.w ?? 0.3) / 2)) / pw);
+    const T = pct(((k.y ?? 0.5) - (k.h ?? 0.3) / 2 - (0.5 - ph / 2)) / ph), Bt = pct((0.5 + ph / 2 - ((k.y ?? 0.5) + (k.h ?? 0.3) / 2)) / ph);
+    if (!L && !R && !T && !Bt) return '';
+    return motion('Crop', 'crop', param('left', 'left', L, 0, 100) + param('right', 'right', R, 0, 100) +
+      param('top', 'top', T, 0, 100) + param('bottom', 'bottom', Bt, 0, 100) + param('edgefeather', 'edgefeather', 0, 0, 100));
+  }
+
   function noteLosses(c) {
     if (c.ramp) notes.add('Speed ramps come across as the average speed of the shot - redo the ramp with Time Remapping (Premiere) or Retime Curve (Resolve).');
-    if (c.cutFx?.type) notes.add('Cut effects (flash, glitch, light leak, whip, shake...) are not in the XML - add them in your editor, or deliver the MP4 from this app.');
-    if (c.effects?.some((e) => e.on !== false)) notes.add('Video effects from the Effects panel (blur, black & white, glow, crop, green screen...) are not in the XML - add them again in your editor.');
+    if (c.cutFx?.type && !graded[c.id]?.cut) notes.add(`Cut effects (${color === 'bake' ? 'glitch, light leak, whip, shake... - flash and strobe are baked in' : 'flash, glitch, light leak, whip, shake...'}) are not in the XML - add them in your editor, or deliver the MP4 from this app.`);
+    // a black chroma key only makes the empty frame around a shrunk picture see-through - Premiere / Resolve leave it
+    // see-through anyway, so it needs nothing
+    const blackKey = (e) => e.type === 'chromakey' && /^#?0{6}$/.test(String(e.p?.color || '#00ff00'));
+    if (c.effects?.some((e) => e.on !== false && !blackKey(e))) notes.add('Video effects from the Effects panel (blur, black & white, glow, crop, green screen...) are not in the XML - add them again in your editor.');
     if (c.type === 'title' && (c.anim === 'words' || c.anim === 'build')) notes.add('Kinetic (word by word) titles come across as one still title PNG.');
     if (color === 'none' && c.color && !isNeutral(c.color)) notes.add(`Colour grades/LUTs are not in the XML - re-grade in Lumetri / Resolve Color${c.color.lut ? ` (LUT used: ${c.color.lut}; it is in the LUTs folder)` : ''}.`);
-    if (c.transform && (c.transform.x || c.transform.y || c.transform.rotation)) notes.add('Position and rotation moves need to be redone (zoom is carried over as scale).');
-    if (c.keys && Object.values(c.keys).some((k) => k?.length)) notes.add('Keyframed zoom / position / volume animations need to be redone.');
+    if (c.keys && Object.values(c.keys).some((k) => k?.length)) notes.add('Keyframed zoom / position / volume animations need to be redone (the clip starts where its still settings put it).');
+    if (c.omask?.shape && (c.omask.shape !== 'rect' || c.omask.invert)) notes.add('Ellipse / inverted opacity masks are not in the XML - draw them again (Premiere: Opacity > mask; Resolve: Power Window). Rectangle masks come across as Crop.');
     if (c.fadeIn || c.fadeOut) notes.add('Clip fade-ins/outs need to be redone (cross dissolves between V1 clips are carried over).');
     if (c.text && c.type !== 'title') notes.add('Text burned onto clips (lower thirds on footage) is exported as markers only.');
   }
@@ -144,7 +165,12 @@ export function exportTimeline({ project, media, outDir, base, subtitlesPath, co
     const file = fileXml(fileKey, { ...m, name: m.name, file: m.path });
     let v = '';
     if (track === 'video') {
-      const filters = motion('Basic Motion', 'basic', param('scale', 'Scale', opts.scale ?? fitScale(m, c), 0, 1000)) +
+      // position: x/y are % of the frame (+ = right/down); xmeml's Center runs -1..1 from edge to edge (half a frame per
+      // unit), so Premiere's Position = W/2 + horiz*W/2
+      const t = c.transform || {}, cx = +t.x || 0, cy = +t.y || 0, rot = +t.rotation || 0;
+      const moveP = (cx || cy ? `<parameter><parameterid>center</parameterid><name>Center</name><value><horiz>${+(cx / 50).toFixed(5)}</horiz><vert>${+(cy / 50).toFixed(5)}</vert></value></parameter>` : '') +
+        (rot ? param('rotation', 'Rotation', +rot.toFixed(3), -8640, 8640) : '');
+      const filters = cropFilter(m, c) + motion('Basic Motion', 'basic', param('scale', 'Scale', opts.scale ?? fitScale(m, c), 0, 1000) + moveP) +
         (opts.opacity !== undefined && opts.opacity < 1 ? motion('Opacity', 'opacity', param('opacity', 'Opacity', Math.round(opts.opacity * 100), 0, 100)) : '') +
         (speed !== 1 ? timeRemap(speed) : '');
       v = `${head('')}${isImg ? '<stillframe>TRUE</stillframe>' : ''}${file}${filters}<sourcetrack><mediatype>video</mediatype><trackindex>1</trackindex></sourcetrack></clipitem>`;
@@ -248,6 +274,9 @@ export function exportTimeline({ project, media, outDir, base, subtitlesPath, co
     if (id === 'A2' && project.tracks.A2.some((c) => c.duck)) notes.add('Music ducking under speech is not in the XML - use Essential Sound > Ducking (Premiere) or Fairlight sidechain (Resolve).');
     return out.filter(Boolean);
   }
+  // the film look over the whole edit: baked into the clips with color 'bake', otherwise a note
+  if (S.look?.lut && !(color === 'bake' && Object.keys(graded).length))
+    notes.add(`The film look "${S.look.lut}" (${Math.round((S.look.mix ?? 1) * 100)}%) is not in the XML - put an Adjustment Layer over the edit with that LUT (Lumetri > Creative > Look), or export with Colour "Colour + film LUT + flash effects baked into new clips".`);
   const anyFx = Object.values(ts).some((t) => t?.fx && Object.values(t.fx).some((f) => f?.on || f?.enabled));
   if (anyFx) notes.add('Track EQ / compressor / noise reduction need to be set again.');
 

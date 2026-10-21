@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
+import zlib from 'node:zlib';
 import { ASPECTS, clipDur, placed, totalDuration, keysExpr, rampPts, sourceAt, overlayTracks, audioTracks, syncLinked } from '../public/js/model.js';
 import { fxFilters } from '../public/js/audiofx.js';
 import { colorFilters, stager } from './color.mjs';
@@ -21,6 +22,7 @@ import { VFX, activeEffects } from '../public/js/effects.js';
 import { buildAss } from '../public/js/captions.js';
 import { maskTrack } from '../public/js/tracking.js';
 import { gfxKey } from '../public/js/graphics.js';
+import { maskAlpha, movedMask, maskKey } from '../public/js/shapemask.js';
 
 const job = JSON.parse(fs.readFileSync(process.argv[2], 'utf8').replace(/^\uFEFF/, ''));
 const { project, media } = job;
@@ -30,9 +32,10 @@ const EX = job.export || {};
 const [FW, FH] = ASPECTS[EX.aspect || S.aspect] || ASPECTS['16:9'];
 const reframed = !!EX.aspect && EX.aspect !== S.aspect;
 // EX.res = an exact output size chosen on Deliver (4K renders at 2160 even from a 1080 edit); EX.short = a preset's ceiling
-const scale = job.preview ? 0.375 : EX.res ? EX.res / Math.min(FW, FH) : Math.min(1, (EX.short || Infinity) / Math.min(FW, FH));
+// (the Accurate preview is 1080p - it used to be 37.5% size from the small proxies, too soft to judge the picture)
+const scale = job.preview ? Math.min(1, 1080 / Math.min(FW, FH)) : EX.res ? EX.res / Math.min(FW, FH) : Math.min(1, (EX.short || Infinity) / Math.min(FW, FH));
 const even = (x) => Math.max(2, Math.round(x / 2) * 2);
-const W = even(FW * scale), H = even(FH * scale), F = job.preview ? Math.min(25, S.fps || 30) : EX.fpsOut || Math.min(EX.fps || Infinity, S.fps || 30);
+const W = even(FW * scale), H = even(FH * scale), F = job.preview ? Math.min(30, S.fps || 30) : EX.fpsOut || Math.min(EX.fps || Infinity, S.fps || 30);
 const DEVA = /[\u0900-\u097F]/;
 const FONTS = {
   latin: ['C:/Windows/Fonts/arialbd.ttf', 'C:/Windows/Fonts/arial.ttf', '/System/Library/Fonts/Supplemental/Arial Bold.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'],
@@ -49,9 +52,9 @@ const FF7 = path.join(HERE, '..', 'tools', 'ffmpeg-7.1.1-essentials_build', 'bin
 const NV = job.preview || EX.gpu === false || job.gpu === false ? null : [fs.existsSync(FF7) ? FF7 : null, 'ffmpeg'].filter(Boolean).find((b) =>
   spawnSync(b, ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=s=256x256:d=0.2', '-c:v', 'h264_nvenc', '-f', 'null', '-'], { windowsHide: true }).status === 0) || null;
 // shot pieces stay on the CPU: they are small, and on the GPU they measured slower (the decode is the slow part)
-const SEG_ENC = job.preview ? ENC(28, 'ultrafast') : ENC(16, 'veryfast');
+const SEG_ENC = job.preview ? ENC(20, 'veryfast') : ENC(16, 'veryfast');
 // shots rendered side by side (each FFmpeg already uses several cores; camera files come from a slow drive)
-const PAR = Math.max(1, +job.parallel || (job.preview ? 4 : 3));
+const PAR = Math.max(1, +job.parallel || 3); // (the preview too: it reads the camera files now)
 
 const die = (m) => { console.error(`render: ${m}`); process.exit(1); };
 const wd = fs.mkdtempSync(path.join(os.tmpdir(), 'vedit2-'));
@@ -87,8 +90,9 @@ const fcArgs = (graph) => {
 // files in the work folder are passed by their short name (FFmpeg runs there)
 const short = (f) => (path.dirname(path.resolve(f)) === path.resolve(wd) ? path.basename(f) : f);
 // preview renders read the small proxy copy (cache/proxies/<id>.mp4) instead of the camera file when there is one
+// (not any more: a 1080p preview needs the camera files - the proxies are small, and made it soft)
 const proxyOf = (id) => {
-  if (!job.preview || !job.segCache || !id) return null;
+  if (!job.preview || !job.segCache || !id || job.useProxies !== true) return null;
   const f = path.resolve(path.dirname(job.segCache), 'proxies', `${id}.mp4`);
   return fs.existsSync(f) ? f : null;
 };
@@ -237,15 +241,39 @@ function cutFxGraph(c, inL, dur, g) {
 
 // a clip's video effects in order; chain effects are joined, graph effects (glow, mirror) get their own labels.
 // Chroma key is left to the final pass, where the overlay keeps its transparency.
-function vfxGraph(c, inL, g, pre = `vx${segN}`) {
+// ◯ An effect with a mask (public/js/shapemask.js) works on a copy of the picture, which is then laid back over it
+// through the mask - the effect shows only inside (or, inverted, outside). addMask(file) -> the mask picture's label.
+function vfxGraph(c, inL, g, pre = `vx${segN}`, addMask = null) {
   let cur = inL, k = 0;
   for (const e of activeEffects(c)) {
     if (e.type === 'chromakey') continue;
     const r = VFX[e.type].ff(e.p || {}, { W, H }), out = `${pre}_${k++}`;
-    if (typeof r === 'string') { if (r !== 'null') { g.push(`[${cur}]${r}[${out}]`); cur = out; } }
-    else { g.push(r.graph(cur, out)); cur = out; }
+    if (r === 'null') continue;
+    const masked = e.mask?.shape && addMask;
+    const src = masked ? `${out}s` : cur, dst = masked ? `${out}f` : out;
+    if (masked) g.push(`[${cur}]split[${out}a][${out}s]`);
+    g.push(typeof r === 'string' ? `[${src}]${r}[${dst}]` : r.graph(src, dst));
+    if (masked) {
+      const mk = addMask(maskPng(e.mask));
+      g.push(`[${dst}]format=yuva420p[${out}g]`, `[${out}g][${mk}]alphamerge[${out}h]`, `[${out}a][${out}h]overlay=format=auto,format=yuv420p[${out}]`);
+    }
+    cur = out;
   }
   return cur;
+}
+// a mask as a grey PNG of the output size in the work folder (made once per mask)
+const maskPngs = new Map();
+function maskPng(m) {
+  const key = `${maskKey(m)}|${W}x${H}`;
+  if (maskPngs.has(key)) return maskPngs.get(key);
+  const name = `mask_${crypto.createHash('sha1').update(key).digest('hex').slice(0, 10)}.png`;
+  const a = maskAlpha(m, W, H), raw = Buffer.alloc((W + 1) * H);
+  for (let y = 0; y < H; y++) { raw[y * (W + 1)] = 0; raw.set(a.subarray(y * W, (y + 1) * W), y * (W + 1) + 1); }
+  const chunk = (type, data) => { const len = Buffer.alloc(4), body = Buffer.concat([Buffer.from(type, 'latin1'), data]), crc = Buffer.alloc(4); len.writeUInt32BE(data.length); crc.writeUInt32BE(zlib.crc32(body) >>> 0); return Buffer.concat([len, body, crc]); };
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(W, 0); ihdr.writeUInt32BE(H, 4); ihdr[8] = 8; ihdr[9] = 0; // 8-bit greyscale
+  fs.writeFileSync(path.join(wd, name), Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]));
+  maskPngs.set(key, name);
+  return name;
 }
 
 // Tracked blur / mosaic (public/js/tracking.js): a box of fixed size moves along the tracked path; the picture inside
@@ -312,7 +340,8 @@ function segment(c, label, fixed = null) {
     reused++;
     return { file: fs.existsSync(local) ? local : hit, dur: meta.dur };
   }
-  const inputs = [], g = [], preCmds = [];
+  const inputs = [], g = [], preCmds = [], maskIns = [];
+  const addMask = (file) => { const l = `mki${maskIns.length}`; maskIns.push({ file, l }); return l; };
   let dur, aSrc;
   if (c.type === 'video') {
     const m = M(c.mediaId), full = m.duration || probeDur(m.path), src = proxyOf(c.mediaId) || m.path;
@@ -332,7 +361,7 @@ function segment(c, label, fixed = null) {
       const smoothing = ws ? Math.max(1, Math.round((Math.min(100, Math.max(1, +p.smoothness || 50)) / 100) * 60)) : st[1];
       const framing = ws ? ({ stabilize: 'optzoom=0:crop=black', crop: 'optzoom=1', synth: 'optzoom=0:crop=keep', cropscale: 'optzoom=2:zoomspeed=0.25' }[p.framing] || 'optzoom=2:zoomspeed=0.25') : 'optzoom=1:zoomspeed=0.2';
       const extra = ws ? Math.max(0, Math.min(50, (+p.addscale || 100) - 100)) : 0;
-      const trf = `stab${segN}.trf`, pre = `scale=-2:'min(ih,${job.preview ? 540 : 1080})'`;
+      const trf = `stab${segN}.trf`, pre = `scale=-2:'min(ih,1080)'`;
       console.log(`    stabilising ${label}${ws ? ' (Warp Stabilizer)' : ''}…`);
       preCmds.push(['-ss', String(tin), '-t', String(tout - tin), '-i', src, '-an', '-vf', `${pre},vidstabdetect=shakiness=${shake}:accuracy=${acc}${tripod ? ':tripod=1' : ''}:result=${trf}`, '-f', 'null', '-']);
       stab = `${pre},vidstabtransform=input=${trf}:smoothing=${smoothing}:${framing}${extra ? `:zoom=${extra}` : ''}${tripod ? ':tripod=1' : ''}${p.method === 'position' ? ':maxangle=0' : ''}:interpol=bicubic,unsharp=5:5:0.5:3:3:0.2,`;
@@ -371,12 +400,18 @@ function segment(c, label, fixed = null) {
   const preFitted = c.type === 'title' || (c.type === 'image' && (c.kenburns ?? S.kenburns));
   if (!preFitted) { g.push(fit(cur, 'v1', mode, c).replace(/scale=(\d+):(\d+):force/, c.enhance === 'upscale' ? 'scale=$1:$2:flags=lanczos:force' : 'scale=$1:$2:force')); cur = 'v1'; }
   if (smoothAfterFit) { g.push(`[${cur}]${smoothAfterFit}[vsm]`); cur = 'vsm'; }
-  if (c.type === 'video' && ENHANCE[c.enhance]) { g.push(`[${cur}]${job.preview ? 'hqdn3d=2:1.5:4:3' : ENHANCE[c.enhance]}[ven]`); cur = 'ven'; }
+  if (c.type === 'video' && ENHANCE[c.enhance]) { g.push(`[${cur}]${ENHANCE[c.enhance]}[ven]`); cur = 'ven'; }
   cur = maskGraph(c, cur, g, mode);
   // colour, then the clip's video effects (public/js/effects.js), then Motion - Premiere's order
   const col = colorFilters(c.color, { luts: job.luts || {}, stage: stageLut }), mot = transformFilters(c);
   if (col.length) { g.push(`[${cur}]${col.join(',')}[vc]`); cur = 'vc'; }
-  cur = vfxGraph(c, cur, g);
+  cur = vfxGraph(c, cur, g, `vx${segN}`, addMask);
+  // ◐ Opacity mask on the main story: outside it is black (overlays get theirs in the final pass, over the shot below)
+  if (c.omask?.shape && label.startsWith('V1') && (c.type === 'video' || c.type === 'image')) {
+    const mk = addMask(maskPng(c.omask));
+    g.push(`[${cur}]split[om1][om2]`, `[om2]format=yuva420p[om3]`, `[om3][${mk}]alphamerge[om4]`, `[om1]drawbox=x=0:y=0:w=iw:h=ih:color=black:t=fill[om5]`, `[om5][om4]overlay=format=auto,format=yuv420p[vom]`);
+    cur = 'vom';
+  }
   if (mot.length) { g.push(`[${cur}]${mot.join(',')}[vp]`); cur = 'vp'; }
   cur = cutFxGraph(c, cur, dur, g);
   // opacity on V1: the picture fades towards the black below it (static, or keyframed per frame with geq)
@@ -395,6 +430,8 @@ function segment(c, label, fixed = null) {
   g.push(`[${cur}]${vf.join(',')}[v]`);
   if (!aSrc) { inputs.push('-f', 'lavfi', '-t', String(dur), '-i', 'anullsrc=r=48000:cl=stereo'); aSrc = `[1:a]${AFMT}[a]`; }
   g.push(aSrc);
+  // the mask pictures come last, so the inputs above keep their numbers
+  for (const mi of maskIns) { const idx = inputs.filter((a) => a === '-i').length; inputs.push('-loop', '1', '-framerate', String(F), '-t', String(dur + 0.5), '-i', mi.file); g.push(`[${idx}:v]format=gray,setsar=1[${mi.l}]`); }
   const out = path.join(wd, `seg${String(segN++).padStart(4, '0')}.mp4`);
   return { file: out, dur, label, hit, pre: preCmds, main: [...inputs, ...fcArgs(g.join(';')), '-map', '[v]', '-map', '[a]', '-t', String(dur)] };
 }
@@ -535,11 +572,13 @@ const fxOf = (id) => { const f = fxFilters(ts[id]?.fx); return f.length ? `${f.j
 const speechParts = [`[jaout]${fxOf('V1')}volume=${ts.V1?.mute || (anySolo && !ts.V1?.solo) ? 0 : ts.V1?.volume ?? 1},${AFMT}[orig]`];
 const speechLabels = ['orig'];
 
+// a mask picture as an input of the final pass -> its label
+const finalMask = (file, len = D + 0.5) => { const mi = n++; inputs.push('-loop', '1', '-framerate', String(F), '-t', String(len.toFixed(3)), '-i', file); g.push(`[${mi}:v]format=gray,setsar=1[fmk${mi}]`); return `fmk${mi}`; };
 // Adjustment layer: everything below it in its time window gets its colour / effects (opacity = strength).
 function adjustLayer(c, inL, st, en, k) {
   const col = colorFilters(c.color, { luts: job.luts || {}, stage: stageLut }), p = `aj${k}`;
   g.push(`[${inL}]split[${p}a][${p}b]`, `[${p}b]trim=start=${st.toFixed(3)}:end=${en.toFixed(3)},setpts=PTS-STARTPTS${col.length ? `,${col.join(',')}` : ''}[${p}c]`);
-  const cur = vfxGraph(c, `${p}c`, g, `${p}x`), op = c.opacity ?? 1;
+  const cur = vfxGraph(c, `${p}c`, g, `${p}x`, finalMask), op = c.opacity ?? 1;
   g.push(`[${cur}]${op < 1 ? `format=rgba,colorchannelmixer=aa=${op},` : ''}setpts=PTS+${st.toFixed(3)}/TB[${p}o]`);
   g.push(`[${p}a][${p}o]overlay=eof_action=pass:enable='between(t,${st.toFixed(3)},${en.toFixed(3)})'[${p}]`);
   return p;
@@ -555,9 +594,16 @@ ovl.forEach((x, k) => {
   const op = c.opacity ?? 1;
   // keyframed opacity: per-frame alpha (geq's T = seconds into the clip, before it is moved to its start)
   // green screen on an overlay: keyed here so the shot below shows through
-  const key = activeEffects(c).find((e) => e.type === 'chromakey'), keyF = key ? `${VFX.chromakey.key(key.p || {})},` : '';
-  const opA = c.keys?.opacity?.length ? `format=yuva420p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='${key ? 'alpha(X,Y)' : '255'}*clip(${keysExpr(c.keys.opacity, 'T')},0,1)',` : op < 1 ? `format=rgba,colorchannelmixer=aa=${op},` : '';
-  g.push(c.blend ? `[${i}:v]${keyF}setpts=PTS-STARTPTS[ov${k}]` : `[${i}:v]${keyF}${opA}setpts=PTS-STARTPTS+${st.toFixed(3)}/TB[ov${k}]`);
+  const key = activeEffects(c).find((e) => e.type === 'chromakey');
+  let keyF = key ? `${VFX.chromakey.key(key.p || {})},` : '', src = `${i}:v`;
+  // ◐ Opacity mask: the shot below shows outside it (where Motion has put the picture)
+  if (c.omask?.shape) {
+    const mk = finalMask(maskPng(movedMask(c.omask, c.transform)), en - st + 0.5);
+    g.push(`[${src}]${keyF}format=yuva420p[oma${k}]`, `[oma${k}][${mk}]alphamerge[omb${k}]`);
+    src = `omb${k}`; keyF = '';
+  }
+  const opA = c.keys?.opacity?.length ? `format=yuva420p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='${key || c.omask?.shape ? 'alpha(X,Y)' : '255'}*clip(${keysExpr(c.keys.opacity, 'T')},0,1)',` : op < 1 ? `format=rgba,colorchannelmixer=aa=${op},` : '';
+  g.push(c.blend ? `[${src}]${keyF}setpts=PTS-STARTPTS[ov${k}]` : `[${src}]${keyF}${opA}setpts=PTS-STARTPTS+${st.toFixed(3)}/TB[ov${k}]`);
   if (c.blend) {
     g.push(`[ov${k}]tpad=start_duration=${st.toFixed(3)}:color=black,format=gbrp[ob${k}]`, `[${v}]format=gbrp[ub${k}]`,
       `[ub${k}][ob${k}]blend=all_mode=${c.blend}:all_opacity=${Math.min(1, op).toFixed(2)}:eof_action=pass:enable='between(t,${st.toFixed(3)},${en.toFixed(3)})',format=yuv420p[vo${k}]`);
@@ -722,7 +768,7 @@ let finalEnc, cpuEnc;
 if (!job.preview && EX.codec === 'prores') {
   finalEnc = ['-c:v', 'prores_ks', '-profile:v', '3', '-vendor', 'apl0', '-pix_fmt', 'yuv422p10le', '-r', String(F), '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2'];
 } else {
-  finalEnc = ENC(job.preview ? 30 : EX.crf ?? S.crf ?? 20, job.preview ? 'ultrafast' : 'medium');
+  finalEnc = ENC(job.preview ? 21 : EX.crf ?? S.crf ?? 20, job.preview ? 'veryfast' : 'medium');
   if (!job.preview && EX.codec === 'hevc') {
     // H.265: about half the size of H.264 at the same quality; hvc1 tag so Apple devices / QuickTime play it
     const i = finalEnc.indexOf('libx264'); finalEnc.splice(i, 1, 'libx265'); finalEnc.push('-tag:v', 'hvc1', '-x265-params', 'log-level=error');

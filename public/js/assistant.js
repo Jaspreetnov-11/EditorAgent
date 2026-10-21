@@ -114,7 +114,7 @@ async function openChat(id) {
   const c = chats.find((x) => x.id === id); if (!c || cl.job) return drawChats();
   chatId = c.id; log.length = 0; log.push(...c.log); draw(); drawChats();
   // Claude picks that conversation up again (without its session it starts fresh, but the chat is still shown)
-  await api('POST', `/api/claude/use?p=${enc(S.proj)}`, { id: c.sid || null }).catch(() => {});
+  await api('POST', `/api/claude/use?p=${enc(S.proj)}${S.seqMap ? `&seq=${enc(S.seqMap.mine)}` : ''}`, { id: c.sid || null }).catch(() => {});
 }
 // what Claude is doing, in plain words (from the editor tool it runs)
 function friendlyStep(e) {
@@ -163,7 +163,7 @@ async function checkClaude(force = false) {
 async function newChat() {
   if (!S.proj) return;
   if (cl.job) return say('Claude is still on the previous task - let it finish or press ■ Stop.');
-  await api('POST', `/api/claude/new?p=${enc(S.proj)}`).catch(() => {});
+  await api('POST', `/api/claude/new?p=${enc(S.proj)}${S.seqMap ? `&seq=${enc(S.seqMap.mine)}` : ''}`).catch(() => {});
   chatId = null; log.length = 0; say(`New chat started. The earlier ones are kept in 🗂 Chats (last ${CHATS_KEPT}). What shall we make?`);
 }
 // 📎 the references waiting to go with the next message
@@ -188,10 +188,9 @@ export async function askClaude(text, { show = true, display = null } = {}) {
   let st = await checkClaude();
   if (!st?.available) st = await checkClaude(true); // (a remembered failure can be a passing network blip: ask again before giving up)
   if (!st?.available) return say(`Claude cannot run right now${st?.reason ? `: ${st.reason}` : ' (see above for why)'}. Direct commands still work in ⚡ Quick mode.`, 'err');
-  // 🎞 Claude works on the server's project, i.e. the team's shared sequence - not on one this browser opened for itself
-  if (S.seqMap) say(`Note: Claude works on the 👥 team's main sequence "${S.project.sequences?.[S.seqMap.shared]?.name || 'Main edit'}", not on your open "${S.project.seq?.name || ''}". To have Claude work on your sequence, press its 👥 team button in 🎞 Sequences.`);
+  // 🎞 Claude works on the sequence this browser has open (the team's main one, or the one opened just for you)
   let job;
-  try { job = await api('POST', `/api/claude/chat?p=${enc(S.proj)}`, { message: text }); } catch (e) { return say(e.message, 'err'); }
+  try { job = await api('POST', `/api/claude/chat?p=${enc(S.proj)}`, { message: text, seq: S.seqMap?.mine }); } catch (e) { return say(e.message, 'err'); }
   cl.job = job.id; draw();
   setBusy?.(true, '🧠 Claude working…');
   let from = 0, lastText = '', changed = false, steps = 0;

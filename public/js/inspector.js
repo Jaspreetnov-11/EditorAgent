@@ -1,6 +1,6 @@
 // Inspector: properties of the selected clip, or project settings when nothing is selected.
 import { S, on, emit, commit, findClip, layout, duration, saveNow } from './store.js';
-import { TRANSITIONS, clipDur, fmt, parseTime, fmtTC, KEYABLE, propAt, hasKeys, RAMPS, EASES, BLEND_MODES, setTransition } from './model.js';
+import { ASPECTS, TRANSITIONS, clipDur, fmt, parseTime, fmtTC, KEYABLE, propAt, hasKeys, RAMPS, EASES, BLEND_MODES, setTransition } from './model.js';
 import { api, enc } from './api.js';
 import { openTemplates } from './titlesui.js';
 import { CUTFX } from './fx.js';
@@ -16,8 +16,11 @@ import { FX_PRESETS, FX_DEFAULT } from './audiofx.js';
 import { FILM_LOOKS, lookLut, LETTERBOX, STABILIZE, applyCinematic, removeCinematic, stabilizeAll } from './looks.js';
 import { $, $$, esc, fieldsHTML, bindFields, toast, modal, getPath, setPath } from './ui.js';
 import { mountRamp } from './rampui.js';
+import { MASK_SHAPES, newMask } from './shapemask.js';
+import { gyroHTML, bindGyro } from './gyroui.js';
 
-let root, selfCommit = false, openSections = new Set(['clip', 'transform', 'text', 'audio', 'transition', 'project', 'logo']);
+let lastClip = null;
+let root, selfCommit = false, openSections = new Set(['clip', 'transform', 'text', 'audio', 'transition', 'project', 'logo', 'vfx', 'cutfx', 'omask']);
 
 export function mountInspector(el) {
   root = el;
@@ -25,7 +28,8 @@ export function mountInspector(el) {
   on('change', () => { if (!selfCommit) render(); });
   on('media', render);
   on('playhead', () => updateKeyUI());
-  on('inspect', (sec) => { openSections.add(sec); render(); $(`[data-sec="${sec}"]`, root)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); });
+  on('maskEdit', () => { root.querySelectorAll('[data-medit]').forEach((b) => { const sc = b.closest('[data-mscope]').dataset.mscope, on2 = !!S.maskEdit && (S.maskEdit.effId || 'clip') === sc; b.classList.toggle('on', on2); b.textContent = on2 ? '✎ Editing on monitor' : '✎ Edit on monitor'; }); });
+  on('inspect', (sec) => { openSections.add(sec); document.querySelector('.ui-dock [data-dock="ec"]')?.click(); render(); $(`[data-sec="${sec}"]`, root)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); });
   root.addEventListener('click', (e) => {
     const s = e.target.closest('.isec > summary');
     if (s) { const k = s.parentElement.dataset.sec; setTimeout(() => (s.parentElement.open ? openSections.add(k) : openSections.delete(k))); }
@@ -81,29 +85,32 @@ function renderClip(id) {
   const ang = isVid && anglesFor(c);
   if (ang) clipDefs.unshift({ k: 'mcAngle', label: '🎥 Camera angle (multicam - stays in sync)', type: 'select', options: ang.map((a) => [a.mediaId, S.mediaById[a.mediaId]?.name || a.mediaId]) });
   if (isVid) clipDefs.push({ k: 'stabilize', label: 'Stabilize (shaky footage)', type: 'select', options: STABILIZE });
-  if (isVid || isImg) clipDefs.push({ k: 'cutFx.type', label: 'Cut effect (plays on the cut into this shot)', type: 'select', options: [['', 'None'], ...Object.entries(CUTFX).map(([k, x]) => [k, x.label])] },
-    ...(c.cutFx?.type ? [{ k: 'cutFx.dur', label: 'Effect length', type: 'num', min: 0.1, max: 3, step: 0.05, unit: 'sec', def: CUTFX[c.cutFx.type]?.dur }] : []));
   if (isImg || isTitle || isAdj) clipDefs.push({ k: 'dur', label: 'Duration', type: 'num', min: 0.2, step: 0.1, unit: 'sec', def: isTitle ? 3 : 4 });
   if (isAdj) clipDefs.push({ k: 'opacity', label: 'Strength (how much of it shows)', type: 'range', min: 0, max: 1, step: 0.01, def: 1 });
   if (isAud) clipDefs.push({ k: 'loop', label: 'Loop to fill a longer duration', type: 'check' }, ...(c.loop ? [{ k: 'dur', label: 'Loop length', type: 'num', min: 0.5, step: 0.5, unit: 'sec' }] : []));
+  if (isVid || isImg) clipDefs.push({ k: 'fit', label: 'Framing', type: 'select', options: [['', 'Project default'], ['fit', 'Fit (letterbox)'], ['fill', 'Fill (crop)'], ['blur', 'Blur background']] },
+    ...(track !== 'V1' ? [{ k: 'blend', label: 'Blend mode', type: 'select', options: BLEND_MODES }] : []));
   if (isImg) clipDefs.push({ k: 'kenburns', label: 'Ken Burns', type: 'select', options: [['', 'Project default'], ['in', 'Zoom in'], ['out', 'Zoom out'], [false, 'Static']] });
   if (isVid) html += `<details class="isec" data-sec="ramp"${openSections.has('ramp') || c.ramp ? ' open' : ''}><summary>⏩ Speed ramp${c.ramp ? ' <span class="tag">on</span>' : ''}</summary><div class="ramp-ed" data-ramp-ed></div></details>`;
-  html += sec('clip', 'Clip', fieldsHTML(clipDefs, ang ? { ...obj, mcAngle: c.mediaId } : obj) + (m ? `<div class="srcinfo">${esc(m.width ? `${m.width}×${m.height} · ${m.fps} fps · ` : '')}${esc(m.vcodec || m.acodec || '')} · ${fmt(m.duration)}<br><span title="${esc(m.path)}">${esc(m.path)}</span></div>` : ''));
+  // (the 'Clip' section was removed on request - speed ramp stays in its own section above)
+  void clipDefs;
 
   if (!isAud && !isAdj && !(isTitle && track !== 'V1')) {
     // 🎬 like Premiere's Effect Controls: one line per property - ⏱ animate on / off, its name, its value (drag it left /
     // right, or click and type), ◂ ◆ ▸ and its keyframes on a little timeline of the clip, all in the same line
-    html += sec('transform', '🎬 Motion', motionHTML(c, (L?.end || 0) - (L?.start || 0), isVid) + fieldsHTML([
-      { k: 'fit', label: 'Framing', type: 'select', options: [['', 'Project default'], ['fit', 'Fit (letterbox)'], ['fill', 'Fill (crop)'], ['blur', 'Blur background']] },
-      ...(track !== 'V1' && (isVid || isImg) ? [{ k: 'blend', label: 'Blend mode', type: 'select', options: BLEND_MODES }] : []),
-    ], obj) + `<div class="motion-presets"><button class="small" data-motion="zin">Zoom in</button><button class="small" data-motion="zout">Zoom out</button>
+    html += sec('transform', '🎬 Motion', motionHTML(c, (L?.end || 0) - (L?.start || 0), isVid) + `<div class="motion-presets"><button class="small" data-motion="zin">Zoom in</button><button class="small" data-motion="zout">Zoom out</button>
       <button class="small" data-motion="pan">Pan →</button><button class="small" data-motion="panl">← Pan</button><button class="small" data-motion="clear">Reset</button></div>`);
   }
   if (isVid) html += sec('ai', '🤖 AI picture tools', aiHTML(c));
+  if (isVid) html += sec('gyro', `🛸 Gyroflow (gyro stabilize)${c.gyroflow ? ' <span class="tag">on</span>' : ''}`, gyroHTML(c));
   if (isVid || (track !== 'V1' && (isImg || isTitle))) html += sec('trk', '🎯 Tracking', trackingHTML(c, track));
+  if (isVid || isImg) html += sec('cutfx', `⚡ Cut effect${c.cutFx?.type ? ` <span class="tag">${esc(CUTFX[c.cutFx.type]?.label || c.cutFx.type)}</span>` : ''}`, fieldsHTML([
+    { k: 'cutFx.type', label: 'Effect (plays on the cut into this shot)', type: 'select', options: [['', 'None'], ...Object.entries(CUTFX).map(([k, x]) => [k, x.label])] },
+    ...(c.cutFx?.type ? [{ k: 'cutFx.dur', label: 'Effect length', type: 'num', min: 0.1, max: 3, step: 0.05, unit: 'sec', def: CUTFX[c.cutFx.type]?.dur }] : [])], obj));
+  if (isVid || isImg) html += sec('omask', `◐ Opacity mask${c.omask?.shape ? ' <span class="tag">on</span>' : ''}`, maskHTML(c.omask, 'clip', id) + `<small class="hint">${track === 'V1' ? 'Only the inside shows - the rest is black.' : 'Only the inside shows - the tracks below show around it.'} Exact in Accurate preview and renders.</small>`);
   if (isVid || isImg || isAdj || (isTitle && track === 'V1')) html += sec('vfx', `✦ Video effects${c.effects?.length ? ` <span class="muted">${c.effects.length}</span>` : ''}`, effectsHTML(c, track));
 
-  if (!isAud && !isAdj) {
+  if (isTitle) { // (a shot's lower-third text is not in Effect Controls any more - only a title's own words and look)
     const tdefs = [{ k: 'text', label: isTitle ? 'Title text' : 'Text (super / lower third)', type: 'area', rows: 3, ph: isTitle ? 'युवा शक्ति\nYuva Shakti' : 'Name, Designation, Place', wide: true }];
     if (!(isTitle && track === 'V1')) tdefs.push({ k: 'textStyle', label: 'Position', type: 'select', options: [['', isTitle ? 'Center' : 'Lower third'], ['lower', 'Lower third'], ['top', 'Top'], ['center', 'Center']] });
     if (!isTitle) tdefs.push({ k: 'textDuration', label: 'Show for', type: 'num', min: 0, step: 0.5, unit: 'sec', ph: 'whole clip' });
@@ -118,7 +125,7 @@ function renderClip(id) {
     html += sec('text', isTitle ? 'Title' : 'Text', fieldsHTML(tdefs, obj) + (isTitle ? '<div class="iactions"><button class="small accent" data-a="tplstyle">🎨 Change style (templates)</button></div>' : ''));
   }
 
-  if (isVid || isImg || isAdj) {
+  if (false) { // (colour lives on the Color page)
     html += sec('color', 'Color (quick)', fieldsHTML([
       { k: 'color.lut', label: 'LUT', type: 'select', options: [['', 'None'], ...S.luts.map((l) => [l, l])] },
       { k: 'color.exposure', label: 'Exposure', type: 'range', min: -3, max: 3, step: 0.05, def: 0, unit: 'stops' },
@@ -129,7 +136,7 @@ function renderClip(id) {
     ], obj) + '<small class="hint">Full wheels, scopes and auto colour arrive with the Color page (Phase 2). Live preview is approximate; renders are exact.</small>');
   }
 
-  if (isVid || isAud) {
+  if (isAud) { // (a video's sound: its linked audio clip, the Audio page and the timeline's volume line)
     const adefs = [{ k: 'volume', label: 'Volume', type: 'range', min: 0, max: 2, step: 0.01, def: track === 'V2' ? 0 : 1 }, { k: 'mute', label: 'Mute this clip', type: 'check' }];
     if (isAud) adefs.push({ k: 'fadeIn', label: 'Fade in', type: 'num', min: 0, step: 0.25, unit: 'sec' }, { k: 'fadeOut', label: 'Fade out', type: 'num', min: 0, step: 0.25, unit: 'sec' });
     if (track === 'A2') adefs.push({ k: 'duck', label: 'Duck under speech (clip sound + voice-over)', type: 'check' });
@@ -140,27 +147,32 @@ function renderClip(id) {
     html += sec('audio', 'Audio', fieldsHTML(adefs, obj) + clean + (track === 'A2' ? '<button class="accent wide" data-a="best">✨ Use the best part of this music</button>' : ''));
   }
 
-  if (track === 'V1' && f.index > 0) {
+  if (false) { // (a transition is changed by clicking it on the timeline)
     const t = c.transitionIn || { type: 'cut', dur: 0.5 };
     html += sec('transition', 'Transition in', fieldsHTML([
       { k: 'transitionIn.type', label: 'Type', type: 'select', options: TRANSITIONS },
       { k: 'transitionIn.dur', label: 'Duration', type: 'num', min: 0.1, max: 5, step: 0.1, unit: 'sec', def: 0.5 },
     ], { transitionIn: t }) + '<button class="small" data-a="transAll">Apply to all cuts</button>');
   }
-  if (isVid || isImg || (isTitle && track === 'V1')) {
+  if (false) {
     html += sec('fades', 'Fade to black', fieldsHTML([
       { k: 'fadeIn', label: 'Fade in', type: 'num', min: 0, step: 0.25, unit: 'sec' },
       { k: 'fadeOut', label: 'Fade out', type: 'num', min: 0, step: 0.25, unit: 'sec' },
     ], obj));
   }
   html += `<div class="iactions">${c.mediaId ? '<button data-a="replace" title="Swap this clip for another one - same place, length and effects">🔄 Replace…</button>' : ''}<button data-a="split">Split at playhead</button><button data-a="dup">Duplicate</button><button class="danger" data-a="del">Delete</button></div>`;
+  // (the same clip drawn again - after adding a mask, an effect… - stays scrolled where it was)
+  const keep = lastClip === id ? [root.scrollTop, root.querySelector('.ibody')?.scrollTop || 0] : null; lastClip = id;
   root.innerHTML = head + `<div class="ibody">${html}</div>`;
+  if (keep) { root.scrollTop = keep[0]; const ib = root.querySelector('.ibody'); if (ib) ib.scrollTop = keep[1]; }
   // ⏩ the speed ramp graph (presets + draw your own)
   const rampBox = root.querySelector('[data-ramp-ed]');
   if (rampBox) mountRamp(rampBox, () => findClip(id)?.clip, () => emit('live'), (label) => { doCommit(label); const s = root.querySelector('[data-k="ramp"], select[name="ramp"]'); if (s) s.value = findClip(id)?.clip.ramp || ''; });
   addKeyButtons(id);
   bindMotion(id);
   bindEffects(id);
+  bindMasks(id);
+  bindGyro(root, id, render);
   bindTracking(root, id, render);
   bindAi(root, id, render);
   bindKeyLane(id);
@@ -245,12 +257,13 @@ function effectsHTML(c, track) {
       if (p.type === 'select') return `<label class="fld"><span>${esc(p.label)}</span><select data-ep="${k}">${p.options.map(([o, l]) => `<option value="${esc(o)}"${o === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
       return `<label class="fld"><span>${esc(p.label)} <b data-ev="${k}">${v}${p.unit || ''}</b></span><input type="range" data-ep="${k}" min="${p.min}" max="${p.max}" step="${p.step}" value="${v}"></label>`;
     }).join('');
+    const canMask = !def.stab && e.type !== 'chromakey';
     const warn = def.v2only && track !== 'V2' ? '<small class="hint warn">Works on V2 overlays only (it shows the shot below).</small>' : def.stab ? '<small class="hint">🎥 Analysed and stabilised when rendering (Accurate preview / export) - the render takes longer for this shot. Perspective / Subspace Warp work like Position, Scale, Rotation here.</small>' : !def.css ? '<small class="hint">Seen in Accurate preview and renders.</small>' : '';
     return `<div class="efx${e.on === false ? ' off' : ''}" data-efx="${e.id}">
       <div class="efx-h"><button class="icon-btn small" data-ea="toggle" title="${e.on === false ? 'Turn on' : 'Turn off'}" aria-label="On / off">${e.on === false ? '◌' : '●'}</button><b>${esc(def.label)}</b><span class="grow"></span>
         <button class="icon-btn small" data-ea="up" title="Earlier in the order"${i === 0 ? ' disabled' : ''}>▲</button><button class="icon-btn small" data-ea="down" title="Later in the order"${i === c.effects.length - 1 ? ' disabled' : ''}>▼</button>
         <button class="icon-btn small" data-ea="reset" title="Reset to defaults">↺</button><button class="icon-btn small" data-ea="del" title="Remove effect">✕</button></div>
-      ${params ? `<div class="fgrid">${params}</div>` : ''}${warn}</div>`;
+      ${params ? `<div class="fgrid">${params}</div>` : ''}${canMask ? maskHTML(e.mask, e.id, c.id) : ''}${warn}</div>`;
   }).join('');
   const opts = VFX_CATS.map((cat) => `<optgroup label="${esc(cat)}">${Object.entries(VFX).filter(([, x]) => x.cat === cat).map(([k, x]) => `<option value="${k}">${esc(x.label)}</option>`).join('')}</optgroup>`).join('');
   return `<div class="efx-list">${list || '<p class="muted small">No effects yet.</p>'}</div>
@@ -289,19 +302,93 @@ function bindEffects(id) {
   }));
 }
 
+// ---------------- ◯ masks (public/js/shapemask.js) ----------------
+// scope: an effect id (the effect shows only inside), or 'clip' (the clip's Opacity mask)
+function maskHTML(m, scope, clipId) {
+  if (!m?.shape) return `<div class="efx-mask" data-mscope="${scope}"><div class="mk-row"><b>Mask</b>${MASK_SHAPES.map(([k, l]) => `<button class="small" data-madd="${k}" title="Limit ${scope === 'clip' ? 'the clip' : 'this effect'} to a ${k === 'rect' ? 'rectangle' : 'ellipse'} - drag it on the monitor">${l}</button>`).join('')}</div></div>`;
+  const editing = S.maskEdit?.clipId === clipId && (S.maskEdit.effId || 'clip') === scope;
+  const rng = (k, label, min, max, step, unit = '', mul = 1) => `<label class="fld"><span>${label} <b data-mv="${k}">${Math.round((m[k] ?? 0) * mul)}${unit}</b></span><input type="range" data-mp="${k}" data-mul="${mul}" min="${min}" max="${max}" step="${step}" value="${(m[k] ?? 0) * mul}"></label>`;
+  return `<div class="efx-mask" data-mscope="${scope}"><div class="mk-row"><b>${m.shape === 'rect' ? '▭' : '◯'} Mask</b><span class="grow"></span>
+      <button class="small${editing ? ' on' : ''}" data-medit title="Show the mask on the monitor to move / size it">✎ ${editing ? 'Editing on monitor' : 'Edit on monitor'}</button><button class="icon-btn small" data-mdel title="Remove the mask">✕</button></div>
+    <div class="fgrid"><label class="fld"><span>Shape</span><select data-mp="shape">${MASK_SHAPES.map(([k, l]) => `<option value="${k}"${k === m.shape ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+      ${rng('feather', 'Feather', 0, 300, 1, ' px')}${rng('expand', 'Expansion', -200, 200, 1, ' px')}${rng('opacity', 'Mask opacity', 0, 100, 1, '%', 100)}
+      <label class="chk"><input type="checkbox" data-mp="invert"${m.invert ? ' checked' : ''}> Inverted (the outside instead)</label></div></div>`;
+}
+function bindMasks(id) {
+  const get = (el) => {
+    const c = findClip(id)?.clip, sc = el.closest('[data-mscope]')?.dataset.mscope; if (!c || !sc) return {};
+    const e = sc === 'clip' ? null : c.effects?.find((x) => x.id === sc);
+    return { c, sc, e, m: sc === 'clip' ? c.omask : e?.mask, set: (v) => { if (sc === 'clip') { if (v) c.omask = v; else delete c.omask; } else if (e) { if (v) e.mask = v; else delete e.mask; } } };
+  };
+  root.querySelectorAll('[data-madd]').forEach((b) => b.addEventListener('click', () => {
+    const g = get(b); if (!g.c) return;
+    g.set(newMask(b.dataset.madd));
+    S.maskEdit = { clipId: id, effId: g.sc === 'clip' ? null : g.sc };
+    openSections.add(g.sc === 'clip' ? 'omask' : 'vfx');
+    doCommit('Add mask'); render(); emit('maskEdit');
+    toast('Mask added - drag it on the monitor (Esc when done)');
+  }));
+  root.querySelectorAll('[data-mdel]').forEach((b) => b.addEventListener('click', () => {
+    const g = get(b); if (!g.c) return;
+    g.set(null); if (S.maskEdit?.clipId === id) S.maskEdit = null;
+    doCommit('Remove mask'); render(); emit('maskEdit');
+  }));
+  root.querySelectorAll('[data-medit]').forEach((b) => b.addEventListener('click', () => {
+    const g = get(b); if (!g.m) return;
+    const scope = g.sc === 'clip' ? null : g.sc, on2 = S.maskEdit?.clipId === id && (S.maskEdit.effId || null) === scope;
+    S.maskEdit = on2 ? null : { clipId: id, effId: scope };
+    emit('maskEdit');
+  }));
+  root.querySelectorAll('[data-mp]').forEach((inp) => {
+    const k = inp.dataset.mp, mul = +inp.dataset.mul || 1;
+    const read = () => (k === 'invert' ? inp.checked : k === 'shape' ? inp.value : +inp.value / mul);
+    inp.addEventListener('input', () => {
+      const g = get(inp); if (!g.m) return;
+      g.set({ ...g.m, [k]: read() });
+      const lab = inp.closest('.fld')?.querySelector(`[data-mv="${k}"]`); if (lab) lab.textContent = `${Math.round(+inp.value)}${k === 'opacity' ? '%' : ' px'}`;
+      emit('live'); // (the viewer redraws the mask)
+    });
+    inp.addEventListener('change', () => { const g = get(inp); if (!g.m) return; g.set({ ...g.m, [k]: read() }); doCommit(`Mask ${k}`, `${id}:mask:${k}`); if (k === 'shape') emit('maskEdit'); });
+  });
+}
+
 // ---------------- 🎬 Motion, Premiere style ----------------
 // show: how the value reads (Scale / Opacity / Crop as %), min / max / step in the stored units
 const MOTION = [
-  { p: 'transform.x', label: 'Position X', min: -200, max: 200, step: 0.5, unit: '%' },
-  { p: 'transform.y', label: 'Position Y', min: -200, max: 200, step: 0.5, unit: '%' },
-  { p: 'transform.zoom', label: 'Scale', min: 0.1, max: 5, step: 0.01, k: 100, unit: '%' },
+  { p: 'transform.x', label: 'Position X', min: -200, max: 200, step: 0.5, unit: '', pr: 'x' },
+  { p: 'transform.y', label: 'Position Y', min: -200, max: 200, step: 0.5, unit: '', pr: 'y' },
+  { p: 'transform.zoom', label: 'Scale', min: 0.1, max: 5, step: 0.01, unit: '', pr: 'scale' },
   { p: 'transform.rotation', label: 'Rotation', min: -720, max: 720, step: 0.5, unit: '°' },
   { p: 'opacity', label: 'Opacity', min: 0, max: 1, step: 0.01, k: 100, unit: '%' },
   { p: 'cropX', label: 'Reframe ↔', min: 0, max: 1, step: 0.01, k: 100, unit: '%' },
   { p: 'cropY', label: 'Reframe ↕', min: 0, max: 1, step: 0.01, k: 100, unit: '%' },
   { p: 'volume', label: 'Volume', min: 0, max: 2, step: 0.01, k: 100, unit: '%', vid: true },
 ];
-const mShow = (r, v) => `${+((+v || 0) * (r.k || 1)).toFixed(r.k ? 0 : 1)}${r.unit}`;
+// Premiere's numbers: Position in sequence pixels (centre = W/2, H/2), Scale in % of the source's own pixels (a 4K shot
+// fitted into a 1080p frame reads 50) - the same values the XML export hands Premiere. Stored: x/y % offset, zoom x fit.
+function frameWH() { return ASPECTS[S.project?.settings?.aspect] || ASPECTS['16:9']; }
+function fitOf(c) {
+  const [W, H] = frameWH(), m = S.mediaById?.[c?.mediaId] || {};
+  const rot = Math.abs(m.rotation || 0) % 180 === 90, w = (rot ? m.height : m.width) || W, h = (rot ? m.width : m.height) || H;
+  const mode = c?.fit || S.project?.settings?.fit || (H > W ? 'blur' : 'fit');
+  return mode === 'fill' ? Math.max(W / w, H / h) : Math.min(W / w, H / h);
+}
+function toShown(r, v, c) {
+  v = +v || 0;
+  const [W, H] = frameWH();
+  if (r.pr === 'x') return W / 2 + (v / 100) * W;
+  if (r.pr === 'y') return H / 2 + (v / 100) * H;
+  if (r.pr === 'scale') return v * fitOf(c) * 100;
+  return v * (r.k || 1);
+}
+function fromShown(r, n, c) {
+  const [W, H] = frameWH();
+  if (r.pr === 'x') return ((n - W / 2) / W) * 100;
+  if (r.pr === 'y') return ((n - H / 2) / H) * 100;
+  if (r.pr === 'scale') return n / (fitOf(c) * 100 || 1);
+  return n / (r.k || 1);
+}
+const mShow = (r, v, c) => `${+toShown(r, v, c).toFixed(r.pr ? 1 : r.k ? 0 : 1)}${r.unit}`;
 function motionVal(c, p, rel) { return hasKeys(c, p) && rel !== null ? propAt(c, p, rel) : getPath(c, p) ?? KEYABLE[p].def; }
 function motionHTML(c, D, isVid) {
   const rel = relTime(c.id);
@@ -310,9 +397,9 @@ function motionHTML(c, D, isVid) {
     return `<div class="pm-row" data-kp="${r.p}" data-kpath="${r.p}">
       <button class="pm-sw${keys.length ? ' on' : ''}" data-sw="${r.p}" title="${keys.length ? 'Animated - click to stop animating (removes its keyframes)' : 'Animate: a keyframe at the playhead, then change the value elsewhere'}">⏱</button>
       <span class="pm-n">${r.label}</span>
-      <span class="pm-v" data-pv="${r.p}" tabindex="0" title="Drag left / right (Shift: faster) or click to type">${mShow(r, motionVal(c, r.p, rel))}</span>
+      <span class="pm-v" data-pv="${r.p}" tabindex="0" title="Drag left / right (Shift: faster) or click to type">${mShow(r, motionVal(c, r.p, rel), c)}</span>
       <span class="pm-k"><button class="kfb" data-kprev="${r.p}" title="Previous keyframe">◂</button><button class="kfd" data-kf="${r.p}" title="Add / remove a keyframe at the playhead">◆</button><button class="kfb" data-knext="${r.p}" title="Next keyframe">▸</button></span>
-      <div class="kl-track">${keys.map((k, j) => `<i class="kl-k${k.ease ? ' ease' : ''}" data-kj="${j}" style="left:${Math.min(100, (k.t / Math.max(0.01, D)) * 100).toFixed(2)}%" title="${fmt(k.t)} · ${mShow(r, k.v)} - drag to move, double-click to delete"></i>`).join('')}<b class="kl-ph"></b></div>
+      <div class="kl-track">${keys.map((k, j) => `<i class="kl-k${k.ease ? ' ease' : ''}" data-kj="${j}" style="left:${Math.min(100, (k.t / Math.max(0.01, D)) * 100).toFixed(2)}%" title="${fmt(k.t)} · ${mShow(r, k.v, c)} - drag to move, double-click to delete"></i>`).join('')}<b class="kl-ph"></b></div>
     </div>`;
   }).join('')}</div>`;
 }
@@ -323,7 +410,7 @@ function bindMotion(id) {
     const c = findClip(id)?.clip, r = def(p); if (!c) return;
     v = +Math.min(r.max, Math.max(r.min, v)).toFixed(4);
     if (hasKeys(c, p)) keyValue(id, p, v); else setPath(c, p, v);
-    const el = box.querySelector(`[data-pv="${p}"]`); if (el) el.textContent = mShow(r, v);
+    const el = box.querySelector(`[data-pv="${p}"]`); if (el) el.textContent = mShow(r, v, c);
     emit('live');
   };
   const done = (p) => { const c = findClip(id)?.clip; if (!c) return; cleanup(c); doCommit(`Change ${def(p).label}`, `${id}:${p}`); };
@@ -338,9 +425,9 @@ function bindMotion(id) {
         window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up);
         if (moved) return done(p);
         // a click: type the value (in the units shown)
-        const inp = document.createElement('input'); inp.className = 'pm-in'; inp.value = +((+motionVal(findClip(id)?.clip, p, relTime(id))) * (r.k || 1)).toFixed(2);
+        const inp = document.createElement('input'); inp.className = 'pm-in'; inp.value = +toShown(r, motionVal(findClip(id)?.clip, p, relTime(id)), findClip(id)?.clip).toFixed(2);
         el.replaceWith(inp); inp.focus(); inp.select();
-        const fin = (ok) => { if (ok && inp.value.trim() !== '' && !isNaN(+inp.value)) { setVal(p, +inp.value / (r.k || 1)); done(p); } render(); };
+        const fin = (ok) => { if (ok && inp.value.trim() !== '' && !isNaN(+inp.value)) { setVal(p, fromShown(r, +inp.value, findClip(id)?.clip)); done(p); } render(); };
         inp.addEventListener('keydown', (ev) => { ev.stopPropagation(); if (ev.key === 'Enter') fin(true); if (ev.key === 'Escape') fin(false); });
         inp.addEventListener('blur', () => fin(true), { once: true });
       };
@@ -426,7 +513,7 @@ let projKey = '';
 function renderProject() {
   const p = S.project, images = S.media.filter((m) => m.kind === 'image');
   const key = JSON.stringify([S.proj, p.name, p.settings, p.logo, p.subtitles, images.length, images[images.length - 1]?.id, S.subs.map((x) => x.name)]);
-  if (key === projKey && root.querySelector('#bkList')) return;
+  if (key === projKey && root.querySelector('[data-sec="project"]')) return;
   projKey = key;
   root.innerHTML = `<div class="ihead"><b>Project</b><span class="muted">${esc(p.name)}</span></div><div class="ibody">
     ${sec('project', 'Settings', fieldsHTML([
@@ -444,16 +531,16 @@ function renderProject() {
       { k: 'settings.look.vignette', label: 'Vignette', type: 'range', min: 0, max: 1, step: 0.05, def: 0 },
       { k: 'settings.look.grain', label: 'Film grain', type: 'range', min: 0, max: 1, step: 0.05, def: 0 },
     ], p) + `<div class="iactions"><button class="small accent" data-a="cine">🎬 Make it cinematic</button><button class="small" data-a="nocine">Remove</button><button class="small" data-a="stab">🎥 Stabilize all shots</button><button class="small" data-a="nostab">No stabilize</button></div><small class="hint">Stabilize, grain and bars show in Accurate preview and renders (stabilizing makes renders slower).</small>`)}
-    ${sec('logo', 'Logo / watermark', fieldsHTML([
+    ${'' && sec('logo', 'Logo / watermark', fieldsHTML([
       { k: 'logo.mediaId', label: 'Logo image', type: 'select', options: [['', 'None'], ...images.map((m) => [m.id, m.name])] },
       { k: 'logo.pos', label: 'Position', type: 'select', options: [['tr', 'Top right'], ['tl', 'Top left'], ['br', 'Bottom right'], ['bl', 'Bottom left']] },
       { k: 'logo.scale', label: 'Size', type: 'range', min: 0.04, max: 0.4, step: 0.01, def: 0.12 },
       { k: 'logo.opacity', label: 'Opacity', type: 'range', min: 0.1, max: 1, step: 0.01, def: 0.9 },
     ], p))}
-    ${sec('subs', 'Subtitles', fieldsHTML([
+    ${'' && sec('subs', 'Subtitles', fieldsHTML([
       { k: 'subtitles.file', label: 'Burn into the video', type: 'select', options: [['', 'None'], ...S.subs.map((s) => [s.name, s.name])] },
     ], p) + '<small class="hint">Generate and proof-read subtitles on the Deliver page.</small>')}
-    ${sec('backups', 'Backups', '<div id="bkList" class="muted">Loading…</div>')}
+
     <div class="iactions"><button data-a="folder">Open project folder</button></div>
   </div>`;
   bindFields(root, () => S.project, { live: () => emit('live'), commit: (k) => { doCommit(`Project ${k}`, k); if (k === 'settings.aspect') emit('aspect'); } });
@@ -520,7 +607,7 @@ export function updateKeyUI() {
     d.disabled = rel === null;
     const ks = el.querySelector('[data-kease]'); if (ks && document.activeElement !== ks) ks.value = keys.length > 1 ? (keys[0].ease === true ? 'io' : keys[0].ease || '') : '';
     const pv = el.querySelector('[data-pv]'), md = MOTION.find((r) => r.p === path);
-    if (pv && md) pv.textContent = mShow(md, motionVal(c, path, rel)); // (🎬 the value at the playhead)
+    if (pv && md) pv.textContent = mShow(md, motionVal(c, path, rel), c); // (🎬 the value at the playhead)
     el.querySelector('[data-kprev]').disabled = !keys.some((k) => rel !== null && k.t < rel - 1e-3);
     el.querySelector('[data-knext]').disabled = !keys.some((k) => rel === null || k.t > rel + 1e-3);
     if (keys.length && rel !== null) {
