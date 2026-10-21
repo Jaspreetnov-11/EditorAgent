@@ -45,7 +45,9 @@ export function aiHTML(c) {
       ${autoMasks ? `<button class="small" data-ai="unblur">✕ Remove (${autoMasks})</button>` : ''}</div>
     <div class="ai-row"><button class="small" data-ai="hidearea" title="Draw a box on the Program monitor over a logo, a watermark or burnt-in text - it is removed (filled in from the picture around it), blurred, pixelated or blacked out for the whole shot">▭ Hide logo / text (mask)</button></div>
     ${(c.masks || []).map((mk, i) => (mk.area ? `<div class="ai-row"><span class="small">▭ Box ${(c.masks || []).slice(0, i + 1).filter((x) => x.area).length}</span><select data-mk-mode="${i}">${MASK_MODES.map(([v, l]) => `<option value="${v}"${mk.type === v ? ' selected' : ''}>${l}</option>`).join('')}</select><button class="link small" data-mk-del="${i}" title="Take this box away">✕</button></div>` : '')).join('')}
-    ${(c.masks || []).some((x) => x.area && x.type === 'remove') ? '<small class="hint">Remove fills the box in from the picture around it - the viewer shows it blurred; Accurate preview and the render show it removed.</small>' : ''}
+    ${(c.masks || []).some((x) => x.area) ? `<div class="ai-row"><button class="small accent" data-ai="aifill" title="Content-aware fill (AI, on the GPU): the boxes are filled in with what would be behind the logo / text, frame by frame - a new copy of this piece of the shot goes on the timeline (Ctrl+Z or ↶ brings the original back)">✨ AI fill the boxes (content-aware)</button></div>
+      <small class="hint">AI fill makes a new copy of this shot with the boxes filled in (~10 s of work per second of video). Quick options: Remove (fill from around) / Blur / Black - the viewer shows them blurred, the render applies them.</small>` : ''}
+    ${c.filled ? '<div class="ai-row"><button class="small" data-ai="unfill" title="Put the original shot (with its boxes) back">↶ Original shot (undo AI fill)</button></div>' : ''}
     <label class="chk${slow ? '' : ' muted'}"><input type="checkbox" data-ai-smooth${c.smooth ? ' checked' : ''}${slow ? '' : ' disabled'}> ✨ Smooth slow motion (makes in-between frames)</label>
     ${slow ? '' : '<small class="hint">Set Speed below 1× (or a speed ramp) to use it.</small>'}
     <label class="fld"><span>🧽 Clean up picture</span><select data-ai-enh>${ENHANCE.map(([v, l]) => `<option value="${v}"${(c.enhance || '') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
@@ -83,6 +85,29 @@ export function bindAi(root, id, render) {
         (c.masks ||= []).push({ id: Math.random().toString(36).slice(2, 9), area: true, exact: true, type: 'remove', path: [{ t: 0, ...s }, { t: Math.max(1, m?.duration || 1e6), ...s }] });
         commit('Hide an area (mask)'); render();
         toast('▭ Box added - it is removed in the render (the viewer shows it blurred). Change it to Blur / Pixelate / Black in Effect Controls.');
+      }
+      if (a === 'aifill') {
+        const m = S.mediaById[c.mediaId], areas = (c.masks || []).filter((x) => x.area);
+        if (!m || !areas.length) return;
+        const a0 = c.in || 0, a1 = c.out ?? m.duration;
+        emit('job', { running: true, label: '✨ AI fill…' });
+        const job = await api('POST', `/api/inpaint?p=${enc(S.proj)}`, { mediaId: c.mediaId, in: a0, out: a1, boxes: areas.map((x) => { const { t, ...b } = x.path[0]; return b; }) });
+        const j = await watchJob(job.id, (x) => emit('job', { running: true, label: x.stage?.startsWith('Waiting') ? `✨ ${x.stage}` : `✨ AI fill ${x.progress || 0}%` }));
+        // the filled copy is read by the editor like any new file; then it takes the shot's place (same timing)
+        const { refreshMedia } = await import('./mediapool.js');
+        for (let i = 0; i < 60; i++) { await refreshMedia(); const n = S.mediaById[j.result.mediaId]; if (n && ['ready', 'error'].includes(n.status)) break; await new Promise((ok) => setTimeout(ok, 1000)); }
+        const now = clip(); if (!now) return;
+        now.filled = { mediaId: now.mediaId, in: a0, out: now.out, masks: areas };
+        now.mediaId = j.result.mediaId; now.in = 0; now.out = +(a1 - a0).toFixed(3);
+        now.masks = (now.masks || []).filter((x) => !x.area); if (!now.masks.length) delete now.masks;
+        commit('AI fill'); render();
+        toast('✨ Filled - the shot now plays the AI-filled copy (↶ Original shot brings it back)');
+      }
+      if (a === 'unfill') {
+        const f = c.filled; if (!f) return;
+        Object.assign(c, { mediaId: f.mediaId, in: f.in, ...(f.out !== undefined ? { out: f.out } : {}) });
+        c.masks = [...(c.masks || []), ...(f.masks || [])]; delete c.filled;
+        commit('Undo AI fill'); render();
       }
       if (a === 'unblur') { c.masks = c.masks.filter((x) => x.auto !== 'faces'); if (!c.masks.length) delete c.masks; commit('Remove face blur'); render(); }
       if (a === 'followall') {

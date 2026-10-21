@@ -836,8 +836,9 @@ function startJob(kind, cmd, args, onDone, meta = {}) {
 // 🚦 How many of a kind run at once. With many people on one editor, 20 agent edits at a time would each load Whisper
 // onto the one GPU and read the drive at once - everything stalls. The rest wait in line (status stays 'running', the
 // stage says where they are in the line), so nobody gets an error. VEDIT_MAX_AGENTS / VEDIT_MAX_CLAUDE change the limits.
-const SLOTS = { agent: Math.max(1, +process.env.VEDIT_MAX_AGENTS || 2), claude: Math.max(1, +process.env.VEDIT_MAX_CLAUDE || 4) };
-const lines = { agent: [], claude: [] }, inUse = { agent: 0, claude: 0 };
+// (✨ AI fill: one at a time - it fills the GPU's memory)
+const SLOTS = { agent: Math.max(1, +process.env.VEDIT_MAX_AGENTS || 2), claude: Math.max(1, +process.env.VEDIT_MAX_CLAUDE || 4), inpaint: 1 };
+const lines = { agent: [], claude: [], inpaint: [] }, inUse = { agent: 0, claude: 0, inpaint: 0 };
 function lineNotes(kind) {
   lines[kind].forEach((w, i) => {
     w.job.stage = `Waiting in line (${i ? `${i} ahead` : 'next'}) - ${inUse[kind]} running for others…`;
@@ -1008,7 +1009,7 @@ const insideShared = (p) => sharedDirs().some((l) => { let r; try { r = fs.realp
 function saveToDir(who, d) {
   if (!d || !who || who.role === 'viewer' || !path.isAbsolute(String(d))) return null;
   let p; try { p = fs.realpathSync(path.resolve(String(d))); if (!fs.statSync(p).isDirectory()) return null; } catch { return null; }
-  return who.role === 'owner' || (who.role === 'editor' && teamCfg().editorsAnyFolder) || insideShared(p) ? p : null;
+  return who.role !== 'viewer' ? p : null; // (every editor may save anywhere on the editing computer, like the owner)
 }
 function copyToSaveTo(it) {
   if (!it.saveTo) return;
@@ -1409,13 +1410,15 @@ const teamCfg = () => config().team || { users: [], libraries: [] };
 const saveTeam = (t) => { const c = config(); c.team = t; fs.writeFileSync(CONFIG, JSON.stringify(c, null, 1)); };
 const hashPw = (pw, salt) => crypto.scryptSync(String(pw), salt, 32).toString('hex');
 const sessions = new Map(); // token -> { name, role, at }
-// (🧠 Claude is open to editors too - Assistant, Copy a reference - with its reading kept to the projects, see claudeRun)
-const OWNER_ONLY = [/^\/api\/(shutdown|settings|share|team|farm|projects\/(delete|restore|deleted|purge|empty-bin)|publish|health\/recheck|open-folder|open-sfx|open-stock)/, /^\/api\/library\/(brand|template\/delete)/];
+// Every signed-in editor may do everything; only the team itself stays the owner's: who may sign in (users and
+// passwords), the sign-in / sessions tracking and the team settings (/api/team…). Viewers still only watch.
+// (🧠 Claude is open to editors too, with its reading kept to the projects - see claudeRun)
+const OWNER_ONLY = [/^\/api\/team(\/|$)/];
 function allowed(who, method, p) {
   if (who.role === 'owner') return true;
   if (/^\/api\/(me|lock|unlock)$/.test(p)) return true;
   // (reading the settings only tells whether keys are set; the publish list and accounts show no tokens)
-  if (OWNER_ONLY.some((r) => r.test(p))) return method === 'GET' && /^\/api\/(settings|publish\/(list|accounts))$/.test(p);
+  if (OWNER_ONLY.some((r) => r.test(p))) return method === 'GET' && p === '/api/team/shortcut'; // (the shortcut is only a link)
   if (who.role === 'viewer') return method === 'GET';
   return true;
 }
@@ -2308,7 +2311,7 @@ const routes = {
     return { ...(beats(m.path) || {}), duration: m.duration };
   },
   // 👥 who is asking, project locks, team settings (owner)
-  'GET /api/me': (req) => ({ name: req.who.name, role: req.who.role, local: !!req.who.local, shared: req.who.role === 'viewer' ? [] : sharedDirs(), anyFolder: req.who.role === 'owner' || (req.who.role === 'editor' && !!teamCfg().editorsAnyFolder) }), // (shared: where an editor may save exports)
+  'GET /api/me': (req) => ({ name: req.who.name, role: req.who.role, local: !!req.who.local, shared: req.who.role === 'viewer' ? [] : sharedDirs(), anyFolder: req.who.role !== 'viewer' }), // (shared: where an editor may save exports)
   // 📊 an editor tab in use pings this about once a minute (a GET, so viewers count too)
   'GET /api/presence': (req, res, u) => {
     addBeat(presence, { name: whoLabel(req.who), project: (q(u, 'p') || '').slice(0, 120), where: req.who.local ? 'this PC' : ipOf(req) });
@@ -2554,6 +2557,37 @@ const routes = {
       if (r.code !== 0 || !fs.existsSync(`${out}.part.mp4`)) { fs.rmSync(`${out}.part.mp4`, { force: true }); throw new Error(`Could not cut out the subject: ${r.stderr.trim().split(/\r?\n/).pop()}`); }
       fs.renameSync(`${out}.part.mp4`, out);
       return { file };
+    }, { project: name });
+  },
+  // ✨ AI fill (content-aware): the boxes drawn over a logo / text (fractions of the picture) are filled in by LaMa
+  // (engine/inpaint.py, GPU) for the clip's piece [in, out] of the file; the filled piece becomes a new file of the
+  // project (bin "AI fill"), which the editor puts on the timeline in place of that piece. Body { mediaId, in, out, boxes }
+  'POST /api/inpaint': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req), m = mediaItem(name, b.mediaId);
+    if (!m || m.kind !== 'video') throw err(400, 'This needs a video clip');
+    if (!fs.existsSync(path.join(ROOT, 'tools', 'models', 'big-lama.pt'))) throw err(400, 'The AI fill model is not installed (tools/models/big-lama.pt)');
+    const boxes = (b.boxes || []).filter((x) => x && x.w > 0 && x.h > 0).map((x) => ({ x: +x.x, y: +x.y, w: +x.w, h: +x.h }));
+    if (!boxes.length) throw err(400, 'Draw a box over the logo / text first');
+    const t0 = Math.max(0, +(+b.in || 0).toFixed(3)), t1 = Math.min(m.duration || 1e9, +(+b.out || m.duration || 0).toFixed(3));
+    if (!(t1 - t0 > 0.05)) throw err(400, 'The clip is too short');
+    if (t1 - t0 > 600) throw err(400, 'Fill at most 10 minutes at a time - split the clip first');
+    const [W, H] = Math.abs(m.rotation || 0) === 90 ? [m.height, m.width] : [m.width, m.height];
+    const dir = P(name, 'imports'), base = `${path.parse(m.name).name} (AI fill ${t0.toFixed(1)}-${t1.toFixed(1)})`;
+    fs.mkdirSync(dir, { recursive: true }); fs.mkdirSync(P(name, 'cache', 'inpaint'), { recursive: true });
+    let out = path.join(dir, `${base}.mp4`);
+    for (let i = 2; fs.existsSync(out); i++) out = path.join(dir, `${base} ${i}.mp4`);
+    const bf = P(name, 'cache', 'inpaint', `${crypto.randomBytes(6).toString('hex')}.json`);
+    writeJSON(bf, boxes);
+    return startTask('inpaint', async (job) => {
+      job.stage = 'Filling in the boxes (AI)…';
+      const r = await run(PYTHON, [path.join(ROOT, 'engine', 'inpaint.py'), m.path, String(t0), String(t1), `${out}.part.mp4`, bf, String(W), String(H), String(m.fps || 25)], {
+        onLine: (l) => { const x = /\[(\d+)\/(\d+)\]/.exec(l); if (x) job.progress = Math.min(99, Math.round((+x[1] / +x[2]) * 100)); } });
+      fs.rmSync(bf, { force: true });
+      if (r.code !== 0 || !fs.existsSync(`${out}.part.mp4`)) { fs.rmSync(`${out}.part.mp4`, { force: true }); throw new Error(`AI fill failed: ${r.stderr.trim().split(/\r?\n/).pop()}`); }
+      fs.renameSync(`${out}.part.mp4`, out);
+      const it = addMediaFile(name, out, { bin: 'AI fill', imported: true });
+      saveMedia(name);
+      return { mediaId: it?.id, file: path.basename(out), dur: +(t1 - t0).toFixed(3) };
     }, { project: name });
   },
   'GET /api/matte/file': (req, res, u) => serveFile(req, res, P(needProject(q(u, 'p')), 'cache', 'mattes', path.basename(q(u, 'f') || '')), true),

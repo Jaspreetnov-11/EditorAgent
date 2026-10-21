@@ -402,7 +402,7 @@ async function exportXml() {
       <ol class="dv-steps"><li><b>Premiere Pro:</b> File → Import → pick the .xml. A new sequence appears in the Project panel.</li>
       <li><b>DaVinci Resolve:</b> File → Import → Timeline → pick the .xml and tick “Automatically import source clips into media pool”.</li></ol>
       ${r.notes.length ? `<p class="muted">Redo these by hand (also listed in the README file):</p><ul class="warns">${r.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>` : '<p>Everything in this edit carries over.</p>'}
-      <div class="dv-actions">${!saveTo() ? `<a class="btn primary" href="/api/export/zip?p=${enc(S.proj)}&name=${enc(r.folder)}" download>⬇ Download to this PC (.zip)</a>` : ''}${S.me?.role === 'owner' ? '<button data-action="open">Open folder</button>' : ''}<button data-close>Close</button></div>`,
+      <div class="dv-actions">${!saveTo() ? `<a class="btn primary" href="/api/export/zip?p=${enc(S.proj)}&name=${enc(r.folder)}" download>⬇ Download to this PC (.zip)</a>` : ''}${S.me?.role !== 'viewer' ? '<button data-action="open">Open folder</button>' : ''}<button data-close>Close</button></div>`,
       { width: 640, onAction: (a) => { if (a === 'open') { if (saveTo() && r.path && S.me?.role !== 'owner') toast(`Saved in ${r.path}`); else if (saveTo() && r.path) api('POST', `/api/open-folder?p=${enc(S.proj)}&path=${enc(r.path)}`).catch((e) => toast(e.message, 'err')); else openSub(`exports/${r.folder}`); m.close(); } } });
   } catch (e) { toast(e.message, 'err'); }
   finally { b.disabled = false; b.textContent = 'Export timeline (XML)'; }
@@ -411,7 +411,7 @@ async function loadExports() {
   if (!root || !S.proj) return;
   const list = await api('GET', `/api/exports?p=${enc(S.proj)}`).catch(() => []);
   $('#dvXmlList', root).innerHTML = list.slice(0, 6).map((x) => `<div class="dv-item"><span class="link">${esc(x.name)}</span>
-    <a class="link small" href="/api/export/zip?p=${enc(S.proj)}&name=${enc(x.name)}" download title="Download the whole folder as one .zip to this PC">⬇ Download (.zip)</a>${S.me?.role === 'owner' ? `<button class="link small" data-xopen="${esc(x.name)}">Open folder</button>` : ''}</div>`).join('');
+    <a class="link small" href="/api/export/zip?p=${enc(S.proj)}&name=${enc(x.name)}" download title="Download the whole folder as one .zip to this PC">⬇ Download (.zip)</a>${S.me?.role !== 'viewer' ? `<button class="link small" data-xopen="${esc(x.name)}">Open folder</button>` : ''}</div>`).join('');
   $$('[data-xopen]', root).forEach((b) => (b.onclick = () => openSub(`exports/${b.dataset.xopen}`)));
 }
 
