@@ -8,7 +8,7 @@ import { fusionFromClip, rotoFromClip } from './fusionpage.js';
 import { seqList } from './model.js';
 import { sharedSeqId } from './store.js';
 import { copyClips, pasteClips, clipboard } from './clipboard.js';
-import { clipDur, uid, fmtTC, fmt, trackList, trackKind, addTrack, syncLinked, linkAudioOf, linkedPartner, freeAudioTrack, RAMPS, setRamp } from './model.js';
+import { clipDur, uid, fmtTC, fmt, trackList, trackKind, addTrack, syncLinked, linkAudioOf, linkedPartner, freeAudioTrack, RAMPS, setRamp, TRANSITIONS } from './model.js';
 import { $, $$, h, esc, clamp, toast } from './ui.js';
 import { openTemplates } from './titlesui.js';
 import { openGraphics } from './gfxui.js';
@@ -241,7 +241,7 @@ function render() {
   drawn = many ? { a: Math.max(0, scroller.scrollLeft - vw), b: scroller.scrollLeft + vw * 2 } : null;
   const near = (x) => !drawn || (x.end * S.zoom >= drawn.a && x.start * S.zoom <= drawn.b) || S.sel.has(x.clip.id);
   patchRows(TR.map((t) => ({ id: t.id, cls: `tl-row ${t.kind}${ts[t.id]?.hide ? ' hidden-track' : ''}${ts[t.id]?.lock ? ' locked' : ''}`, h: rowH(t.id),
-    clips: (L[t.id] || []).flatMap((x, i) => (near(x) ? [[String(x.clip.id), clipHTML(t.id, x, i)]] : [])) })));
+    clips: (L[t.id] || []).flatMap((x, i) => (near(x) ? [[String(x.clip.id), clipHTML(t.id, x, i)], ...(t.id === 'V1' && i > 0 && x.overlap ? [[`tr-${x.clip.id}`, transHTML(x)]] : [])] : [])) })));
   $('#tlDur', root).textContent = `/ ${fmtTC(D, S.project.settings.fps)}`;
   placePlayhead();
   drawRuler();
@@ -360,9 +360,12 @@ function clipHTML(track, x, i) {
   const badges = [c.color && Object.keys(c.color).length ? '<i title="Colour graded">CC</i>' : '', c.speed && c.speed !== 1 ? `<i>${c.speed}×</i>` : '',
     c.text && c.type !== 'title' ? '<i title="Has text">T</i>' : '', c.loop ? '<i title="Loops">⟲</i>' : '', c.duck ? '<i title="Ducks under speech">duck</i>' : '',
     c.link ? `<i class="lk" title="Linked to its ${c.type === 'audio' ? 'picture' : 'sound'} - they move and trim together (Alt + click takes one; right-click › Unlink)">${c.type === 'audio' ? 'A' : 'V'}🔗</i>` : '',
-    c.mute && !(c.link && c.type === 'video') ? '<i title="Muted">M</i>' : '', c.cutFx?.type ? `<i title="Cut effect: ${esc(c.cutFx.type)}">✨</i>` : '', c.sfx ? `<i title="Sound effect (auto)">${esc(c.sfx)}</i>` : '', c.ramp ? '<i title="Speed ramp">⤳</i>' : '', c.transform && (c.transform.zoom !== 1 || c.transform.x || c.transform.y || c.transform.rotation) ? '<i title="Transformed">◰</i>' : ''].join('');
-  const trans = track === 'V1' && i > 0 ? `<button class="tr-btn${x.overlap ? ' has' : ''}" data-trans="${c.id}" title="${x.overlap ? `${c.transitionIn.type} ${x.overlap.toFixed(2)}s - click to edit` : 'Add transition'}" style="left:${-Math.min(10, w / 2)}px">${x.overlap ? '⧓' : '+'}</button>` : '';
-  const ov = x.overlap ? `<div class="tr-zone" style="width:${x.overlap * S.zoom}px"></div>` : '';
+    c.mute && !(c.link && c.type === 'video') ? '<i title="Muted">M</i>' : '',
+    // fx (like Premiere): the clip has effects - video effects, a cut effect, audio clean-up or masks
+    c.effects?.length || c.cutFx?.type || c.afx || c.masks?.length ? `<i class="fxb" title="Effects: ${esc([...(c.effects || []).map((e) => e.type), c.cutFx?.type, c.afx && 'audio clean-up', c.masks?.length && `${c.masks.length} mask${c.masks.length > 1 ? 's' : ''}`].filter(Boolean).join(', '))} (Effect Controls)">fx</i>` : '', c.sfx ? `<i title="Sound effect (auto)">${esc(c.sfx)}</i>` : '', c.ramp ? '<i title="Speed ramp">⤳</i>' : '', c.transform && (c.transform.zoom !== 1 || c.transform.x || c.transform.y || c.transform.rotation) ? '<i title="Transformed">◰</i>' : ''].join('');
+  // without a transition: a small + on the cut (on hover); with one, its box is drawn on the row (transHTML)
+  const trans = track === 'V1' && i > 0 && !x.overlap ? `<button class="tr-btn" data-trans="${c.id}" title="Add transition" style="left:${-Math.min(10, w / 2)}px">+</button>` : '';
+  const ov = '';
   const kt = [...new Set(Object.values(c.keys || {}).flat().map((k) => +k.t.toFixed(3)))];
   const kfs = kt.length ? `<div class="kfs">${kt.map((t) => `<i style="left:${t * S.zoom}px"></i>`).join('')}</div>` : '';
   return `<div class="clip t-${c.type}${kind}${S.sel.has(c.id) ? ' sel' : ''}${missing ? ' missing' : ''}${c.disabled ? ' off' : ''}" data-id="${c.id}" data-track="${track}"
@@ -374,6 +377,13 @@ function clipHTML(track, x, i) {
   </div>`;
 }
 
+// ⧓ a transition, like Premiere's: a box ON the cut between the two shots (half over each), as long as the transition,
+// with its name and the bow-tie of one shot fading into the next; click it to change or remove it. (It is drawn on the
+// row, not inside a clip - inside the incoming clip it could only sit at that clip's start.)
+function transHTML(x) {
+  const c = x.clip, w = Math.max(10, x.overlap * S.zoom), name = TRANSITIONS.find(([k]) => k === c.transitionIn?.type)?.[1] || c.transitionIn?.type || 'Transition';
+  return `<button class="tr-box" data-trans="${c.id}" title="${esc(name)} ${x.overlap.toFixed(2)} s - click to change or remove" style="left:${x.start * S.zoom - w / 2}px;width:${w}px"><span>${w > 60 ? esc(name) : ''}</span></button>`;
+}
 function drawRuler() {
   if (!ruler || !scroller || !S.project) return; // (no project: back on the Projects page)
   const w = scroller.clientWidth, dpr = window.devicePixelRatio || 1;

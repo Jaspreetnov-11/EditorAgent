@@ -198,6 +198,12 @@ video.lyr, img.lyr { object-fit: contain; transform-origin: center; }
 .trim.l { left: 0; } .trim.r { right: 0; }
 .trim:hover, .clip.sel .trim { background: #ff99337a; }
 .tr-zone { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(90deg, #ffffff40, #ffffff00); pointer-events: none; }
+/* ⧓ a transition on the cut, like Premiere: a box with a bow-tie (one shot fading out, the next fading in) */
+.tr-box { position: absolute; left: 0; top: 18%; bottom: 18%; z-index: 4; padding: 0; border: 1.5px solid #b9d7f0; border-radius: 3px; cursor: pointer; overflow: hidden;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'%3E%3Cpath d='M0 0L50 50L0 100Z' fill='%238ec5ee' fill-opacity='.55'/%3E%3Cpath d='M100 0L50 50L100 100Z' fill='%238ec5ee' fill-opacity='.3'/%3E%3C/svg%3E") center / 100% 100% no-repeat, #0f2a3dd9; box-shadow: 0 1px 6px #0008; }
+.tr-box span { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; color: #e8f3fc; text-shadow: 0 1px 2px #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 4px; pointer-events: none; }
+.tr-box:hover { border-color: var(--accent); }
+.clip-lbl .fxb { font-style: italic; font-family: Georgia, serif; font-weight: 700; color: #ffd35a; background: none; }
 .tr-btn { position: absolute; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; padding: 0; border-radius: 50%; font-size: 11px; z-index: 3; background: #000c; border-color: #ffffff44; opacity: 0; }
 .clip:hover .tr-btn, .tr-btn.has { opacity: 1; }
 .tr-btn.has { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
