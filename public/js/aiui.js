@@ -105,19 +105,22 @@ export function bindAi(root, id, render) {
       }
       if (a === 'aifill') {
         const m = S.mediaById[c.mediaId], areas = (c.masks || []).filter((x) => x.area);
-        if (!m || !areas.length) return;
+        if (!m || !areas.length) return toast('Draw a box over the logo / text first (▭ Hide logo / text)', 'err');
         const a0 = c.in || 0, a1 = c.out ?? m.duration;
         emit('job', { running: true, label: '✨ AI fill…' });
+        // (it takes a while - ~10 s a second of video: the button itself says how far it is, so it never looks dead)
+        b.textContent = '✨ Filling… starting'; toast(`✨ AI fill started - about ${Math.max(10, Math.round((a1 - a0) * 10))} s for this ${(a1 - a0).toFixed(1)} s shot`);
         const job = await api('POST', `/api/inpaint?p=${enc(S.proj)}`, { mediaId: c.mediaId, in: a0, out: a1, boxes: areas.map((x) => { const { t, ...b } = x.path[0]; return b; }) });
-        const j = await watchJob(job.id, (x) => emit('job', { running: true, label: x.stage?.startsWith('Waiting') ? `✨ ${x.stage}` : `✨ AI fill ${x.progress || 0}%` }));
+        const j = await watchJob(job.id, (x) => { const l = x.stage?.startsWith('Waiting') ? `✨ ${x.stage}` : `✨ Filling… ${x.progress || 0}%`; b.textContent = l; emit('job', { running: true, label: l }); });
         if (await swapIn(clip, j.result, a0, a1, 'fill', areas)) { commit('AI fill'); render(); toast('✨ Filled - the shot now plays the AI-filled copy (↶ Original shot brings it back)'); }
       }
       if (a === 'enhance') {
         const m = S.mediaById[c.mediaId]; if (!m) return;
         const a0 = c.in || 0, a1 = c.out ?? m.duration, q = (s) => root.querySelector(s).value;
         emit('job', { running: true, label: '✨ Enhancing…' });
+        b.textContent = '✨ Enhancing… starting'; toast(`✨ AI enhance started - about ${Math.max(15, Math.round((a1 - a0) * (q('[data-enh-model]') === 'detail' ? 80 : 28)))} s for this ${(a1 - a0).toFixed(1)} s shot`);
         const job = await api('POST', `/api/enhance?p=${enc(S.proj)}`, { mediaId: c.mediaId, in: a0, out: a1, model: q('[data-enh-model]'), height: +q('[data-enh-h]'), denoise: +q('[data-enh-dn]') });
-        const j = await watchJob(job.id, (x) => emit('job', { running: true, label: x.stage?.startsWith('Waiting') ? `✨ ${x.stage}` : `✨ Enhance ${x.progress || 0}%` }));
+        const j = await watchJob(job.id, (x) => { const l = x.stage?.startsWith('Waiting') ? `✨ ${x.stage}` : `✨ Enhancing… ${x.progress || 0}%`; b.textContent = l; emit('job', { running: true, label: l }); });
         if (await swapIn(clip, j.result, a0, a1, 'enhance', [])) { commit('AI enhance'); render(); toast('✨ Enhanced - the shot now plays the enhanced copy (↶ Original shot brings it back)'); }
       }
       if (a === 'unfill') {
