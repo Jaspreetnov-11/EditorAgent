@@ -18,7 +18,7 @@ export const COMMANDS = [
   ['selectTool', 'Selection tool', 'Tools'], ['razorTool', 'Razor tool', 'Tools'], ['typeTool', 'Type tool (new title)', 'Tools'],
   ['addEdit', 'Add edit (split selected / at playhead)', 'Timeline'], ['addEditAll', 'Add edit to all tracks', 'Timeline'],
   ['rippleTrimPrev', 'Ripple trim previous edit to playhead', 'Timeline'], ['rippleTrimNext', 'Ripple trim next edit to playhead', 'Timeline'],
-  ['clear', 'Clear / delete (leave a gap)', 'Timeline'], ['rippleDelete', 'Ripple delete', 'Timeline'],
+  ['clear', 'Delete and leave a gap (lift)', 'Timeline'], ['rippleDelete', 'Delete (the next clip moves up - ripple)', 'Timeline'],
   ['duplicate', 'Duplicate', 'Timeline'], ['transition', 'Apply default video transition', 'Timeline'],
   ['selectAtPlayhead', 'Select clip at playhead', 'Timeline'], ['link', 'Link / unlink audio and video', 'Timeline'],
   ['enable', 'Enable / disable clip', 'Timeline'], ['snap', 'Snap in timeline', 'Timeline'], ['nest', 'Nest…', 'Timeline'],
@@ -36,7 +36,9 @@ const PREMIERE = {
   markIn: ['I'], markOut: ['O'], goIn: ['Shift+I'], goOut: ['Shift+O'], insert: [','], overwrite: ['.'],
   selectTool: ['V'], razorTool: ['C'], typeTool: ['T'],
   addEdit: ['Ctrl+K'], addEditAll: ['Ctrl+Shift+K'], rippleTrimPrev: ['Q'], rippleTrimNext: ['W'],
-  clear: ['Delete', 'Backspace'], rippleDelete: ['Shift+Delete', 'Shift+Backspace'], duplicate: [], transition: ['Ctrl+D'],
+  // Delete closes up (the next clip takes the deleted one's place); Shift+Delete leaves a gap. (The other way round
+  // from Premiere, on purpose: the gaps Delete used to leave meant shuffling clips by hand every time.)
+  clear: ['Shift+Delete', 'Shift+Backspace'], rippleDelete: ['Delete', 'Backspace'], duplicate: [], transition: ['Ctrl+D'],
   selectAtPlayhead: ['D'], link: ['Ctrl+L'], enable: ['Shift+E'], snap: ['S'], nest: [],
   marker: ['M'], nextMarker: ['Shift+M'], prevMarker: ['Ctrl+Shift+M'], note: ['Alt+M'],
   zoomIn: ['='], zoomOut: ['-'], zoomFit: ['\\'], maximize: ['`'], fullscreen: ['Ctrl+`'],
@@ -67,8 +69,19 @@ export function keyOf(e) {
 const LS = 've-keys';
 const read = () => { try { return JSON.parse(localStorage.getItem(LS) || '{}'); } catch { return {}; } };
 const write = (o) => { try { localStorage.setItem(LS, JSON.stringify(o)); } catch {} };
-export const keyState = () => { const s = read(); return { preset: s.preset || 'premiere', custom: s.custom || {} }; };
-export function setKeyState(st) { write(st); rebuild(); }
+export const keyState = () => {
+  const s = read();
+  // once: own presets made before Delete started closing up get the same swap (Delete = ripple, Shift+Delete = gap)
+  if (!s.delSwap) {
+    for (const p of Object.values(s.custom || {})) {
+      const m = p.map || {}, a = m.clear || [], b = m.rippleDelete || [];
+      if (a.includes('Delete') && b.includes('Shift+Delete')) { m.clear = b; m.rippleDelete = a; }
+    }
+    s.delSwap = 1; write(s);
+  }
+  return { preset: s.preset || 'premiere', custom: s.custom || {} };
+};
+export function setKeyState(st) { write({ ...st, delSwap: 1 }); rebuild(); }
 export function presetMap(id, st = keyState()) {
   if (BUILTIN[id]) return BUILTIN[id].map;
   const c = st.custom[id]; return c ? c.map : PREMIERE;

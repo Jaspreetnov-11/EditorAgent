@@ -30,7 +30,7 @@ export function mountAssistant(busyFn) {
   root = h(`<aside class="as" hidden aria-label="Assistant">
     <div class="as-head"><b>💬 Assistant</b>
       <span class="as-modes" role="tablist"><button class="chip" data-mode="claude" title="Claude: looks at your footage, hears the song, plans and edits the timeline itself (slower, smartest)">🧠 Claude</button><button class="chip" data-mode="quick" title="Quick commands: instant, offline, fixed phrases">⚡ Quick</button></span>
-      <span class="grow"></span><button class="link small" data-newchat title="Start a new conversation with Claude for this project">New chat</button><button class="icon-btn" data-x aria-label="Close">✕</button></div>
+      <span class="grow"></span><select class="as-chats small" data-chats hidden title="Earlier chats with Claude in this project"></select><button class="link small" data-newchat title="Start a new conversation with Claude for this project">New chat</button><button class="icon-btn" data-x aria-label="Close">✕</button></div>
     <div class="as-cl muted small" data-clinfo hidden></div>
     <div class="as-quick">${QUICK.map(([l, c]) => `<button class="chip" data-cmd="${esc(c)}">${l}</button>`).join('')}</div>
     <div class="as-log" aria-live="polite"></div>
@@ -62,13 +62,15 @@ export function mountAssistant(busyFn) {
     if (e.target.closest('[data-clstop]') && cl.job) api('POST', `/api/claude/stop?id=${cl.job}`).catch(() => {});
     if (e.target.closest('[data-clrecheck]')) checkClaude(true);
   });
-  on('openProject', () => { log.length = 0; draw(); });
+  $('[data-chats]', root).onchange = (e) => openChat(e.target.value);
+  on('openProject', () => { chatsFor = null; log.length = 0; draw(); }); // (the next project's chats load when it is open)
   setMode(cl.mode, false);
 }
 export function toggleAssistant(show = root.hidden) {
   root.hidden = !show;
   document.body.classList.toggle('as-open', show);
   if (show) {
+    if (S.proj && chatsFor !== S.proj) loadChats(); // (before the greeting, so a kept chat is not replaced by it)
     if (cl.mode === 'claude') checkClaude();
     if (!log.length && cl.mode === 'claude') say('🧠 Claude is here. Describe the edit you want in your own words - e.g.:\n• "make a 60 sec reel of this song from the chorus, with lyrics"\n• "change the third shot, use a happy face"\n• "the opening is slow, tighten the first 10 sec"\nClaude looks at the footage, plans and edits the timeline - the changes show up here live.');
     else if (!log.length) say(`Hello! I can change this edit. Type things like:\n${EXAMPLES.slice(0, 6).map((x) => `• ${x}`).join('\n')}\n\nType "help" to see all commands.`);
@@ -77,6 +79,43 @@ export function toggleAssistant(show = root.hidden) {
 }
 
 function say(text, who = 'ai') { log.push({ who, text }); draw(); }
+
+// 🗂 chat history: the last CHATS_KEPT conversations of each project stay in this browser (they used to vanish on a
+// refresh or New chat). Each remembers Claude's session, so going back to one lets Claude carry on where it was.
+const CHATS_KEPT = 10;
+let chats = [], chatId = null, chatsFor = null; // chatsFor: the project these chats belong to
+const chatsKey = () => `ve-as-chats:${S.proj}`;
+const curChat = () => chats.find((c) => c.id === chatId);
+function loadChats() {
+  chatsFor = S.proj;
+  try { chats = JSON.parse(localStorage.getItem(chatsKey()) || '[]'); } catch { chats = []; }
+  const c = chats[0]; chatId = c?.id || null;
+  log.length = 0; if (c) log.push(...c.log);
+  drawChats();
+}
+function saveChats() {
+  if (!S.proj || chatsFor !== S.proj) return;
+  if (log.some((m) => m.who === 'me')) { // (a chat is kept once something was asked in it)
+    let c = curChat();
+    if (!c) { c = { id: Date.now().toString(36), sid: null }; chatId = c.id; chats.unshift(c); }
+    Object.assign(c, { at: Date.now(), title: log.find((m) => m.who === 'me').text.replace(/\s+/g, ' ').slice(0, 50), log: log.slice(-200) });
+    chats = [c, ...chats.filter((x) => x !== c)].slice(0, CHATS_KEPT);
+  }
+  try { localStorage.setItem(chatsKey(), JSON.stringify(chats)); } catch {}
+  drawChats();
+}
+function drawChats() {
+  const sel = root && $('[data-chats]', root); if (!sel) return;
+  const when = (t) => new Date(t).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  sel.hidden = !chats.length || cl.mode !== 'claude';
+  sel.innerHTML = `<option value="">🗂 Chats (${chats.length})</option>${chats.map((c) => `<option value="${c.id}"${c.id === chatId ? ' selected' : ''}>${esc(c.title)} · ${when(c.at)}</option>`).join('')}`;
+}
+async function openChat(id) {
+  const c = chats.find((x) => x.id === id); if (!c || cl.job) return drawChats();
+  chatId = c.id; log.length = 0; log.push(...c.log); draw(); drawChats();
+  // Claude picks that conversation up again (without its session it starts fresh, but the chat is still shown)
+  await api('POST', `/api/claude/use?p=${enc(S.proj)}`, { id: c.sid || null }).catch(() => {});
+}
 // what Claude is doing, in plain words (from the editor tool it runs)
 function friendlyStep(e) {
   const t = String(e.text || ''), c = /edtool\.mjs\s+(\w+)/.exec(t)?.[1];
@@ -86,11 +125,15 @@ function friendlyStep(e) {
   if (e.name === 'Write' || e.name === 'Edit') return 'Planning the edit';
   return 'Working on it';
 }
+// "claude-opus-5-5" -> "Opus 5.5" (the model Claude actually runs on, shown on the progress bar)
+const modelName = (m) => { const x = /claude-(\w+)-(\d+)-(\d+)/.exec(String(m)); return x ? `${x[1][0].toUpperCase()}${x[1].slice(1)} ${x[2]}.${x[3]}` : String(m); };
 function draw() {
   if (!root) return;
+  if (S.proj && chatsFor !== S.proj) loadChats();
   const el = $('.as-log', root);
-  el.innerHTML = log.map((m) => `<div class="as-msg ${m.who}">${esc(m.text).replace(/\n/g, '<br>')}</div>`).join('') + (cl.job ? `<div class="as-msg as-prog"><div class="as-prog-top"><b>🧠 ${cl.prog ? `${cl.prog.pct}%` : ''}</b><span class="grow">${esc(cl.prog?.label || 'Working')}…</span><span class="muted small">${cl.prog ? Math.floor((Date.now() - cl.prog.t0) / 60000) + ' min' : ''}</span><button class="link small" data-clstop>■ Stop</button></div><div class="bar"><div style="width:${cl.prog?.pct || 2}%"></div></div></div>` : '');
+  el.innerHTML = log.map((m) => `<div class="as-msg ${m.who}">${esc(m.text).replace(/\n/g, '<br>')}</div>`).join('') + (cl.job ? `<div class="as-msg as-prog"><div class="as-prog-top"><b>🧠 ${cl.prog ? `${cl.prog.pct}%` : ''}</b><span class="grow">${esc(cl.prog?.label || 'Working')}…</span><span class="muted small">${cl.model ? `${esc(cl.model)} · ` : ''}${cl.prog ? Math.floor((Date.now() - cl.prog.t0) / 60000) + ' min' : ''}</span><button class="link small" data-clstop>■ Stop</button></div><div class="bar"><div style="width:${cl.prog?.pct || 2}%"></div></div></div>` : '');
   el.scrollTop = el.scrollHeight;
+  if (cl.mode === 'claude') saveChats();
 }
 
 // ---------------------------------------------------------------- 🧠 Claude ----------------
@@ -101,6 +144,7 @@ function setMode(m, save = true) {
   $$('[data-mode]', root).forEach((b) => b.classList.toggle('on', b.dataset.mode === cl.mode));
   $('.as-quick', root).hidden = cl.mode === 'claude';
   $('[data-newchat]', root).hidden = cl.mode !== 'claude';
+  drawChats();
   $('textarea', root).placeholder = cl.mode === 'claude' ? 'e.g. make a 60 sec reel of this song from the chorus, with lyrics' : 'e.g. music dheema karo aur color thoda warm kar do';
   if (cl.mode === 'claude' && !root.hidden) checkClaude(); else $('[data-clinfo]', root).hidden = true;
 }
@@ -118,8 +162,9 @@ async function checkClaude(force = false) {
 }
 async function newChat() {
   if (!S.proj) return;
+  if (cl.job) return say('Claude is still on the previous task - let it finish or press ■ Stop.');
   await api('POST', `/api/claude/new?p=${enc(S.proj)}`).catch(() => {});
-  log.length = 0; say('New chat started - Claude has forgotten the earlier conversation. What shall we make?');
+  chatId = null; log.length = 0; say(`New chat started. The earlier ones are kept in 🗂 Chats (last ${CHATS_KEPT}). What shall we make?`);
 }
 // 📎 the references waiting to go with the next message
 const refs = [];
@@ -157,6 +202,8 @@ export async function askClaude(text, { show = true, display = null } = {}) {
       from = r.next;
       for (const e of r.events) {
         if (e.k === 'text') lastText = e.text; // (Claude's working notes stay hidden; its last words are the answer)
+        else if (e.k === 'session') { const c = curChat(); if (c) { c.sid = e.id; saveChats(); } if (e.model) { cl.model = modelName(e.model); draw(); } }
+        else if (e.k === 'wait') { cl.prog = { ...cl.prog, label: e.text.replace(/…$/, '') }; setBusy?.(true, `🧠 ${e.text}`); draw(); } // others' edits are running: in line
         else if (e.k === 'tool') {
           if (/edtool\.mjs\s+(apply|ops|agent)\b/.test(e.text)) changed = true;
           steps++;

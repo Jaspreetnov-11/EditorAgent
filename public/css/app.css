@@ -153,7 +153,9 @@ video.lyr, img.lyr { object-fit: contain; transform-origin: center; }
 .tl-heads { width: 168px; flex: none; overflow: hidden; border-right: 1px solid var(--line); background: var(--bg-2); }
 .th-ruler { height: 28px; border-bottom: 1px solid var(--line); }
 .th { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0 4px; padding: 0 6px; border-bottom: 1px solid var(--line); align-content: center; }
-.th .th-vol { grid-column: 1/-1; }
+.th .th-volrow { grid-column: 1/-1; display: flex; align-items: center; gap: 4px; }
+.th-volrow .th-vlbl { font-size: 9px; opacity: .7; } .th-volrow .th-vol { flex: 1; min-width: 0; }
+.th-volrow .th-vpct { font-size: 10px; color: var(--muted); min-width: 30px; text-align: right; font-variant-numeric: tabular-nums; }
 .th.locked { background: repeating-linear-gradient(45deg, transparent 0 6px, #ffffff06 6px 12px); }
 .th-name { display: grid; line-height: 1.15; flex: 1; min-width: 0; }
 .th-name b { font-size: 12px; } .th-name span { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1006,6 +1008,8 @@ button.pulse { animation: dvpulse 1.6s ease-out; }
 .ks-foot { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
 /* the ` key: the panel under the mouse fills the window */
 .panel.panel-max { position: fixed !important; inset: var(--hdr, 46px) 0 40px 0 !important; z-index: 800; width: auto !important; height: auto !important; max-width: none !important; max-height: none !important; }
+/* Ctrl+`: the same panel over the whole screen (header and page bar too), like Premiere's full-screen frame */
+.panel.panel-max.panel-full { inset: 0 !important; z-index: 900; background: var(--bg, #121110); }
 /* 🧠 Assistant: Claude's progress (no commands in the chat) */
 .as-msg.as-prog { align-self: stretch; max-width: none; background: var(--panel-2); border: 1px solid var(--accent-line, #ff993355); }
 .as-prog-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; } .as-prog-top b { color: var(--accent); min-width: 54px; }

@@ -273,7 +273,7 @@ function drawHeads(TR, ts) {
         ${t.kind === 'audio' ? `<button class="tbtn solo${st.solo ? ' on' : ''}" data-tst="solo" title="Solo Track: hear only the soloed tracks">S</button><button class="tbtn rec" data-rec="${t.id}" title="Voice-over record: 3-2-1, then the edit plays and your voice goes onto ${t.name} from the playhead (click again or Esc to stop)">🎙</button>` : ''}
         <button class="tbtn${st.lock ? ' on' : ''}" data-tst="lock" title="Lock track">${ICON.lock}</button>
       </div>
-      ${t.kind === 'audio' || t.id === 'V1' ? `<input class="th-vol" type="range" min="0" max="2" step="0.05" value="${st.volume ?? 1}" data-tvol="${t.id}" title="Track volume ${Math.round((st.volume ?? 1) * 100)}%" aria-label="${t.name} volume">` : ''}
+      ${t.kind === 'audio' || t.id === 'V1' ? `<div class="th-volrow" title="${t.id === 'V1' ? "Volume of the clips' own sound" : 'Track volume'}: drag (double-click = 100%)"><span class="th-vlbl">🔊</span><input class="th-vol" type="range" min="0" max="2" step="0.05" value="${st.volume ?? 1}" data-tvol="${t.id}" aria-label="${t.name} volume"><span class="th-vpct">${Math.round((st.volume ?? 1) * 100)}%</span></div>` : ''}
     </div>`;
   }).join('');
   $$('[data-tst]', headsEl).forEach((b) => (b.onclick = () => {
@@ -284,8 +284,11 @@ function drawHeads(TR, ts) {
   }));
   $$('[data-rec]', headsEl).forEach((b) => (b.onclick = () => import('./vorecord.js').then((m) => m.toggleRecord(b.dataset.rec))));
   $$('[data-tvol]', headsEl).forEach((r) => {
-    r.oninput = () => { ts[r.dataset.tvol].volume = +r.value; r.title = `Track volume ${Math.round(r.value * 100)}%`; emit('mix'); };
-    r.onchange = () => commit('Track volume', `tvol-${r.dataset.tvol}`);
+    const id = r.dataset.tvol, pct = r.nextElementSibling;
+    // (a track with no state yet - e.g. one just added - gets it here; it used to throw and the slider did nothing)
+    r.oninput = () => { ts[id] = { ...ts[id], volume: +r.value }; pct.textContent = `${Math.round(r.value * 100)}%`; emit('mix'); };
+    r.onchange = () => commit('Track volume', `tvol-${id}`);
+    r.ondblclick = () => { r.value = 1; r.oninput(); r.onchange(); };
   });
 
   headsEl.insertAdjacentHTML('beforeend', '<div class="th-add"><button class="small" data-addtrack="video" title="Add a video track on top">+ Video track</button><button class="small" data-addtrack="audio" title="Add an audio track at the bottom">+ Audio track</button></div>');
@@ -660,9 +663,9 @@ export function trimAtPlayhead(side) {
   commit(side === 'start' ? 'Trim front' : 'Trim back');
   if (v1Start !== null) emit('seek', v1Start); // the rest of the story moved up to where the cut was
 }
-// Delete = Premiere's "Lift": a main-story (V1) clip leaves a gap of its length (black, silent), so nothing after it moves.
-// Shift+Delete = "Ripple delete": the gap closes (the story moves up). A selected gap: Delete closes it.
-export function deleteSelected(ripple = false) {
+// Delete = "Ripple delete": a main-story (V1) clip goes and the next one moves up into its place (no gap to fix by hand).
+// Shift+Delete = "Lift": it leaves a gap of its length (black, silent), so nothing after it moves. A selected gap: Delete closes it.
+export function deleteSelected(ripple = true) {
   if (!S.sel.size) return toast('Select a clip first');
   // many clips at once (box select / Ctrl+A): ask first, and keep a backup copy of the project before deleting
   if (S.sel.size >= 8) {
@@ -877,7 +880,7 @@ function onContext(e) {
     ['split', 'Split at playhead', 'S'], ['copy', S.sel.size > 1 ? `Copy ${S.sel.size} clips` : 'Copy', 'Ctrl+C'],
     ...(clipboard()?.kind === 'clips' ? [['paste', `Paste ${clipboard().items.length > 1 ? `${clipboard().items.length} clips ` : ''}at playhead`, 'Ctrl+V']] : []),
     ['dup', 'Duplicate', 'Ctrl+D'], ['nest', S.sel.size > 1 ? `⤵ Nest ${S.sel.size} clips…` : '⤵ Nest…'],
-    ...(c.type === 'video' ? [['comp', '🎬 Make Motion comp (animate it in Motion)'], ['behind', '✂ Text behind subject (AI roto)'], ['fusion', '✨ Open in Fusion (node effects)']] : []), ['del', 'Delete (leave a gap)', 'Del'], ...(f.track === 'V1' && !c.gap ? [['ripple', 'Ripple delete (close up)', 'Shift+Del']] : []), '-',
+    ...(c.type === 'video' ? [['comp', '🎬 Make Motion comp (animate it in Motion)'], ['behind', '✂ Text behind subject (AI roto)'], ['fusion', '✨ Open in Fusion (node effects)']] : []), ['del', 'Delete', 'Del'], ...(f.track === 'V1' && !c.gap ? [['lift', 'Delete and leave a gap', 'Shift+Del']] : []), '-',
     ...(c.type === 'video' || c.type === 'audio' ? [['sp0.5', 'Speed 0.5× (slow-mo)'], ['sp1', 'Speed 1×'], ['sp2', 'Speed 2×'], ...(linkedPartner(S.project, c) ? [] : [['mute', c.mute ? 'Unmute' : 'Mute']])] : []),
     ...(linkedPartner(S.project, c) ? [['unlink', '⛓ Unlink audio / video']] : c.type === 'video' && S.mediaById[c.mediaId]?.hasAudio && !c.link ? [['linkA', '🔊 Separate audio onto its own track (linked)']] : c.type === 'video' && c.link && S.mediaById[c.mediaId]?.hasAudio ? [['linkA', '🔊 Bring back its sound (linked)']] : []),
     ...(f.track === 'V1' && f.index > 0 ? ['-', ['trans', c.transitionIn && c.transitionIn.type !== 'cut' ? 'Remove transition' : 'Add cross dissolve']] : []),
@@ -901,8 +904,8 @@ function onContext(e) {
     if (a === 'copy') copyClips();
     if (a === 'paste') pasteClips().catch((err) => toast(err.message, 'err'));
     if (a === 'dup') duplicateSelected();
-    if (a === 'del') deleteSelected();
-    if (a === 'ripple' || a === 'closegap') deleteSelected(true);
+    if (a === 'del' || a === 'closegap') deleteSelected(true);
+    if (a === 'lift') deleteSelected(false);
     if (a.startsWith('sp')) { c.speed = +a.slice(2) === 1 ? undefined : +a.slice(2); commit('Speed'); }
     if (a === 'mute') { c.mute = !c.mute || undefined; commit('Mute'); }
     if (a === 'unlink') unlinkSelected();

@@ -721,9 +721,10 @@ async function pump() {
   }
   // proxies wait until the open project's files have all been read (thumbnails first, then previews)
   const openPending = activeProject && quickQ.some((x) => x.proj === activeProject);
-  // while the agent reads footage, proxies wait: both read the same (often slow, external) drive
-  if ([...jobs.values()].some((j) => j.kind === 'agent' && j.status === 'running')) return;
-  while (proxyActive < PROXY_WORKERS && proxyQ.length && !openPending) {
+  // while an agent reads footage, only one proxy at a time: both read the same (often slow, external) drive. (It used to
+  // be none at all - with several people editing, some agent is nearly always running and new footage never got previews.)
+  const agentBusy = [...jobs.values()].some((j) => j.kind === 'agent' && j.status === 'running' && !j.waiting);
+  while (proxyActive < (agentBusy ? 1 : PROXY_WORKERS) && proxyQ.length && !openPending) {
     proxyActive++;
     const { proj, id } = takeNext(proxyQ, true);
     (async () => {
@@ -783,18 +784,55 @@ function startJob(kind, cmd, args, onDone, meta = {}) {
   return job;
 }
 
+// 🚦 How many of a kind run at once. With many people on one editor, 20 agent edits at a time would each load Whisper
+// onto the one GPU and read the drive at once - everything stalls. The rest wait in line (status stays 'running', the
+// stage says where they are in the line), so nobody gets an error. VEDIT_MAX_AGENTS / VEDIT_MAX_CLAUDE change the limits.
+const SLOTS = { agent: Math.max(1, +process.env.VEDIT_MAX_AGENTS || 2), claude: Math.max(1, +process.env.VEDIT_MAX_CLAUDE || 4) };
+const lines = { agent: [], claude: [] }, inUse = { agent: 0, claude: 0 };
+function lineNotes(kind) {
+  lines[kind].forEach((w, i) => {
+    w.job.stage = `Waiting in line (${i ? `${i} ahead` : 'next'}) - ${inUse[kind]} running for others…`;
+    w.job.events?.push({ at: Date.now(), k: 'wait', text: w.job.stage }); // (the Assistant shows it on its progress bar)
+  });
+}
+// resolves true with a slot, false when the job was stopped while it waited
+function takeSlot(job) {
+  const kind = job.kind;
+  if (!SLOTS[kind]) return Promise.resolve(false);
+  if (inUse[kind] < SLOTS[kind]) { inUse[kind]++; return Promise.resolve(true); }
+  job.waiting = true;
+  return new Promise((ok) => { lines[kind].push({ job, ok }); lineNotes(kind); });
+}
+function freeSlot(kind) {
+  const next = lines[kind].shift();
+  if (next) { next.job.waiting = false; next.job.stage = 'Starting…'; next.ok(true); } else inUse[kind]--;
+  lineNotes(kind);
+}
+// Stop pressed on a job still waiting in line: it leaves the line (true), or it was not waiting (false)
+function leaveLine(job) {
+  const L = lines[job.kind], i = L ? L.findIndex((w) => w.job === job) : -1;
+  if (i < 0) return false;
+  const [w] = L.splice(i, 1); job.cancelled = true; job.waiting = false; w.ok(false); lineNotes(job.kind);
+  return true;
+}
+
 // In-process background task (same polling API as spawned jobs).
 function startTask(kind, fn, meta = {}) {
   const id = String(++jobSeq);
   const job = { id, kind, status: 'running', progress: 0, log: [], started: Date.now(), result: null, ...meta };
   jobs.set(id, job);
-  Promise.resolve().then(() => fn(job)).then((r) => {
+  let slot = false;
+  takeSlot(job).then((got) => { slot = got; if (job.cancelled) throw new Error('Stopped before it started'); return fn(job); }).then((r) => {
     job.result = r; job.status = 'done'; job.progress = 100;
     // a finished agent edit is kept on disk until the editor has put it on the timeline (refresh / closed tab safe)
     if (kind === 'agent' && job.project) try { writeJSON(P(job.project, 'cache', 'agent', 'pending-result.json'), { jobId: id, at: Date.now(), opts: job.opts, result: r }); } catch {}
   })
     .catch((e) => { job.status = 'error'; job.log.push(String(e?.message || e)); })
-    .finally(() => { job.ended = Date.now(); if (kind === 'agent') pump(); });
+    .finally(() => {
+      job.ended = Date.now();
+      if (slot) freeSlot(kind);
+      if (kind === 'agent') pump();
+    });
   return job;
 }
 // Prefer the small proxy for analysis (much faster); colours are the same.
@@ -1568,18 +1606,47 @@ async function claudeStatus(force = false) {
 // kept narrow on purpose: read anything, write only its own edit files, run only the editor's own tool (engine/edtool.mjs)
 const CLAUDE_TOOLS = ['Read', 'Glob', 'Grep', 'TodoWrite', 'Write(Projects/**/cache/claude/**)', 'Edit(Projects/**/cache/claude/**)', 'Bash(node engine/edtool.mjs:*)'];
 const tidy = (x, n = 400) => { const s = typeof x === 'string' ? x : Array.isArray(x) ? x.map((b) => b.text || (b.type === 'image' ? '[image]' : '')).join(' ') : JSON.stringify(x); return String(s || '').slice(0, n); };
+// 🧠 The model: Opus first. When the plan's Opus usage runs out, the same task carries on with Sonnet (in the same
+// conversation, from where it stopped), and Opus is tried again once its limit has reset (or after an hour).
+// (The model is set here, not left to this computer's Claude settings - those said "sonnet", so edits ran on Sonnet.)
+const CLAUDE_MAIN = () => String(process.env.VEDIT_CLAUDE_MODEL || config().claudeModel || 'opus');
+const CLAUDE_BACKUP = () => String(process.env.VEDIT_CLAUDE_FALLBACK || config().claudeFallback || 'sonnet');
+let mainLimitedUntil = 0;
+const LIMIT_RE = /usage limit|limit reached|hit your limit|reached your limit|rate.?limit|weekly limit|session limit|limit (will )?resets?|out of (usage|credits)|overloaded/i;
+function limitHit(why) {
+  if (!LIMIT_RE.test(why)) return false;
+  // "Claude AI usage limit reached|1792600000" carries the reset time; otherwise try again in an hour
+  const t = +(/\|(\d{10})\b/.exec(why)?.[1] || 0) * 1000;
+  mainLimitedUntil = t > Date.now() ? t : Date.now() + 3600e3;
+  return true;
+}
 function claudeChat(name, message, reset) {
   const exe = claudeExe();
   if (!exe) throw err(400, 'Claude Code is not installed on this computer');
   const sfile = P(name, 'cache', 'claude', 'session.json');
   fs.mkdirSync(path.dirname(sfile), { recursive: true });
-  const sid = reset ? null : readJSON(sfile, {}).id || null;
-  const args = ['-p', String(message), '--output-format', 'stream-json', '--verbose', '--append-system-prompt-file', path.join(ROOT, 'engine', 'claude-guide.md'),
-    '--allowedTools', CLAUDE_TOOLS.join(','), '--permission-mode', 'default', ...(sid ? ['--resume', sid] : [])];
+  if (reset) fs.rmSync(sfile, { force: true });
   try { aiSnap(name, `Claude: ${String(message).replace(/\s+/g, ' ').slice(0, 80)}`); } catch {}
-  return startTask('claude', (job) => new Promise((ok, bad) => {
-    job.events = [];
+  return startTask('claude', async (job) => {
     const ev = (e) => { job.events.push({ at: Date.now(), ...e }); if (e.k === 'tool') job.stage = e.text; };
+    const backup = CLAUDE_BACKUP(), main = CLAUDE_MAIN();
+    let model = Date.now() < mainLimitedUntil ? backup : main;
+    if (model !== main) ev({ k: 'wait', text: `Opus limit is used up for now - working with ${backup}…` });
+    try { return await claudeRun(exe, name, sfile, String(message), model, job, ev); }
+    catch (e) {
+      // the main model's limit ran out (now or partway): the same conversation goes on with the backup model
+      if (model === backup || job.stopped || !limitHit(e.message)) throw e;
+      model = backup;
+      ev({ k: 'wait', text: `Opus limit reached - carrying on with ${backup}…` });
+      return claudeRun(exe, name, sfile, readJSON(sfile, {}).id ? 'Your usage limit stopped you partway through. Carry on from where you stopped and finish the task I gave you.' : String(message), model, job, ev);
+    }
+  }, { project: name, events: [] });
+}
+function claudeRun(exe, name, sfile, message, model, job, ev) {
+  const sid = readJSON(sfile, {}).id || null;
+  const args = ['-p', message, '--output-format', 'stream-json', '--verbose', '--append-system-prompt-file', path.join(ROOT, 'engine', 'claude-guide.md'),
+    '--allowedTools', CLAUDE_TOOLS.join(','), '--permission-mode', 'default', ...(sid ? ['--resume', sid] : []), '--model', model];
+  return new Promise((ok, bad) => {
     const p = spawn(exe, args, { cwd: ROOT, windowsHide: true, env: { ...process.env, VEDIT_PROJECT: name, VEDIT_PORT: String(PORT), VEDIT_NO_SNAP: '1', PYTHONIOENCODING: 'utf-8' } });
     job.proc = p;
     let part = '', final = null, errText = '';
@@ -1588,7 +1655,7 @@ function claudeChat(name, message, reset) {
       for (const l of lines) {
         if (!l.trim()) continue;
         let m; try { m = JSON.parse(l); } catch { continue; }
-        if (m.type === 'system' && m.subtype === 'init' && m.session_id) { try { writeJSON(sfile, { id: m.session_id, at: Date.now() }); } catch {} }
+        if (m.type === 'system' && m.subtype === 'init' && m.session_id) { try { writeJSON(sfile, { id: m.session_id, at: Date.now() }); } catch {} ev({ k: 'session', id: m.session_id, model: m.model }); job.model = m.model; }
         else if (m.type === 'assistant') for (const b of m.message?.content || []) {
           if (b.type === 'text' && b.text.trim()) ev({ k: 'text', text: b.text });
           else if (b.type === 'tool_use') ev({ k: 'tool', name: b.name, text: b.name === 'Bash' ? tidy(b.input?.command, 300) : b.input?.file_path || b.input?.pattern || b.input?.query || tidy(b.input, 200) });
@@ -1601,11 +1668,12 @@ function claudeChat(name, message, reset) {
     p.on('close', (code) => {
       if (final && !final.is_error) { ev({ k: 'done', text: final.result || '', turns: final.num_turns, cost: final.total_cost_usd }); return ok({ text: final.result || '', turns: final.num_turns }); }
       const why = final?.result || errText.trim().split(/\r?\n/).pop() || `Claude stopped (code ${code})`;
-      if (/auth|login|oauth|expired/i.test(why)) claudeAuth = { at: Date.now(), ok: false, msg: why };
-      ev({ k: 'error', text: why });
+      if (/auth|login|oauth|expired/i.test(why) && !LIMIT_RE.test(why)) claudeAuth = { at: Date.now(), ok: false, msg: why };
+      // (a used-up Opus limit is not shown as an error: the task carries on with the backup model)
+      if (job.stopped || model === CLAUDE_BACKUP() || !LIMIT_RE.test(why)) ev({ k: 'error', text: why });
       bad(new Error(why));
     });
-  }), { project: name });
+  });
 }
 
 // 📜 activity: every change anyone made to a project (who, when, what; cache/activity.jsonl, newest 3000 kept). Small
@@ -2850,7 +2918,7 @@ const routes = {
     const from = +q(u, 'from') || 0;
     return { status: j.status, events: (j.events || []).slice(from), next: (j.events || []).length, error: j.status === 'error' ? j.log.slice(-1)[0] : null };
   },
-  'POST /api/claude/stop': (req, res, u) => { const j = jobs.get(q(u, 'id')); if (j?.proc) killTree(j.proc); return { ok: true }; },
+  'POST /api/claude/stop': (req, res, u) => { const j = jobs.get(q(u, 'id')); if (j) j.stopped = true; if (j && !leaveLine(j) && j.proc) killTree(j.proc); return { ok: true }; },
   // 📎 a reference for Claude (Assistant): kept in cache/claude/refs, NOT in the media pool - its shots never go on the edit
   'POST /api/claude/ref': (req, res, u) => new Promise((ok, bad) => {
     const name = needProject(q(u, 'p')), dir = P(name, 'cache', 'claude', 'refs');
@@ -2865,6 +2933,12 @@ const routes = {
     req.on('error', (e) => { fs.rmSync(tmp, { force: true }); bad(e); });
   }),
   'POST /api/claude/new': (req, res, u) => { fs.rmSync(P(needProject(q(u, 'p')), 'cache', 'claude', 'session.json'), { force: true }); return { ok: true }; },
+  // 🗂 an earlier chat opened in the Assistant: Claude carries on in that conversation (no id: a fresh one)
+  'POST /api/claude/use': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req), f = P(name, 'cache', 'claude', 'session.json');
+    if (b.id && /^[\w-]{8,80}$/.test(String(b.id))) { fs.mkdirSync(path.dirname(f), { recursive: true }); writeJSON(f, { id: String(b.id), at: Date.now() }); } else fs.rmSync(f, { force: true });
+    return { ok: true };
+  },
   'POST /api/agent': async (req, res, u) => {
     const name = needProject(q(u, 'p'));
     const opts = await readJson(req);
@@ -3236,7 +3310,7 @@ const routes = {
   },
   // Skip: the agent stops reading more clips and edits with the ones it has looked at
   'POST /api/jobs/skip': (req, res, u) => { const j = jobs.get(q(u, 'id')); if (!j) throw err(404, 'job not found'); j.skips = (j.skips || 0) + 1; return { skips: j.skips }; },
-  'GET /api/jobs': () => [...jobs.values()].filter((j) => j.status === 'running').map(({ log, ...j }) => j),
+  'GET /api/jobs': () => [...jobs.values()].filter((j) => j.status === 'running').map(({ log, proc, events, ...j }) => j),
 };
 
 // who: the person asking - the owner on this computer (port 3000), or a team member signed in over the network

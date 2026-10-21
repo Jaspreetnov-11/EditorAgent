@@ -79,6 +79,7 @@ function shell() {
         <button data-a="assistant" title="Type what to change, e.g. &quot;music dheema karo&quot;, &quot;make the colour warm&quot;, &quot;remove the 3rd shot&quot;…">${icon('assistant')}Assistant</button>
       </div>
       <button class="ws-btn" data-a="workspace" title="Workspaces: Premiere Pro, DaVinci Resolve, Limelight or your own - resize, swap and save panel layouts">${icon('zones')}<span class="ws-name">${esc(currentWorkspace().name)}</span> ▾</button>
+      <button data-a="shortcuts" title="Keyboard shortcuts: see every key and set your own (Ctrl+Alt+K)">⌨ Shortcuts</button>
       <button class="primary" data-a="deliver">${icon('export')}Export</button>
     </div>
   </header>
@@ -118,6 +119,7 @@ function shell() {
     const a = e.target.closest('[data-a]')?.dataset.a;
     if (a === 'home') goHome();
     if (a === 'workspace' || a === 'look') openWorkspaceMenu(e.target.closest('[data-a]'));
+    if (a === 'shortcuts') openShortcuts();
     if (a === 'undo') doUndo();
     if (a === 'redo') doRedo();
     if (a === 'agent') openAgent(setBusy);
@@ -379,13 +381,32 @@ const ACTIONS = {
   zoomIn: () => setZoom(S.zoom * 1.25, true), zoomOut: () => setZoom(S.zoom / 1.25, true), zoomFit: () => fitZoom(),
   maximize: () => { // the panel under the mouse fills the window (again = back), like Premiere's ` key
     const cur = document.querySelector('.panel-max');
-    if (cur) { cur.classList.remove('panel-max'); window.dispatchEvent(new Event('resize')); return; }
+    if (cur) { cur.classList.remove('panel-max', 'panel-full'); if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); window.dispatchEvent(new Event('resize')); return; }
     const p = document.elementFromPoint(...mouseAt)?.closest('.panel');
     if (!p) return toast('Point the mouse at a panel, then press the ` key');
     p.classList.add('panel-max'); window.dispatchEvent(new Event('resize'));
   },
-  fullscreen: () => toggleFullscreen(),
+  // Ctrl+`: like Premiere, the panel under the mouse goes full screen (timeline, media, effects…); the Program monitor
+  // shows just the picture. Again or Esc = back. (The page goes full screen, so menus and dialogs still work in it.)
+  fullscreen: () => {
+    if (document.fullscreenElement) return document.exitFullscreen().catch(() => {});
+    const full = document.querySelector('.panel-full'); // (filling the window when the browser refused full screen)
+    if (full) { full.classList.remove('panel-max', 'panel-full'); window.dispatchEvent(new Event('resize')); return; }
+    const p = document.elementFromPoint(...mouseAt)?.closest('.panel');
+    if (!p || p.querySelector('#vwStage')) return toggleFullscreen();
+    document.querySelector('.panel-max')?.classList.remove('panel-max', 'panel-full');
+    p.classList.add('panel-max', 'panel-full');
+    document.documentElement.requestFullscreen().then(() => toast('Full screen - Ctrl+` or Esc to come back'))
+      .catch(() => toast('Full screen not allowed here - the panel fills the window instead (` or Ctrl+` to come back)'));
+    window.dispatchEvent(new Event('resize'));
+  },
 };
+// leaving full screen (Esc, Ctrl+` or the browser): the full-screen panel goes back to its place
+document.addEventListener('fullscreenchange', () => {
+  if (document.fullscreenElement) return;
+  const p = document.querySelector('.panel-full'); if (!p) return;
+  p.classList.remove('panel-max', 'panel-full'); window.dispatchEvent(new Event('resize'));
+});
 document.addEventListener('keydown', (e) => {
   if (!S.project || document.querySelector('dialog[open]')) return;
   const typing = e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable]');
