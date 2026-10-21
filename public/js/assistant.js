@@ -3,7 +3,7 @@
 // against the commands below. All changes from one message are a single undo step ("undo" / Ctrl+Z).
 import { S, on, emit, commit, undo, redo, duration, layout } from './store.js';
 import { api, enc, watchJob, upload } from './api.js';
-import { uid, RAMPS } from './model.js';
+import { uid, RAMPS, setRamp } from './model.js';
 import { FX_PRESETS } from './audiofx.js';
 import { $, $$, h, esc, toast } from './ui.js';
 import { openReedit, currentEditOpts } from './reedit.js';
@@ -415,11 +415,11 @@ async function run(text) {
       const t = shots(p);
       if (t === 'none' || t === 'nosel') { done.push('Type the shot number ("3rd shot par speed ramp lagao") or select a shot first.'); continue; }
       const list = (Array.isArray(t) ? t : P.tracks.V1).filter((c) => c.type === 'video');
-      if (R.remove.test(p)) { list.forEach((c) => delete c.ramp); done.push(`Removed speed ramp (${list.length} shot${list.length === 1 ? '' : 's'})`); continue; }
+      if (R.remove.test(p)) { list.forEach((c) => setRamp(c, '', S.mediaById)); done.push(`Removed speed ramp (${list.length} shot${list.length === 1 ? '' : 's'})`); continue; }
       const kind = /(whoosh|fast|tez)/.test(p) ? 'whoosh' : /(hero|end|aakhir|ending)/.test(p) ? 'hero' : /(punch|impact)/.test(p) ? 'punch' : /(slow mein|into slow|dheema hota)/.test(p) ? 'in' : 'hit';
       const pick = Array.isArray(t) ? list : list.filter((c, i) => i % 5 === 2); // without a shot number: every 5th shot
-      pick.forEach((c) => (c.ramp = kind));
-      done.push(`Speed ramp "${RAMPS[kind].label}" - ${pick.length} shot${pick.length === 1 ? '' : 's'}. Shot lengths may change; Accurate preview shows it exactly.`); continue;
+      pick.forEach((c) => setRamp(c, kind, S.mediaById)); // (each shot keeps its length; only the speed inside changes)
+      done.push(`Speed ramp "${RAMPS[kind].label}" - ${pick.length} shot${pick.length === 1 ? '' : 's'}. Shot lengths stay the same; Accurate preview shows it exactly.`); continue;
     }
     // ---- stabilize / cinematic finish ----
     if (/(stabili[sz]|stable|steady|shak|hil rah|hilna|kaanp|स्थिर|हिल)/.test(p)) {

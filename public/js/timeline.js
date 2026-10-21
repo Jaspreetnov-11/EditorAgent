@@ -8,7 +8,7 @@ import { fusionFromClip, rotoFromClip } from './fusionpage.js';
 import { seqList } from './model.js';
 import { sharedSeqId } from './store.js';
 import { copyClips, pasteClips, clipboard } from './clipboard.js';
-import { clipDur, uid, fmtTC, fmt, trackList, trackKind, addTrack, syncLinked, linkAudioOf, linkedPartner, freeAudioTrack, RAMPS } from './model.js';
+import { clipDur, uid, fmtTC, fmt, trackList, trackKind, addTrack, syncLinked, linkAudioOf, linkedPartner, freeAudioTrack, RAMPS, setRamp } from './model.js';
 import { $, $$, h, esc, clamp, toast } from './ui.js';
 import { openTemplates } from './titlesui.js';
 import { openGraphics } from './gfxui.js';
@@ -1038,9 +1038,9 @@ function rampMenu(e) {
   if (!vids.length) return toast('Select a video clip first, then pick a speed ramp', 'err');
   ctxMenu(e, [['', '✕ No speed ramp'], ...Object.entries(RAMPS).map(([k, r]) => [k, `⏩ ${r.label}`]), ['custom', '✏ Draw my own (Effect Controls)']], (k) => {
     if (k === 'custom') { emit('select'); return toast('Effect Controls › ⏩ Speed ramp: click on the graph to draw your own'); }
-    for (const c of vids) { if (k) c.ramp = k; else delete c.ramp; delete c.rampPts; }
+    for (const c of vids) setRamp(c, k, S.mediaById); // (the shot keeps its length; only the speed inside changes)
     commit(k ? `Speed ramp: ${RAMPS[k].label}` : 'No speed ramp'); emit('select');
-    toast(k ? `⏩ ${RAMPS[k].label} - ${vids.length} clip${vids.length > 1 ? 's' : ''} (the shot length changes; Accurate preview shows it exactly)` : 'Speed ramp removed');
+    toast(k ? `⏩ ${RAMPS[k].label} - ${vids.length} clip${vids.length > 1 ? 's' : ''} (same length on the timeline; Accurate preview shows it exactly)` : 'Speed ramp removed');
   });
 }
 function ctxMenu(e, items, run) {

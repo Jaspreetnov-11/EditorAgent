@@ -160,6 +160,19 @@ export function speedAt(c, rel, D) {
   return (c.speed || 1) * (pts && D > 0 ? profileAt(pts, rel / D) : 1);
 }
 
+// Puts a speed ramp on a shot (key: preset id, 'custom' with its points, or '' = none) and keeps the shot's length on
+// the timeline - only the speed inside changes; the part of the file it plays gets longer / shorter to fit (as far as
+// the file goes). It used to keep the file part instead, so a 2 s shot with bullet time became ~4 s and the whole
+// story after it moved off the voice-over and the beats.
+// D: the length to keep (a curve being drawn keeps the length it had when the drag began)
+export function setRamp(c, key, media, pts = null, D = clipDur(c, media)) {
+  if (c?.type !== 'video') return false;
+  if (!key) { delete c.ramp; delete c.rampPts; } else { c.ramp = key; if (key === 'custom') c.rampPts = pts; else delete c.rampPts; }
+  const P = rampPts(c), need = (c.in || 0) + D * (c.speed || 1) * (P ? rampAvg(P) : 1), max = media?.[c.mediaId]?.duration;
+  c.out = +(max ? Math.min(max, need) : need).toFixed(3);
+  return true;
+}
+
 // Seconds a clip occupies on the timeline.
 export function clipDur(c, media) {
   if (c.type === 'video' || c.type === 'audio') {

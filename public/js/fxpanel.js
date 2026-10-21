@@ -3,7 +3,7 @@
 // it. Applied effects are then adjusted in Effect Controls (the Inspector).
 import { S, on, emit, commit, findClip } from './store.js';
 import { loadLib, libCached, applyFxPreset, deletePreset } from './library.js';
-import { TRANSITIONS, RAMPS } from './model.js';
+import { TRANSITIONS, RAMPS, setRamp } from './model.js';
 import { CUTFX } from './fx.js';
 import { VFX, VFX_CATS, newEffect } from './effects.js';
 import { FX_PRESETS, FX_DEFAULT } from './audiofx.js';
@@ -73,7 +73,7 @@ export function applyFx(fx, clipId) {
     c.transitionIn = { type: fx.type, dur: trDur };
     return `${TRANSITIONS.find(([k]) => k === fx.type)?.[1]} on the cut`;
   }
-  if (fx.kind === 'ramp') { if (c.type !== 'video') return null; c.ramp = fx.type; delete c.rampPts; return `⏩ ${RAMPS[fx.type].label}`; }
+  if (fx.kind === 'ramp') { if (!setRamp(c, fx.type, S.mediaById)) return null; return `⏩ ${RAMPS[fx.type].label}`; }
   if (fx.kind === 'cutfx') { if (!visual || c.type === 'title') return null; c.cutFx = { type: fx.type, dur: CUTFX[fx.type].dur }; return CUTFX[fx.type].label; }
   if (fx.kind === 'vfx') {
     if (!visual) return null;

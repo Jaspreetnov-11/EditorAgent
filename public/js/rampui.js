@@ -2,7 +2,7 @@
 // across = position in the shot, up = speed (0.1× … 5×, 1× is the dotted line). Click to add a point, drag to move,
 // double-click a point to remove it. Drawing makes the clip's ramp 'custom' (model.js rampPts), so the viewer and the
 // render follow it exactly. Ramped shots are silent (the music carries them), as before.
-import { RAMPS, rampPts, clipDur } from './model.js';
+import { RAMPS, rampPts, clipDur, setRamp } from './model.js';
 import { S } from './store.js';
 import { $, $$, esc } from './ui.js';
 
@@ -32,7 +32,7 @@ export function mountRamp(box, clip, live, done) {
     if (RAMPS[k]) curve(g, RAMPS[k].pts, 84, 34, 3, '#ff9933', 1.6);
     b.onclick = () => {
       const c = clip(); if (!c) return;
-      if (!k) { delete c.ramp; delete c.rampPts; } else { c.ramp = k; delete c.rampPts; }
+      setRamp(c, k, S.mediaById); // (the shot keeps its length on the timeline; only the speed inside changes)
       done(k ? `Speed ramp: ${RAMPS[k].label}` : 'No speed ramp'); draw();
     };
   });
@@ -55,13 +55,13 @@ export function mountRamp(box, clip, live, done) {
   }
   const evPt = (e) => { const r = cv.getBoundingClientRect(), x = ((e.clientX - r.left) / r.width) * cv.width, y = ((e.clientY - r.top) / r.height) * cv.height; return [Math.min(1, Math.max(0, (x - pad) / (cv.width - 2 * pad))), +sOf(y, cv.height, pad).toFixed(3), x, y]; };
   const nearest = (P, x, y) => P.findIndex(([u, s]) => Math.hypot(pad + u * (cv.width - 2 * pad) - x, yOf(s, cv.height, pad) - y) < 10);
-  const set = (P) => { const c = clip(); c.ramp = 'custom'; c.rampPts = P.map(([u, s]) => [+u.toFixed(4), +Math.max(0.1, Math.min(5, s)).toFixed(3)]); };
+  const set = (P) => { const c = clip(); setRamp(c, 'custom', S.mediaById, P.map(([u, s]) => [+u.toFixed(4), +Math.max(0.1, Math.min(5, s)).toFixed(3)]), drag?.D); };
   cv.addEventListener('pointerdown', (e) => {
     const c = clip(); if (!c || S.readOnly) return;
     const [u, s, x, y] = evPt(e), P = pts();
     let i = nearest(P, x, y);
     if (i < 0) { P.push([u, s]); P.sort((a, b) => a[0] - b[0]); i = P.findIndex((p) => p[0] === u && p[1] === s); }
-    drag = { P, i }; cv.setPointerCapture(e.pointerId); set(P); live(); draw();
+    drag = { P, i, D: clipDur(c, S.mediaById) }; cv.setPointerCapture(e.pointerId); set(P); live(); draw();
   });
   cv.addEventListener('pointermove', (e) => {
     if (!drag) return;

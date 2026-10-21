@@ -387,7 +387,8 @@ function syncVideo(v, m, c, start, t, play, vol, track = 'V1') {
   v.dataset.cid = c.id;
   // speed ramps: the source position and playback rate follow the ramp curve (tighter resync while ramping)
   const D = clipDur(c, S.mediaById), sp = speedAt(c, t - start, D), target = sourceAt(c, t - start, D);
-  v.playbackRate = clamp(sp, 0.25, 4);
+  // (browsers play 1/16x - 16x; it used to stop at 0.25x - 4x, so bullet time / time-lapse looked wrong and kept jumping)
+  v.playbackRate = clamp(sp, 0.07, 8);
   const tol = rampPts(c) ? 0.12 : 0.3;
   setVol(v, rampPts(c) ? 0 : vol, track); // ramped shots are silent, like the render
   if (v.readyState >= 1) {
