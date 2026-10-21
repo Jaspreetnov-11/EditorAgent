@@ -1,0 +1,397 @@
+/* Limelight Editor - "Studio" UI (Phase 20): a Premiere-style workspace. The bottom page bar and the Color page keep
+   their classic look (asked for). Simple, techy, quiet: graphite panels on a
+   near-black floor, hairline borders, one gold accent (the Limelight logo), mono timecodes. Everything here is scoped to html.ui2,
+   so the classic look comes back by turning the class off (⚙ in the header, public/js/ui2.js). */
+
+html.ui2 {
+  /* black + gold, from the Limelight logo: warm near-black floor, graphite panels, one gold accent */
+  --bg: #070706; --bg-2: #0e0d0b; --panel: #141311; --panel-2: #1c1a17; --panel-3: #26231f; --line: #25221d; --line-2: #34302a;
+  --text: #ece9e2; --muted: #8e887d; --faint: #625d55;
+  --accent: #d4a24c; --accent-2: #f0c674; --accent-ink: #170f03; --accent-soft: #d4a24c1c; --accent-line: #d4a24c66;
+  --gold-grad: linear-gradient(180deg, #f6d48a 0%, #d9a650 55%, #b5812f 100%);
+  --saffron: #ff9933; --green: #2fc27a; --blue: #4f8cff; --red: #ff5a64; --violet: #9b7cff; --teal: #26b5a6;
+  --v-clip: #3c5bd6; --v2-clip: #8a4fe0; --a-clip: #1f8a5b; --t-clip: #c2457f;
+  --tc: #e9bd6a; --r: 5px; --gap: 3px; --hdr: 46px;
+  --ui-font: "Segoe UI Variable Text", "Segoe UI", "Nirmala UI", system-ui, sans-serif;
+  --brand-font: "Bahnschrift", "Segoe UI Variable Display", "Segoe UI", sans-serif;
+  --mono: "Cascadia Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
+}
+html.ui2, html.ui2 body { background: var(--bg); }
+html.ui2 body { font: 12.5px/1.45 var(--ui-font); letter-spacing: .005em; -webkit-font-smoothing: antialiased; }
+html.ui2 ::selection { background: var(--accent-soft); }
+html.ui2 :not(#colorPage, #colorPage *) { scrollbar-width: thin; scrollbar-color: #45423d transparent; }
+html.ui2 :not(#colorPage, #colorPage *)::-webkit-scrollbar { width: 9px; height: 9px; }
+html.ui2 :not(#colorPage, #colorPage *)::-webkit-scrollbar-thumb { background: #383631; border-radius: 9px; border: 2px solid transparent; background-clip: padding-box; }
+html.ui2 :not(#colorPage, #colorPage *)::-webkit-scrollbar-thumb:hover { background-color: #514d46; }
+html.ui2 .mono, html.ui2 .tc, html.ui2 #vwTC, html.ui2 #vwDur, html.ui2 .tl-tc, html.ui2 .tl-dur { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* ---------- controls (low weight: a page's own rules win, so the Color page keeps its look) ---------- */
+:where(html.ui2) button:where(:not(#colorPage *, .pagebar *)) { border-radius: 4px; border-color: var(--line-2); background: var(--panel-2); padding: 4px 10px; transition: background .12s, border-color .12s, color .12s; }
+:where(html.ui2) button:hover:not(:disabled):where(:not(#colorPage *, .pagebar *)) { background: var(--panel-3); border-color: #46433e; }
+:where(html.ui2) button.primary:where(:not(#colorPage *, .pagebar *)) { background: var(--gold-grad); border-color: #e7b968; color: var(--accent-ink); font-weight: 650; box-shadow: inset 0 1px 0 #fff6, 0 0 0 1px #d4a24c33, 0 6px 18px -8px #d4a24ccc; }
+:where(html.ui2) button.primary:hover:not(:disabled):where(:not(#colorPage *, .pagebar *)) { background: var(--accent-2); border-color: var(--accent-2); }
+:where(html.ui2) button.accent:where(:not(#colorPage *, .pagebar *)) { border-color: var(--accent-line); color: var(--accent-2); background: var(--accent-soft); }
+:where(html.ui2) button.tog.on:where(:not(#colorPage *, .pagebar *)), :where(html.ui2) button.on:where(:not(#colorPage *, .pagebar *)), :where(html.ui2) .chip.on:where(:not(#colorPage *, .pagebar *)) { border-color: var(--accent-line); color: var(--accent-2); background: var(--accent-soft); }
+:where(html.ui2) button.link:where(:not(#colorPage *, .pagebar *)) { color: var(--accent-2); }
+:where(html.ui2) .icon-btn:where(:not(#colorPage *, .pagebar *)) { background: transparent; border-color: transparent; color: var(--muted); }
+:where(html.ui2) .icon-btn:hover:not(:disabled):where(:not(#colorPage *, .pagebar *)) { color: var(--text); background: var(--panel-3); }
+:where(html.ui2) input:where(:not(#colorPage *, .pagebar *)), :where(html.ui2) select:where(:not(#colorPage *, .pagebar *)), :where(html.ui2) textarea:where(:not(#colorPage *, .pagebar *)) { background: #100f0d; border-color: var(--line-2); border-radius: 4px; }
+:where(html.ui2) input:hover:where(:not(#colorPage *, .pagebar *)), :where(html.ui2) select:hover:where(:not(#colorPage *, .pagebar *)), :where(html.ui2) textarea:hover:where(:not(#colorPage *, .pagebar *)) { border-color: #46433e; }
+:where(html.ui2) input:focus-visible:where(:not(#colorPage *, .pagebar *)), :where(html.ui2) select:focus-visible:where(:not(#colorPage *, .pagebar *)), :where(html.ui2) textarea:focus-visible:where(:not(#colorPage *, .pagebar *)), :where(html.ui2) button:focus-visible:where(:not(#colorPage *, .pagebar *)) { outline: 1px solid var(--accent); outline-offset: 0; border-color: var(--accent); }
+:where(html.ui2) input[type=checkbox]:where(:not(#colorPage *, .pagebar *)), :where(html.ui2) input[type=radio]:where(:not(#colorPage *, .pagebar *)), :where(html.ui2) input[type=range]:where(:not(#colorPage *, .pagebar *)) { accent-color: var(--accent); }
+:where(html.ui2) h2:where(:not(#colorPage *, .pagebar *)) { font-size: 10.5px; letter-spacing: .1em; color: var(--faint); }
+:where(html.ui2) .chip:where(:not(#colorPage *, .pagebar *)) { border-color: var(--line-2); color: var(--muted); }
+:where(html.ui2) kbd:where(:not(#colorPage *, .pagebar *)) { font-family: var(--mono); }
+
+
+/* line icons: in both looks (the header uses them in Classic too) */
+.ico { width: 16px; height: 16px; flex: none; display: block; }
+
+/* ---------- header: brand · workspaces · tools ---------- */
+html.ui2 .top { height: var(--hdr); padding: 0 10px; gap: 10px; background: linear-gradient(#151413, #11100e); border-bottom: 1px solid #22211e; position: relative; }
+html.ui2 .top::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: linear-gradient(90deg, transparent, #d4a24c40 30%, #d4a24c40 70%, transparent); pointer-events: none; }
+html.ui2 .tb-left, html.ui2 .tb-right { display: flex; align-items: center; gap: 6px; min-width: 0; }
+html.ui2 .tb-left { flex: 1 1 0; }
+html.ui2 .tb-right { flex: 1 1 0; justify-content: flex-end; }
+html.ui2 .brand { gap: 8px; font-weight: 500; color: var(--text); padding: 4px 6px; letter-spacing: .02em; }
+html.ui2 .brand b { font-weight: 700; }
+html.ui2 .logo-dot { width: 18px; height: 18px; border-radius: 5px; background: conic-gradient(from 210deg, var(--saffron), #ffd08a, var(--accent), #b07a2a, var(--saffron)); box-shadow: 0 0 12px -2px #d4a24c88; position: relative; }
+html.ui2 .logo-dot::after { content: ''; position: absolute; inset: 5px; border-radius: 2px; background: #11100e; }
+html.ui2 .pname { font-size: 13px; font-weight: 600; margin-left: 2px; max-width: 18vw; }
+html.ui2 .seqbtn { background: transparent; border-color: var(--line-2); color: var(--muted); font-size: 12px; padding: 3px 8px; }
+html.ui2 .seqbtn:hover { color: var(--text); }
+html.ui2 .save { font-size: 11px; color: var(--faint); display: inline-flex; align-items: center; gap: 5px; }
+html.ui2 .save::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px var(--green); }
+html.ui2 .save.saving::before, html.ui2 .save.dirty::before { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+html.ui2 .save.error::before { background: var(--red); box-shadow: 0 0 6px var(--red); }
+/* tool groups */
+html.ui2 .tgroup { display: flex; align-items: center; gap: 1px; padding: 2px; border: 1px solid #262421; border-radius: 6px; background: #0e0e0c; }
+html.ui2 .tgroup .icon-btn { padding: 5px 6px; border-radius: 4px; }
+html.ui2 .tgroup .icon-btn[aria-pressed="true"] { color: var(--accent-2); background: var(--accent-soft); }
+html.ui2 .tb-right > button:not(.icon-btn), html.ui2 .tgroup > button:not(.icon-btn) { padding: 4px 9px; font-size: 12px; }
+html.ui2 .ai-undo-btn { font-size: 11px; font-weight: 600; }
+html.ui2 .jobchip { background: var(--accent-soft); color: var(--accent-2); border-color: var(--accent-line); font-family: var(--mono); font-size: 11px; }
+html:not(.ui2) .tgroup { display: contents; }
+html:not(.ui2) .ico + .lbl, html:not(.ui2) .ico { }
+
+/* ---------- pages & panels ---------- */
+html.ui2 .panel { background: var(--panel); border: 1px solid #23221f; border-radius: var(--r); transition: border-color .15s, box-shadow .15s; }
+html.ui2 .panel:focus-within { border-color: var(--accent-line); box-shadow: inset 0 0 0 1px #d4a24c22; }
+/* panel headers: one quiet strip with small caps labels, like Premiere's panel tabs */
+html.ui2 .vw-head, html.ui2 .tl-bar, html.ui2 .ptabs, html.ui2 .ihead { background: #151413; border-bottom: 1px solid #23221f; min-height: 32px; }
+html.ui2 .ptabs button, html.ui2 .vw-head .segbtns button, html.ui2 .vw-head > button.tog { background: none; border: 0; border-radius: 0; color: var(--muted); font-size: 11.5px; font-weight: 600; letter-spacing: .04em; padding: 6px 10px; position: relative; }
+html.ui2 .ptabs button[aria-selected="true"], html.ui2 .vw-head .segbtns button.on, html.ui2 .vw-head > button.tog.on { color: var(--text); background: none; }
+html.ui2 .ptabs button[aria-selected="true"]::after, html.ui2 .vw-head .segbtns button.on::after { content: ''; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; background: var(--accent); border-radius: 2px; }
+html.ui2 .ec-title { font-size: 10.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); padding: 8px 10px 0; }
+html.ui2 .ihead b { font-weight: 600; }
+html.ui2 .ihead .trk { font-family: var(--mono); font-size: 10.5px; color: var(--accent-2); background: var(--accent-soft); border: 1px solid var(--accent-line); border-radius: 3px; padding: 0 5px; }
+
+/* ---------- Edit: Premiere's Editing workspace (effect controls | program / project | timeline), resizable ---------- */
+html.ui2 .edit-grid { gap: var(--gap); padding: var(--gap);
+  grid-template-columns: minmax(240px, var(--ui-col, 31%)) minmax(0, 1fr);
+  grid-template-rows: minmax(180px, var(--ui-row, 54%)) minmax(200px, 1fr);
+  grid-template-areas: "insp viewer" "pool tl"; }
+html.ui2 .ui-split { position: absolute; z-index: 20; background: transparent; transition: background .15s; }
+html.ui2 .ui-split::after { content: ''; position: absolute; background: var(--accent); opacity: 0; transition: opacity .15s; border-radius: 2px; }
+html.ui2 .ui-split:hover::after, html.ui2 .ui-split.drag::after { opacity: .85; }
+html.ui2 .ui-split.v { top: 0; bottom: 0; width: 9px; margin-left: -4.5px; cursor: col-resize; }
+html.ui2 .ui-split.v::after { left: 4px; width: 1px; top: 0; bottom: 0; }
+html.ui2 .ui-split.h { left: 0; right: 0; height: 9px; margin-top: -4.5px; cursor: row-resize; }
+html.ui2 .ui-split.h::after { top: 4px; height: 1px; left: 0; right: 0; }
+html:not(.ui2) .ui-split { display: none; }
+html.ui2.ui-dragging, html.ui2.ui-dragging * { user-select: none !important; }
+
+/* viewer (program monitor) */
+html.ui2 .vw-stage { background: radial-gradient(ellipse at center, #0f0e0c 0%, #070705 75%); }
+html.ui2 .vw-frame { box-shadow: 0 0 0 1px #ffffff12, 0 20px 50px -20px #000; }
+html.ui2 .vw-ctrl { background: #151413; border-top: 1px solid #23221f; }
+html.ui2 .vw-ctrl .tc, html.ui2 #vwTC { color: var(--tc); font-size: 13px; letter-spacing: .04em; }
+html.ui2 #vwDur { color: var(--faint); }
+html.ui2 .vw-ctrl .play { border-radius: 50%; width: 32px; height: 32px; min-width: 32px; padding: 0; background: var(--panel-3); border-color: #45423d; }
+html.ui2 .vw-ctrl .play:hover { background: var(--gold-grad); border-color: #e7b968; color: var(--accent-ink); }
+
+/* timeline */
+html.ui2 .tl-bar { gap: 2px; padding: 3px 6px; }
+html.ui2 .tl-bar button { background: transparent; border-color: transparent; color: #bdb5a5; padding: 3px 7px; }
+html.ui2 .tl-bar button:hover:not(:disabled) { background: var(--panel-3); color: var(--text); }
+html.ui2 .tl-bar button.on, html.ui2 .tl-bar button[aria-pressed="true"] { color: var(--accent-2); background: var(--accent-soft); border-color: var(--accent-line); }
+html.ui2 .tl-bar .sep { background: #2f2c28; height: 16px; }
+html.ui2 .tl-tc { color: var(--tc); font-size: 13px; letter-spacing: .04em; }
+html.ui2 .tl-heads { background: #141311; border-right: 1px solid #23221f; }
+html.ui2 .th { border-bottom: 1px solid #201e1c; }
+html.ui2 .th-name b { font-family: var(--mono); font-size: 11px; color: #dbd1c0; }
+html.ui2 .th-name span { color: var(--faint); font-size: 10.5px; }
+html.ui2 .tbtn { background: transparent; border-color: transparent; color: var(--faint); }
+html.ui2 .tbtn.on { color: var(--accent-2); background: var(--accent-soft); }
+html.ui2 .tl-row { border-bottom: 1px solid #1b1917; }
+html.ui2 .tl-row:nth-child(odd) { background: #12110f; }
+html.ui2 .tl-row:nth-child(even) { background: #141311; }
+html.ui2 .clip { border-radius: 3px; box-shadow: inset 0 0 0 1px #ffffff1c; }
+html.ui2 .clip.sel { box-shadow: inset 0 0 0 2px #fff, 0 0 0 1px var(--accent), 0 0 14px -2px var(--accent); }
+html.ui2 .clip-lbl { font-size: 10.5px; font-weight: 600; text-shadow: 0 1px 2px #000c; }
+html.ui2 .clip-dur { font-family: var(--mono); font-size: 9.5px; }
+html.ui2 .tl-ruler { background: #11100e; }
+html.ui2 .tl-playhead { background: var(--accent) !important; box-shadow: 0 0 8px var(--accent); }
+html.ui2 .tl-playhead::before { border-top-color: var(--accent) !important; }
+
+/* media pool tiles */
+html.ui2 .mi { border-radius: 4px; background: #151413; border-color: #252421; transition: border-color .12s, transform .12s; }
+html.ui2 .mi:hover { border-color: #45423d; }
+html.ui2 .mi.sel { outline: 1px solid var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 14px -4px var(--accent); }
+html.ui2 .mi-n { font-size: 11px; color: #d6ccbc; }
+html.ui2 .mi-d, html.ui2 .mi-r { font-family: var(--mono); }
+html.ui2 .mi-r { color: var(--accent-2); }
+
+/* inspector rows */
+html.ui2 .isec { border-bottom: 1px solid #201e1c; }
+html.ui2 .fld > span, html.ui2 label.fld span { color: var(--muted); font-size: 11px; }
+
+/* ---------- dialogs ---------- */
+html.ui2 .dlg { background: #161614; border: 1px solid #33312c; border-radius: 10px; box-shadow: 0 30px 80px -20px #000, 0 0 0 1px #00000080, 0 0 40px -20px #d4a24c55; }
+html.ui2 .dlg::backdrop { background: #04050799; backdrop-filter: blur(3px); }
+html.ui2 .dlg-head { background: linear-gradient(#1d1c19, #161614); border-bottom: 1px solid #292724; padding: 10px 14px; border-radius: 10px 10px 0 0; }
+html.ui2 .dlg-head h3 { font-size: 13.5px; font-weight: 600; letter-spacing: .01em; }
+html.ui2 .dv-item { border-color: #262421; border-radius: 4px; }
+html.ui2 .toast { background: #1d1c19; border: 1px solid #33312c; border-left: 3px solid var(--accent); border-radius: 6px; box-shadow: 0 14px 40px -12px #000; }
+html.ui2 .toast.err { border-left-color: var(--red); }
+
+/* ---------- home: projects ---------- */
+html.ui2 #home { background: radial-gradient(1200px 500px at 15% -10%, #d4a24c14, transparent 60%), var(--bg); }
+html.ui2 #home .card, html.ui2 #home .pcard, html.ui2 #home [class*="proj"] { border-radius: 8px; }
+
+/* ---------- ⚙ workspace menu (look switch) ---------- */
+.ui-menu { position: fixed; z-index: 1000; min-width: 230px; background: #181816; border: 1px solid #33312c; border-radius: 8px; padding: 6px; box-shadow: 0 20px 50px -10px #000; }
+.ui-menu button { width: 100%; justify-content: flex-start; background: none; border: 0; padding: 7px 10px; border-radius: 5px; color: #e9decc; }
+.ui-menu button:hover { background: #2a2825; }
+.ui-menu .muted { padding: 4px 10px 6px; font-size: 11px; }
+.ui-menu hr { border: 0; border-top: 1px solid #2f2c28; margin: 4px 0; }
+
+/* ---------- kept as they were: the Color page and the bottom page bar ---------- */
+/* the classic colours and type come back inside them; with the low-weight controls above, their own rules decide */
+html.ui2 #colorPage, html.ui2 .pagebar {
+  --bg: #0d0f13; --bg-2: #15181e; --panel: #1a1d24; --panel-2: #22262f; --panel-3: #2a2f3a; --line: #2c313c; --line-2: #3a4150;
+  --text: #e6e8ed; --muted: #8a92a3; --faint: #8a92a3; --accent: #ff9933; --accent-2: #ffb366; --accent-ink: #1b1206; --r: 8px;
+  --accent-soft: #ff99330d; --accent-line: #ff9933; --blue: #4f8cff; --green: #36c27e; --red: #ff5d5d; --tc: #ff9933;
+  font: 13px/1.4 "Segoe UI", "Nirmala UI", system-ui, sans-serif; letter-spacing: normal; color: var(--text);
+  -webkit-font-smoothing: auto;
+}
+html.ui2 #colorPage .panel { border-color: var(--line); border-radius: var(--r); }
+html.ui2 #colorPage .panel:focus-within { border-color: var(--line); box-shadow: none; }
+html.ui2 #colorPage .mono, html.ui2 #colorPage .tc { font-family: Consolas, monospace; font-variant-numeric: normal; }
+html.ui2 .pagebar { background: var(--bg-2); border-top: 1px solid var(--line); }
+
+/* ---------- timeline toolbar: compact like Premiere's - icons only when the panel is narrow (labels stay as tooltips) ---------- */
+html.ui2 .timeline { container-type: inline-size; container-name: tl; }
+html.ui2 .tl-bar { flex-wrap: nowrap; }
+html.ui2 .tl-bar .tl-tc, html.ui2 .tl-bar .tl-dur { white-space: nowrap; flex: none; }
+html.ui2 .tl-bar .tl-dur { color: var(--faint); font-size: 11.5px; }
+html.ui2 .tl-bar button > b, html.ui2 .ptabs button, html.ui2 .vw-head button { font-weight: 600; }
+/* colour emoji used as icons go monochrome, so the toolbars read as one set */
+html.ui2 .tl-bar button > b, html.ui2 .tbtn { filter: grayscale(1) brightness(1.35); font-weight: 400; }
+html.ui2 .tl-bar button:hover > b, html.ui2 .tl-bar button.on > b { filter: none; }
+@container tl (max-width: 1250px) {
+  html.ui2 .tl-bar button > span { display: none; }
+  html.ui2 .tl-bar button { padding: 4px 6px; }
+}
+@container tl (max-width: 760px) {
+  html.ui2 .tl-bar .tl-dur, html.ui2 .tl-bar .zoom { display: none; }
+}
+
+/* ---------- classic tints written as saffron in app.css, in the Studio blue ---------- */
+html.ui2 .src-range { background: #d4a24c33; }
+html.ui2 .clip:hover .trim { background: #d4a24c40; }
+html.ui2 .trim:hover, html.ui2 .clip.sel .trim { background: #d4a24c88; }
+html.ui2 .fmt input:checked + span, html.ui2 .seg2 input:checked + span, html.ui2 .ag-type input:checked + span { background: var(--accent-soft); }
+html.ui2 .fx.on { border-color: var(--accent-line); }
+html.ui2 .rl-card:has(input:checked), html.ui2 .re-box.hi { background: #d4a24c12; }
+html.ui2 .as-msg.me { background: #d4a24c26; border-color: var(--accent-line); }
+html.ui2 .tl-marquee { background: #d4a24c1f; }
+
+/* home: the brand mark before the heading */
+html.ui2 #home h1 { display: flex; align-items: center; gap: 12px; letter-spacing: .01em; font-weight: 600; }
+html.ui2 #home h1::before { content: ''; width: 26px; height: 26px; border-radius: 7px; flex: none; box-shadow: 0 0 18px -3px #d4a24c99;
+  background: radial-gradient(circle at center, #11100e 0 32%, transparent 33%), conic-gradient(from 210deg, var(--saffron), #ffd08a, var(--accent), #b07a2a, var(--saffron)); }
+
+/* ---------- 🎬 Source monitor + Effect Controls share the top-left frame as tabs (Premiere) ---------- */
+.ui-dock, .srcmon { display: none; }
+html.ui2 .edit-grid .ui-dock { display: flex; grid-area: insp; align-self: start; height: 32px; z-index: 2; gap: 0; background: #151413;
+  border: 1px solid #23221f; border-bottom-color: #23221f; border-radius: var(--r) var(--r) 0 0; padding: 0 4px; }
+html.ui2 .ui-dock button { background: none; border: 0; border-radius: 0; color: var(--muted); font-size: 11.5px; font-weight: 600; letter-spacing: .04em; padding: 0 12px; position: relative; }
+html.ui2 .ui-dock button:hover:not(:disabled) { background: none; color: var(--text); }
+html.ui2 .ui-dock button[aria-selected="true"] { color: var(--text); }
+html.ui2 .ui-dock button[aria-selected="true"]::after { content: ''; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; background: var(--accent); border-radius: 2px; }
+html.ui2 .edit-grid .srcmon, html.ui2 .edit-grid .inspector { grid-area: insp; margin-top: 31px; border-top-left-radius: 0; border-top-right-radius: 0; }
+html.ui2 .edit-grid .srcmon { display: flex; flex-direction: column; }
+html.ui2 .edit-grid.dock-src .inspector, html.ui2 .edit-grid.dock-ec .srcmon { display: none; }
+/* the program monitor is the timeline's own: no Source / Timeline switch, a "Program" label instead */
+html.ui2 .viewer .vw-head .segbtns { display: none; }
+html.ui2 .viewer .vw-head::before { content: 'Program'; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; color: var(--text); padding: 0 6px 0 4px; }
+
+html.ui2 .srcmon .sm-head { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-bottom: 1px solid #23221f; min-height: 32px; }
+html.ui2 .sm-label { font-size: 10.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
+html.ui2 .sm-pick { width: auto; max-width: 70%; font-size: 12px; padding: 2px 6px; background: transparent; border-color: transparent; color: var(--text); }
+html.ui2 .sm-pick:hover { border-color: var(--line-2); }
+html.ui2 .sm-close { padding: 2px 6px; }
+html.ui2 .srcmon:not(.sm-has) .sm-close, html.ui2 .srcmon:not(.sm-has) .sm-actions button, html.ui2 .srcmon:not(.sm-has) .sm-ctrl .icon-btn { opacity: .35; pointer-events: none; }
+html.ui2 .sm-stage { flex: 1; min-height: 0; display: grid; place-items: center; background: radial-gradient(ellipse at center, #0f0e0c 0%, #070705 75%); overflow: hidden; }
+html.ui2 .sm-frame { position: relative; background: #000; box-shadow: 0 0 0 1px #ffffff12, 0 20px 50px -20px #000; overflow: hidden; cursor: grab; }
+html.ui2 .sm-frame > video, html.ui2 .sm-frame > img, html.ui2 .sm-frame > .sm-strip { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+html.ui2 .srcmon:not(.sm-has) .sm-frame { width: 100% !important; height: 100% !important; background: transparent; box-shadow: none; cursor: default; }
+html.ui2 .sm-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; text-align: center; padding: 18px; color: var(--muted); }
+html.ui2 .sm-empty b { color: var(--text); font-weight: 600; font-size: 13px; letter-spacing: .02em; }
+html.ui2 .sm-empty span { max-width: 340px; font-size: 12px; line-height: 1.5; }
+html.ui2 .sm-msg { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); background: #000c; padding: 6px 10px; border-radius: 6px; font-size: 11.5px; max-width: 90%; text-align: center; }
+/* scrub bar: ruler, In→Out range in blue, In / Out brackets, the playhead */
+html.ui2 .sm-bar { position: relative; height: 22px; margin: 0 10px; cursor: pointer; flex: none; border-bottom: 1px solid #2a2825; }
+html.ui2 .sm-ticks i { position: absolute; bottom: 0; width: 1px; height: 6px; background: #45423d; }
+html.ui2 .sm-range { position: absolute; top: 9px; height: 6px; background: #d4a24c55; border-radius: 2px; }
+html.ui2 .sm-in, html.ui2 .sm-out { position: absolute; top: 5px; width: 6px; height: 14px; border: 2px solid var(--accent); }
+html.ui2 .sm-in { border-right: 0; margin-left: -1px; } html.ui2 .sm-out { border-left: 0; margin-left: -5px; }
+html.ui2 .sm-head-mark { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--accent); box-shadow: 0 0 8px var(--accent); pointer-events: none; }
+html.ui2 .sm-head-mark::before { content: ''; position: absolute; top: -1px; left: -4px; border: 5px solid transparent; border-top: 6px solid var(--accent); }
+html.ui2 .sm-ctrl { display: flex; align-items: center; gap: 2px; padding: 4px 8px; background: #151413; }
+html.ui2 .sm-ctrl .icon-btn { padding: 5px 6px; color: #bdb5a5; }
+html.ui2 .sm-ctrl .icon-btn:hover { color: var(--text); }
+html.ui2 .sm-tc { color: var(--tc); font-size: 13px; letter-spacing: .04em; min-width: 96px; }
+html.ui2 .sm-sel { color: var(--faint); font-size: 12px; min-width: 96px; text-align: right; }
+html.ui2 .sm-play { border-radius: 50% !important; width: 30px; height: 30px; padding: 0 !important; background: var(--panel-3) !important; border: 1px solid #45423d !important; color: var(--text) !important; margin: 0 4px; }
+html.ui2 .sm-play:hover { background: var(--accent) !important; border-color: var(--accent) !important; }
+html.ui2 .sm-actions { display: flex; align-items: center; gap: 4px; padding: 5px 8px 7px; background: #151413; border-top: 1px solid #201e1c; border-radius: 0 0 var(--r) var(--r); }
+html.ui2 .srcmon.sm-active { border-color: var(--accent-line); }
+@container (max-width: 420px) { html.ui2 .sm-info { display: none; } }
+html.ui2 .srcmon { container-type: inline-size; }
+@container (max-width: 470px) {
+  html.ui2 .sm-tc, html.ui2 .sm-sel { min-width: 0; font-size: 12px; }
+  html.ui2 .sm-ctrl { gap: 0; padding: 4px 6px; }
+  html.ui2 .sm-ctrl .icon-btn { padding: 4px 4px; }
+  html.ui2 .sm-info { display: none; }
+}
+@container (max-width: 360px) { html.ui2 .sm-ctrl [data-sm="goin"], html.ui2 .sm-ctrl [data-sm="goout"], html.ui2 .sm-sel { display: none; } }
+
+/* ---------- 🎞 sequence button on the timeline toolbar (both looks) ---------- */
+.tl-bar .tl-seq { max-width: 220px; font-weight: 600; }
+.tl-bar .tl-seq > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.tl-seq-caret { font-style: normal; opacity: .6; font-size: 10px; }
+html.ui2 .tl-bar .tl-seq { color: var(--text); background: var(--panel-2); border-color: var(--line-2); padding: 3px 8px; }
+html.ui2 .tl-bar .tl-seq:hover:not(:disabled) { border-color: var(--accent-line); background: var(--panel-3); }
+html.ui2 .tl-bar .tl-seq > b { filter: none; }
+@container tl (max-width: 1250px) { html.ui2 .tl-bar .tl-seq > span { display: inline; max-width: 130px; } }
+@container tl (max-width: 760px) { html.ui2 .tl-bar .tl-seq > span { max-width: 70px; } }
+/* the menu */
+.seq-menu { min-width: 300px; max-height: 70vh; overflow: auto; }
+.seq-menu button { display: flex; align-items: center; gap: 8px; }
+.seq-menu button.cur { color: #fff; background: #d4a24c1a; }
+.seq-menu .sq-dot { width: 10px; color: #f0c674; font-size: 10px; }
+.seq-menu .sq-name { text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seq-menu .tag { font-size: 10px; }
+
+/* ---------- timeline: tools apart from the sequence bar (both looks) ---------- */
+.tl-top { display: flex; align-items: center; flex: none; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.tl-top .tl-tools { display: flex; align-items: center; gap: 4px; padding: 5px 0 5px 8px; flex: none; }
+.tl-top .tl-tools button { padding: 3px 8px; font-size: 12px; }
+.tl-top .tl-tools .sep { width: 1px; height: 20px; background: var(--line-2); margin: 0 4px; }
+.tl-top .tl-bar { flex: 1; min-width: 0; border-bottom: 0; }
+.tl-seqtabs { display: none; }
+
+/* ---------- Studio: Premiere's Tools panel on the left, sequence tabs across the top ---------- */
+html.ui2 .timeline { display: grid; grid-template-columns: 42px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+html.ui2 .timeline .tl-top { display: contents; }
+html.ui2 .timeline .tl-tools { grid-column: 1; grid-row: 1 / 3; flex-direction: column; align-items: center; gap: 2px; padding: 6px 4px;
+  background: #131210; border-right: 1px solid #23221f; overflow-y: auto; overflow-x: hidden; border-radius: var(--r) 0 0 var(--r); }
+html.ui2 .timeline .tl-tools .segbtns { display: flex; flex-direction: column; gap: 2px; }
+html.ui2 .timeline .tl-tools button { width: 32px; height: 30px; padding: 0; background: transparent; border-color: transparent; color: #bdb5a5; border-radius: 5px; }
+html.ui2 .timeline .tl-tools button:hover:not(:disabled) { background: var(--panel-3); color: var(--text); }
+html.ui2 .timeline .tl-tools button[aria-pressed="true"], html.ui2 .timeline .tl-tools button.on { color: var(--accent-2); background: var(--accent-soft); border-color: var(--accent-line); }
+html.ui2 .timeline .tl-tools button > span { display: none; }
+html.ui2 .timeline .tl-tools button > b { filter: grayscale(1) brightness(1.35); font-weight: 400; font-size: 14px; }
+html.ui2 .timeline .tl-tools button:hover > b { filter: none; }
+html.ui2 .timeline .tl-tools .sep { width: 20px; height: 1px; margin: 4px 0; background: #2f2c28; }
+html.ui2 .timeline .tl-bar { grid-column: 2; grid-row: 1; border-bottom: 1px solid #23221f; gap: 4px; padding: 0 6px 0 0; min-height: 34px; }
+html.ui2 .timeline .tl-main { grid-column: 2; grid-row: 2; min-height: 0; }
+/* sequence tabs */
+html.ui2 .tl-seqtabs { display: flex; align-self: stretch; min-width: 0; flex: 0 1 auto; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+html.ui2 .tl-seqtabs::-webkit-scrollbar { display: none; }
+html.ui2 .tl-bar .tl-stab { flex: none; display: inline-flex; align-items: center; gap: 5px; max-width: 220px; height: 100%; padding: 0 14px; border: 0; border-right: 1px solid #201e1c; border-radius: 0;
+  background: transparent; color: var(--muted); font-size: 12px; font-weight: 600; letter-spacing: .02em; position: relative; }
+html.ui2 .tl-bar .tl-stab > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline !important; }
+html.ui2 .tl-bar .tl-stab:hover:not(:disabled) { background: #1c1b18; color: var(--text); border-color: #201e1c; }
+html.ui2 .tl-bar .tl-stab[aria-selected="true"] { color: #fff; background: var(--panel); }
+html.ui2 .tl-bar .tl-stab[aria-selected="true"]::after { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+html.ui2 .tl-stab .stab-team { font-style: normal; font-size: 10px; opacity: .8; }
+/* the 🎞 button becomes just the menu (▾) next to the tabs */
+html.ui2 .tl-bar .tl-seq { padding: 3px 6px; background: transparent; border-color: transparent; }
+html.ui2 .tl-bar .tl-seq > span, html.ui2 .tl-bar .tl-seq > b { display: none !important; }
+html.ui2 .tl-bar .tl-seq .tl-seq-caret { opacity: .8; font-size: 11px; }
+
+/* ---------- 🪟 Workspaces (workspaces.js): custom grids, resize lines, ⠿ swap grips, two viewers ---------- */
+.ws-btn { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; max-width: 220px; }
+.ws-btn .ws-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.edit-grid.ws-custom .ui-split { display: none; }
+.edit-grid .ws-off { display: none !important; }
+.ws-split { position: absolute; z-index: 20; }
+.ws-split[hidden] { display: none; }
+.ws-split::after { content: ''; position: absolute; background: var(--accent, #d4a24c); opacity: 0; transition: opacity .15s; border-radius: 2px; }
+.ws-split:hover::after, .ws-split.drag::after { opacity: .85; }
+.ws-split.v { width: 9px; margin-left: -4.5px; cursor: col-resize; } .ws-split.v::after { left: 4px; width: 1px; top: 0; bottom: 0; }
+.ws-split.h { height: 9px; margin-top: -4.5px; cursor: row-resize; } .ws-split.h::after { top: 4px; height: 1px; left: 0; right: 0; }
+.edit-grid > .panel { position: relative; }
+.ws-grip { position: absolute; top: 4px; right: 6px; z-index: 6; width: 18px; height: 18px; display: grid; place-items: center; font-size: 13px; line-height: 1;
+  color: var(--muted); border-radius: 4px; cursor: grab; opacity: 0; transition: opacity .15s; background: #0009; }
+.edit-grid > .panel:hover > .ws-grip, html.ws-moving .ws-grip { opacity: 1; }
+.ws-grip:hover { color: var(--text); background: var(--accent-soft, #d4a24c33); }
+.edit-grid > .ws-drop { outline: 2px dashed var(--accent, #d4a24c); outline-offset: -2px; }
+.ws-ghost { position: fixed; z-index: 9999; pointer-events: none; background: var(--accent, #d4a24c); color: #170f03; font-size: 12px; padding: 4px 10px; border-radius: 6px; box-shadow: 0 6px 20px #0008; }
+html.ws-moving, html.ws-moving * { cursor: grabbing !important; }
+/* Resolve: the Source monitor in a place of its own, next to the Program monitor */
+html.ui2 .edit-grid.ws-src .srcmon { grid-area: src; margin-top: 0; display: flex !important; border-radius: var(--r); }
+html.ui2 .edit-grid.ws-src.dock-src .inspector { display: flex; }
+html.ui2 .edit-grid.ws-src .ui-dock [data-dock="src"] { display: none; }
+html:not(.ui2) .edit-grid.ws-src .srcmon { grid-area: src; display: flex; flex-direction: column; }
+.ws-menu .small { font-size: 11px; padding: 4px 10px; }
+.ws-dlg { width: min(640px, 94vw); }
+.ws-form { display: flex; flex-direction: column; gap: 10px; }
+.ws-prev { display: grid; gap: 6px; height: 260px; background: #0e0d0b; padding: 6px; border-radius: 8px; }
+.ws-cell { background: var(--panel-2, #201f1c); border: 1px solid #ffffff1a; border-radius: 6px; display: grid; place-items: center; padding: 6px; }
+.ws-cell select { max-width: 100%; }
+.ws-foot { display: flex; gap: 8px; }
+/* ✕ on a sequence tab (timeline.js closeSeqTab) */
+.tl-stab .stab-x { font-style: normal; font-size: 10px; width: 16px; height: 16px; display: inline-grid; place-items: center; border-radius: 3px; margin-left: 2px; opacity: 0; color: var(--muted); }
+.tl-stab:hover .stab-x, .tl-stab[aria-selected="true"] .stab-x { opacity: .8; }
+.tl-stab .stab-x:hover { opacity: 1; background: #ffffff1a; color: var(--text); }
+
+/* ---------- ✦ Limelight black + gold (from the logo): brand, light beam, gold details ---------- */
+html.ui2 .brand { gap: 9px; padding: 3px 8px 3px 4px; border-color: transparent; background: transparent; }
+html.ui2 .brand:hover { background: #d4a24c12; border-color: #d4a24c33; }
+html.ui2 .logo-mark { width: 26px; height: 26px; filter: drop-shadow(0 0 6px #e8b55a55); }
+html.ui2 .wordmark { font-family: var(--brand-font); font-size: 13.5px; font-weight: 600; letter-spacing: .16em; color: #f1ede6; }
+html.ui2 .wordmark em { background: var(--gold-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+html.ui2 .wordmark small { color: var(--accent); opacity: .85; font-size: 8.5px; letter-spacing: .38em; }
+/* the header's light beam: a soft gold glow from the logo, and a gold hairline under the header */
+html.ui2 .top { background: radial-gradient(420px 90px at 0% 50%, #d4a24c14, transparent 70%), linear-gradient(#141311, #0f0e0c); }
+html.ui2 .top::after { background: linear-gradient(90deg, #d4a24c00, #d4a24c66 18%, #d4a24c22 55%, #d4a24c00); }
+/* panel titles and tabs: Bahnschrift caps, like the logo's type */
+html.ui2 :is(.ptabs button, .ui-dock button, .panel h3, .panel h4, .ihead h3, .dlg-head h3):not(#colorPage *, .pagebar *) { font-family: var(--brand-font); letter-spacing: .06em; }
+html.ui2 .ptabs button[aria-selected="true"], html.ui2 .ui-dock button.on, html.ui2 .ui-dock button[aria-selected="true"] { color: #f6dfae; }
+html.ui2 .ptabs button[aria-selected="true"]::after, html.ui2 .vw-head .segbtns button.on::after { background: var(--gold-grad); box-shadow: 0 0 8px #d4a24c88; }
+/* the focused panel: a thin gold frame with a faint glow (techy, quiet) */
+html.ui2 .panel:focus-within { border-color: #d4a24c55; box-shadow: inset 0 0 0 1px #d4a24c14, 0 0 0 1px #d4a24c10, 0 0 22px -12px #d4a24c; }
+/* timecodes: gold mono, like a lit display */
+html.ui2 #vwTC, html.ui2 .tl-tc, html.ui2 .sm-tc { color: var(--tc); text-shadow: 0 0 10px #d4a24c40; }
+/* playhead: gold light */
+html.ui2 .tl-playhead { background: #f0c674 !important; box-shadow: 0 0 10px #d4a24ccc; }
+html.ui2 .tl-playhead::before { border-top-color: #f0c674 !important; }
+/* dialogs: dark glass with a gold top edge */
+html.ui2 dialog { border-top: 1px solid #d4a24c55 !important; }
+/* home: the logo hero */
+html.ui2 #home { background: radial-gradient(900px 420px at 8% -12%, #d4a24c1c, transparent 62%), radial-gradient(700px 300px at 100% 110%, #d4a24c0d, transparent 60%), var(--bg); }
+html.ui2 #home h1::before { width: 46px; height: 46px; border-radius: 0; box-shadow: none; background: url(/img/limelight-icon.png) center / contain no-repeat; filter: drop-shadow(0 0 10px #e8b55a66); }
+html.ui2 #home h1 { font-family: var(--brand-font); letter-spacing: .08em; font-weight: 600; }
+html.ui2 .hb-word b { color: #f1ede6; }
+html.ui2 .hb-word b em { background: var(--gold-grad); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 0 12px #d4a24c44); }
+html.ui2 .hb-word span { color: #cfc8ba; }
+html.ui2 #home h1 { font-size: 18px; }
+html.ui2 #home h1::before { display: none; }
+/* the wordmark gives way on narrower screens: EDITOR goes first, then the word (the gold mark always stays) */
+html.ui2 .brand { flex: none; min-width: 0; }
+@media (max-width: 1500px) { html.ui2 .wordmark small { display: none; } }
+@media (max-width: 1250px) { html.ui2 .wordmark { display: none; } }

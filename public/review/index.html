@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Limelight Review</title>
+<style>
+  :root { --bg: #0d0f13; --panel: #1a1d24; --panel-2: #22262f; --line: #2c313c; --text: #e6e8ed; --muted: #8a92a3; --accent: #ff9933; --green: #36c27e; color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 "Segoe UI", "Nirmala UI", system-ui, sans-serif; padding: 12px 16px calc(24px + env(safe-area-inset-bottom)); }
+  h1 { font-size: 17px; margin: 4px 0 12px; display: flex; align-items: center; gap: 8px; }
+  h1 i { width: 12px; height: 12px; border-radius: 50%; background: conic-gradient(var(--accent) 0 33%, #fff 0 66%, var(--green) 0); }
+  select, input, textarea, button { font: inherit; color: inherit; }
+  select, input, textarea { width: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; }
+  button { background: var(--accent); color: #1b1206; border: 0; border-radius: 8px; padding: 10px 14px; font-weight: 600; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  video { width: 100%; max-height: 62vh; background: #000; border-radius: 8px; margin-top: 12px; display: block; }
+  .row { display: flex; gap: 8px; align-items: flex-end; }
+  .row > :first-child { flex: 1; }
+  .notes { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 6px; }
+  .notes li { background: var(--panel); border-radius: 8px; padding: 8px 10px; }
+  .notes .tc { color: var(--accent); font-weight: 600; margin-right: 6px; background: none; padding: 0; border: 0; }
+  .notes .by { color: var(--muted); font-size: 12px; }
+  .notes .done { color: var(--green); font-size: 12px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .add { background: var(--panel-2); border-radius: 10px; padding: 10px 12px 12px; margin-top: 12px; }
+  .msg { min-height: 20px; font-size: 13px; color: var(--green); margin-top: 6px; }
+</style>
+</head>
+<body>
+<h1><i></i>Limelight Review</h1>
+<label for="proj">Project</label>
+<select id="proj"></select>
+<label for="ren">Video</label>
+<select id="ren"></select>
+<video id="vid" controls playsinline preload="metadata"></video>
+<div class="add">
+  <div class="row">
+    <div><label for="note">Note at <b id="at">0:00</b> (pauses the video)</label><textarea id="note" rows="2" placeholder="e.g. logo thoda chhota karo, yahan music tez"></textarea></div>
+  </div>
+  <div class="row">
+    <div><label for="by">Your name</label><input id="by" maxlength="40" placeholder="Name"></div>
+    <button id="send">Add note</button>
+  </div>
+  <div class="msg" id="msg" role="status" aria-live="polite"></div>
+</div>
+<ul class="notes" id="notes"></ul>
+<p class="muted" id="empty"></p>
+<script>
+const base = location.pathname.replace(/\/[^/]*$/, '/');
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const mmss = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+let projects = [];
+const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+$('#by').value = store.get('rv-name') || '';
+
+async function load() {
+  projects = await (await fetch(`${base}api/projects`)).json();
+  $('#proj').innerHTML = projects.map((p) => `<option>${esc(p.name)}</option>`).join('');
+  $('#empty').textContent = projects.length ? '' : 'No finished videos yet. Render something in the editor first.';
+  const last = store.get('rv-proj');
+  if (projects.some((p) => p.name === last)) $('#proj').value = last;
+  pickProject();
+}
+function pickProject() {
+  const p = projects.find((x) => x.name === $('#proj').value);
+  store.set('rv-proj', $('#proj').value);
+  $('#ren').innerHTML = (p?.renders || []).map((r) => `<option>${esc(r.name)}</option>`).join('');
+  pickRender();
+}
+function pickRender() {
+  const p = $('#proj').value, r = $('#ren').value;
+  $('#vid').src = r ? `${base}v/${encodeURIComponent(p)}/${encodeURIComponent(r)}` : '';
+  loadNotes();
+}
+async function loadNotes() {
+  const p = $('#proj').value, r = $('#ren').value;
+  if (!p) return;
+  const list = (await (await fetch(`${base}api/notes?p=${encodeURIComponent(p)}&render=${encodeURIComponent(r)}`)).json()).sort((a, b) => a.t - b.t);
+  $('#notes').innerHTML = list.map((n) => `<li><button class="tc" data-t="${n.t}">${mmss(n.t)}</button>${esc(n.note)} <span class="by">- ${esc(n.by || 'Editor')}</span>${n.done ? ' <span class="done">✓ done</span>' : ''}</li>`).join('');
+}
+$('#proj').onchange = pickProject;
+$('#ren').onchange = pickRender;
+$('#vid').ontimeupdate = () => { $('#at').textContent = mmss($('#vid').currentTime); };
+$('#note').onfocus = () => $('#vid').pause();
+$('#notes').onclick = (e) => { const b = e.target.closest('[data-t]'); if (b) { $('#vid').currentTime = +b.dataset.t; $('#vid').play(); } };
+$('#send').onclick = async () => {
+  const text = $('#note').value.trim();
+  if (!text) { $('#msg').textContent = 'Write a note first'; return; }
+  store.set('rv-name', $('#by').value.trim());
+  const r = await fetch(`${base}api/notes?p=${encodeURIComponent($('#proj').value)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ t: $('#vid').currentTime, text, by: $('#by').value.trim(), render: $('#ren').value }) });
+  if (!r.ok) { $('#msg').textContent = 'Could not send - is the editor still running?'; return; }
+  $('#note').value = '';
+  $('#msg').textContent = 'Sent ✓ - it shows on the editor timeline';
+  loadNotes();
+};
+load().catch(() => { $('#empty').textContent = 'Cannot reach the editor. Is the computer on and on the same Wi-Fi?'; });
+</script>
+</body>
+</html>

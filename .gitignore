@@ -1,0 +1,21 @@
+# Only the editor's code and the chat history go to git - everything else stays on this computer.
+# Never in git: config.json (logins, tokens, keys), ssl/ (certificate private key), sessions-log.json, Projects/,
+# Recycle Bin/, footage, models, tools (FFmpeg), node_modules, logs, backups, the raw chat exports (.zip).
+/*
+!/.gitignore
+!/README.md
+!/server.mjs
+!/package.json
+!/package-lock.json
+!/CLAUDE.md
+!/AGENTS.md
+!/Start Video Editor.bat
+!/engine/
+!/public/
+!/tests/
+!/Chats/
+/Chats/*
+!/Chats/*.md
+!/Chats/LINKS.txt
+*.zip
+*.log

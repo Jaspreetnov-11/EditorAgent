@@ -1,0 +1,9 @@
+Video editor agent - chats (open in the Claude app on this computer; the zip files are full copies of each chat)
+
+Chat 01 (fork, on D:)  claude://claude.ai/epitaxy/local_abfe4a96-9d55-4f67-a364-af2dc2a913ce
+Chat 01 (original)     claude://claude.ai/epitaxy/local_ad04137f-f32d-4c26-9889-0b6e6f291dcc
+Chat 02                claude://claude.ai/epitaxy/local_0502632d-66b0-4aae-bf83-dfb9c4298778
+Chat 03                claude://claude.ai/epitaxy/local_e59d67f3-eacb-4447-9507-4b99b1db7395
+Chat 04                claude://claude.ai/epitaxy/local_8c0d9bdb-47f8-46d8-abe8-bdbddb0e963f
+Chat 05                claude://claude.ai/epitaxy/local_7825d333-24f5-4e12-885b-9b9e6b196537
+Chat 06                claude://claude.ai/epitaxy/local_6d66a249-e127-4111-9409-d68f87b880dd
