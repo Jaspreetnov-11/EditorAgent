@@ -139,7 +139,7 @@ export function openSequences() {
         ${x.open ? '' : `<button class="small" data-open="${x.id}">Open</button><button class="small" data-nest="${x.id}" title="Put this whole sequence into the open timeline as one clip, at the playhead">Nest here</button>`}
         ${x.id === sharedSeqId() ? '' : `<button class="small" data-team="${x.id}" title="Make this the team's main sequence: edtool and the server's Agent jobs work on it (the Assistant's Claude always works on the sequence you have open). Everyone on the team sequence switches to it too.">Make team sequence</button>`}
         <button class="icon-btn small" data-ren="${x.id}" title="Rename" aria-label="Rename ${esc(x.name)}">✎</button>
-        ${list.length > 1 ? `<button class="icon-btn small" data-del="${x.id}" title="Delete this sequence" aria-label="Delete ${esc(x.name)}"></button>` : ''}</div>`).join('')}</div>
+        ${list.length > 1 ? `<button class="icon-btn small" data-del="${x.id}" title="Delete this sequence" aria-label="Delete ${esc(x.name)}">🗑</button>` : ''}</div>`).join('')}</div>
       ${staleHere.length ? `<div class="warns">Changed since nested: ${staleHere.map((m) => esc(m.name)).join(', ')} <button class="small" data-upd>⟳ Update nested</button></div>` : ''}
       <h4>New sequence</h4>
       <div class="fgrid"><label class="fld"><span>Name</span><input data-nname value="${esc(freeName('Teaser 30s'))}"></label>

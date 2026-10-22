@@ -1557,7 +1557,7 @@ function versionInfo(name, file, named) {
   const items = Object.fromEntries(mediaDb(name).items.map((m) => [m.id, m]));
   const seqs = 1 + Object.keys(pj.sequences || {}).length;
   let dur = 0; try { dur = Math.max(0, ...Object.values(placed(pj, items)).flat().map((x) => x.end)); } catch {}
-  const label = named ? path.parse(file).name.replace(/^\d{4}-\d\d-\d\d \d\d-\d\d-\d\d ?/, '') : /^daily_/.test(path.basename(file)) ? '📅 End of that day' : '';
+  const label = named ? path.parse(file).name.replace(/^\d{4}-\d\d-\d\d \d\d-\d\d-\d\d ?/, '') : /^daily_/.test(path.basename(file)) ? 'End of that day' : '';
   return { file: path.basename(file), named, label, mtime: st.mtimeMs, clips: Object.values(pj.tracks || {}).flat().length, seqs, seq: pj.seq?.name || 'Main edit', duration: +dur.toFixed(1) };
 }
 const versionPath = (name, file, named) => path.join(P(name, 'backups', ...(named ? ['named'] : [])), path.basename(String(file || '')));
@@ -4028,8 +4028,20 @@ const routes = {
   // 🕘 Versions: auto backups + named versions, newest first
   'GET /api/versions': (req, res, u) => {
     const name = needProject(q(u, 'p')), dir = P(name, 'backups'), nd = path.join(dir, 'named');
-    const list = [...(fs.existsSync(nd) ? fs.readdirSync(nd).filter((f) => f.endsWith('.json')).map((f) => versionInfo(name, path.join(nd, f), true)) : []),
+    const list = [...(fs.existsSync(nd) ? fs.readdirSync(nd).filter((f) => f.endsWith('.json') && !f.endsWith('.meta.json')).map((f) => versionInfo(name, path.join(nd, f), true)) : []),
       ...fs.readdirSync(dir).filter((f) => f.endsWith('.json')).map((f) => versionInfo(name, path.join(dir, f), false))].filter(Boolean);
+    // 👤 edited by: everyone whose changes (📜 activity log) went into a version since the version before it, most first
+    let acts = [];
+    try { acts = fs.readFileSync(P(name, 'cache', 'activity.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => { try { const x = JSON.parse(l); return { at: x.at, name: x.name }; } catch { return null; } }).filter((x) => x?.name); } catch {}
+    list.sort((a, b) => a.mtime - b.mtime);
+    let prev = 0;
+    for (const v of list) {
+      const n = {};
+      for (const a of acts) if (a.at > prev && a.at <= v.mtime + 1000) n[a.name] = (n[a.name] || 0) + 1;
+      v.by = Object.keys(n).sort((x, y) => n[y] - n[x]);
+      if (v.named) v.savedBy = readJSON(path.join(nd, v.file.replace(/\.json$/, '.meta.json')), {}).by || null;
+      prev = v.mtime;
+    }
     return list.sort((a, b) => b.mtime - a.mtime);
   },
   'POST /api/versions/save': async (req, res, u) => {
@@ -4038,6 +4050,8 @@ const routes = {
     const d = new Date(), p2 = (x) => String(x).padStart(2, '0');
     const file = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}-${p2(d.getMinutes())}-${p2(d.getSeconds())} ${safeName(b.label || 'Version').slice(0, 60)}.json`;
     fs.copyFileSync(P(name, 'project.json'), path.join(nd, file));
+    { const now = new Date(); fs.utimesSync(path.join(nd, file), now, now); } // (a copy keeps the old file time: "38 min ago" for one just saved)
+    writeJSON(path.join(nd, file.replace(/\.json$/, '.meta.json')), { by: req.who?.name || 'Owner', at: Date.now() }); // (who saved it)
     return versionInfo(name, path.join(nd, file), true);
   },
   'GET /api/versions/file': (req, res, u) => {
@@ -4054,7 +4068,7 @@ const routes = {
   },
   'POST /api/versions/delete': (req, res, u) => {
     const f = versionPath(needProject(q(u, 'p')), q(u, 'file'), true);
-    fs.rmSync(f, { force: true });
+    fs.rmSync(f, { force: true }); fs.rmSync(f.replace(/\.json$/, '.meta.json'), { force: true });
     return { ok: true };
   },
   // 📱 phone review

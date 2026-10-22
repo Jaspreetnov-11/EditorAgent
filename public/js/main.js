@@ -61,7 +61,7 @@ function shell() {
   <header class="top">
     <div class="tb-left">
       <button class="brand" data-a="home" title="All projects"><img class="logo-mark" src="/img/limelight-icon.png" alt=""><span class="wordmark">LIME<em>LIGHT</em><small>EDITOR</small></span></button>
-      <span class="pname" id="pName"></span><button class="seqbtn" data-a="seq" title="Sequences: several timelines in this project (film, teaser, reel…), nesting, versions"><span id="seqName"></span> ▾</button><span class="save" id="saveState"></span>
+      <span class="pname" id="pName"></span><button class="seqbtn" data-a="seq" title="Sequences: several timelines in this project (film, teaser, reel…), nesting, versions">🎞 <span id="seqName"></span> ▾</button><span class="save" id="saveState"></span>
     </div>
     <div class="tb-right">
       <span class="jobchip" id="jobChip" hidden></span>
@@ -107,7 +107,7 @@ function shell() {
     </section>
     <section class="page p-edit" data-page="edit">
       <div class="edit-grid">
-        <div class="panel pool pool-tabs"><div class="ptabs" role="tablist"><button role="tab" data-ptab="media" aria-selected="true">Media</button><button role="tab" data-ptab="fx" aria-selected="false">Effects</button><button role="tab" data-ptab="cc" aria-selected="false" title="Captions">CC</button><button role="tab" data-ptab="notes" aria-selected="false" title="Notes at moments of the edit (Shift+M), versions and phone review"></button></div>
+        <div class="panel pool pool-tabs"><div class="ptabs" role="tablist"><button role="tab" data-ptab="media" aria-selected="true">Media</button><button role="tab" data-ptab="fx" aria-selected="false">Effects</button><button role="tab" data-ptab="cc" aria-selected="false" title="Captions">CC</button><button role="tab" data-ptab="notes" aria-selected="false" title="Notes at moments of the edit (Shift+M), versions and phone review">📝</button></div>
           <div class="ptab-body" id="pool"></div><div class="ptab-body" id="fxPanel" hidden></div><div class="ptab-body" id="ccPanel" hidden></div><div class="ptab-body" id="notesPanel" hidden></div></div>
         <div class="mon-dock" role="tablist" aria-label="Source / Program"><button role="tab" data-mon="src">Source</button><button role="tab" data-mon="prog">Program</button></div>
         <div class="panel viewer" id="viewer"></div>

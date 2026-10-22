@@ -47,7 +47,7 @@ export function openBatch(selected = []) {
     const list = await api('GET', `/api/batch?p=${enc(S.proj)}`).catch(() => []);
     $('[data-q]', el).innerHTML = list.slice().reverse().slice(0, 80).map((x) => `<div class="dv-q-item ${x.state === 'running' ? 'rendering' : x.state}">
       <div class="dv-q-top"><span class="grow"><b>${esc(x.label)}</b> · ${esc(x.name)}${x.runAt && x.state === 'waiting' ? ` <span class="muted small">at ${new Date(x.runAt).toLocaleString()}</span>` : ''}</span><span class="muted small">${STATE[x.state]}</span>
-      ${x.state === 'waiting' ? `<button class="link small" data-bc="${x.id}">✕</button>` : ''}${x.state === 'failed' ? `<button class="link small" data-br="${x.id}">⟳</button>` : ''}${x.result?.url ? `<a href="${x.result.url}?download" download></a>` : ''}</div>
+      ${x.state === 'waiting' ? `<button class="link small" data-bc="${x.id}">✕</button>` : ''}${x.state === 'failed' ? `<button class="link small" data-br="${x.id}">⟳</button>` : ''}${x.result?.url ? `<a href="${x.result.url}?download" download>⬇</a>` : ''}</div>
       ${x.state === 'running' ? `<div class="bar"><div style="width:${Math.max(3, x.progress)}%"></div></div><div class="muted small">${esc(String(x.stage || '').slice(0, 120))}</div>` : ''}${x.error ? `<div class="warn small">${esc(x.error)}</div>` : ''}${x.result?.skipped ? `<div class="muted small">${esc(x.result.skipped)}</div>` : ''}</div>`).join('') || '<div class="muted">No batch jobs yet.</div>';
     clearTimeout(timer);
     if (list.some((x) => x.state === 'waiting' || x.state === 'running')) timer = setTimeout(() => { if (el.isConnected) { drawQ(); refreshMedia(); } }, 2000);

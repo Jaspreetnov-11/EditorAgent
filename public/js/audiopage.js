@@ -24,8 +24,8 @@ export function mountAudio(el) {
   root = el;
   el.innerHTML = `<div class="ap">
     <div class="panel ap-top">
-      <button class="icon-btn" data-au="start" title="Start (Home)"></button>
-      <button class="icon-btn play" data-au="play" title="Play / pause (Space)"></button>
+      <button class="icon-btn" data-au="start" title="Start (Home)">⏮</button>
+      <button class="icon-btn play" data-au="play" title="Play / pause (Space)">▶</button>
       <span class="tc big" id="apTC">00:00:00:00</span>
       <span class="grow"></span>
       <span class="ap-live" id="apLive" title="Rough live level of the master output">Live ≈ -- LUFS</span>

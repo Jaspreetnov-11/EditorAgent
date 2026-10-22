@@ -98,6 +98,12 @@ export function watchPhoneNotes() {
 
 // ---------------- 🕘 versions ----------------
 const ago = (ms) => { const s = (Date.now() - ms) / 1000; return s < 90 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : new Date(ms).toLocaleString(); };
+// 👤 who changed the edit since the version before (from the activity log), and who saved a named version
+const editedBy = (v) => {
+  const by = v.by || [], names = by.length > 3 ? `${by.slice(0, 3).join(', ')} +${by.length - 3}` : by.join(', ');
+  const parts = [names && `Edited by <b>${esc(names)}</b>`, v.savedBy && `saved by <b>${esc(v.savedBy)}</b>`].filter(Boolean);
+  return parts.length ? `<br><span class="ver-by small">${parts.join(' · ')}</span>` : '';
+};
 export async function openVersions() {
   const dlg = modal('Versions', `<p class="muted">The editor keeps a backup every few minutes while you work (the last 40). Save a version with a name to keep it for good - e.g. "Sent to client", "Before music change".</p>
     <div class="row-in"><input data-vlabel placeholder="Name this version, e.g. Sent to client" aria-label="Version name"><button class="primary" data-vsave>Save version</button></div>
@@ -105,10 +111,10 @@ export async function openVersions() {
   const draw = async () => {
     const list = await api('GET', `/api/versions?p=${enc(S.proj)}`);
     $('[data-vlist]', dlg.el).innerHTML = list.map((v) => `<div class="ver-row${v.named ? ' named' : ''}">
-      <span class="grow">${v.named ? `<b>★ ${esc(v.label)}</b> · ` : ''}${esc(ago(v.mtime))}<br><span class="muted small">${esc(v.seq)}${v.seqs > 1 ? ` (+${v.seqs - 1} more sequence${v.seqs > 2 ? 's' : ''})` : ''} · ${v.clips} clips · ${Math.floor(v.duration / 60)}:${String(Math.round(v.duration % 60)).padStart(2, '0')}</span></span>
+      <span class="grow">${v.named ? `<b>★ ${esc(v.label)}</b> · ` : ''}${esc(ago(v.mtime))}<br><span class="muted small">${esc(v.seq)}${v.seqs > 1 ? ` (+${v.seqs - 1} more sequence${v.seqs > 2 ? 's' : ''})` : ''} · ${v.clips} clips · ${Math.floor(v.duration / 60)}:${String(Math.round(v.duration % 60)).padStart(2, '0')}</span>${editedBy(v)}</span>
       <button class="small" data-vseq="${esc(v.file)}" data-named="${v.named ? 1 : 0}" title="Add that version's timeline to this project as a separate sequence - nothing is replaced">+ As sequence</button>
       <button class="small" data-vrestore="${esc(v.file)}" data-named="${v.named ? 1 : 0}" title="The whole project goes back to this version (the current state is backed up first)">Restore</button>
-      ${v.named ? `<button class="icon-btn small" data-vdel="${esc(v.file)}" title="Delete this saved version" aria-label="Delete version"></button>` : ''}</div>`).join('') || '<div class="muted pad">No versions yet - they appear a few minutes after you start editing.</div>';
+      ${v.named ? `<button class="icon-btn small" data-vdel="${esc(v.file)}" title="Delete this saved version" aria-label="Delete version">🗑</button>` : ''}</div>`).join('') || '<div class="muted pad">No versions yet - they appear a few minutes after you start editing.</div>';
   };
   draw().catch((e) => toast(e.message, 'err'));
   dlg.el.addEventListener('click', async (e) => {
@@ -245,7 +251,7 @@ export async function openReviews() {
         <div class="nt-row"><b class="grow">${esc(l.client || l.title)}</b>${verChips(l)}</div>
         <div class="muted small">${esc(l.title)} · made ${new Date(l.created).toLocaleDateString()}${l.by ? ` by ${esc(l.by)}` : ''}${l.hasPw ? ' · password' : ''}${l.off ? ' · turned off' : l.expired ? ' · expired' : l.expires ? ` · works until ${new Date(l.expires).toLocaleDateString()}` : ''}</div>
         <div class="nt-row"><span class="mono small grow crv-url">${esc(l.url)}</span><button class="small" data-crcopy="${esc(l.url)}">Copy link</button>
-          <button class="small" data-croff="${esc(l.id)}" data-v="${l.off ? 0 : 1}">${l.off ? 'Turn on' : 'Turn off'}</button><button class="icon-btn small" data-crdel="${esc(l.id)}" title="Delete this link and its comments" aria-label="Delete link"></button></div>
+          <button class="small" data-croff="${esc(l.id)}" data-v="${l.off ? 0 : 1}">${l.off ? 'Turn on' : 'Turn off'}</button><button class="icon-btn small" data-crdel="${esc(l.id)}" title="Delete this link and its comments" aria-label="Delete link">🗑</button></div>
         ${tops.map((c) => `<div class="nt-item"><button class="link mono" data-seek="${+c.t || 0}" title="Go there on the timeline">${fmtTC(c.t, fps).replace(/^00:/, '')}</button>
           <div class="grow">${esc(c.text)}${c.draw ? ' ✏️' : ''}<div class="muted small">${esc(c.by)} · Version ${c.v} · ${new Date(c.at).toLocaleString()}</div>
           ${l.comments.filter((r) => r.parent === c.id).map((r) => `<div class="crv-reply">${esc(r.text)} <span class="muted small">${esc(r.by)}${r.team ? ' (team)' : ''}</span></div>`).join('')}

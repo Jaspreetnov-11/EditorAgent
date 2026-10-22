@@ -528,3 +528,6 @@ html.ui2 .top button.accent { color: var(--accent-2); border-color: var(--accent
 html.ui2 .top .ico { opacity: .85; }
 html.ui2 .pool-bar :is(button, .btn) { background: transparent; border-color: var(--line); padding: 3px 9px; font-size: 11.5px; }
 html.ui2 .pool-bar :is(button, .btn):hover:not(:disabled) { background: var(--panel-3); }
+
+/* Versions: who edited */
+.ver-by { color: var(--muted); } .ver-by b { color: var(--text); font-weight: 550; }

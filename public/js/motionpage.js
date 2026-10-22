@@ -63,7 +63,7 @@ export function mountMotion(el) {
         <button class="accent small" data-m="toTimeline" title="Put this comp on the edit's timeline at the playhead (it updates when you change it here)">Add to timeline</button>
       </div>
       <div class="mo-stage" id="moStage"><div class="mo-canvas"><canvas id="moCanvas"></canvas><canvas id="moOver"></canvas></div><div class="mo-empty" id="moEmpty">Make a composition: ＋ Comp, or pick a preset on the left.</div></div>
-      <div class="mo-trans"><button class="icon-btn" data-m="start" title="Start (Home)"></button><button class="icon-btn" data-m="prevKey" title="Previous keyframe (J)">◆</button><button class="icon-btn" data-m="play" title="Play / pause (Space)"></button><button class="icon-btn" data-m="nextKey" title="Next keyframe (K)">◆</button><button class="icon-btn" data-m="end" title="End (End)"></button>
+      <div class="mo-trans"><button class="icon-btn" data-m="start" title="Start (Home)">⏮</button><button class="icon-btn" data-m="prevKey" title="Previous keyframe (J)">◆</button><button class="icon-btn" data-m="play" title="Play / pause (Space)">▶</button><button class="icon-btn" data-m="nextKey" title="Next keyframe (K)">◆</button><button class="icon-btn" data-m="end" title="End (End)">⏭</button>
         <span class="tc" id="moTC">0:00:00</span><span class="muted small" id="moHint"></span></div>
     </div>
     <div class="panel mo-props" id="moProps"></div>
@@ -104,7 +104,7 @@ function refresh() {
 // ---------------- project panel ----------------
 function renderList() {
   const list = Object.values(comps());
-  $('#moList', root).innerHTML = list.length ? list.map((c) => `<div class="mo-comp${c.id === compId ? ' on' : ''}" data-comp="${c.id}" title="Double-click to rename"><span></span><span class="grow">${esc(c.name)}</span><span class="muted small">${c.dur}s</span>
+  $('#moList', root).innerHTML = list.length ? list.map((c) => `<div class="mo-comp${c.id === compId ? ' on' : ''}" data-comp="${c.id}" title="Double-click to rename"><span>🎬</span><span class="grow">${esc(c.name)}</span><span class="muted small">${c.dur}s</span>
     <button class="icon-btn" data-dup="${c.id}" title="Duplicate">⧉</button><button class="icon-btn" data-del="${c.id}" title="Delete">✕</button></div>`).join('') : '<div class="muted small pad">No compositions yet.</div>';
   $$('[data-comp]', root).forEach((r) => {
     r.onclick = (e) => { if (e.target.closest('button')) return; compId = r.dataset.comp; selIds.clear(); T = 0; refresh(); };
@@ -408,11 +408,11 @@ const ROW = (L, path, label, kind, opts = {}) => {
   const input = kind === 'color' ? `<input type="color" data-pv="${P}" value="${v || '#ffffff'}">`
     : kind === 'xy' ? (v || [0, 0]).map(num).join('') : num(v, -1);
   return `<div class="mo-row${graphPath === P ? ' gsel' : ''}" data-row="${P}">
-    <button class="mo-sw${on ? ' on' : ''}" data-sw="${P}" title="Stopwatch: animate this property"></button>
+    <button class="mo-sw${on ? ' on' : ''}" data-sw="${P}" title="Stopwatch: animate this property">⏱</button>
     <span class="mo-lab" data-glab="${P}" title="${on ? 'Click: show in the Graph Editor' : ''}">${label}</span>
     <span class="mo-in">${input}</span>
     ${on ? `<button class="mo-key${k ? ' on' : ''}" data-key="${P}" title="${k ? 'Remove the keyframe here' : 'Add a keyframe here'}">◆</button>` : '<span class="mo-key-sp"></span>'}
-    ${kind !== 'color' && opts.wiggle !== false ? `<button class="mo-wig${w ? ' on' : ''}" data-wig="${P}" title="Wiggle (random motion)${w ? `: ${w.freq}/s, ±${w.amp}` : ''}"></button>` : ''}
+    ${kind !== 'color' && opts.wiggle !== false ? `<button class="mo-wig${w ? ' on' : ''}" data-wig="${P}" title="Wiggle (random motion)${w ? `: ${w.freq}/s, ±${w.amp}` : ''}">〰</button>` : ''}
   </div>`;
 };
 const SEL = (path, label, options, cur) => `<label class="mo-f"><span>${label}</span><select data-sv="${path}">${options.map(([k, l]) => `<option value="${esc(k)}"${String(k) === String(cur ?? '') ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
@@ -635,12 +635,12 @@ function renderLHead() {
       if (r.prop) {
         const P = r.prop.join('.'), p = M.getIn(L, r.prop), on = animated(p), v = val(p, T), k = M.keyAt(p, T) >= 0;
         const input = r.kind === 'color' ? `<input type="color" class="tl-col" data-tv="${P}" value="${v || '#ffffff'}">` : r.kind === 'xy' ? (v || [0, 0]).map((x, i) => vnum(x, P, i)).join('') : vnum(v, P, -1);
-        return `<div class="ae-row ae-prop${graphPath === P && sel ? ' gsel' : ''}" data-lid="${L.id}" data-gprop="${P}"><button class="mo-sw${on ? ' on' : ''}" data-tsw="${P}" title="Stopwatch"></button><span class="ae-pname" title="Click: graph it in the Graph Editor">${esc(r.label)}</span><span class="ae-pv">${input}</span>`
-          + (on ? `<span class="ae-nav"><button data-tnav="-1" data-p="${P}" title="Previous keyframe"></button><button class="${k ? 'on' : ''}" data-tkey="${P}" title="Add / remove keyframe">◆</button><button data-tnav="1" data-p="${P}" title="Next keyframe"></button></span>` : '<span class="ae-nav"></span>') + '</div>';
+        return `<div class="ae-row ae-prop${graphPath === P && sel ? ' gsel' : ''}" data-lid="${L.id}" data-gprop="${P}"><button class="mo-sw${on ? ' on' : ''}" data-tsw="${P}" title="Stopwatch">⏱</button><span class="ae-pname" title="Click: graph it in the Graph Editor">${esc(r.label)}</span><span class="ae-pv">${input}</span>`
+          + (on ? `<span class="ae-nav"><button data-tnav="-1" data-p="${P}" title="Previous keyframe">◀</button><button class="${k ? 'on' : ''}" data-tkey="${P}" title="Add / remove keyframe">◆</button><button data-tnav="1" data-p="${P}" title="Next keyframe">▶</button></span>` : '<span class="ae-nav"></span>') + '</div>';
       }
       const isMatte = c.layers[c.layers.indexOf(L) + 1]?.matte;
       return `<div class="ae-row ae-layer${sel ? ' on' : ''}" data-lid="${L.id}" draggable="true">`
-        + `<span class="ae-av"><button class="mo-ib${L.hidden ? '' : ' on'}" data-vis="${L.id}" title="Video (show / hide)"></button><button class="mo-ib${L.solo ? ' on' : ''}" data-solo="${L.id}" title="Solo">◉</button><button class="mo-ib${L.locked ? ' on' : ''}" data-lock="${L.id}" title="Lock"></button></span>`
+        + `<span class="ae-av"><button class="mo-ib${L.hidden ? '' : ' on'}" data-vis="${L.id}" title="Video (show / hide)">👁</button><button class="mo-ib${L.solo ? ' on' : ''}" data-solo="${L.id}" title="Solo">◉</button><button class="mo-ib${L.locked ? ' on' : ''}" data-lock="${L.id}" title="Lock">🔒</button></span>`
         + `<span class="ae-n"><i class="ae-lab" data-lab="${L.id}" style="background:${labelOf(L)}" title="Label colour (click to change)"></i>${r.n}</span>`
         + `<span class="ae-name"><span class="ae-tw" data-tw="${L.id}">${openLayers.has(L.id) ? '▾' : '▸'}</span>${{ text: 'T', shape: '★', solid: '■', image: '🖼', video: '🎞', null: '⊹' }[L.type]} <span class="ae-ln" data-ren="${L.id}" title="Double-click to rename">${esc(L.name)}</span>${isMatte ? ' <i class="muted">(matte)</i>' : ''}</span>`
         + `<span class="ae-fx"><button class="mo-ib${(L.effects || []).some((f) => !f.off) ? ' on' : ''}" data-fxall="${L.id}" title="Effects on / off">fx</button></span>`

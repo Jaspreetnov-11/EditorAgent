@@ -422,7 +422,7 @@ export function showReport() {
         <td data-jump>${s.text ? `${esc(s.text)}${s.en && s.en !== s.text ? `<br><small class="muted">${esc(s.en)}</small>` : ''}` : '<span class="muted">(music / no speech)</span>'}</td>
         <td>${f ? `${esc(m?.name || s.media)}<br><small class="muted">at ${fmt(c.in || 0)}</small>` : '<span class="muted">deleted</span>'}</td>
         <td>${pct === null ? '<span class="muted">-</span>' : `<span class="meterbar"><i style="width:${pct}%"></i></span>${s.weak ? '<b class="warn">check</b>' : ''}`}</td>
-        <td class="rep-act">${f ? `<button class="small" data-change="${i}" title="Next-best shot for this line">Change</button><button class="small" data-choose="${i}" title="See all options">▾</button><button class="small" data-del="${i}" title="Delete this shot"></button>` : ''}</td></tr>`;
+        <td class="rep-act">${f ? `<button class="small" data-change="${i}" title="Next-best shot for this line">Change</button><button class="small" data-choose="${i}" title="See all options">▾</button><button class="small" data-del="${i}" title="Delete this shot">🗑</button>` : ''}</td></tr>`;
       if (open !== i || !f) return row;
       const alts = (s.alts || []).filter((a) => S.mediaById[a.mediaId]);
       const tile = (mid, at, label, k) => `<button class="rep-tile" data-pick="${i}" data-m="${mid}" data-in="${at}" title="${esc(S.mediaById[mid].name)}"><span class="th" style="${thumbAt(S.mediaById[mid], at)}"></span><small>${label}</small></button>`;

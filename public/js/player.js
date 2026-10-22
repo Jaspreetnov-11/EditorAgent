@@ -93,12 +93,12 @@ export function mountViewer(el) {
   <div class="vw-ctrl">
     <span class="tc big" id="vwTC">00:00:00:00</span>
     <span class="grow"></span>
-    <button class="icon-btn" data-act="start" title="Go to start (Home)"></button>
+    <button class="icon-btn" data-act="start" title="Go to start (Home)">⏮</button>
     <button class="icon-btn" data-act="back" title="Back 1 frame (←)">◂</button>
-    <button class="icon-btn play" data-act="play" title="Play / pause (Space)" aria-label="Play"></button>
+    <button class="icon-btn play" data-act="play" title="Play / pause (Space)" aria-label="Play">▶</button>
     <button class="icon-btn" data-act="fwd" title="Forward 1 frame (→)">▸</button>
-    <button class="icon-btn" data-act="end" title="Go to end (End)"></button>
-    <button class="icon-btn" data-act="frame" title="Export Frame (Ctrl+Shift+E): this frame as a PNG, exactly as the export makes it" aria-label="Export Frame"></button>
+    <button class="icon-btn" data-act="end" title="Go to end (End)">⏭</button>
+    <button class="icon-btn" data-act="frame" title="Export Frame (Ctrl+Shift+E): this frame as a PNG, exactly as the export makes it" aria-label="Export Frame">📷</button>
     <span class="grow"></span>
     <span class="src-only" hidden>
       <button class="small" data-act="in" title="Mark In (I)">In</button>

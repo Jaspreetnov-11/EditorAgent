@@ -63,7 +63,7 @@ export function openScriptEdit(setBusy) {
         <td><textarea data-k="vo" rows="2">${esc(s.vo)}</textarea></td>
         <td><input data-k="super" value="${esc(s.super)}"></td>
         <td><input data-k="dur" type="number" min="0.5" step="0.5" value="${s.dur ?? ''}" placeholder="${est(s)}" title="Seconds (only used without a VO recording)"></td>
-        <td><button type="button" class="small" data-del="${i}" title="Remove scene"></button></td></tr>`).join('')}</tbody></table>
+        <td><button type="button" class="small" data-del="${i}" title="Remove scene">🗑</button></td></tr>`).join('')}</tbody></table>
       <button type="button" class="small" data-a="add">+ Add scene</button>` : '<p class="muted small">No scenes yet.</p>';
     summary();
   };

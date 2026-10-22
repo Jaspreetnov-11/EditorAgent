@@ -38,7 +38,7 @@ export function mountFusion(el) {
       <div class="mo-head"><div class="segbtns"><button data-view="out">Output (1)</button><button data-view="sel">Selected node (2)</button></div><span class="grow"></span>
         <button class="accent small" data-f="toTimeline" title="Put this fusion on the edit's timeline at the playhead">Add to timeline</button></div>
       <div class="mo-stage" id="fuStage"><div class="mo-canvas"><canvas id="fuCanvas"></canvas></div><div class="mo-empty" id="fuEmpty">Right-click a video clip on the Edit timeline → Open in Fusion, or ＋ New.</div></div>
-      <div class="mo-trans"><button class="icon-btn" data-f="start"></button><button class="icon-btn" data-f="play"></button><input type="range" id="fuPos" min="0" max="1" step="0.001" value="0" aria-label="Time"><span class="tc" id="fuTC">0:00:00</span></div>
+      <div class="mo-trans"><button class="icon-btn" data-f="start">⏮</button><button class="icon-btn" data-f="play"></button><input type="range" id="fuPos" min="0" max="1" step="0.001" value="0" aria-label="Time"><span class="tc" id="fuTC">0:00:00</span></div>
     </div>
     <div class="panel fu-insp" id="fuInsp"></div>
     <div class="panel fu-graph"><div class="mo-head"><b>Nodes</b><span class="muted small">drag ● output → ● input to connect · click a connected input to cut · Delete removes · drag empty space to pan · wheel zooms · double-click empty = fit</span></div>
@@ -67,7 +67,7 @@ function refresh() {
 // ---------------- library ----------------
 function renderLib() {
   const list = Object.values(fusions());
-  $('#fuList', root).innerHTML = list.length ? list.map((f) => `<div class="mo-comp${f.id === fid ? ' on' : ''}" data-fid="${f.id}" title="Double-click to rename"><span></span><span class="grow">${esc(f.name)}</span><span class="muted small">${f.dur}s</span><button class="icon-btn" data-fdel="${f.id}" title="Delete">✕</button></div>`).join('') : '<div class="muted small pad">No fusions yet.</div>';
+  $('#fuList', root).innerHTML = list.length ? list.map((f) => `<div class="mo-comp${f.id === fid ? ' on' : ''}" data-fid="${f.id}" title="Double-click to rename"><span>✨</span><span class="grow">${esc(f.name)}</span><span class="muted small">${f.dur}s</span><button class="icon-btn" data-fdel="${f.id}" title="Delete">✕</button></div>`).join('') : '<div class="muted small pad">No fusions yet.</div>';
   $$('[data-fid]', root).forEach((r) => {
     r.onclick = (e) => { if (e.target.closest('button')) return; fid = r.dataset.fid; selId = null; T = 0; refresh(); };
     r.ondblclick = () => { const f = fusions()[r.dataset.fid], n = prompt('Fusion name', f.name)?.trim(); if (n) { f.name = n; save('Rename fusion'); } };

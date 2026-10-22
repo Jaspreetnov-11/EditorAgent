@@ -151,7 +151,7 @@ export async function openThumbs(onSaved) {
   $('[data-th-find]', dlg.el).onclick = find;
   const listSaved = async () => {
     const l = await api('GET', `/api/thumb/list?p=${enc(S.proj)}`).catch(() => []);
-    $('[data-saved]', dlg.el).innerHTML = l.slice(0, 6).map((x) => `<div class="dv-item"><a href="${x.url}" target="_blank" class="link">${esc(x.name)}</a><a href="${x.url}?download" download></a></div>`).join('');
+    $('[data-saved]', dlg.el).innerHTML = l.slice(0, 6).map((x) => `<div class="dv-item"><a href="${x.url}" target="_blank" class="link">${esc(x.name)}</a><a href="${x.url}?download" download>⬇</a></div>`).join('');
   };
   $('[data-th-save]', dlg.el).onclick = async () => {
     draw();

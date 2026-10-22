@@ -491,7 +491,7 @@ function motionHTML(c, D, isVid) {
   return `<div class="pm" data-kl data-d="${D}">${MOTION.filter((r) => !r.vid || isVid).map((r) => {
     const keys = c.keys?.[r.p] || [];
     return `<div class="pm-row" data-kp="${r.p}" data-kpath="${r.p}">
-      <button class="pm-sw${keys.length ? ' on' : ''}" data-sw="${r.p}" title="${keys.length ? 'Animated - click to stop animating (removes its keyframes)' : 'Animate: a keyframe at the playhead, then change the value elsewhere'}"></button>
+      <button class="pm-sw${keys.length ? ' on' : ''}" data-sw="${r.p}" title="${keys.length ? 'Animated - click to stop animating (removes its keyframes)' : 'Animate: a keyframe at the playhead, then change the value elsewhere'}">⏱</button>
       <span class="pm-n">${kgTwirl(c, r.p)}${r.label}</span>
       <span class="pm-v" data-pv="${r.p}" tabindex="0" title="Drag left / right (Shift: faster) or click to type">${mShow(r, motionVal(c, r.p, rel), c)}</span>
       <span class="pm-k"><button class="kfb" data-kprev="${r.p}" title="Previous keyframe">◂</button><button class="kfd" data-kf="${r.p}" title="Add / remove a keyframe at the playhead">◆</button><button class="kfb" data-knext="${r.p}" title="Next keyframe">▸</button></span>

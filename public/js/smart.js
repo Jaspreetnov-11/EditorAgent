@@ -175,7 +175,7 @@ async function people(body) {
         <span class="sm-face" style="${p.thumb ? `background-image:url('${p.thumb}')` : ''}"></span>
         <div class="grow"><div class="row-in"><input data-name value="${esc(p.name || '')}" placeholder="${esc(p.label)} - type a name" aria-label="Name of ${esc(p.label)}"><input data-alias value="${esc((p.aliases || []).join(', '))}" placeholder="other names, comma-separated" aria-label="Other names"${p.name ? '' : ' hidden'}></div>
           <div class="muted small">seen ${p.count}× in ${ids.length} clip${ids.length === 1 ? '' : 's'}: ${ids.slice(0, 4).map((id) => `<a href="#" data-at="${id}" data-t="${p.media[id][0]}">${esc(S.mediaById[id]?.name || id)}</a>`).join(', ')}${ids.length > 4 ? ' …' : ''}</div></div>
-        <button class="small" data-find title="All shots of this person"></button><button class="small" data-rm title="Not someone to know (a poster, a passer-by) - leave out">✕</button></div>`; }).join('') || '<div class="muted pad">No faces in this footage.</div>'}</div>`;
+        <button class="small" data-find title="All shots of this person">🔎</button><button class="small" data-rm title="Not someone to know (a poster, a passer-by) - leave out">✕</button></div>`; }).join('') || '<div class="muted pad">No faces in this footage.</div>'}</div>`;
   };
   const reload = async () => { d = await api('GET', `/api/people?p=${enc(S.proj)}`); await refreshMedia(); draw(); };
   const save = async (row) => {

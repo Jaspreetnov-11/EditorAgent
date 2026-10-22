@@ -53,12 +53,12 @@ export function mountTimeline(el) {
         <button data-tool="rolling" title="Rolling Edit (N): drag a cut - one shot gets longer, the other shorter, nothing else moves" aria-label="Rolling edit tool"><b>⇹</b></button>
         <button data-tool="rate" title="Rate Stretch (R): drag a clip's end - its speed changes so the same shot fills the new length" aria-label="Rate stretch tool"><b>⟷</b></button>
         <button data-tool="type" title="Type tool (T): click on the Program monitor and type - text where you click, like Premiere" aria-label="Type tool"><b>T</b></button>
-        <button data-tool="pen" title="Pen (P): click on a clip to put a keyframe on its opacity (video) / volume (audio) line - higher = more" aria-label="Pen tool"><b></b></button>
+        <button data-tool="pen" title="Pen (P): click on a clip to put a keyframe on its opacity (video) / volume (audio) line - higher = more" aria-label="Pen tool"><b>✒</b></button>
         <button data-tool="remix" title="Remix: drag a music clip's end to the length you need - the music is re-cut to fit, from its best part" aria-label="Remix tool"><b>♫</b></button>
-        <button data-tool="slip" title="Slip (Y): drag a clip - it shows an earlier / later part of its file; its place and length stay" aria-label="Slip tool"><b></b></button>
+        <button data-tool="slip" title="Slip (Y): drag a clip - it shows an earlier / later part of its file; its place and length stay" aria-label="Slip tool"><b>↔</b></button>
         <button data-tool="slide" title="Slide (U): drag a main-story clip between its neighbours - the one before gets longer, the one after shorter (or the other way); nothing else moves" aria-label="Slide tool"><b>⇆</b></button>
         <button data-tool="trackfwd" title="Track Select Forward (A) / Backward (Shift+A): click - that clip and everything after (before) it on every track is selected (Shift+click: only that track). Drag an overlay clip to move them all, or Alt+← / → to nudge" aria-label="Track select tool"><b>⇥⇥</b></button>
-        <button data-tool="hand" title="Hand (H): drag to scroll the timeline" aria-label="Hand tool"><b></b></button>
+        <button data-tool="hand" title="Hand (H): drag to scroll the timeline" aria-label="Hand tool"><b>✋</b></button>
         <button data-tool="zoom" title="Zoom (Z): click to zoom in where you click, Alt+click to zoom out" aria-label="Zoom tool"><b>⌕</b></button>
       </div>
       <span class="sep"></span>
@@ -69,17 +69,17 @@ export function mountTimeline(el) {
       <button data-act="dup" title="Duplicate (Ctrl+D)">${ICON.copy}<span>Duplicate</span></button>
       <span class="sep"></span>
       <button data-act="title" title="Titles, lower thirds and cards - pick a template (T adds a plain title)">${ICON.text}<span>Title</span></button>
-      <button data-act="gfx" title="Motion graphics: counters, charts, callouts, route lines"><b></b><span>Graphic</span></button>
+      <button data-act="gfx" title="Motion graphics: counters, charts, callouts, route lines"><b>📊</b><span>Graphic</span></button>
       <button data-act="adjust" title="Adjustment layer: colour / effects for every track below it, at the playhead"><b>◩</b><span>Adjust</span></button>
-      <button data-act="ramp" title="Speed ramp: pick a preset for the selected video clips (slow-mo hit, bullet time, whoosh…)"><b></b><span>Ramp</span></button>
-      <button data-act="roto" title="Roto (AI): select a video clip - its subject (person / animal / vehicle) is cut out onto the track above. Put text on a track in between to have it behind the person"><b></b><span>Roto</span></button>
-      <button data-act="sfx" title="Auto sound design: whooshes, hits and a riser on A3, lined up with your cuts, transitions and effects"><b></b><span>SFX</span></button>
+      <button data-act="ramp" title="Speed ramp: pick a preset for the selected video clips (slow-mo hit, bullet time, whoosh…)"><b>⏩</b><span>Ramp</span></button>
+      <button data-act="roto" title="Roto (AI): select a video clip - its subject (person / animal / vehicle) is cut out onto the track above. Put text on a track in between to have it behind the person"><b>✂</b><span>Roto</span></button>
+      <button data-act="sfx" title="Auto sound design: whooshes, hits and a riser on A3, lined up with your cuts, transitions and effects"><b>🔊</b><span>SFX</span></button>
       <span class="sep"></span>
       <button data-act="snap" class="tog" title="Snapping on/off (N)">${ICON.magnet}<span>Snap</span></button>
     </div>
     <div class="tl-bar">
       <div class="tl-seqtabs" id="tlSeqTabs" role="tablist" aria-label="Sequences"></div>
-      <button data-act="seq" class="tl-seq" title="Sequences: switch, make a new one, copy / paste a timeline, manage" aria-haspopup="menu"><b></b><span id="tlSeqName"></span><i class="tl-seq-caret">▾</i></button>
+      <button data-act="seq" class="tl-seq" title="Sequences: switch, make a new one, copy / paste a timeline, manage" aria-haspopup="menu"><b>🎞</b><span id="tlSeqName"></span><i class="tl-seq-caret">▾</i></button>
       <span class="sep"></span>
       <span class="tl-tc" id="tlTC" title="Click and type a timecode: 1:10:00 or 11000 goes there, +15 / -1:00 moves by that (the selected clips, else the playhead)">00:00:00:00</span><span class="tl-dur" id="tlDur"></span>
       <span class="grow"></span>
@@ -464,13 +464,13 @@ function drawHeads(TR, ts) {
       <div class="th-btns">
         ${t.kind === 'video' ? `<button class="tbtn${st.hide ? ' on' : ''}" data-tst="hide" title="Hide track">${st.hide ? ICON.eyeOff : ICON.eye}</button>` : ''}
         <button class="tbtn${st.mute ? ' on' : ''}" data-tst="mute" title="${t.kind === 'video' ? 'Mute clip sound' : 'Mute track'}">M</button>
-        ${t.kind === 'audio' ? `<button class="tbtn solo${st.solo ? ' on' : ''}" data-tst="solo" title="Solo Track: hear only the soloed tracks">S</button><button class="tbtn rec" data-rec="${t.id}" title="Voice-over record: 3-2-1, then the edit plays and your voice goes onto ${t.name} from the playhead (click again or Esc to stop)"></button>` : ''}
+        ${t.kind === 'audio' ? `<button class="tbtn solo${st.solo ? ' on' : ''}" data-tst="solo" title="Solo Track: hear only the soloed tracks">S</button><button class="tbtn rec" data-rec="${t.id}" title="Voice-over record: 3-2-1, then the edit plays and your voice goes onto ${t.name} from the playhead (click again or Esc to stop)">🎙</button>` : ''}
         ${t.kind === 'audio' || t.id === 'V1' ? `<button class="tbtn tkey${st.volKeys?.length ? ' on' : ''}" data-tkey="${t.id}" title="Track volume keyframe at the playhead (${st.volKeys?.length || 0} now) - drag the dots on the track's yellow line, double-click one to remove it">◆</button>` : ''}
         ${t.id !== 'V1' ? `<button class="tbtn sync${st.sync ? ' on' : ''}" data-tst="sync" title="Sync Lock: when the main story ripples (Ripple delete, Q / W, Insert, ripple trim, Paste Insert, Trim mode) the clips on ${t.name} after that point move along with it">⇋</button>` : ''}
         <button class="tbtn${st.lock ? ' on' : ''}" data-tst="lock" title="Lock track">${ICON.lock}</button>
       </div>
       <div class="th-resize" data-rowh="${t.id}" title="Drag to make ${t.name} taller / shorter (double-click: normal)"></div>
-      ${t.kind === 'audio' || t.id === 'V1' ? `<div class="th-volrow" title="${t.id === 'V1' ? "Volume of the clips' own sound" : 'Track volume'}: drag (double-click = 100%)"><span class="th-vlbl"></span><input class="th-vol" type="range" min="0" max="2" step="0.05" value="${st.volume ?? 1}" data-tvol="${t.id}" aria-label="${t.name} volume"><span class="th-vpct">${Math.round((st.volume ?? 1) * 100)}%</span></div>` : ''}
+      ${t.kind === 'audio' || t.id === 'V1' ? `<div class="th-volrow" title="${t.id === 'V1' ? "Volume of the clips' own sound" : 'Track volume'}: drag (double-click = 100%)"><span class="th-vlbl">🔊</span><input class="th-vol" type="range" min="0" max="2" step="0.05" value="${st.volume ?? 1}" data-tvol="${t.id}" aria-label="${t.name} volume"><span class="th-vpct">${Math.round((st.volume ?? 1) * 100)}%</span></div>` : ''}
     </div>`;
   }).join('');
   $$('[data-tst]', headsEl).forEach((b) => (b.onclick = () => {

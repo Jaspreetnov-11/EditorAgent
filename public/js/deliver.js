@@ -307,7 +307,7 @@ function drawQueue() {
     const seq = j.seq ? ` <span class="tag">${esc(j.seq)}</span>` : '';
     const acts = j.state === 'waiting' ? `<button class="link small" data-qmove="${j.id}" data-dir="-1" title="Render it earlier">↑</button><button class="link small" data-qmove="${j.id}" data-dir="1" title="Render it later">↓</button><button class="link small" data-qcancel="${j.id}" title="Take it out of the queue">✕</button>`
       : j.state === 'rendering' ? `<button class="link small" data-qcancel="${j.id}" title="Stop this render">■ Stop</button>`
-      : j.state === 'done' ? (/\.mp4$/i.test(j.out) && j.project === S.proj ? `<button class="link small" data-play="${esc(j.url)}" data-name="${esc(j.out)}" title="Watch"></button>` : '') + `<a href="${j.url}?download" download title="Download"></a>`
+      : j.state === 'done' ? (/\.mp4$/i.test(j.out) && j.project === S.proj ? `<button class="link small" data-play="${esc(j.url)}" data-name="${esc(j.out)}" title="Watch">▶</button>` : '') + `<a href="${j.url}?download" download title="Download">⬇</a>`
       : j.state === 'failed' ? `<button class="link small" data-qretry="${j.id}" title="Try again">⟳</button>` : '';
     return `<div class="dv-q-item ${j.state}"><div class="dv-q-top"><span class="grow"><b>${esc(j.label)}</b>${seq}${other}</span><span class="muted small">${STATE[j.state]}</span>${acts}</div>
       <div class="muted small mono">${esc(j.out)}</div>

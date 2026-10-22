@@ -35,7 +35,7 @@ export function mountPool(el, { big = false } = {}) {
     <span class="pool-q" data-q></span>
   </div>
   <div class="pool-filters">
-    <div class="row-in"><input type="search" placeholder="Search names / tags - Enter: by picture" data-search aria-label="Search media"><button class="icon-btn small" data-a="find" title="Find by what the picture shows (jharna dikhao, crowd at night…)" aria-label="Find by picture"></button></div>
+    <div class="row-in"><input type="search" placeholder="Search names / tags - Enter: by picture" data-search aria-label="Search media"><button class="icon-btn small" data-a="find" title="Find by what the picture shows (jharna dikhao, crowd at night…)" aria-label="Find by picture">🔎</button></div>
     <div class="bin-chips" data-bins role="tablist" aria-label="Folders"></div>
     <div class="chips tagchips" data-tags hidden></div>
     <div class="chips">${['all', 'video', 'audio', 'image'].map((f) => `<button class="chip" data-f="${f}">${{ all: 'All', video: 'Video', audio: 'Audio', image: 'Photos' }[f]}</button>`).join('')}</div>

@@ -35,7 +35,7 @@ export function mountAssistant(busyFn) {
     <div class="as-quick">${QUICK.map(([l, c]) => `<button class="chip" data-cmd="${esc(c)}">${l}</button>`).join('')}</div>
     <div class="as-log" aria-live="polite"></div>
     <div class="as-refs" hidden></div>
-    <form class="as-in"><label class="icon-btn as-att" title="Attach a reference video or photo - Claude takes it apart and makes the same edit with your footage"><input type="file" hidden accept="video/*,image/*,.mxf,.mts"></label><textarea rows="2" placeholder="e.g. music dheema karo aur color thoda warm kar do"></textarea><button class="primary" type="submit">Send</button></form>
+    <form class="as-in"><label class="icon-btn as-att" title="Attach a reference video or photo - Claude takes it apart and makes the same edit with your footage">📎<input type="file" hidden accept="video/*,image/*,.mxf,.mts"></label><textarea rows="2" placeholder="e.g. music dheema karo aur color thoda warm kar do"></textarea><button class="primary" type="submit">Send</button></form>
   </aside>`);
   document.body.append(root);
   const ta = $('textarea', root);
