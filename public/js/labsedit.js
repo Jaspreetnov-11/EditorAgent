@@ -1,20 +1,29 @@
 // 🧪 Labs clips (Phase 22, like Motion comps / Fusions): right-click a video clip > Edit in Labs - a copy of it is laid
-// exactly over it on V3 or above (yellow on the timeline, muted: the sound stays with the clip below). Its Labs edit
-// (motion template, speed ramp, cut effect, effects) is a draft in project.labs[id] that the Labs page changes, shows on
-// its own preview + timeline, and puts on the timeline with Update on timeline - every clip of that Labs edit at once.
-// Double-click the yellow clip to open it in Labs. Nothing about Labs is in Effect Controls.
+// exactly over it on V3 or above (yellow on the timeline, muted: the sound stays with the clip below). Its Labs edit is a
+// draft in project.labs[id] that the Labs page changes: a preview, an inspector (In / duration, keyframes, speed ramp,
+// cut effect, effects with their settings) and its own timeline (trim the ends, drag keyframes, the cut effect's
+// length). "Update the timeline as I edit" (on by default) or Update on timeline puts it on every clip of that Labs
+// edit. Space / ← → / Delete work on the Labs preview while the Labs page is open. Nothing about Labs is in Effect Controls.
 import { S, commit, emit, findClip, layout } from './store.js';
-import { uid, clipDur, compTrack, sourceAt, propAt, RAMPS, rampPts } from './model.js';
-import { effectsCss } from './effects.js';
+import { uid, clipDur, compTrack, sourceAt, propAt, evalKeys, RAMPS, rampPts, setRamp, KEYABLE } from './model.js';
+import { effectsCss, VFX, newEffect } from './effects.js';
 import { CUTFX } from './fx.js';
 import { esc, toast } from './ui.js';
-import { TEMPLATES, templateById, applyTemplate, clearTemplate } from './aitemplates.js';
+import { applyTemplate, clearTemplate, templateNames } from './aitemplates.js';
 
-// what a Labs edit changes on its clip (the rest - start, track, In / Out - belongs to the timeline)
-const LAB_FIELDS = ['keys', 'ramp', 'rampPts', 'smooth', 'cutFx', 'effects', 'tpl', 'out'];
+// what a Labs edit changes on its clip (the rest - start, track - belongs to the timeline)
+const LAB_FIELDS = ['in', 'out', 'speed', 'keys', 'ramp', 'rampPts', 'smooth', 'cutFx', 'effects', 'tpl'];
+const PROPS = [['transform.zoom', 'Zoom', 0.01], ['transform.x', 'Position X', 0.5], ['transform.y', 'Position Y', 0.5], ['transform.rotation', 'Rotation', 1]];
+const EASES = [['', 'Linear'], ['io', 'Smooth'], ['in', 'Ease in'], ['out', 'Ease out'], ['hold', 'Hold']];
 const labs = () => (S.project.labs ||= {});
-let openId = null, T = 0, playing = false, raf = 0, root = null;
+let openId = null, T = 0, playing = false, raf = 0, root = null, selKey = null; // selKey: { p, i }
+const picked = new Set(); // Labs clips edited together (Ctrl / Shift + click in the list): templates, effects, cut, ramp go on all
+let live = true; // (update the timeline as I edit)
+try { live = localStorage.getItem('vedit.labs.live') !== '0'; } catch {}
 export const labOpen = () => (openId && labs()[openId]) || null;
+// the open Labs clip and the others picked with it
+const targets = () => { const L = labOpen(); return L ? [L, ...[...picked].filter((id) => id !== L.id).map((id) => labs()[id]).filter(Boolean)] : []; };
+const durOf = (L) => +clipDur(L.clip, S.mediaById).toFixed(3);
 
 // the timeline clips that show Labs edit `id`
 const onTimeline = (id) => Object.entries(S.project.tracks).filter(([t]) => t[0] === 'V').flatMap(([t, l]) => l.filter((x) => x.labsId === id).map((x) => ({ t, x })));
@@ -33,7 +42,7 @@ export function labsFromClip(clipId) {
   S.project.tracks[tr].push({ ...JSON.parse(JSON.stringify(draft)), id: uid(), labsId: id });
   commit(`Edit in Labs: ${m.name}`);
   toast(`"${name}" made on ${tr} over the clip (yellow) - edit it on the Labs page, double-click it to open it again`);
-  openId = id; T = 0;
+  openId = id; T = 0; selKey = null;
   emit('gotoPage', 'ai');
   return id;
 }
@@ -41,112 +50,308 @@ export function openLabsClip(c) {
   if (!c?.labsId) return;
   // a Labs clip copied from another project: its edit comes from the clip itself
   if (!labs()[c.labsId]) { labs()[c.labsId] = { id: c.labsId, name: S.mediaById[c.mediaId]?.name || 'Labs', dur: clipDur(c, S.mediaById), clip: JSON.parse(JSON.stringify(c)) }; commit('Bring back Labs edit'); }
-  openId = c.labsId; T = 0;
+  openId = c.labsId; T = 0; selKey = null;
   emit('gotoPage', 'ai');
+}
+
+// every change to the draft goes through here: saved (undo-able), the timeline follows when live, the page redraws
+function changed(label, { quiet = false, coalesce } = {}) {
+  const L = labOpen(); if (!L) return;
+  for (const x of targets()) { x.dur = durOf(x); if (live) pushToTimeline(x); }
+  commit(`Labs: ${label}${picked.size > 1 ? ` (${targets().length} clips)` : ''}`, coalesce);
+  if (!quiet) draw(); else { drawTimeline(); frame(); }
+}
+function pushToTimeline(L) {
+  const there = onTimeline(L.id);
+  for (const { x } of there) for (const k of LAB_FIELDS) { if (L.clip[k] === undefined) delete x[k]; else x[k] = JSON.parse(JSON.stringify(L.clip[k])); }
+  return there;
 }
 
 // templates and their removal work on the open Labs edit (the draft)
 export function labTemplate(t) {
   const L = labOpen(); if (!L) return false;
-  if (t.video && L.clip.type !== 'video') { toast(`${t.label} needs a video clip`, 'err'); return true; }
-  applyTemplate(L.clip, t, L.dur, S.mediaById);
-  commit(`Labs: ${t.label}`); draw();
-  toast(`${t.label} - press Update on timeline to put it on the edit`);
+  const all = targets();
+  for (const x of all) applyTemplate(x.clip, t, durOf(x), S.mediaById, { stack: true }); // (several templates add up)
+  changed(t.label);
+  toast(`${t.label} added${all.length > 1 ? ` to ${all.length} Labs clips` : ''}${live ? ' - on the timeline too' : ' - press Update on timeline'}`);
   return true;
 }
 export function labClear() {
   const L = labOpen(); if (!L) return false;
-  if (clearTemplate(L.clip, L.dur, S.mediaById)) { commit('Labs: remove template'); draw(); }
+  let n = 0; for (const x of targets()) if (clearTemplate(x.clip, durOf(x), S.mediaById)) n++;
+  if (n) changed('remove templates');
   return true;
 }
-// the draft onto every clip of this Labs edit (their place on the timeline stays)
 export function labUpdate() {
   const L = labOpen(); if (!L) return;
-  const there = onTimeline(L.id);
-  for (const { x } of there) {
-    for (const k of LAB_FIELDS) { if (L.clip[k] === undefined) delete x[k]; else x[k] = JSON.parse(JSON.stringify(L.clip[k])); }
-  }
+  const there = targets().flatMap((x) => pushToTimeline(x));
   commit(`Update Labs edit "${L.name}" on the timeline`);
   S.sel = new Set(there.map((p) => p.x.id)); emit('select');
   toast(there.length ? `"${L.name}" updated on ${[...new Set(there.map((p) => p.t))].join(', ')}` : 'This Labs edit is not on the timeline any more');
   draw();
 }
 
-// ---------------- the workspace on the Labs page: clips list · preview · timeline ----------------
+// ---------------- the workspace on the Labs page ----------------
 export function labsWorkHTML() {
   return `<section class="lab-work" data-work>
     <div class="lab-sec-h"><div><span class="lab-kicker">Labs timeline</span><h2 data-lname>No Labs clip open</h2></div>
-      <p class="lab-note" data-lhint>Right-click a video clip on the timeline › Edit in Labs. Its copy goes on V3 (yellow); edit it here.</p>
+      <p class="lab-note" data-lhint></p>
+      <label class="chk lw-live" title="Every change in Labs goes straight onto the clip on the Edit timeline"><input type="checkbox" data-llive${live ? ' checked' : ''}> Update the timeline as I edit</label>
       <button class="primary" data-l="update" disabled>Update on timeline</button></div>
     <div class="lw-grid">
       <aside class="lw-list" data-llist></aside>
       <div class="lw-stage"><div class="lw-frame" data-lframe><video muted playsinline preload="auto" data-lvid></video><div class="lw-ov" data-lov></div></div>
-        <div class="lw-tr"><button class="icon-btn" data-l="play" aria-label="Play">▶</button><span class="mono lw-tc" data-ltc>0:00.0</span></div></div>
+        <div class="lw-tr"><button class="icon-btn" data-l="start" aria-label="Go to start" title="Go to start (Home)">⏮</button><button class="icon-btn" data-l="back" aria-label="One frame back" title="One frame back (←)">‹</button>
+          <button class="icon-btn lw-play" data-l="play" aria-label="Play" title="Play / pause (Space)">▶</button><button class="icon-btn" data-l="fwd" aria-label="One frame on" title="One frame on (→)">›</button><button class="icon-btn" data-l="end" aria-label="Go to end" title="Go to end (End)">⏭</button>
+          <span class="mono lw-tc" data-ltc>0:00.00</span><span class="mono lw-dur" data-ldur></span></div></div>
+      <aside class="lw-insp" data-linsp></aside>
     </div>
     <div class="lw-tl" data-ltl></div>
   </section>`;
 }
+
 export function mountLabsWork(el) {
   root = el;
-  el.addEventListener('click', (e) => {
-    const b = e.target.closest('[data-l]'), it = e.target.closest('[data-lid]');
-    if (it) { openId = it.dataset.lid; T = 0; draw(); return; }
-    if (!b) return;
-    if (b.dataset.l === 'update') labUpdate();
-    if (b.dataset.l === 'play') toggle();
-    if (b.dataset.l === 'rm') { const L = labOpen(); if (L && confirm(`Delete the Labs edit "${L.name}"? Its clips stay on the timeline as they are.`)) { for (const { x } of onTimeline(L.id)) delete x.labsId; delete labs()[L.id]; openId = null; commit('Delete Labs edit'); draw(); } }
+  el.addEventListener('click', onClick);
+  el.addEventListener('change', (e) => onInput(e));
+  el.addEventListener('input', (e) => { if (e.target.matches('[type=range]')) onInput(e, true); });
+  el.addEventListener('pointerdown', onPointer);
+  el.addEventListener('dblclick', (e) => {
+    // double-click a property row: a keyframe there, with the value it has at that time
+    const lane = e.target.closest('[data-prop]'), L = labOpen(); if (!lane || !L || e.target.closest('[data-key]')) return;
+    const r = lane.getBoundingClientRect(), t = Math.max(0, Math.min(L.dur, ((e.clientX - r.left) / r.width) * L.dur));
+    addKey(lane.dataset.prop, t);
   });
-  // the Labs timeline: click / drag to move its playhead
-  el.addEventListener('pointerdown', (e) => {
-    const lane = e.target.closest('[data-lanes]'); if (!lane) return;
-    const seek = (ev) => { const r = lane.getBoundingClientRect(), L = labOpen(); if (!L) return; T = Math.max(0, Math.min(L.dur, ((ev.clientX - r.left) / r.width) * L.dur)); frame(); };
-    seek(e); const mv = (ev) => seek(ev), up = () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); };
-    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
-  });
+  // Space plays the Labs preview (not the Edit timeline) while the Labs page is open; ← → a frame; Delete a keyframe
+  document.addEventListener('keydown', (e) => {
+    if (S.page !== 'ai' || !labOpen() || document.querySelector('dialog[open]')) return;
+    if (e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable]')) return;
+    const L = labOpen(), fps = S.project.settings?.fps || 25;
+    let done = true;
+    if (e.key === ' ') toggle();
+    else if (e.key === 'ArrowLeft') seek(T - (e.shiftKey ? 10 : 1) / fps);
+    else if (e.key === 'ArrowRight') seek(T + (e.shiftKey ? 10 : 1) / fps);
+    else if (e.key === 'Home') seek(0);
+    else if (e.key === 'End') seek(L.dur);
+    else if ((e.key === 'Delete' || e.key === 'Backspace') && selKey) delKey();
+    else done = false;
+    if (done) { e.preventDefault(); e.stopImmediatePropagation(); }
+  }, true);
 }
+
+function onClick(e) {
+  const b = e.target.closest('[data-l]'), it = e.target.closest('[data-lid]'), key = e.target.closest('[data-key]');
+  if (it) {
+    const id = it.dataset.lid;
+    if (e.ctrlKey || e.metaKey || e.shiftKey) { if (picked.has(id) && id !== openId) picked.delete(id); else { picked.add(id); if (openId) picked.add(openId); } }
+    else { picked.clear(); openId = id; T = 0; selKey = null; }
+    draw(); return;
+  }
+  if (key) return; // (handled on pointerdown)
+  if (!b) return;
+  const a = b.dataset.l, L = labOpen(), fps = S.project.settings?.fps || 25;
+  if (a === 'update') labUpdate();
+  if (!L) return;
+  if (a === 'play') toggle();
+  if (a === 'start') seek(0);
+  if (a === 'end') seek(L.dur);
+  if (a === 'back') seek(T - 1 / fps);
+  if (a === 'fwd') seek(T + 1 / fps);
+  if (a === 'rm' && confirm(`Delete the Labs edit "${L.name}"? Its clips stay on the timeline as they are.`)) { for (const { x } of onTimeline(L.id)) delete x.labsId; delete labs()[L.id]; openId = null; selKey = null; commit('Delete Labs edit'); draw(); }
+  if (a === 'addkey') addKey(b.dataset.p, T);
+  if (a === 'clrkeys') { delete L.clip.keys?.[b.dataset.p]; if (L.clip.keys && !Object.keys(L.clip.keys).length) delete L.clip.keys; selKey = null; changed(`clear ${KEYABLE[b.dataset.p]?.label}`); }
+  if (a === 'delkey') delKey();
+  if (a === 'rmfx') { L.clip.effects = (L.clip.effects || []).filter((x) => x.id !== b.dataset.id); if (!L.clip.effects.length) delete L.clip.effects; changed('remove effect'); }
+  if (a === 'fxon') { const x = L.clip.effects.find((y) => y.id === b.dataset.id); x.on = x.on === false; changed(x.on ? 'effect on' : 'effect off'); }
+}
+
+// inspector fields: data-f = what it sets
+function onInput(e, sliding = false) {
+  const el = e.target, f = el.dataset.f, L = labOpen();
+  if (el.matches('[data-llive]')) { live = el.checked; try { localStorage.setItem('vedit.labs.live', live ? '1' : '0'); } catch {} if (live && L) { pushToTimeline(L); commit('Labs: update timeline'); } return; }
+  if (!f || !L) return;
+  const c = L.clip, v = el.type === 'checkbox' ? el.checked : el.value, n = +v, m = S.mediaById[c.mediaId], full = m?.duration || 1e9;
+  if (f === 'name') { L.name = String(v).trim() || L.name; return changed('rename'); }
+  if (f === 'in') { const d = durOf(L), sp = c.speed || 1, tin = Math.max(0, Math.min(full - 0.1, n)); c.in = +tin.toFixed(3); c.out = +Math.min(full, tin + d * sp).toFixed(3); return changed('In point'); }
+  if (f === 'dur') { const d = Math.max(0.2, n), sp = c.speed || 1; c.out = +Math.min(full, (c.in || 0) + d * sp).toFixed(3); if (c.ramp) setRamp(c, c.ramp, S.mediaById, c.rampPts, d); T = Math.min(T, d); return changed('Duration'); }
+  if (f === 'speed') { const d = durOf(L), sp = Math.max(0.1, Math.min(8, n || 1)); if (sp === 1) delete c.speed; else c.speed = sp; c.out = +Math.min(full, (c.in || 0) + d * sp).toFixed(3); return changed('Speed'); }
+  const each = (fn) => { for (const x of targets()) fn(x.clip, x); };
+  if (f === 'ramp') { each((cc, x) => { setRamp(cc, v, S.mediaById, null, durOf(x)); if (!v) delete cc.smooth; }); return changed(v ? `Speed ramp: ${RAMPS[v]?.label}` : 'No speed ramp'); }
+  if (f === 'smooth') { each((cc) => { if (v) cc.smooth = true; else delete cc.smooth; }); return changed(v ? 'Smooth slow motion' : 'No smooth slow motion'); }
+  if (f === 'cut') { each((cc) => { if (v) cc.cutFx = { type: v, dur: CUTFX[v].dur }; else delete cc.cutFx; }); return changed(v ? `Cut effect: ${CUTFX[v].label}` : 'No cut effect'); }
+  if (f === 'cutdur') { if (c.cutFx) c.cutFx.dur = Math.max(0.05, Math.min(3, n)); return changed('Cut effect length', { quiet: sliding, coalesce: 'labs-cutdur' }); }
+  if (f === 'addfx') { if (v) { each((cc) => (cc.effects ||= []).push(newEffect(v))); el.value = ''; changed(`effect ${VFX[v].label}`); } return; }
+  if (f === 'fxp') { const x = c.effects.find((y) => y.id === el.dataset.id); x.p = { ...(x.p || {}), [el.dataset.k]: n }; const lb = el.closest('.lwi-f')?.querySelector('b'); if (lb) lb.textContent = n; return changed(`${VFX[x.type].label} setting`, { quiet: sliding, coalesce: `labs-fx-${x.id}-${el.dataset.k}` }); }
+  if (f === 'val') { const p = el.dataset.p; setValueAt(p, T, n); return changed(`${KEYABLE[p]?.label}`, { quiet: true, coalesce: `labs-val-${p}` }); }
+  if (f === 'kt' && selKey) { const ks = c.keys[selKey.p], k = ks[selKey.i]; k.t = +Math.max(0, Math.min(L.dur, n)).toFixed(3); ks.sort((a, b) => a.t - b.t); selKey.i = ks.indexOf(k); return changed('keyframe time'); }
+  if (f === 'kv' && selKey) { c.keys[selKey.p][selKey.i].v = n; return changed('keyframe value'); }
+  if (f === 'ke' && selKey) { const k = c.keys[selKey.p][selKey.i]; if (v) k.ease = v; else delete k.ease; return changed('keyframe ease'); }
+}
+
+// a value at time t: the keyframe there (or a new one) when the property is animated, else the plain value
+function setValueAt(p, t, v) {
+  const c = labOpen().clip, ks = c.keys?.[p];
+  if (!ks?.length) { const [a, b] = p.split('.'); if (b) c[a] = { ...(c[a] || {}), [b]: v }; else c[p] = v; return; }
+  const near = ks.findIndex((k) => Math.abs(k.t - t) < 0.02);
+  if (near >= 0) ks[near].v = v; else { ks.push({ t: +t.toFixed(3), v }); ks.sort((x, y) => x.t - y.t); }
+}
+function addKey(p, t) {
+  const L = labOpen(), c = L.clip;
+  const v = +(+propAt(c, p, t) || 0).toFixed(3), ks = ((c.keys ||= {})[p] ||= []);
+  // the first key of a property: one at the start too, so it animates from the value it had
+  if (!ks.length && t > 0.05) ks.push({ t: 0, v });
+  if (!ks.some((k) => Math.abs(k.t - t) < 0.02)) ks.push({ t: +t.toFixed(3), v });
+  ks.sort((a, b) => a.t - b.t);
+  selKey = { p, i: ks.findIndex((k) => Math.abs(k.t - t) < 0.02) };
+  changed(`keyframe ${KEYABLE[p]?.label}`);
+}
+function delKey() {
+  const c = labOpen().clip, ks = c.keys?.[selKey.p]; if (!ks) return;
+  ks.splice(selKey.i, 1);
+  if (!ks.length) delete c.keys[selKey.p];
+  if (c.keys && !Object.keys(c.keys).length) delete c.keys;
+  selKey = null; changed('delete keyframe');
+}
+
+// timeline drags: the playhead (ruler / empty lane), a keyframe (its time), the clip's ends (In / duration), the cut
+// effect's end (its length)
+function onPointer(e) {
+  const L = labOpen(); if (!L || e.button !== 0) return;
+  const tl = e.target.closest('[data-lanes]'); if (!tl) return;
+  const lane = tl.querySelector('.lbt-ruler .lbt-lane'), r = lane.getBoundingClientRect(), D0 = L.dur;
+  const tAt = (x) => Math.max(0, Math.min(D0, ((x - r.left) / r.width) * D0));
+  const key = e.target.closest('[data-key]'), trim = e.target.closest('[data-trim]'), cut = e.target.closest('[data-cutend]');
+  let move, done;
+  if (key) {
+    selKey = { p: key.dataset.key, i: +key.dataset.i };
+    const k = L.clip.keys[selKey.p][selKey.i], x0 = e.clientX;
+    let moved = false;
+    T = k.t; frame(); drawInspector(); drawTimeline();
+    move = (ev) => { if (Math.abs(ev.clientX - x0) < 3 && !moved) return; moved = true; k.t = +tAt(ev.clientX).toFixed(3); T = k.t; drawTimeline(); frame(); };
+    done = () => { if (!moved) return; const ks = L.clip.keys[selKey.p]; ks.sort((a, b) => a.t - b.t); selKey.i = ks.indexOf(k); changed('move keyframe'); };
+  } else if (trim) {
+    const c = L.clip, side = trim.dataset.trim, sp = c.speed || 1, in0 = c.in || 0, out0 = c.out, full = S.mediaById[c.mediaId]?.duration || 1e9;
+    move = (ev) => {
+      const dx = ((ev.clientX - e.clientX) / r.width) * D0;
+      if (side === 'r') c.out = +Math.min(full, in0 + Math.max(0.2, D0 + dx) * sp).toFixed(3);
+      else { c.in = +Math.max(0, Math.min(in0 + (D0 - 0.2) * sp, in0 + dx * sp)).toFixed(3); c.out = out0; }
+      root.querySelector('[data-ldur]').textContent = `/ ${fmtT(durOf(L))}`;
+    };
+    done = () => changed(side === 'r' ? 'trim end' : 'trim start');
+  } else if (cut) {
+    move = (ev) => { L.clip.cutFx.dur = +Math.max(0.05, Math.min(3, tAt(ev.clientX))).toFixed(2); drawTimeline(); };
+    done = () => changed('cut effect length');
+  } else {
+    if (e.target.closest('input, select, button')) return;
+    move = (ev) => seek(tAt(ev.clientX));
+    done = () => {};
+    move(e);
+  }
+  e.preventDefault();
+  const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); done(); };
+  window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+}
+
+const fmtT = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(2).padStart(5, '0')}`;
+function seek(t) { const L = labOpen(); if (!L) return; T = Math.max(0, Math.min(L.dur, t)); frame(); drawInspector(true); }
 
 export function draw() {
   if (!root) return;
-  const all = Object.values(labs()), L = labOpen();
-  if (!L && all.length) openId = all[all.length - 1].id;
-  const cur = labOpen();
-  root.querySelector('[data-llist]').innerHTML = all.length ? all.map((x) => `<button class="lw-item${x.id === openId ? ' on' : ''}" data-lid="${x.id}"><i class="lw-sw"></i><span><b>${esc(x.name)}</b><small>${x.clip.tpl ? esc(templateById(x.clip.tpl.id)?.label || '') : 'No template yet'} · ${x.dur.toFixed(1)} s · ${onTimeline(x.id).length ? 'on the timeline' : 'not on the timeline'}</small></span></button>`).join('') : '<p class="lab-note">No Labs clips yet.</p>';
-  root.querySelector('[data-lname]').textContent = cur ? cur.name : 'No Labs clip open';
-  root.querySelector('[data-lhint]').innerHTML = cur ? `Pick a motion template below, then <b>Update on timeline</b>. <button class="lab-link" data-l="rm">Delete this Labs edit</button>` : 'Right-click a video clip on the timeline › Edit in Labs. Its copy goes on V3 (yellow); edit it here.';
-  root.querySelector('[data-l="update"]').disabled = !cur;
-  root.querySelector('[data-lframe]').classList.toggle('empty', !cur);
-  const v = root.querySelector('[data-lvid]'), m = cur && S.mediaById[cur.clip.mediaId], url = m?.urls?.play || '';
+  const all = Object.values(labs());
+  if (!labOpen() && all.length) openId = all[all.length - 1].id;
+  const L = labOpen();
+  if (L) { L.dur = durOf(L); T = Math.min(T, L.dur); if (selKey && !L.clip.keys?.[selKey.p]?.[selKey.i]) selKey = null; }
+  root.querySelector('[data-llist]').innerHTML = all.length ? all.map((x) => `<button class="lw-item${x.id === openId ? ' on' : ''}${picked.has(x.id) && x.id !== openId ? ' pk' : ''}" data-lid="${x.id}" title="Click: open · Ctrl / Shift + click: edit together"><i class="lw-sw"></i><span><b>${esc(x.name)}</b><small>${esc(templateNames(x.clip) || 'No template')} · ${(+x.dur).toFixed(1)} s${onTimeline(x.id).length ? '' : ' · not on the timeline'}</small></span></button>`).join('') : '<p class="lab-note">No Labs clips yet. Right-click a video clip on the timeline › Edit in Labs.</p>';
+  root.querySelector('[data-lname]').textContent = L ? L.name : 'No Labs clip open';
+  root.querySelector('[data-lhint]').innerHTML = L ? `${picked.size > 1 ? `<b>Editing ${targets().length} Labs clips together</b> (templates, effects, cut, speed ramp) · ` : 'Ctrl + click clips in the list to edit several together · '}Double-click a row: keyframe · Space plays · <button class="lab-link" data-l="rm">Delete this Labs edit</button>` : 'Right-click a video clip on the timeline › Edit in Labs. Its copy goes on V3 (yellow); edit it here.';
+  root.querySelector('[data-l="update"]').disabled = !L;
+  root.querySelector('[data-lframe]').classList.toggle('empty', !L);
+  const v = root.querySelector('[data-lvid]'), m = L && S.mediaById[L.clip.mediaId], url = m?.urls?.play || '';
   if (v.dataset.src !== url) { v.src = url; v.dataset.src = url; }
-  drawTimeline(); frame();
+  drawInspector(); drawTimeline(); frame();
 }
 
-// the Labs edit's own timeline: video (with its keyframes), speed (the ramp curve), cut effect, effects
+// ---------------- inspector ----------------
+function drawInspector(valuesOnly = false) {
+  const el = root?.querySelector('[data-linsp]'), L = labOpen();
+  if (!el) return;
+  if (!L) { el.innerHTML = '<p class="lab-note">The settings of the open Labs clip appear here.</p>'; return; }
+  const c = L.clip, num = (f, v, step = 0.01, attrs = '') => `<input type="number" data-f="${f}" value="${+(+v).toFixed(3)}" step="${step}" ${attrs}>`;
+  if (valuesOnly) { // (the playhead moved: only the values at the new time)
+    for (const [p] of PROPS) { const i = el.querySelector(`[data-f="val"][data-p="${p}"]`); if (i && document.activeElement !== i) i.value = +(+propAt(c, p, T) || 0).toFixed(3); }
+    const h = el.querySelector('[data-at]'); if (h) h.textContent = `at ${fmtT(T)}`;
+    return;
+  }
+  const k = selKey && c.keys?.[selKey.p]?.[selKey.i];
+  const fx = (c.effects || []).map((x) => {
+    const d = VFX[x.type]; if (!d) return '';
+    const ps = Object.entries(d.params || {}).filter(([, p]) => p.min !== undefined).map(([pk, p]) => `<label class="lwi-f"><span>${esc(p.label)} <b>${+(x.p?.[pk] ?? p.def)}</b></span><input type="range" data-f="fxp" data-id="${x.id}" data-k="${pk}" min="${p.min}" max="${p.max}" step="${p.step || 0.01}" value="${x.p?.[pk] ?? p.def}"></label>`).join('');
+    return `<div class="lwi-fx${x.on === false ? ' off' : ''}"><div class="lwi-fxh"><b>${esc(d.label)}</b><button class="lab-link" data-l="fxon" data-id="${x.id}">${x.on === false ? 'Turn on' : 'Turn off'}</button><button class="lab-link" data-l="rmfx" data-id="${x.id}">Remove</button></div>${ps}</div>`;
+  }).join('');
+  el.innerHTML = `
+    <div class="lwi-sec"><h4>Clip</h4>
+      <label class="lwi-f"><span>Name</span><input data-f="name" value="${esc(L.name)}"></label>
+      <div class="lwi-2"><label class="lwi-f"><span>In (s)</span>${num('in', c.in || 0, 0.04, 'min="0"')}</label><label class="lwi-f"><span>Duration (s)</span>${num('dur', L.dur, 0.04, 'min="0.2"')}</label></div></div>
+    ${k ? `<div class="lwi-sec lwi-key"><h4>Keyframe · ${esc(KEYABLE[selKey.p]?.label || selKey.p)}</h4>
+      <div class="lwi-2"><label class="lwi-f"><span>Time (s)</span>${num('kt', k.t, 0.04, 'min="0"')}</label><label class="lwi-f"><span>Value</span>${num('kv', k.v, 0.01)}</label></div>
+      <label class="lwi-f"><span>Ease to the next</span><select data-f="ke">${EASES.map(([v, l]) => `<option value="${v}"${(k.ease || '') === v || (k.ease === true && v === 'io') ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+      <button class="small danger" data-l="delkey">Delete keyframe</button></div>` : ''}
+    <div class="lwi-sec"><h4>Motion <small data-at>at ${fmtT(T)}</small></h4>
+      ${PROPS.map(([p, l, st]) => `<div class="lwi-prop"><span>${l}</span><input type="number" data-f="val" data-p="${p}" value="${+(+propAt(c, p, T) || 0).toFixed(3)}" step="${st}"><button class="icon-btn lwi-kb${c.keys?.[p]?.length ? ' on' : ''}" data-l="addkey" data-p="${p}" title="Keyframe at the playhead" aria-label="Add keyframe">◆</button>${c.keys?.[p]?.length ? `<button class="lab-link" data-l="clrkeys" data-p="${p}" title="Remove its keyframes">Clear</button>` : '<span></span>'}</div>`).join('')}</div>
+    <div class="lwi-sec"><h4>Speed</h4>
+      <div class="lwi-2"><label class="lwi-f"><span>Speed</span>${num('speed', c.speed || 1, 0.05, 'min="0.1" max="8"')}</label>
+      <label class="lwi-f"><span>Speed ramp</span><select data-f="ramp"><option value="">None</option>${Object.entries(RAMPS).map(([k2, r]) => `<option value="${k2}"${c.ramp === k2 ? ' selected' : ''}>${esc(r.label)}</option>`).join('')}</select></label></div>
+      <label class="chk"><input type="checkbox" data-f="smooth"${c.smooth ? ' checked' : ''}> Smooth slow motion (optical flow)</label></div>
+    <div class="lwi-sec"><h4>Cut effect</h4>
+      <label class="lwi-f"><span>On the cut in</span><select data-f="cut"><option value="">None</option>${Object.entries(CUTFX).map(([k2, x]) => `<option value="${k2}"${c.cutFx?.type === k2 ? ' selected' : ''}>${esc(x.label)}</option>`).join('')}</select></label>
+      ${c.cutFx ? `<label class="lwi-f"><span>Length <b>${(+c.cutFx.dur || CUTFX[c.cutFx.type]?.dur).toFixed(2)} s</b></span><input type="range" data-f="cutdur" min="0.05" max="3" step="0.05" value="${+c.cutFx.dur || CUTFX[c.cutFx.type]?.dur}"></label>` : ''}</div>
+    <div class="lwi-sec"><h4>Effects</h4>${fx || '<p class="lab-note">None</p>'}
+      <select data-f="addfx"><option value="">+ Add an effect…</option>${Object.entries(VFX).filter(([, d]) => !d.v2only && !d.stab).map(([k2, d]) => `<option value="${k2}">${esc(d.label)}</option>`).join('')}</select></div>`;
+}
+
+// ---------------- timeline ----------------
 function drawTimeline() {
-  const el = root.querySelector('[data-ltl]'), L = labOpen();
+  const el = root?.querySelector('[data-ltl]'), L = labOpen();
+  if (!el) return;
   if (!L) { el.innerHTML = ''; return; }
-  const c = L.clip, D = L.dur, pct = (t) => `${Math.max(0, Math.min(100, (t / D) * 100)).toFixed(2)}%`;
-  const ticks = []; const step = D > 20 ? 5 : D > 8 ? 2 : 1;
-  for (let t = 0; t <= D + 1e-6; t += step) ticks.push(`<span style="left:${pct(t)}">${t}s</span>`);
-  const keyT = [...new Set(Object.values(c.keys || {}).flat().map((k) => +k.t.toFixed(2)))];
+  const c = L.clip, D = L.dur, pct = (t) => `${Math.max(0, Math.min(100, (t / D) * 100)).toFixed(3)}%`;
+  root.querySelector('[data-ldur]').textContent = `/ ${fmtT(D)}`;
+  const ticks = [], step = D > 40 ? 10 : D > 16 ? 2 : D > 6 ? 1 : 0.5;
+  for (let t = 0; t <= D + 1e-6; t += step) ticks.push(`<span style="left:${pct(t)}">${t % 1 ? t.toFixed(1) : t}s</span>`);
   const pts = rampPts(c), curve = pts ? (() => { const mx = Math.max(...pts.map((p) => p[1]), 1); return pts.map(([u, s]) => `${(u * 100).toFixed(2)},${(100 - (s / mx) * 86).toFixed(1)}`).join(' '); })() : '';
   const cfx = c.cutFx?.type && CUTFX[c.cutFx.type] ? { label: CUTFX[c.cutFx.type].label, d: +c.cutFx.dur || CUTFX[c.cutFx.type].dur } : null;
-  const fx = (c.effects || []).filter((e) => e.on !== false);
-  const row = (name, body) => `<div class="lbt-row"><span class="lbt-name">${name}</span><div class="lbt-lane">${body}</div></div>`;
+  const row = (name, body, attrs = '') => `<div class="lbt-row"><span class="lbt-name">${name}</span><div class="lbt-lane"${attrs}>${body}</div></div>`;
+  // a property's curve over the clip, drawn under its keyframes
+  const propRow = ([p, l]) => {
+    const ks = c.keys?.[p] || [];
+    let line = '';
+    if (ks.length > 1) {
+      const vals = Array.from({ length: 41 }, (_, i) => evalKeys(ks, (i / 40) * D)), lo = Math.min(...vals), hi = Math.max(...vals), span = hi - lo || 1;
+      line = `<svg class="lbt-curve" viewBox="0 0 100 100" preserveAspectRatio="none"><polyline points="${vals.map((v, i) => `${(i * 2.5).toFixed(1)},${(88 - ((v - lo) / span) * 76).toFixed(1)}`).join(' ')}"/></svg>`;
+    }
+    return row(l, `${line}${ks.map((k, i) => `<em class="lbt-key${selKey?.p === p && selKey.i === i ? ' on' : ''}" data-key="${p}" data-i="${i}" style="left:${pct(k.t)}" title="${l}: ${+k.v.toFixed(3)} at ${fmtT(k.t)} - drag to move, click to edit"></em>`).join('')}${ks.length ? '' : '<small class="lbt-cap">Double-click to add a keyframe</small>'}`, ` data-prop="${p}"`);
+  };
   el.innerHTML = `<div class="lbt" data-lanes>
     <div class="lbt-row lbt-ruler"><span class="lbt-name"></span><div class="lbt-lane">${ticks.join('')}</div></div>
-    ${row('Video', `<div class="lbt-clip"><b>${esc(L.name)}</b>${c.tpl ? `<i>${esc(templateById(c.tpl.id)?.label || '')}</i>` : ''}</div>${keyT.map((t) => `<em class="lbt-key" style="left:${pct(t)}"></em>`).join('')}`)}
-    ${row('Speed', pts ? `<svg class="lbt-curve" viewBox="0 0 100 100" preserveAspectRatio="none"><polyline points="${curve}"/></svg><small class="lbt-cap">${esc(RAMPS[c.ramp]?.label || 'Custom ramp')}</small>` : '<small class="lbt-cap">Normal speed</small>')}
-    ${row('Cut', cfx ? `<div class="lbt-fx" style="width:${pct(cfx.d)}">${esc(cfx.label)}</div>` : '<small class="lbt-cap">None</small>')}
-    ${row('Effects', fx.length ? `<div class="lbt-chips">${fx.map((e) => `<span>${esc(e.type)}</span>`).join('')}</div>` : '<small class="lbt-cap">None</small>')}
+    ${row('Video', `<div class="lbt-clip"><i class="lbt-trim l" data-trim="l" title="Drag: the In point"></i><b>${esc(L.name)}</b>${c.tpl ? `<i class="lbt-tpl">${esc(templateNames(c))}</i>` : ''}<span class="lbt-len">${D.toFixed(2)} s</span><i class="lbt-trim r" data-trim="r" title="Drag: the duration"></i></div>`)}
+    ${PROPS.map(propRow).join('')}
+    ${row('Speed', pts ? `<svg class="lbt-curve" viewBox="0 0 100 100" preserveAspectRatio="none"><polyline points="${curve}"/></svg><small class="lbt-cap">${esc(RAMPS[c.ramp]?.label || 'Custom ramp')}</small>` : `<small class="lbt-cap">${c.speed && c.speed !== 1 ? `${c.speed}× all through` : 'Normal speed'}</small>`)}
+    ${row('Cut', cfx ? `<div class="lbt-fx" style="width:${pct(cfx.d)}">${esc(cfx.label)}<i class="lbt-trim r" data-cutend title="Drag: its length"></i></div>` : '<small class="lbt-cap">None</small>')}
+    ${(c.effects || []).length ? (c.effects || []).map((e) => row(esc(VFX[e.type]?.label || e.type), `<div class="lbt-efx${e.on === false ? ' off' : ''}"><span>${esc(VFX[e.type]?.label || e.type)}${e.tpl ? ' · template' : ''}</span><button class="lab-link" data-l="fxon" data-id="${e.id}">${e.on === false ? 'On' : 'Off'}</button><button class="lab-link" data-l="rmfx" data-id="${e.id}" aria-label="Remove">✕</button></div>`)).join('') : row('Effects', '<small class="lbt-cap">None - add effects in the inspector (as many as you like)</small>')}
     <i class="lbt-ph" data-lph></i></div>`;
+  drawPh();
+}
+function drawPh() {
+  const ph = root?.querySelector('[data-lph]'), L = labOpen();
+  if (ph && L) ph.style.left = `calc(var(--lbt-name) + (100% - var(--lbt-name)) * ${(T / L.dur).toFixed(4)})`;
+  const tc = root?.querySelector('[data-ltc]'); if (tc) tc.textContent = fmtT(T);
 }
 
-// the preview frame at T: the shot at its (ramped) source time, with the template's Motion and effects
+// the preview frame at T: the shot at its (ramped) source time, with its Motion and effects
 function frame() {
   if (!root) return;
-  const L = labOpen(), v = root.querySelector('[data-lvid]'), fr = root.querySelector('[data-lframe]'), ph = root.querySelector('[data-lph]');
-  root.querySelector('[data-ltc]').textContent = `${Math.floor(T / 60)}:${(T % 60).toFixed(1).padStart(4, '0')}`;
-  if (ph && L) ph.style.left = `calc(var(--lbt-name) + (100% - var(--lbt-name)) * ${(T / L.dur).toFixed(4)})`;
+  const L = labOpen(), v = root.querySelector('[data-lvid]'), fr = root.querySelector('[data-lframe]');
+  drawPh();
   if (!L) return;
   const c = L.clip, src = sourceAt(c, T, L.dur);
   if (!playing && Math.abs((v.currentTime || 0) - src) > 0.04) { try { v.currentTime = src; } catch {} }
@@ -154,16 +359,15 @@ function frame() {
   const ef = effectsCss(c, fr.clientWidth / 1920);
   v.style.transform = `translate(${x}%, ${y}%) rotate(${r}deg) scale(${z}) ${ef.transform || ''}`;
   v.style.filter = ef.filter || '';
-  // the cut effect: a flash / dip over the first moments of the clip
   const cf = c.cutFx?.type, d = cf ? (+c.cutFx.dur || CUTFX[cf]?.dur || 0.3) : 0, ov = root.querySelector('[data-lov]');
-  ov.style.background = ef.overlay || ''; ov.style.opacity = '1';
+  ov.style.background = ef.overlay || '';
   if (cf && T < d) { const k = 1 - T / d; ov.style.background = cf === 'flash' || cf === 'strobe' ? `rgba(255,255,255,${k.toFixed(2)})` : cf === 'burn' || cf === 'leak' ? `radial-gradient(circle at 20% 30%, rgba(255,140,40,${(0.7 * k).toFixed(2)}), transparent 70%)` : ef.overlay || ''; }
 }
 function toggle() {
   const L = labOpen(), v = root.querySelector('[data-lvid]'), b = root.querySelector('[data-l="play"]');
   if (!L) return;
   playing = !playing; b.textContent = playing ? '⏸' : '▶';
-  if (!playing) { cancelAnimationFrame(raf); v.pause(); return; }
+  if (!playing) { cancelAnimationFrame(raf); v.pause(); drawInspector(true); return; }
   if (T >= L.dur - 0.05) T = 0;
   let last = performance.now();
   v.currentTime = sourceAt(L.clip, T, L.dur); v.play().catch(() => {});
@@ -173,11 +377,11 @@ function toggle() {
     if (T >= L.dur) { T = 0; v.currentTime = sourceAt(L.clip, 0, L.dur); }
     // a ramp changes the speed as it goes: the video's rate follows it (and is pulled back when it drifts)
     const want = sourceAt(L.clip, T, L.dur), ahead = sourceAt(L.clip, Math.min(L.dur, T + 0.1), L.dur);
-    v.playbackRate = Math.max(0.0625, Math.min(16, (ahead - want) / 0.1));
+    v.playbackRate = Math.max(0.0625, Math.min(16, (ahead - want) / 0.1 || 1));
     if (Math.abs(v.currentTime - want) > 0.25) v.currentTime = want;
     frame(); raf = requestAnimationFrame(tick);
   };
   raf = requestAnimationFrame(tick);
 }
 export function stopLabs() { if (playing) toggle(); }
-export { LAB_FIELDS, TEMPLATES };
+export { LAB_FIELDS };

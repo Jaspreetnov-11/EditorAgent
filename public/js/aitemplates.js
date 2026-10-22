@@ -29,16 +29,22 @@ export const TEMPLATES = [
 export const templateById = (id) => TEMPLATES.find((t) => t.id === id);
 
 // put template t on clip c (D = its length on the timeline, kept as it is). Returns a short note of what was set.
-export function applyTemplate(c, t, D, media) {
-  clearTemplate(c, D, media);
+// stack: added to the templates already on it (Labs - several at once; a later one wins where they set the same thing)
+export function applyTemplate(c, t, D, media, { stack = false } = {}) {
+  const had = stack && c.tpl ? c.tpl : null;
+  if (!stack) clearTemplate(c, D, media);
+  else if (c.tpl?.ids?.includes(t.id) || c.tpl?.id === t.id) return t.label; // (already on)
   const r = t.make(Math.max(0.2, D));
   if (r.keys) { c.keys ||= {}; for (const [p, ks] of Object.entries(r.keys)) c.keys[p] = ks.filter((q) => q.t <= D + 1e-6); }
   if (r.ramp && c.type === 'video') { setRamp(c, r.ramp, media, null, D); if (r.smooth) c.smooth = true; }
   if (r.cutFx && CUTFX[r.cutFx.type]) c.cutFx = { ...r.cutFx };
   if (r.effects?.length) c.effects = [...(c.effects || []), ...r.effects];
-  c.tpl = { id: t.id, keys: Object.keys(r.keys || {}), ramp: !!r.ramp, cutFx: !!r.cutFx };
+  const ids = [...(had?.ids || (had ? [had.id] : [])), t.id];
+  c.tpl = { id: t.id, ids, keys: [...new Set([...(had?.keys || []), ...Object.keys(r.keys || {})])], ramp: !!(had?.ramp || r.ramp), cutFx: !!(had?.cutFx || r.cutFx) };
   return t.label;
 }
+// the templates on a clip, by name ("Crash zoom in + Film burn memory")
+export const templateNames = (c) => (c?.tpl ? (c.tpl.ids || [c.tpl.id]).map((id) => templateById(id)?.label).filter(Boolean).join(' + ') : '');
 // take back what a template put on (the clip's own effects and keyframes stay)
 export function clearTemplate(c, D, media) {
   const t = c.tpl;
