@@ -61,6 +61,10 @@ export function mountAI(el) {
   root = el;
   el.innerHTML = `<div class="lab">
     <header class="lab-head"><div><h1>Labs</h1><p>AI tools for dubbing, camera moves and faster edits - all running on this computer.</p></div></header>
+    <section class="lab-sec">
+      <div class="lab-sec-h"><div><span class="lab-kicker">Motion templates</span><h2>One-click camera moves</h2></div><p class="lab-note" data-tplsel></p><button class="lab-link" data-a="untpl">Remove from selected</button></div>
+      <div class="lab-grid" data-tpls>${TEMPLATES.map((t) => `<button class="lab-tile" data-tpl="${t.id}"><span class="lab-tile-ic">${glyph(t.id)}</span><span class="lab-tile-t"><b>${esc(t.label)}</b><small>${esc(t.sub)}</small></span>${t.video ? '<i class="lab-tag">video</i>' : ''}</button>`).join('')}</div>
+    </section>
     ${labsWorkHTML()}
     <section class="lab-hero">
       <div class="lab-hero-ic">${glyph('dub')}</div>
@@ -68,10 +72,6 @@ export function mountAI(el) {
         <p>Listens to the clip, translates every line, and speaks it again in the same voice - fitted to the original timing.</p>
         <p class="lab-note" data-dubsel></p></div>
       <div class="lab-hero-act"><span class="lab-pill" data-vst></span><button class="primary" data-a="dub">Dub selected clip</button><button class="lab-link" data-a="setup" hidden>Set up same-voice AI (one time, about 5 GB)</button></div>
-    </section>
-    <section class="lab-sec">
-      <div class="lab-sec-h"><div><span class="lab-kicker">Motion templates</span><h2>One-click camera moves</h2></div><p class="lab-note" data-tplsel></p><button class="lab-link" data-a="untpl">Remove from selected</button></div>
-      <div class="lab-grid" data-tpls>${TEMPLATES.map((t) => `<button class="lab-tile" data-tpl="${t.id}"><span class="lab-tile-ic">${glyph(t.id)}</span><span class="lab-tile-t"><b>${esc(t.label)}</b><small>${esc(t.sub)}</small></span>${t.video ? '<i class="lab-tag">video</i>' : ''}</button>`).join('')}</div>
     </section>
     <section class="lab-sec">
       <div class="lab-sec-h"><div><span class="lab-kicker">Tools</span><h2>Edit faster</h2></div></div>
