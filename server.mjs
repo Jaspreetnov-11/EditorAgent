@@ -2516,6 +2516,65 @@ function toUnc(p) {
   return netUse.map[d] ? netUse.map[d] + p.slice(2) : p;
 }
 const whoLabel = (who) => (who.local ? `${who.name} (this PC)` : who.name);
+
+// 🧬 voice-over in the voice of a recording (Phase 22, like ElevenLabs voice cloning): up to 15 s of b.refMediaId (from
+// b.refIn) is the voice; the script is spoken sentence by sentence (a blank line = a longer pause) and joined, with
+// subtitles timed per sentence. lang: 'hi' for Devanagari scripts, else 'en'.
+function cloneVoiceOver(name, b, lang) {
+  const m = mediaItem(name, b.refMediaId);
+  if (!m || !(m.hasAudio || m.kind === 'audio')) throw err(400, 'Pick the recording whose voice should speak');
+  if (!aiVoiceReady()) throw err(400, 'Same-voice AI is not set up yet - press "Set up same-voice AI" on the Labs page first');
+  // sentences (। . ! ?), long ones cut at commas; paragraphs remember the pause after them
+  const chunks = [];
+  for (const para of String(b.text).replace(/\*+/g, '').split(/\n\s*\n/)) {
+    const ss = para.replace(/\s+/g, ' ').trim().split(/(?<=[।॥.!?])\s+/).filter(Boolean);
+    for (const s of ss) {
+      // (short pieces: the voice model wanders off - made-up words - more often on long ones)
+      if (s.length <= 150) { chunks.push({ text: s, gap: 0.3 }); continue; }
+      let cur = '';
+      for (const w of s.split(/(?<=[,،;])\s+|\s+(?=(?:और|तथा|लेकिन|क्योंकि|जिससे|and|but|which)\s)/)) { if (cur && (cur + w).length > 150) { chunks.push({ text: cur.trim(), gap: 0.12 }); cur = ''; } cur += `${w} `; }
+      if (cur.trim()) chunks.push({ text: cur.trim(), gap: 0.3 });
+    }
+    if (chunks.length) chunks[chunks.length - 1].gap = 0.75;
+  }
+  if (!chunks.length) throw err(400, 'Write the voice-over text first');
+  return startTask('tts', async (job) => {
+    const wd = fs.mkdtempSync(P(name, 'cache', 'vo-'));
+    try {
+      job.stage = 'Listening to the voice…'; job.progress = 2;
+      const ref = path.join(wd, 'voice.wav');
+      const rr = await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-ss', String(Math.max(0, +b.refIn || 0)), '-i', m.path, '-vn', '-af', 'silenceremove=start_periods=1:start_threshold=-40dB', '-t', '15', '-ac', '1', '-ar', '24000', ref]);
+      if (rr.code !== 0) throw new Error(`Could not take the voice sample: ${rr.stderr.slice(-200)}`);
+      const files = chunks.map((_, k) => path.join(wd, `s${k}.wav`)), jf = path.join(wd, 'clone.json');
+      writeJSON(jf, { ref, lang, lines: chunks.map((c, k) => ({ text: c.text, out: files[k] })) });
+      const r = await run(AIVOICE_PY, [path.join(ROOT, 'engine', 'voiceclone.py'), jf], { onLine: (x) => { const p = /^PROGRESS (\d+) (.*)/.exec(x); if (p) { job.progress = Math.round(+p[1] * 0.9); job.stage = `Speaking ${p[2]}…`; } } });
+      const res = (() => { try { return JSON.parse(r.stdout.trim().split(/\r?\n/).pop()); } catch { return { error: r.stderr.slice(-300) || 'the voice model stopped' }; } })();
+      if (res.error) throw new Error(`Voice AI: ${res.error}`);
+      // joined with the pauses; subtitles from where each sentence lands
+      const durs = [];
+      for (const f of files) durs.push(+(await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', f])).stdout || 0);
+      const g = files.map((_, k) => `[${k}:a]aresample=48000,aformat=channel_layouts=stereo,apad=pad_dur=${chunks[k].gap}[a${k}]`);
+      g.push(`${files.map((_, k) => `[a${k}]`).join('')}concat=n=${files.length}:v=0:a=1[out]`);
+      const base = safeName(`AI VO ${m.name.replace(/\.[^.]+$/, '').slice(0, 30)} voice ${localStamp()}`);
+      const out = P(name, 'imports', `${base}.mp3`);
+      const gf = path.join(wd, 'graph.txt'); fs.writeFileSync(gf, g.join(';'));
+      const cr = await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...files.flatMap((f) => ['-i', f]), '-/filter_complex', gf, '-map', '[out]', '-c:a', 'libmp3lame', '-b:a', '192k', out]);
+      if (cr.code !== 0) throw new Error(`Could not join the voice-over: ${cr.stderr.slice(-300)}`);
+      let srt = null;
+      if (b.subtitles) {
+        const tc = (t) => { const ms = Math.round(t * 1000), p = (x, w = 2) => String(x).padStart(w, '0'); return `${p(Math.floor(ms / 3600000))}:${p(Math.floor(ms / 60000) % 60)}:${p(Math.floor(ms / 1000) % 60)},${p(ms % 1000, 3)}`; };
+        let t = 0; const cues = [];
+        chunks.forEach((c, k) => { cues.push(`${k + 1}\n${tc(t)} --> ${tc(t + durs[k])}\n${c.text}\n`); t += durs[k] + c.gap; });
+        srt = P(name, 'subs', `${base}.srt`); fs.writeFileSync(srt, cues.join('\n'), 'utf8');
+      }
+      const it = addMediaFile(name, out, { bin: 'AI voice-over', imported: true });
+      saveMedia(name, true);
+      for (let i = 0; i < 40 && it && mediaItem(name, it.id)?.status !== 'ready'; i++) await new Promise((ok) => setTimeout(ok, 300));
+      return { mediaId: it?.id, subs: srt ? path.basename(srt) : null, duration: mediaItem(name, it?.id)?.duration ?? durs.reduce((a, d, k) => a + d + chunks[k].gap, 0), sentences: chunks.length };
+    } finally { fs.rmSync(wd, { recursive: true, force: true }); }
+  }, { project: name });
+}
+
 const routes = {
   // 📦 Archive search (Phase 22): engine/archive.mjs
   ...archiveRoutes({ DATA, PROJECTS, config, readJson, err, startTask, footageWorker, extractFrames, toEnglishQuery, serveFile, writeJSON, readJSON }),
@@ -4721,6 +4780,11 @@ const routes = {
   'POST /api/tts': async (req, res, u) => {
     const name = needProject(q(u, 'p')), b = await readJson(req);
     if (!String(b.text || '').trim()) throw err(400, 'Write the voice-over text first');
+    // an English / Urdu voice given Hindi (Devanagari) text reads only the numbers in it - say so instead
+    const deva = (String(b.text).match(/[ऀ-ॿ]/g) || []).length, latin = (String(b.text).match(/[A-Za-z]/g) || []).length;
+    if ((b.provider || 'edge') === 'edge' && deva > latin * 0.3 && !/^(hi|mr|ne)-/i.test(String(b.voice || '')))
+      throw err(400, `${String(b.voice || 'This voice').split('-').pop().replace('Neural', '')} cannot read Hindi (Devanagari) text - pick a Hindi voice (hi-IN: Swara, Madhur)`);
+    if (b.provider === 'clone') return cloneVoiceOver(name, b, deva > latin * 0.3 ? 'hi' : 'en');
     return startTask('tts', async (job) => {
       job.log.push('Speaking…'); job.stage = 'Making the voice-over…'; job.progress = 20;
       const { speak } = await import(`./engine/voices.mjs?v=${Math.round(fs.statSync(path.join(ROOT, 'engine', 'voices.mjs')).mtimeMs)}`);
@@ -4742,6 +4806,8 @@ const routes = {
     const name = needProject(q(u, 'p')), b = await readJson(req);
     const lines = (b.lines || []).filter((l) => String(l.text || '').trim() && l.end > l.start);
     if (!lines.length) throw err(400, 'No lines to dub');
+    { const all = lines.map((l) => l.text).join(' '), d = (all.match(/[ऀ-ॿ]/g) || []).length, l = (all.match(/[A-Za-z]/g) || []).length;
+      if ((b.provider || 'edge') === 'edge' && d > l * 0.3 && !/^(hi|mr|ne)-/i.test(String(b.voice || ''))) throw err(400, 'That voice cannot read Hindi (Devanagari) lines - pick a Hindi voice (hi-IN: Swara, Madhur)'); }
     return startTask('dub', async (job) => {
       const { speak } = await import(`./engine/voices.mjs?v=${Math.round(fs.statSync(path.join(ROOT, 'engine', 'voices.mjs')).mtimeMs)}`);
       const wd = fs.mkdtempSync(P(name, 'cache', 'dub-')), parts = [];

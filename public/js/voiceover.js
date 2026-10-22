@@ -11,27 +11,56 @@ const LAST = 'vedit.voice';
 const remembered = () => { try { return JSON.parse(localStorage.getItem(LAST)) || {}; } catch { return {}; } };
 const remember = (o) => { try { localStorage.setItem(LAST, JSON.stringify(o)); } catch {} };
 
-// provider + voice + speed controls, shared by both dialogs
-export function voicePicker(body) {
+// which writing the text is in: 'deva' (Hindi / Marathi in Devanagari) or 'latin' (English, Hinglish)
+export const scriptOf = (t) => { const s = String(t || ''), d = (s.match(/[ऀ-ॿ]/g) || []).length, l = (s.match(/[A-Za-z]/g) || []).length; return d > l * 0.3 && d > 0 ? 'deva' : 'latin'; };
+// can an Edge voice of this locale read that writing? (an English or Urdu voice reads only the numbers of Hindi text)
+const fits = (locale, sc) => (sc === 'deva' ? /^(hi|mr|ne)-/.test(locale) : !/^ur-/.test(locale));
+const LANG_OF = { hi: 'Hindi', mr: 'Marathi', ne: 'Nepali', en: 'English', bn: 'Bengali', ta: 'Tamil', te: 'Telugu', gu: 'Gujarati', kn: 'Kannada', ml: 'Malayalam', ur: 'Urdu' };
+
+// provider + voice + speed controls, shared by both dialogs. o.text(): the words to speak - the voices that can read
+// them come first, and a voice that cannot is changed (with a note). o.clone: also offer "a voice from a recording".
+export function voicePicker(body, o = {}) {
   const last = remembered();
+  const recs = o.clone ? S.media.filter((m) => m.kind === 'audio' || (m.kind === 'video' && m.hasAudio)) : [];
   const el = h(`<div class="fgrid vo-pick">
-    <label class="fld"><span>Voice from</span><select name="provider"><option value="edge">Microsoft Edge voices (free, needs internet)</option><option value="eleven">ElevenLabs (your key, paid)</option></select></label>
-    <label class="fld"><span>Voice <button type="button" class="link small" data-a="elkey">ElevenLabs key…</button></span><select name="voice"><option>Loading…</option></select></label>
-    <label class="fld"><span>Speed <b data-rate>0%</b></span><input type="range" name="rate" min="-30" max="30" step="5" value="${last.rate || 0}"></label>
+    <label class="fld"><span>Voice from</span><select name="provider"><option value="edge">Microsoft Edge voices (free, needs internet)</option>${o.clone ? '<option value="clone">A voice from a recording (offline AI, like ElevenLabs)</option>' : ''}<option value="eleven">ElevenLabs (your key, paid)</option></select></label>
+    <label class="fld" data-vfld><span>Voice <button type="button" class="link small" data-a="elkey">ElevenLabs key…</button></span><select name="voice"><option>Loading…</option></select></label>
+    <label class="fld" data-rfld hidden><span>Recording with the voice (10-15 s of clear speech)</span><select name="ref">${recs.map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join('') || '<option value="">Import a recording of the voice first</option>'}</select></label>
+    <label class="fld" data-rate-fld><span>Speed <b data-rate>0%</b></span><input type="range" name="rate" min="-30" max="30" step="5" value="${last.rate || 0}"></label>
+    <p class="vo-note wide" data-note hidden></p>
   </div>`);
   body.append(el);
-  const f = (n) => el.querySelector(`[name="${n}"]`);
+  const f = (n) => el.querySelector(`[name="${n}"]`), note = el.querySelector('[data-note]');
+  let voices = [];
+  const say = (t) => { note.hidden = !t; note.textContent = t || ''; };
+  // best voices for the text first; a voice that cannot read it is swapped for one that can
+  const refit = () => {
+    if (f('provider').value !== 'edge' || !voices.length) return say('');
+    const sc = scriptOf(o.text?.() || ''), sel = f('voice'), was = sel.value;
+    const ok = voices.filter((x) => fits(x.locale, sc)), rest = voices.filter((x) => !fits(x.locale, sc));
+    const opt = (x, can) => `<option value="${esc(x.id)}"${can ? '' : ' disabled'}>${esc(x.name)} · ${esc(LANG_OF[x.locale.split('-')[0]] || x.locale)} (${esc(x.locale)})${x.gender ? ` · ${esc(x.gender)}` : ''}</option>`;
+    sel.innerHTML = `<optgroup label="${sc === 'deva' ? 'Can read Hindi (Devanagari)' : 'Voices'}">${ok.map((x) => opt(x, true)).join('')}</optgroup>${rest.length ? `<optgroup label="Cannot read this text">${rest.map((x) => opt(x, false)).join('')}</optgroup>` : ''}`;
+    const keep = [was, last.voice].find((id) => ok.some((x) => x.id === id));
+    sel.value = keep || (ok.find((x) => /Swara|Madhur/.test(x.id)) || ok[0])?.id || '';
+    const old = voices.find((x) => x.id === was);
+    say(was && old && !fits(old.locale, sc) ? `${old.name} speaks ${LANG_OF[old.locale.split('-')[0]] || old.locale} only and cannot read this Hindi text - changed to ${voices.find((x) => x.id === sel.value)?.name || 'a Hindi voice'}.` : '');
+  };
   const load = async () => {
-    const sel = f('voice'); sel.innerHTML = '<option>Loading…</option>';
+    const pv = f('provider').value, sel = f('voice');
+    el.querySelector('[data-vfld]').hidden = pv === 'clone'; el.querySelector('[data-rfld]').hidden = pv !== 'clone'; el.querySelector('[data-rate-fld]').hidden = pv === 'clone';
+    if (pv === 'clone') { say('Speaks the script in the voice of the recording you pick - Hindi or English. Runs on this computer.'); return; }
+    sel.innerHTML = '<option>Loading…</option>';
     try {
-      let v = await api('GET', `/api/tts/voices?provider=${f('provider').value}`);
-      if (f('provider').value === 'edge') v = v.filter((x) => /^(hi-|en-IN|en-US|en-GB|bn-|mr-|ta-|te-|gu-|kn-|ml-|ur-)/.test(x.locale));
-      sel.innerHTML = v.map((x) => `<option value="${esc(x.id)}">${esc(x.name)} · ${esc(x.locale)}${x.gender ? ` · ${esc(x.gender)}` : ''}${x.own ? ' · yours' : ''}</option>`).join('');
-      if (last.voice && v.some((x) => x.id === last.voice)) sel.value = last.voice;
+      voices = await api('GET', `/api/tts/voices?provider=${pv}`);
+      if (pv === 'edge') { voices = voices.filter((x) => /^(hi-|en-IN|en-US|en-GB|bn-|mr-|ta-|te-|gu-|kn-|ml-|ur-)/.test(x.locale)); sel.value = last.voice || ''; return refit(); }
+      sel.innerHTML = voices.map((x) => `<option value="${esc(x.id)}">${esc(x.name)} · ${esc(x.locale)}${x.gender ? ` · ${esc(x.gender)}` : ''}${x.own ? ' · yours' : ''}</option>`).join('');
+      if (last.voice && voices.some((x) => x.id === last.voice)) sel.value = last.voice;
+      say('');
     } catch (err) { sel.innerHTML = '<option value="">-</option>'; toast(err.message, 'err'); }
   };
-  if (last.provider) f('provider').value = last.provider;
+  if (last.provider && [...f('provider').options].some((x) => x.value === last.provider)) f('provider').value = last.provider;
   f('provider').onchange = load;
+  if (last.ref && recs.some((m) => m.id === last.ref)) f('ref').value = last.ref;
   f('rate').oninput = () => (el.querySelector('[data-rate]').textContent = `${f('rate').value > 0 ? '+' : ''}${f('rate').value}%`);
   f('rate').oninput();
   el.querySelector('[data-a="elkey"]').onclick = async () => {
@@ -41,7 +70,9 @@ export function voicePicker(body) {
     catch (err) { toast(err.message, 'err'); }
   };
   load();
-  return () => { const o = { provider: f('provider').value, voice: f('voice').value, rate: +f('rate').value }; remember(o); return o; };
+  const get = () => { const v = { provider: f('provider').value, voice: f('voice').value, rate: +f('rate').value, ...(f('provider').value === 'clone' ? { refMediaId: f('ref').value } : {}) }; remember({ ...v, ref: v.refMediaId }); return v; };
+  get.refit = refit; // (call when the text changes)
+  return get;
 }
 
 // text: prefilled; onDone(mediaId) - e.g. the Agent picks it as its VO. Without onDone it can go on A1 at the playhead.
@@ -56,11 +87,15 @@ export function openVoiceOver({ text = '', onDone = null, setBusy = null } = {})
     ${onDone ? '' : '<label class="chk"><input type="checkbox" name="place" checked> Put it on A1 (Voice-over) at the playhead</label>'}
     <div class="ag-foot"><span class="muted small" data-count></span><span class="grow"></span><button type="button" data-close>Cancel</button><button type="button" class="primary" data-go>🎙 Make the voice-over</button></div></div>`);
   const dlg = modal('🎙 AI voice-over', body, { width: 640 });
-  const pick = voicePicker(body.querySelector('[data-picker]'));
-  const ta = body.querySelector('[name="text"]'), cnt = () => (body.querySelector('[data-count]').textContent = `${ta.value.trim().length} characters`);
-  ta.oninput = cnt; cnt();
+  const ta = body.querySelector('[name="text"]');
+  const pick = voicePicker(body.querySelector('[data-picker]'), { text: () => ta.value, clone: true });
+  // about how long it will be (Hindi VO ~ 14 characters a second, English ~ 15)
+  const cnt = () => { const n = ta.value.trim().length; body.querySelector('[data-count]').textContent = n ? `${n} characters · about ${fmt(n / 14.5)}` : ''; };
+  let t0 = null;
+  ta.oninput = () => { cnt(); clearTimeout(t0); t0 = setTimeout(pick.refit, 300); }; cnt();
   body.querySelector('[data-go]').onclick = async () => {
-    const v = pick(); if (!v.voice) return toast('Choose a voice', 'err');
+    const v = pick();
+    if (v.provider === 'clone' ? !v.refMediaId : !v.voice) return toast(v.provider === 'clone' ? 'Pick the recording whose voice should speak' : 'Choose a voice', 'err');
     const subs = body.querySelector('[name="subs"]').checked, place = body.querySelector('[name="place"]')?.checked;
     dlg.close(); setBusy?.(true, '🎙 Making the voice-over…');
     try {

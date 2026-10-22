@@ -178,7 +178,7 @@ export async function openAiDub(clipId = selClip()?.id) {
   const dlg = modal('AI dubbing', body, { width: 760 });
   const q = (s) => body.querySelector(s), f = (n) => q(`[name="${n}"]`);
   if (!vs.ready) f('voiceKind').value = 'other';
-  const pick = voicePicker(q('[data-picker]'));
+  const pick = voicePicker(q('[data-picker]'), { text: () => lines.map((l) => l.text).join(' ') });
   const showPick = () => { q('[data-picker]').hidden = f('voiceKind').value === 'clone'; };
   f('voiceKind').onchange = showPick; showPick();
   f('to').onchange = () => { const same = LANGS.find((l) => l[0] === f('to').value)?.[2]; if (!same && f('voiceKind').value === 'clone') { f('voiceKind').value = 'other'; showPick(); toast(`The speaker's own voice does not speak ${langName(f('to').value)} yet - an Edge voice will`); } };
@@ -187,6 +187,7 @@ export async function openAiDub(clipId = selClip()?.id) {
   const draw = () => {
     q('[data-lines]').innerHTML = `<table class="se-table"><tr><th>Time</th><th>Original</th><th>${esc(langName(f('to').value))}</th></tr>${lines.map((l, i) => `<tr><td class="muted">${fmt(l.start - tin)}</td><td class="muted small">${esc(l.orig)}</td><td><textarea data-i="${i}" rows="1">${esc(l.text)}</textarea></td></tr>`).join('')}</table>`;
     q('[data-go2]').disabled = !lines.length;
+    pick.refit(); // (the translated words decide which voices can read them)
   };
   body.addEventListener('input', (e) => { const i = e.target.dataset.i; if (i !== undefined) lines[+i].text = e.target.value; });
   q('[data-go1]').onclick = async (e) => {

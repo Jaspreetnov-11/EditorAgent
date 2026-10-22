@@ -1430,3 +1430,4 @@ html.ui2 .tl-row .clip.lab .clip-lbl, .tl-row .clip.lab .clip-lbl { background: 
 @keyframes livepulse { 50% { opacity: .35; } }
 .qc-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; align-self: center; }
 .qc-dot.fail { background: var(--red); } .qc-dot.warn { background: #f5a524; } .qc-dot.ok { background: var(--green); }
+.vo-note { margin: 0; font-size: 12px; color: var(--accent-2); grid-column: 1 / -1; }
