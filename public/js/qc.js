@@ -8,6 +8,8 @@ import { esc, toast, modal } from './ui.js';
 const CHANNELS = [['broadcast', 'Doordarshan / TV channel (EBU R128, broadcast-safe)'], ['youtube', 'YouTube'], ['instagram', 'Instagram / Facebook reel'], ['whatsapp', 'WhatsApp']];
 const ICON = { fail: '<i class="qc-dot fail"></i>', warn: '<i class="qc-dot warn"></i>', ok: '<i class="qc-dot ok"></i>' };
 const tc = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+// (reports kept from before Phase 22's restyle start with a symbol - the coloured dot says it now)
+const plain = (s) => String(s).replace(/^[^\p{L}\p{N}"'(]+/u, '');
 // the channel a render was made for, from its name (…_reel_1080p_v1.mp4) or the project's export preset
 function guess(file) {
   const k = String(file || S.project?.settings?.exportPreset || '');
@@ -30,7 +32,7 @@ export async function openQC(file, onSeek) {
   const show = (rep) => {
     const c = rep.counts;
     body.querySelector('[data-out]').innerHTML = `<div class="qc-sum ${c.fail ? 'bad' : c.warn ? 'meh' : 'good'}">${c.fail ? `${c.fail} problem${c.fail > 1 ? 's' : ''} to fix` : c.warn ? 'Passes, with things to look at' : 'Ready to send'} · ${esc(rep.target)}${rep.preview ? ' · checked on a low-res preview' : ''}</div>
-      <ul class="qc-list">${rep.items.map((i) => `<li class="qc-${i.level}">${ICON[i.level]} <span>${esc(i.text)}</span>${i.t != null ? `<button class="link small" data-t="${i.t}">${tc(i.t)}</button>` : ''}</li>`).join('')}</ul>
+      <ul class="qc-list">${rep.items.map((i) => `<li class="qc-${i.level}">${ICON[i.level]} <span>${esc(plain(i.text))}</span>${i.t != null ? `<button class="link small" data-t="${i.t}">${tc(i.t)}</button>` : ''}</li>`).join('')}</ul>
       ${rep.at ? `<p class="muted small">Checked ${new Date(rep.at).toLocaleString()}</p>` : ''}`;
     body.querySelectorAll('[data-t]').forEach((b) => (b.onclick = () => {
       const t = +b.dataset.t;

@@ -150,8 +150,8 @@ export function qcReport(a, o = {}) {
   }
 
   // what passed (so the report says what was looked at)
-  const looked = { black: '⬛ No black holes', freeze: '🧊 No stuck picture', flash: '⚡ No dangerous flashing', safe: '🎨 Colours broadcast-safe', shape: '📐 Shape is right' };
-  for (const [k, txt] of Object.entries(looked)) if (!items.some((i) => i.kind === k && i.level !== 'ok')) add('ok', k, txt);
+  const looked = { black: 'No black holes', freeze: 'No stuck picture', flash: 'No dangerous flashing', safe: 'Colours broadcast-safe', shape: 'Shape is right' };
+  for (const [k, txt] of Object.entries(looked)) if (!items.some((i) => i.kind === k)) add('ok', k, txt);
   return finish(items, T);
 }
 
@@ -175,11 +175,11 @@ ${titles.map((t, i) => `[${i}] ${String(t.text).replace(/\s+/g, ' ').slice(0, 30
 export function addSpelling(report, titles, answer) {
   let j = null;
   try { j = JSON.parse(String(answer).slice(String(answer).indexOf('{'), String(answer).lastIndexOf('}') + 1)); } catch {}
-  if (!j) report.items.push({ level: 'warn', kind: 'spell', text: '✍ Spelling could not be checked (Claude did not answer)' });
-  else if (!j.mistakes?.length) report.items.push({ level: 'ok', kind: 'spell', text: `✍ Spelling of ${titles.length} title${titles.length > 1 ? 's' : ''} looks right` });
+  if (!j) report.items.push({ level: 'warn', kind: 'spell', text: 'Spelling could not be checked (Claude did not answer)' });
+  else if (!j.mistakes?.length) report.items.push({ level: 'ok', kind: 'spell', text: `Spelling of ${titles.length} title${titles.length > 1 ? 's' : ''} looks right` });
   else for (const m of j.mistakes) {
     const t = titles[m.i];
-    report.items.push({ level: 'fail', kind: 'spell', text: `✍ "${m.wrong}" → "${m.right}"${m.why ? ` (${m.why})` : ''}${t ? ` in "${String(t.text).slice(0, 60)}"` : ''}`, ...(t?.t != null ? { t: t.t } : {}) });
+    report.items.push({ level: 'fail', kind: 'spell', text: `"${m.wrong}" → "${m.right}"${m.why ? ` (${m.why})` : ''}${t ? ` in "${String(t.text).slice(0, 60)}"` : ''}`, ...(t?.t != null ? { t: t.t } : {}) });
   }
   return finish(report.items, { name: report.target });
 }
