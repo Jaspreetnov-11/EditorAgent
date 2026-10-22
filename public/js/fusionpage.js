@@ -287,8 +287,8 @@ function drawGraph() {
   const W = wr.clientWidth, H = wr.clientHeight, dpr = Math.min(2, devicePixelRatio || 1);
   cv.style.width = `${W}px`; cv.style.height = `${H}px`; cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
   const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
-  g.fillStyle = '#0d0e12'; g.fillRect(0, 0, W, H);
-  g.fillStyle = '#ffffff0c'; for (let x = (pan[0] % 24 + 24) % 24; x < W; x += 24) for (let y = (pan[1] % 24 + 24) % 24; y < H; y += 24) g.fillRect(x, y, 1.5, 1.5);
+  g.fillStyle = '#0b0b0e'; g.fillRect(0, 0, W, H);
+  g.fillStyle = '#ffffff10'; for (let x = (pan[0] % 24 + 24) % 24; x < W; x += 24) for (let y = (pan[1] % 24 + 24) % 24; y < H; y += 24) g.fillRect(x, y, 1.5, 1.5);
   const f = fu(); if (!f) return;
   // wires
   for (const n of f.nodes) {
@@ -296,25 +296,25 @@ function drawGraph() {
     ins.forEach((s, i) => {
       const src = node(n.in?.[s]); if (!src) return;
       const [x1, y1] = portOut(src), [x2, y2] = portIn(n, i, ins.length), dx = Math.max(40, (x2 - x1) / 2);
-      g.strokeStyle = s === 'mask' ? '#8a8f99' : s === 'foreground' ? '#e0c050' : '#c9ced8'; g.lineWidth = 2;
+      g.strokeStyle = s === 'mask' ? '#7c7c88' : s === 'foreground' ? '#d9ad5b' : '#a9a9b6'; g.lineWidth = 1.6;
       g.beginPath(); g.moveTo(x1, y1); g.bezierCurveTo(x1 + dx, y1, x2 - dx, y2, x2, y2); g.stroke();
     });
   }
-  if (wire) { const [x1, y1] = portOut(wire.from); g.strokeStyle = '#ff9933'; g.setLineDash([5, 4]); g.beginPath(); g.moveTo(x1, y1); g.lineTo(wire.x, wire.y); g.stroke(); g.setLineDash([]); }
+  if (wire) { const [x1, y1] = portOut(wire.from); g.strokeStyle = '#d9ad5b'; g.setLineDash([5, 4]); g.beginPath(); g.moveTo(x1, y1); g.lineTo(wire.x, wire.y); g.stroke(); g.setLineDash([]); }
   // nodes
-  g.font = '12px "Segoe UI", sans-serif'; g.textBaseline = 'middle';
+  g.font = '600 12px "Segoe UI Variable Text", "Segoe UI", sans-serif'; g.textBaseline = 'middle';
   for (const n of f.nodes) {
     const d = F.NODES[n.type], on = n.id === selId, isOut = f.out === n.id, x = 0, y = 0;
     g.save(); g.translate(n.x * gz + pan[0], n.y * gz + pan[1]); g.scale(gz, gz);
-    g.fillStyle = '#1b1e25'; g.strokeStyle = on ? '#ff9933' : '#ffffff22'; g.lineWidth = on ? 2 : 1;
-    g.beginPath(); g.roundRect ? g.roundRect(x, y, NW, NH, 6) : g.rect(x, y, NW, NH); g.fill(); g.stroke();
-    g.fillStyle = d.color; g.fillRect(x, y + 4, 4, NH - 8);
-    g.fillStyle = '#e6e9ef'; g.fillText(d.label, x + 12, y + NH / 2 - (n.type === 'mediaIn' || n.type === 'text' ? 6 : 0));
-    if (n.type === 'mediaIn' || n.type === 'text') { g.fillStyle = '#8a93a3'; g.font = '10px "Segoe UI"'; g.fillText(String(n.type === 'text' ? n.p.text : S.mediaById[n.p.mediaId]?.name || '').slice(0, 20), x + 12, y + NH / 2 + 8); g.font = '12px "Segoe UI", sans-serif'; }
-    if (isOut) { g.fillStyle = '#ff9933'; g.fillText('◉', x + NW - 22, y + 10); }
+    g.fillStyle = '#16161b'; g.strokeStyle = on ? '#d9ad5b' : '#ffffff18'; g.lineWidth = on ? 1.6 : 1;
+    g.beginPath(); g.roundRect ? g.roundRect(x, y, NW, NH, 8) : g.rect(x, y, NW, NH); g.fill(); g.stroke();
+    g.fillStyle = d.color; g.beginPath(); g.roundRect ? g.roundRect(x + 5, y + 7, 3, NH - 14, 2) : g.rect(x + 5, y + 7, 3, NH - 14); g.fill();
+    g.fillStyle = '#ececef'; g.fillText(d.label, x + 14, y + NH / 2 - (n.type === 'mediaIn' || n.type === 'text' ? 6 : 0));
+    if (n.type === 'mediaIn' || n.type === 'text') { g.fillStyle = '#8b8b95'; g.font = '10px "Segoe UI Variable Text", "Segoe UI"'; g.fillText(String(n.type === 'text' ? n.p.text : S.mediaById[n.p.mediaId]?.name || '').slice(0, 20), x + 14, y + NH / 2 + 8); g.font = '600 12px "Segoe UI Variable Text", "Segoe UI", sans-serif'; }
+    if (isOut) { g.fillStyle = '#d9ad5b'; g.beginPath(); g.arc(x + NW - 12, y + 11, 3.5, 0, 7); g.fill(); }
     g.restore();
-    d.ins.forEach((s, i) => { const [px, py] = portIn(n, i, d.ins.length); g.fillStyle = n.in?.[s] ? (s === 'mask' ? '#8a8f99' : s === 'foreground' ? '#e0c050' : '#c9ced8') : '#3a3f4a'; g.beginPath(); g.arc(px, py, 5, 0, 7); g.fill(); });
-    if (n.type !== 'mediaOut') { const [px, py] = portOut(n); g.fillStyle = '#ff9933'; g.beginPath(); g.arc(px, py, 5, 0, 7); g.fill(); }
+    d.ins.forEach((s, i) => { const [px, py] = portIn(n, i, d.ins.length); g.fillStyle = n.in?.[s] ? (s === 'mask' ? '#7c7c88' : s === 'foreground' ? '#d9ad5b' : '#a9a9b6') : '#2e2e36'; g.beginPath(); g.arc(px, py, 4.5, 0, 7); g.fill(); });
+    if (n.type !== 'mediaOut') { const [px, py] = portOut(n); g.fillStyle = '#d9ad5b'; g.beginPath(); g.arc(px, py, 4.5, 0, 7); g.fill(); }
   }
 }
 let drag = null, wire = null;
