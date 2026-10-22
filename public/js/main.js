@@ -26,6 +26,8 @@ import { openMediaMgr } from './mediamgr.js';
 import { mountAssistant, toggleAssistant } from './assistant.js';
 import { mountColor, showColor, hideColor } from './colorpage.js';
 import { mountAudio, showAudio, hideAudio } from './audiopage.js';
+import { mountAI, showAI, hideAI } from './aipage.js';
+import './liveedit.js'; // (🔴 a live same-day edit carries on after a refresh)
 import { layout, duration } from './store.js';
 import { openSequences, seqName, openSequence, nestSelected } from './sequences.js';
 import { keyOf, commandFor, keyState, stepMany } from './keys.js';
@@ -51,7 +53,8 @@ document.addEventListener('ve-look', () => { if (document.documentElement.classL
 const app = $('#app');
 app.innerHTML = '<div id="home"></div><div id="editor" hidden></div>';
 const homeEl = $('#home'), editorEl = $('#editor');
-const PAGES = [['media', 'Media'], ['edit', 'Edit'], ['motion', 'Motion'], ['fusion', 'Fusion'], ['color', 'Color'], ['audio', 'Audio'], ['deliver', 'Deliver']];
+// (Labs took Audio's place in the page bar - the Audio page opens from Window > Audio)
+const PAGES = [['media', 'Media'], ['edit', 'Edit'], ['motion', 'Motion'], ['fusion', 'Fusion'], ['color', 'Color'], ['ai', 'Labs'], ['deliver', 'Deliver']];
 
 function shell() {
   editorEl.innerHTML = `
@@ -119,6 +122,7 @@ function shell() {
     <section class="page" data-page="fusion" id="fusionPage" hidden></section>
     <section class="page" data-page="color" id="colorPage" hidden></section>
     <section class="page" data-page="audio" id="audioPage" hidden></section>
+    <section class="page" data-page="ai" id="aiPage" hidden></section>
     <section class="page" data-page="deliver" id="deliverPage" hidden></section>
   </main>
   <nav class="pagebar" aria-label="Pages">${PAGES.map(([k, l]) => `<button data-page-btn="${k}">${l}</button>`).join('')}</nav>`;
@@ -168,6 +172,7 @@ function shell() {
   safely('Fusion page', () => mountFusion($('#fusionPage'))); // ✨ Resolve Fusion-style node effects
   safely('Color page', () => mountColor($('#colorPage')));
   safely('Audio page', () => mountAudio($('#audioPage')));
+  safely('AI page', () => mountAI($('#aiPage')));
   safely('Assistant', () => mountAssistant(setBusy));
 }
 
@@ -298,6 +303,7 @@ export function showPage(p) {
   safely('Deliver page', () => (p === 'deliver' ? showDeliver() : hideDeliver()));
   safely('Color page', () => (p === 'color' ? showColor() : hideColor()));
   safely('Audio page', () => (p === 'audio' ? showAudio() : hideAudio()));
+  safely('AI page', () => (p === 'ai' ? showAI() : hideAI()));
   safely('Text page', () => (p === 'text' ? showText() : hideText()));
   safely('Motion page', () => (p === 'motion' ? showMotion() : hideMotion()));
   safely('Fusion page', () => (p === 'fusion' ? showFusion() : hideFusion()));

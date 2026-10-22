@@ -29,6 +29,7 @@ export function mountPool(el, { big = false } = {}) {
     <button class="small" data-a="newitem" title="New item: Sequence, Adjustment Layer, Color Matte, Black Video, Title">＋ New ▾</button>
     <button class="small" data-a="batch" title="Batch: subtitles, transcripts, scans or renders for many clips at once - now or overnight; watch a folder for new footage">⚙ Batch</button>
     <button class="small" data-a="smart" title="Smart footage: shot tags, find a shot by what it shows (jharna dikhao), near-copies and bad clips, match cameras">🧠 Smart</button>
+    <button class="small" data-a="archive" title="Search all the old footage on the NAS / drives (every project) by what it shows, and bring a shot in">📦 Archive</button>
     <input type="file" multiple hidden data-file accept="video/*,audio/*,image/*,.mxf,.mts,.m2ts,.mpeg,.cube,.srt">
     <span class="grow"></span>
     <span class="pool-q" data-q></span>
@@ -56,6 +57,7 @@ export function mountPool(el, { big = false } = {}) {
     if (a === 'append') appendSelected();
     if (a === 'remove') removeSelected();
     if (a === 'smart') openSmart();
+    if (a === 'archive') import('./archive.js').then((x) => x.openArchive($('[data-search]', el).value.trim()));
     if (a === 'batch') openBatch([...poolSel]);
     if (a === 'find') openSmart('find', $('[data-search]', el).value.trim());
     const tg = e.target.closest('[data-tag]')?.dataset.tag;

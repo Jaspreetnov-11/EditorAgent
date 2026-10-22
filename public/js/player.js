@@ -35,7 +35,7 @@ import { addTextAt } from './gfxui.js';
 import { effectsCss, maskedEffectsCss, grainCss } from './effects.js';
 import { maskAlpha, movedMask, unmovedMask, maskKey } from './shapemask.js';
 import { captionAt, capTracks, capStack } from './captions.js';
-import { fitMap, framingOf, srcSize, boxAt, srcTimeAt } from './tracking.js';
+import { fitMap, framingOf, srcSize, boxAt, srcTimeAt, pinAt, quadMatrix, orderQuad } from './tracking.js';
 
 let root, frame, els = {}, mode = 'program', srcId = null, grader = null;
 export const sourceMediaId = () => srcId; // (the file open in the Source monitor - ✂ Make Subclip)
@@ -799,6 +799,32 @@ export function frameBoxToSource(c, start, b) {
   const r = (v) => +v.toFixed(4);
   return { x: r((b.x * W - f.ox) / (sw * f.s)), y: r((b.y * H - f.oy) / (sh * f.s)), w: r((b.w * W) / (sw * f.s)), h: r((b.h * H) / (sh * f.s)) };
 }
+// ▱ Click the four corners of a flat surface on the viewer (planar tracking): resolves [TL, TR, BL, BR] as { x, y }
+// fractions of the frame, or null (Esc). Backspace takes the last corner back.
+export function pickQuad(hint = 'Click the 4 corners of the surface (wall, banner, screen) · Backspace undoes · Esc cancels') {
+  return new Promise((done) => {
+    pause();
+    const ov = document.createElement('div'); ov.className = 'lyr boxpick quadpick';
+    ov.innerHTML = `<span>${esc(hint)}</span><svg viewBox="0 0 1 1" preserveAspectRatio="none"><polygon fill="rgba(80,160,255,.25)" stroke="#4aa3ff" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
+    frame.append(ov);
+    const pts = [], poly = ov.querySelector('polygon');
+    const draw = () => {
+      ov.querySelectorAll('i').forEach((d) => d.remove());
+      for (const p of pts) { const d = document.createElement('i'); d.style.left = `${p.x * 100}%`; d.style.top = `${p.y * 100}%`; ov.append(d); }
+      const q = pts.length === 4 ? orderQuad(pts) : pts, o = q.length === 4 ? [q[0], q[1], q[3], q[2]] : q;
+      poly.setAttribute('points', o.map((p) => `${p.x},${p.y}`).join(' '));
+    };
+    const fin = (v) => { ov.remove(); window.removeEventListener('keydown', key, true); done(v); };
+    const key = (e) => { if (e.key === 'Escape') { e.stopPropagation(); fin(null); } else if (e.key === 'Backspace') { e.preventDefault(); e.stopPropagation(); pts.pop(); draw(); } };
+    window.addEventListener('keydown', key, true);
+    ov.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const r = frame.getBoundingClientRect();
+      pts.push({ x: clamp((e.clientX - r.left) / r.width, 0, 1), y: clamp((e.clientY - r.top) / r.height, 0, 1) }); draw();
+      if (pts.length === 4) setTimeout(() => fin(orderQuad(pts)), 250);
+    });
+  });
+}
 // Draw a box on the viewer (motion tracking): resolves { x, y, w, h } as fractions of the frame, or null (Esc)
 export function pickBox(hint = 'Drag a box around the thing to follow (Esc cancels)') {
   return new Promise((done) => {
@@ -870,6 +896,10 @@ function drawOverlays(t, isPlay) {
       const lk = look(c, rel);
       fitStyle(el, c, rel);
       el.style.opacity = propAt(c, 'opacity', rel) * fadeK(c, rel, x.end - x.start); el.style.transform = lk.transform; el.style.filter = lk.filter; el.style.clipPath = lk.clip || ''; setMask(el, c.omask);
+      // ▱ stuck onto a tracked surface: the whole picture is bent onto the surface's four corners (as the render does)
+      const pq = c.pin?.keys?.length && (c.type === 'image' || c.type === 'video') ? pinAt(c.pin.keys, rel) : null;
+      if (pq) { const fw = el.clientWidth || frame.clientWidth, fh = el.clientHeight || frame.clientHeight; el.style.objectFit = 'fill'; el.style.transformOrigin = '0 0'; el.style.clipPath = ''; el.style.transform = quadMatrix(fw, fh, pq.map((v, j) => v * (j % 2 ? fh : fw))); }
+      else el.style.transformOrigin = '';
       if (c.type === 'image') { if (el.dataset.src !== m.urls.play) { el.src = m.urls.play; el.dataset.src = m.urls.play; } }
       else syncVideo(el, m, c, x.start, t, isPlay, c.volume ?? 0, id);
       const pc = pixFx(el, c); if (pc) order.push(pc); // (mirror / green screen: its canvas stacks right above it)

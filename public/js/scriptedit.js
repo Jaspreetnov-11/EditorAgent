@@ -23,7 +23,8 @@ export function openScriptEdit(setBusy) {
       <div class="se-scenes" data-scenes><p class="muted small">Open or paste a script - its scenes appear here to check before editing.</p></div>
     </section>
     <section><h3>2. Footage</h3>
-      <div class="se-bins">${Object.entries(bins).map(([b, l]) => `<label class="chk"><input type="checkbox" data-bin="${esc(b)}" checked> ${esc(b)} <span class="muted">(${l.length})</span></label>`).join('') || '<span class="muted">Import footage first (Media page).</span>'}</div>
+      <div class="se-bins">${Object.entries(bins).map(([b, l]) => `<label class="chk"><input type="checkbox" data-bin="${esc(b)}" checked> ${esc(b)} <span class="muted">(${l.length})</span></label>`).join('') || '<span class="muted">Import footage first (Media page) - or let the archive find it (below).</span>'}</div>
+      <label class="chk" title="For every scene's VISUAL line the best shots from all the old footage (📦 Archive: NAS / drives, every project) are brought into this project first"><input type="checkbox" name="archive"${footage.length ? '' : ' checked'}> 📦 Also find shots in the archive (NAS / old projects) for every scene</label>
     </section>
     <section><h3>3. Sound</h3>
       <div class="fgrid">
@@ -98,11 +99,18 @@ export function openScriptEdit(setBusy) {
     const a = e.target.closest('[data-a]')?.dataset.a;
     if (a === 'paste') load(api('POST', `/api/script/parse?p=${enc(S.proj)}`, { text: f('paste').value }), 'pasted text');
     if (a === 'add') { scenes.push({ visual: '', vo: '', super: '', dur: null }); draw(); }
-    if (a === 'go') {
+    if (a === 'go') (async () => {
       const sc = scenes.map((s) => ({ visual: s.visual.trim(), vo: s.vo.trim(), super: s.super.trim(), dur: s.dur })).filter((s) => s.visual || s.vo || s.super);
       if (!sc.length) return toast('Open or paste a script first', 'err');
       const on = new Set($$('[data-bin]', body).filter((x) => x.checked).map((x) => x.dataset.bin));
       const clips = footage.filter((m) => on.has(m.bin || 'Other')).map((m) => m.id);
+      if (f('archive').checked) {
+        const go = body.querySelector('[data-a="go"]');
+        go.disabled = true;
+        try { clips.push(...(await fromArchive(sc, (msg) => (go.textContent = msg)))); }
+        catch (x) { toast(x.message, 'err'); }
+        finally { go.disabled = false; go.textContent = '📜 Create edit from script'; }
+      }
       if (!clips.length) return toast('Tick some footage', 'err');
       const vo = f('vo').value || null;
       const o = {
@@ -113,8 +121,32 @@ export function openScriptEdit(setBusy) {
       };
       dlg.close();
       runAgentWith(o, setBusy);
-    }
+    })();
   });
+}
+
+// 📦 for every scene's VISUAL line (or its VO, when there is no visual note) the best two archive shots not already in
+// the project are brought in (bin "Archive - script"); resolves their media ids. A weak match is left out.
+async function fromArchive(scenes, say) {
+  const { findInArchive, addFromArchive } = await import('./archive.js');
+  const files = new Map(); // path -> scene numbers
+  for (const [i, s] of scenes.entries()) {
+    const q = (s.visual || s.vo).slice(0, 200);
+    if (!q) continue;
+    say(`📦 Archive: scene ${i + 1} of ${scenes.length}…`);
+    const r = await findInArchive(q, 6);
+    for (const x of r.results.filter((y) => y.score >= 0.2).slice(0, 2)) files.set(x.path, [...(files.get(x.path) || []), i + 1]);
+  }
+  const ids = [];
+  let k = 0;
+  for (const p of files.keys()) {
+    say(`📦 Bringing in ${++k} of ${files.size}…`);
+    try { const m = await addFromArchive(p, 'Archive - script'); if (m?.id && m.status === 'ready') ids.push(m.id); } catch {}
+  }
+  const { refreshMedia } = await import('./mediapool.js');
+  await refreshMedia();
+  toast(ids.length ? `📦 ${ids.length} shots from the archive added (bin "Archive - script")` : '📦 Nothing in the archive matched these scenes well');
+  return ids;
 }
 
 // Optional script for the normal Agent / Re-edit: "📜 Add script" -> scenes kept in `state.scenes`.

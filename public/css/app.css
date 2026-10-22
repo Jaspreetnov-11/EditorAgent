@@ -1369,3 +1369,64 @@ html.ui2 .tl-row .clip.lab .clip-lbl, .tl-row .clip.lab .clip-lbl { background: 
 .qc-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 50vh; overflow: auto; }
 .qc-list li { display: flex; gap: 8px; align-items: baseline; font-size: 12px; padding: 5px 8px; border-radius: 5px; background: var(--panel-2); }
 .qc-list li span { flex: 1; } .qc-list li.qc-ok { opacity: .75; }
+
+/* ▱ planar tracking: clicking the four corners */
+.lyr.quadpick svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.lyr.quadpick i { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: #4aa3ff; border: 2px solid #fff; pointer-events: none; }
+
+/* 📦 archive search */
+.arc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; max-height: 55vh; overflow: auto; margin: 8px 0; }
+.arc-it { background: var(--panel-2); border-radius: 6px; overflow: hidden; display: flex; flex-direction: column; }
+.arc-it img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #000; }
+.arc-meta { display: grid; gap: 2px; padding: 6px 8px; font-size: 12px; min-width: 0; }
+.arc-meta b, .arc-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.arc-it button { margin: 0 8px 8px; }
+.arc-set textarea { width: 100%; font-family: var(--mono, monospace); font-size: 12px; }
+
+/* Labs page (Phase 22) */
+.page[data-page="ai"] { overflow: auto; background: radial-gradient(1200px 500px at 85% -10%, rgba(255,153,51,.07), transparent 60%), var(--bg); }
+.lab { max-width: 1180px; margin: 0 auto; padding: 28px 28px 48px; display: grid; gap: 22px; }
+.lab-head h1 { margin: 0; text-transform: none; color: var(--text); font-size: 26px; font-weight: 650; letter-spacing: -.02em; }
+.lab-head p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+.lab-kicker { display: block; font-size: 10.5px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); margin-bottom: 4px; }
+.lab h2 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -.01em; text-transform: none; color: var(--text); }
+.lab-note { margin: 0; color: var(--muted); font-size: 12px; }
+.lab-g { width: 18px; height: 18px; display: block; }
+.lab-hero { display: grid; grid-template-columns: auto 1fr auto; gap: 18px; align-items: center; padding: 20px 22px; border-radius: 14px; border: 1px solid var(--line);
+  background: linear-gradient(135deg, rgba(255,153,51,.10), rgba(143,124,255,.06) 55%, transparent), var(--panel); }
+.lab-hero-ic { width: 52px; height: 52px; border-radius: 13px; display: grid; place-items: center; color: var(--accent); background: rgba(255,153,51,.12); border: 1px solid rgba(255,153,51,.25); }
+.lab-hero-ic .lab-g { width: 26px; height: 26px; }
+.lab-hero-txt p { margin: 5px 0 0; color: var(--muted); font-size: 12.5px; max-width: 620px; line-height: 1.5; }
+.lab-hero-txt .lab-note { margin-top: 8px; color: var(--text); opacity: .75; }
+.lab-hero-act { display: grid; gap: 8px; justify-items: end; }
+.lab-hero-act .primary { padding: 9px 18px; border-radius: 9px; font-weight: 600; }
+.lab-pill { font-size: 11px; padding: 3px 10px; border-radius: 99px; border: 1px solid var(--line-2); color: var(--muted); white-space: nowrap; }
+.lab-pill::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); margin-right: 6px; vertical-align: 1px; }
+.lab-pill.on { color: var(--green); border-color: rgba(54,194,126,.35); } .lab-pill.on::before { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.lab-link { background: none; border: 0; padding: 0; color: var(--accent); font-size: 12px; cursor: pointer; }
+.lab-link:hover { text-decoration: underline; }
+.lab-sec { display: grid; gap: 12px; }
+.lab-sec-h { display: flex; align-items: flex-end; gap: 16px; }
+.lab-sec-h > div { flex: 1; }
+.lab-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.lab-tile, .lab-row { position: relative; display: flex; align-items: center; gap: 12px; text-align: left; padding: 12px 14px; border-radius: 11px; background: var(--panel); border: 1px solid var(--line); color: var(--text); cursor: pointer; transition: border-color .15s, background .15s, transform .15s; }
+.lab-tile:hover, .lab-row:hover { border-color: rgba(255,153,51,.55); background: var(--panel-2); transform: translateY(-1px); }
+.lab-tile:active, .lab-row:active { transform: none; }
+.lab-tile-ic, .lab-row-ic { flex: none; width: 36px; height: 36px; border-radius: 9px; display: grid; place-items: center; background: var(--panel-3); color: var(--accent-2); }
+.lab-tile:hover .lab-tile-ic, .lab-row:hover .lab-row-ic { background: rgba(255,153,51,.15); color: var(--accent); }
+.lab-tile-t { display: grid; gap: 2px; min-width: 0; }
+.lab-tile-t b { font-size: 13px; font-weight: 600; }
+.lab-tile-t small { font-size: 11.5px; color: var(--muted); line-height: 1.4; }
+.lab-tag { position: absolute; top: 8px; right: 10px; font-style: normal; font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.lab-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; }
+.lab-row .lab-tile-t { flex: 1; }
+.lab-chev { width: 14px; height: 14px; color: var(--muted); flex: none; }
+.lab-row:hover .lab-chev { color: var(--accent); }
+@media (max-width: 720px) { .lab { padding: 18px 16px 40px; } .lab-hero { grid-template-columns: 1fr; } .lab-hero-act { justify-items: start; } .lab-list { grid-template-columns: 1fr; } }
+/* 🔴 live edit chip */
+.live-chip { position: fixed; right: 16px; bottom: 44px; z-index: 900; display: flex; gap: 8px; align-items: center; background: #1d1012; border: 1px solid #e5484d; color: #fff; border-radius: 18px; padding: 5px 8px 5px 12px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.4); }
+.live-chip b { color: #ff5a5f; }
+.live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #ff5a5f; margin-right: 6px; vertical-align: 1px; box-shadow: 0 0 8px #ff5a5f; animation: livepulse 1.4s ease-in-out infinite; }
+@keyframes livepulse { 50% { opacity: .35; } }
+.qc-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; align-self: center; }
+.qc-dot.fail { background: var(--red); } .qc-dot.warn { background: #f5a524; } .qc-dot.ok { background: var(--green); }

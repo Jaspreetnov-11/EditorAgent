@@ -20,7 +20,7 @@ const MENUS = [
   ['Markers', [['Add marker', 'k:marker'], ['📍 Add clip marker', 'k:clipMarker'], ['Ripple sequence markers (on / off)', 'k:rippleMarkers'], ['Next marker', 'k:nextMarker'], ['Previous marker', 'k:prevMarker'], ['Markers list…', 'k:markersList'], '-', ['Add review note', 'k:note']]],
   ['Graphics and Titles', [['Type tool (write on the monitor)', 'k:typeTool'], ['New title card', 'title'], ['Title templates…', 'titles'], ['Captions', 'cc'], '-', ['Motion page', 'p:motion'], ['Fusion page', 'p:fusion']]],
   ['View', [['Zoom in', 'k:zoomIn'], ['Zoom out', 'k:zoomOut'], ['Zoom to sequence', 'k:zoomFit'], '-', ['🕘 History', 'k:history'], ['Maximize panel', 'k:maximize'], ['Full screen', 'k:fullscreen'], '-', ['Workspaces…', 'a:workspace'], '-', ['🎧 Sound output (speakers / headphones)…', 'audioout']]],
-  ['Window', [['Media', 'p:media'], ['Edit', 'p:edit'], ['Motion', 'p:motion'], ['Fusion', 'p:fusion'], ['Color', 'p:color'], ['Audio', 'p:audio'], ['Deliver', 'p:deliver'], '-',
+  ['Window', [['Media', 'p:media'], ['Edit', 'p:edit'], ['Motion', 'p:motion'], ['Fusion', 'p:fusion'], ['Color', 'p:color'], ['Audio', 'p:audio'], ['Labs', 'p:ai'], ['Deliver', 'p:deliver'], '-',
     ['Effects', 'fx'], ['Effect Controls', 'ec'], ['Activity', 'a:activity'], ['Zones', 'a:zones'], ['Team', 'a:team'], '-', ['Agent', 'a:agent'], ['Re-edit', 'a:reedit'], ['Assistant (Claude)', 'a:assistant']]],
   ['Help', [['Keyboard shortcuts…', 'k:shortcuts'], ['Ask the Assistant', 'a:assistant'], ['Agent report', 'a:report']]],
 ];

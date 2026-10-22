@@ -6,7 +6,7 @@ import { api, enc, watchJob } from './api.js';
 import { esc, toast, modal } from './ui.js';
 
 const CHANNELS = [['broadcast', 'Doordarshan / TV channel (EBU R128, broadcast-safe)'], ['youtube', 'YouTube'], ['instagram', 'Instagram / Facebook reel'], ['whatsapp', 'WhatsApp']];
-const ICON = { fail: '❌', warn: '⚠️', ok: '✅' };
+const ICON = { fail: '<i class="qc-dot fail"></i>', warn: '<i class="qc-dot warn"></i>', ok: '<i class="qc-dot ok"></i>' };
 const tc = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 // the channel a render was made for, from its name (…_reel_1080p_v1.mp4) or the project's export preset
 function guess(file) {
@@ -21,16 +21,16 @@ export async function openQC(file, onSeek) {
   body.className = 'qc';
   body.innerHTML = `<p class="muted small">${file ? `<b>${esc(file)}</b>` : 'The edit as it is now (a quick preview is made first)'} - black frames, a stuck picture, flashing, broadcast-safe colours, loudness and peaks for the channel${file ? '' : ', the shape and length'}.</p>
     <div class="fgrid"><label class="fld"><span>Going to</span><select name="target">${CHANNELS.map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}</select></label>
-    <label class="chk"><input type="checkbox" name="spell" checked> ✍ Check the spelling of the titles (Claude)</label></div>
-    <div class="dv-actions"><button class="primary" data-go>🧪 Run QC</button></div>
+    <label class="chk"><input type="checkbox" name="spell" checked> Check the spelling of the titles (Claude)</label></div>
+    <div class="dv-actions"><button class="primary" data-go>Run QC</button></div>
     <div class="job" data-job hidden><div class="job-top"><span data-st>Starting…</span><span data-pc></span></div><div class="bar"><div data-bar></div></div></div>
     <div data-out></div>`;
   body.querySelector('[name=target]').value = guess(file);
-  const m = modal('🧪 QC check', body, { width: 680 });
+  const m = modal('QC check', body, { width: 680 });
   const show = (rep) => {
     const c = rep.counts;
-    body.querySelector('[data-out]').innerHTML = `<div class="qc-sum ${c.fail ? 'bad' : c.warn ? 'meh' : 'good'}">${c.fail ? `❌ ${c.fail} problem${c.fail > 1 ? 's' : ''} to fix` : c.warn ? '⚠️ Passes, with things to look at' : '✅ Ready to send'} · ${esc(rep.target)}${rep.preview ? ' · checked on a low-res preview' : ''}</div>
-      <ul class="qc-list">${rep.items.map((i) => `<li class="qc-${i.level}">${ICON[i.level]} <span>${esc(i.text)}</span>${i.t != null ? `<button class="link small" data-t="${i.t}">▶ ${tc(i.t)}</button>` : ''}</li>`).join('')}</ul>
+    body.querySelector('[data-out]').innerHTML = `<div class="qc-sum ${c.fail ? 'bad' : c.warn ? 'meh' : 'good'}">${c.fail ? `${c.fail} problem${c.fail > 1 ? 's' : ''} to fix` : c.warn ? 'Passes, with things to look at' : 'Ready to send'} · ${esc(rep.target)}${rep.preview ? ' · checked on a low-res preview' : ''}</div>
+      <ul class="qc-list">${rep.items.map((i) => `<li class="qc-${i.level}">${ICON[i.level]} <span>${esc(i.text)}</span>${i.t != null ? `<button class="link small" data-t="${i.t}">${tc(i.t)}</button>` : ''}</li>`).join('')}</ul>
       ${rep.at ? `<p class="muted small">Checked ${new Date(rep.at).toLocaleString()}</p>` : ''}`;
     body.querySelectorAll('[data-t]').forEach((b) => (b.onclick = () => {
       const t = +b.dataset.t;

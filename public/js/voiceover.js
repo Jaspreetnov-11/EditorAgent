@@ -12,7 +12,7 @@ const remembered = () => { try { return JSON.parse(localStorage.getItem(LAST)) |
 const remember = (o) => { try { localStorage.setItem(LAST, JSON.stringify(o)); } catch {} };
 
 // provider + voice + speed controls, shared by both dialogs
-function voicePicker(body) {
+export function voicePicker(body) {
   const last = remembered();
   const el = h(`<div class="fgrid vo-pick">
     <label class="fld"><span>Voice from</span><select name="provider"><option value="edge">Microsoft Edge voices (free, needs internet)</option><option value="eleven">ElevenLabs (your key, paid)</option></select></label>
@@ -79,7 +79,7 @@ export function openVoiceOver({ text = '', onDone = null, setBusy = null } = {})
   };
 }
 
-const parseSrt = (txt) => txt.replace(/\r/g, '').split(/\n\n+/).map((b) => {
+export const parseSrt = (txt) => txt.replace(/\r/g, '').split(/\n\n+/).map((b) => {
   const m = /(\d+):(\d+):(\d+)[,.](\d+)\s*-->\s*(\d+):(\d+):(\d+)[,.](\d+)\n([\s\S]*)/.exec(b.trim());
   if (!m) return null;
   const s = (a, b2, c, d) => +a * 3600 + +b2 * 60 + +c + +d / 1000;

@@ -523,7 +523,8 @@ const outside = (x) => R && (x.end < R.in - 1 || x.start > R.out + 1);
 const blank = (dur, label) => ({ file: path.join(wd, `seg${String(segN++).padStart(4, '0')}.mp4`), dur, label: `${label} (outside In-Out)`, hit: null, pre: [],
   main: ['-f', 'lavfi', '-i', `color=c=black:s=${W}x${H}:r=${F}:d=${dur.toFixed(3)}`, '-f', 'lavfi', '-t', dur.toFixed(3), '-i', 'anullsrc=r=48000:cl=stereo', '-map', '0:v', '-map', '1:a', '-t', dur.toFixed(3)] });
 const v1Segs = v1.map((x, i) => { const d = (frames(x.end) - frames(x.start)) / F; return outside(x) ? blank(d, `V1 clip ${i + 1}`) : segment(x.clip, `V1 clip ${i + 1}`, d); });
-const ovSegs = new Map(ovMedia.filter((x) => !outside(x)).map((x, i) => [x, segment(x.clip, `${x.track} clip ${i + 1}`)]));
+const pinned = (c) => c.pin?.keys?.length > 0 && (c.type === 'video' || c.type === 'image'); // (▱ drawn straight in the final pass)
+const ovSegs = new Map(ovMedia.filter((x) => !outside(x) && !pinned(x.clip)).map((x, i) => [x, segment(x.clip, `${x.track} clip ${i + 1}`)]));
 if (R) console.log(`  In-Out: ${R.in.toFixed(2)}s to ${R.out.toFixed(2)}s (${(R.out - R.in).toFixed(2)}s)`);
 {
   const all = [...v1Segs, ...ovSegs.values()], pending = [...all];
@@ -598,11 +599,48 @@ function adjustLayer(c, inL, st, en, k) {
   return p;
 }
 
+// ▱ Planar track (Phase 22): the overlay's whole picture is stuck onto a tracked surface - its four corners go where
+// c.pin.keys say ({ t: seconds into the clip, q: [x0, y0, x1, y1, x2, y2, x3, y3] as fractions of the frame; top-left,
+// top-right, bottom-left, bottom-right }). Straight from the file (a logo PNG keeps its transparency); a 2 px clear
+// border keeps the outside of the surface clear (perspective repeats the edge pixels).
+function treeExpr(keys, T) {
+  const f = (x) => (+x).toFixed(3);
+  if (keys.length === 1) return f(keys[0].v);
+  const seg = (a, b) => `${f(a.v)}+(${f(b.v - a.v)})*(${T}-${f(a.t)})/${f(Math.max(1e-6, b.t - a.t))}`;
+  const node = (i, j) => (j - i === 1 ? seg(keys[i], keys[j]) : `if(lt(${T},${f(keys[(i + j) >> 1].t)}),${node(i, (i + j) >> 1)},${node((i + j) >> 1, j)})`); // (balanced: FFmpeg allows ~100 nested ifs)
+  const L = keys[keys.length - 1];
+  return `if(lt(${T},${f(keys[0].t)}),${f(keys[0].v)},if(gte(${T},${f(L.t)}),${f(L.v)},${node(0, keys.length - 1)}))`;
+}
+function pinnedOverlay(x, under, k) {
+  const c = x.clip, st = x.start, en = x.end, len = en - st, m = M(c.mediaId), i = n++;
+  if (c.type === 'video') {
+    const sp = c.speed || 1, tin = Math.max(0, +c.in || 0);
+    inputs.push('-ss', String(tin), '-t', (len * sp + 0.1).toFixed(3), '-i', proxyOf(c.mediaId) || m.path);
+    g.push(`[${i}:v]setpts=(PTS-STARTPTS)/${sp},fps=${F}[pn${k}a]`);
+  } else {
+    inputs.push('-loop', '1', '-framerate', String(F), '-t', (len + 0.1).toFixed(3), '-i', m.path);
+    g.push(`[${i}:v]fps=${F}[pn${k}a]`);
+  }
+  const K = c.pin.keys, T = `(in/${F})`, xy = (j) => treeExpr(K.map((p) => ({ t: p.t, v: p.q[j] * (j % 2 ? H : W) })), T);
+  const op = c.opacity ?? 1;
+  g.push(`[pn${k}a]format=yuva444p,scale=${W - 4}:${H - 4},setsar=1,pad=${W}:${H}:2:2:color=black@0,` +
+    `perspective=sense=destination:eval=frame:${[0, 1, 2, 3].map((p) => `x${p}='${xy(p * 2)}':y${p}='${xy(p * 2 + 1)}'`).join(':')}` +
+    `${op < 1 ? `,format=rgba,colorchannelmixer=aa=${op}` : ''},setpts=PTS-STARTPTS+${st.toFixed(3)}/TB[pn${k}]`);
+  g.push(`[${under}][pn${k}]overlay=eof_action=pass:format=auto:enable='between(t,${st.toFixed(3)},${en.toFixed(3)})',format=yuv420p[vo${k}]`);
+  if (c.type === 'video' && m.hasAudio && !ts[x.track]?.mute && !c.mute && (c.volume ?? 0) > 0 && (c.speed || 1) === 1) {
+    const ms = Math.round(st * 1000);
+    g.push(`[${i}:a]${fxOf(x.track)}volume=${c.volume},adelay=${ms}|${ms},${AFMT}[v2a${k}]`);
+    speechLabels.push(`v2a${k}`);
+  }
+  return `vo${k}`;
+}
+
 // overlays in track order (V2 first, a higher track on top); adjustment layers act on what is below them
 ovl.forEach((x, k) => {
   const c = x.clip, st = x.start, en = x.end;
   if (c.type === 'adjust') { v = adjustLayer(c, v, st, en, k); return; }
   if (c.type !== 'video' && c.type !== 'image') return; // titles are drawn after the film look (below)
+  if (pinned(c)) { if (!outside(x)) v = pinnedOverlay(x, v, k); return; }
   const s = ovSegs.get(x);
   if (!s) return; // (outside In-Out: not made)
   const i = n++;

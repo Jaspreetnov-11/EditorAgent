@@ -39,6 +39,7 @@ import { ensureSfx, listSfx, SFX_KINDS } from './engine/sfx.mjs';
 import { gyroflowExe, findLog, gyroSamples, stabilise, LOG_EXT as GF_LOG } from './engine/gyroflow.mjs';
 import { runNightly, mirrorLive, restoreProject, nights as backupNights, standbyState, liveDir, dayOf, safeDir } from './engine/safety.mjs';
 import * as QC from './engine/qc.mjs';
+import { archiveRoutes } from './engine/archive.mjs';
 import { startHealth, noteRequest, healthSeries } from './engine/health.mjs';
 import { ReviewStore, Limiter, findLink, sameSecret, pwOk, pwCookie, cleanText, cleanName, cleanDraw, renderPath, expired, latest, clientView, ownerView, readLimited, newId, hashPw as rvHashPw, MAX_COMMENTS } from './engine/clientreview.mjs';
 
@@ -142,6 +143,10 @@ if (process.platform === 'win32') {
 }
 // "python" can be the Microsoft Store stub, which starts but fails - require a real exit 0.
 const PYTHON = ['python', 'python3', 'py'].find((b) => spawnSync(b, ['--version']).status === 0) || 'python';
+// 🧬 same-voice dubbing has its own Python (its pinned torch / transformers would break the editor's other AI tools)
+const AIVOICE_PY = path.join(ROOT, 'tools', 'aivoice', 'venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
+const aiVoiceReady = () => fs.existsSync(path.join(ROOT, 'tools', 'aivoice', 'venv', 'Lib', 'site-packages', 'chatterbox', 'mtl_tts.py'));
+let aiVoiceSetup = null;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml',
@@ -2512,6 +2517,8 @@ function toUnc(p) {
 }
 const whoLabel = (who) => (who.local ? `${who.name} (this PC)` : who.name);
 const routes = {
+  // 📦 Archive search (Phase 22): engine/archive.mjs
+  ...archiveRoutes({ DATA, PROJECTS, config, readJson, err, startTask, footageWorker, extractFrames, toEnglishQuery, serveFile, writeJSON, readJSON }),
   'GET /api/health': () => healthCache || checkHealth(),
   // version handshake: a newer copy started from the .bat asks an older running one to step aside
   // busy: work that a restart would cut off (an agent edit, Claude, a render) - a newer copy starting then leaves this one running
@@ -4580,6 +4587,25 @@ const routes = {
       return out;
     }, { project: name });
   },
+  // ▱ Planar tracking (Phase 22, engine/planar.py): body { mediaId, ts, t0, te, quad: [x0, y0, x1, y1, x2, y2, x3, y3] }
+  // (seconds in the file: the shot's start, the drawn frame, its end; corners TL, TR, BL, BR as fractions of the picture).
+  // Result { points: [{ t, q }], lost: [t] } - read from the preview copy when there is one (same picture, smaller).
+  'POST /api/planar': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req), m = mediaItem(name, b.mediaId);
+    if (!m || m.kind !== 'video') throw err(400, 'Planar tracking needs a video shot');
+    const qd = (Array.isArray(b.quad) ? b.quad : []).map(Number);
+    if (qd.length !== 8 || qd.some((v) => !(v >= 0 && v <= 1))) throw err(400, 'Click the four corners of the surface');
+    const dur = m.duration || 1e9, t0 = Math.min(dur, Math.max(0, +b.t0 || 0)), ts = Math.max(0, Math.min(t0, +b.ts || 0)), te = Math.max(t0, Math.min(dur, +b.te || dur));
+    if (te - ts > 300) throw err(400, 'That shot is longer than 5 minutes - cut it shorter first');
+    return startTask('track', async (job) => {
+      job.stage = 'Tracking the surface through the shot…'; job.progress = 10;
+      const r = await run(PYTHON, [path.join(ROOT, 'engine', 'planar.py'), analysisFile(name, m), String(ts), String(t0), String(te), ...qd.map(String), '--fps', '25']);
+      if (r.code !== 0) throw new Error(`Planar tracking failed: ${r.stderr.slice(-300)}`);
+      const out = JSON.parse(r.stdout.trim().split(/\r?\n/).pop());
+      if (out.error) throw new Error(out.error);
+      return out;
+    }, { project: name });
+  },
   // ---- Library (shared by every project): presets, brand kit, project templates - in <app>/Library ----
   'GET /api/library': () => ({ presets: readJSON(path.join(LIB, 'presets.json'), { fx: [], captions: [] }), brand: readJSON(path.join(LIB, 'brand.json'), {}),
     templates: fs.readdirSync(path.join(LIB, 'templates')).filter((f) => f.endsWith('.json')).map((f) => ({ name: path.parse(f).name, ...pick(readJSON(path.join(LIB, 'templates', f), {}), ['aspect', 'saved']) })) }),
@@ -4720,10 +4746,29 @@ const routes = {
       const { speak } = await import(`./engine/voices.mjs?v=${Math.round(fs.statSync(path.join(ROOT, 'engine', 'voices.mjs')).mtimeMs)}`);
       const wd = fs.mkdtempSync(P(name, 'cache', 'dub-')), parts = [];
       try {
+        // 🧬 same voice (Phase 22): a sample of the speaker (up to 15 s from where they talk), then every line at once
+        let cloned = null;
+        if (b.provider === 'clone') {
+          const m = mediaItem(name, b.mediaId);
+          if (!m) throw new Error('The clip to take the voice from is missing');
+          if (!aiVoiceReady()) throw new Error('Same-voice AI is not set up yet - press "Set up same-voice AI" on the Labs page first');
+          // (the lines' times are seconds in the clip's own file - they come from its transcript)
+          const s0 = Math.max(0, Math.min(...lines.map((l) => +l.start))), s1 = Math.min(s0 + 15, Math.max(...lines.map((l) => +l.end)));
+          const ref = path.join(wd, 'speaker.wav');
+          job.stage = 'Listening to the speaker\'s voice…'; job.progress = 3;
+          const rr = await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-ss', s0.toFixed(3), '-t', Math.max(3, s1 - s0).toFixed(3), '-i', m.path, '-vn', '-ac', '1', '-ar', '24000', ref]);
+          if (rr.code !== 0) throw new Error(`Could not take the voice sample: ${rr.stderr.slice(-200)}`);
+          const jf = path.join(wd, 'clone.json');
+          cloned = lines.map((l, k) => path.join(wd, `l${k}.wav`));
+          writeJSON(jf, { ref, lang: b.lang || 'hi', lines: lines.map((l, k) => ({ text: l.text, out: cloned[k] })) });
+          const r = await run(AIVOICE_PY, [path.join(ROOT, 'engine', 'voiceclone.py'), jf], { onLine: (x) => { const p = /^PROGRESS (\d+) (.*)/.exec(x); if (p) { job.progress = Math.round(+p[1] * 0.85); job.stage = `🧬 ${p[2]}…`; } } });
+          const out = (() => { try { return JSON.parse(r.stdout.trim().split(/\r?\n/).pop()); } catch { return { error: r.stderr.slice(-300) || 'the voice model stopped' }; } })();
+          if (out.error) throw new Error(`Same-voice AI: ${out.error}`);
+        }
         for (const [k, l] of lines.entries()) {
-          job.stage = `Speaking line ${k + 1}/${lines.length}…`; job.progress = Math.round((k / lines.length) * 85);
-          const f = path.join(wd, `l${k}.mp3`);
-          await speak({ provider: b.provider || 'edge', voice: b.voice, text: l.text, rate: +b.rate || 0, out: f, python: PYTHON, key: config().elevenlabs });
+          job.stage = cloned ? 'Fitting the lines to the timing…' : `Speaking line ${k + 1}/${lines.length}…`; if (!cloned) job.progress = Math.round((k / lines.length) * 85);
+          const f = cloned ? cloned[k] : path.join(wd, `l${k}.mp3`);
+          if (!cloned) await speak({ provider: b.provider || 'edge', voice: b.voice, text: l.text, rate: +b.rate || 0, out: f, python: PYTHON, key: config().elevenlabs });
           const d = +(await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', f])).stdout || 0;
           // room until the next line starts (a little spill past the original end is fine)
           const room = Math.max(0.3, (lines[k + 1]?.start ?? l.end + 1.5) - l.start - 0.05);
@@ -4743,6 +4788,42 @@ const routes = {
         return { mediaId: it?.id, fitted: parts.filter((p) => p.tempo > 1.001).length, lines: parts.length };
       } finally { fs.rmSync(wd, { recursive: true, force: true }); }
     }, { project: name });
+  },
+  // 🌐 dub lines into any language (Claude): short enough to be spoken in the same time as the original. { texts, to, from }
+  'POST /api/dub/translate': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req);
+    const texts = (Array.isArray(b.texts) ? b.texts : []).map((x) => String(x ?? '').slice(0, 600));
+    const to = String(b.to || '').slice(0, 40), from = String(b.from || '').slice(0, 40);
+    if (!texts.length || !to) throw err(400, 'Nothing to translate');
+    const exe = claudeExe();
+    if (!exe) throw err(400, 'Claude is not on this computer - translating needs it');
+    return startTask('translate', async (job) => {
+      const out = [];
+      for (let i = 0; i < texts.length; i += 40) {
+        const part = texts.slice(i, i + 40);
+        job.stage = `Lines ${i + 1}-${i + part.length} of ${texts.length}`;
+        const r = await claudeAsk(exe, `${translatePrompt(part, to, from)}\n\nThese lines will be DUBBED (spoken by a voice in place of the original): keep each about as long to say as the original line, natural spoken ${to}, written in its own script.`, CLAUDE_BACKUP(), job);
+        const got = r.ok && parseTranslation(r.text, part.length);
+        if (!got) throw new Error(r.ok ? 'Claude gave back a different number of lines - try again' : r.text);
+        out.push(...got); job.progress = Math.round(((i + part.length) / texts.length) * 100);
+      }
+      return { lines: out, to };
+    }, { project: name });
+  },
+  // 🧬 the same-voice model lives in its own Python (tools/aivoice/venv); set up once per computer
+  'GET /api/aivoice': () => ({ ready: aiVoiceReady(), setting: aiVoiceSetup?.status === 'running' ? { id: aiVoiceSetup.id, stage: aiVoiceSetup.stage } : null }),
+  'POST /api/aivoice/setup': (req) => {
+    if (req.who && req.who.role !== 'owner' && !req.who.local) throw err(403, 'Only the owner can install the AI voice');
+    if (aiVoiceSetup?.status === 'running') return aiVoiceSetup;
+    aiVoiceSetup = startTask('setup', async (job) => {
+      const venv = path.join(ROOT, 'tools', 'aivoice', 'venv');
+      const step = async (stage, pct, cmd, args) => { job.stage = stage; job.progress = pct; const r = await run(cmd, args, { onLine: (l) => job.log.push(l.slice(0, 200)) }); if (r.code !== 0) throw new Error(`${stage} failed: ${r.stderr.slice(-400)}`); };
+      if (!fs.existsSync(AIVOICE_PY)) await step('Making its own Python…', 2, PYTHON, ['-m', 'venv', venv]);
+      await step('Downloading PyTorch for the GPU (~2.5 GB)…', 10, AIVOICE_PY, ['-m', 'pip', 'install', 'torch==2.6.0', 'torchaudio==2.6.0', '--index-url', 'https://download.pytorch.org/whl/cu124']);
+      await step('Installing the voice model…', 60, AIVOICE_PY, ['-m', 'pip', 'install', 'chatterbox-tts==0.1.7']);
+      job.stage = 'Ready'; return { ready: aiVoiceReady() };
+    });
+    return aiVoiceSetup;
   },
   'PUT /api/settings': async (req) => {
     const b = await readJson(req), c = config();

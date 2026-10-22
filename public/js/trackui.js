@@ -5,8 +5,8 @@ import { S, commit, findClip, layout } from './store.js';
 import { api, enc, watchJob } from './api.js';
 import { ASPECTS, propAt, uid, fmt } from './model.js';
 import { esc, toast } from './ui.js';
-import { pickBox } from './player.js';
-import { fitMap, framingOf, srcSize, srcTimeAt, simplifyPath, followKeys } from './tracking.js';
+import { pickBox, pickQuad } from './player.js';
+import { fitMap, framingOf, srcSize, srcTimeAt, simplifyPath, followKeys, pinKeys } from './tracking.js';
 
 // a box drawn on the viewer (fractions of the frame) -> fractions of clip c's source picture at clip time rel
 function toSource(box, c, rel) {
@@ -67,12 +67,39 @@ export async function addFollow(id, render) {
   } catch (err) { toast(err.message, 'err'); }
 }
 
+// ▱ Planar track (Phase 22): click the four corners of a flat surface (wall, banner, screen) in the V1 shot at the
+// playhead; the surface is tracked through the whole shot (both ways) and this logo / picture / video is stuck onto it
+export async function addPin(id, render) {
+  const ov = findClip(id)?.clip, L = layout(), [W, H] = ASPECTS[S.project.settings.aspect] || [1920, 1080];
+  const ox = Object.values(L).flat().find((p) => p.clip.id === id);
+  const tx = L.V1.find((x) => S.playhead >= x.start && S.playhead < x.end && x.clip.type === 'video');
+  if (!tx) return toast('Put the playhead on a video shot (V1) that shows the surface', 'err');
+  const c = tx.clip, m = S.mediaById[c.mediaId], rel = S.playhead - tx.start;
+  if (!m?.playable) return toast("Wait for this shot's preview copy first (it is being made)", 'err');
+  const q = await pickQuad();
+  if (!q) return;
+  // each corner -> fractions of the shot's own picture (a tiny box per corner through the same mapping as Follow)
+  const src = q.map((p) => toSource({ x: p.x, y: p.y, w: 0.0001, h: 0.0001 }, c, rel));
+  if (src.some((p) => !(p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1))) return toast("A corner is outside the shot's picture", 'err');
+  try {
+    toast('▱ Tracking the surface through the shot…');
+    const job = await api('POST', `/api/planar?p=${enc(S.proj)}`, { mediaId: c.mediaId, ts: c.in || 0, t0: srcTimeAt(c, rel), te: c.out ?? m.duration, quad: src.flatMap((p) => [p.x, p.y]) });
+    const r = (await watchJob(job.id, () => {})).result;
+    const keys = pinKeys(r.points, c, tx.start, m, ox.start, ox.end - ox.start, W, H, framingOf(c, S.project.settings, W, H), propAt);
+    if (!keys.length) return toast('The overlay is not over this shot - move it onto the shot first', 'err');
+    ov.pin = { keys, on: c.id };
+    commit('Stick onto surface'); render();
+    toast(r.lost?.length > 8 ? `▱ Stuck on - lost the surface ${r.lost.length} times (covered / blurred): check those parts` : '▱ Stuck onto the surface - press Space to watch');
+  } catch (err) { toast(err.job?.log?.slice(-1)[0] || err.message, 'err'); }
+}
+
 export function trackingHTML(c, track) {
   const vid = c.type === 'video', ovl = track !== 'V1' && (c.type === 'title' || c.type === 'image' || c.type === 'video');
   const masks = (c.masks || []).map((mk) => `<div class="efx" data-mask="${mk.id}"><div class="efx-h"><b>${mk.type === 'pixelate' ? '🔲 Mosaic' : '🌫 Blur'}</b><small class="muted">${fmt(mk.path[0].t - (c.in || 0))} → ${fmt(mk.path[mk.path.length - 1].t - (c.in || 0))}</small><span class="grow"></span><button class="icon-btn small" data-mdel title="Remove">✕</button></div>
       <label class="fld"><span>Strength</span><input type="range" min="0" max="1" step="0.05" value="${mk.amount ?? 0.6}" data-mamt></label></div>`).join('');
   const following = c.follow?.x?.length || (c.keys?.['transform.x']?.length > 3);
   return `${vid ? `<div class="row-in"><button class="small" data-trk="blur" title="Hide a face / number plate that moves: draw a box at the playhead">🌫 Blur a moving thing</button><button class="small" data-trk="pixelate">🔲 Pixelate a moving thing</button></div>${masks}` : ''}
+    ${ovl && c.type !== 'title' ? `<div class="row-in"><button class="small" data-trk="pin" title="Stick this ${esc(c.type)} onto a flat surface in the shot below (wall, banner, screen, board) - it bends with the camera, like Mocha">▱ Stick onto a surface…</button>${c.pin ? '<button class="small" data-trk="unpin">✕ Unstick</button>' : ''}</div>` : ''}
     ${ovl ? `<div class="row-in"><button class="small" data-trk="follow" title="Make this ${esc(c.type)} move with something in the shot below (name tag on a person, logo on a car)">📌 Follow a moving thing…</button>${following ? '<button class="small" data-trk="unfollow">✕ Stop following</button>' : ''}</div>` : ''}
     <small class="hint">Put the playhead where the thing is clearly visible, press a button, then drag a box around it on the viewer. It is tracked to the end of the shot.</small>`;
 }
@@ -82,6 +109,8 @@ export function bindTracking(root, id, render) {
     const k = b.dataset.trk, c = findClip(id)?.clip;
     if (k === 'blur' || k === 'pixelate') return addMask(id, k, render);
     if (k === 'follow') return addFollow(id, render);
+    if (k === 'pin') return addPin(id, render);
+    if (k === 'unpin') { delete c.pin; commit('Unstick from surface'); render(); }
     if (k === 'unfollow') { delete c.follow; if (c.keys) { delete c.keys['transform.x']; delete c.keys['transform.y']; if (!Object.keys(c.keys).length) delete c.keys; } commit('Stop following'); render(); }
   }));
   root.querySelectorAll('[data-mask]').forEach((el) => {
