@@ -1,6 +1,7 @@
 // CC Captions panel: make captions (from the voice-over, from the whole edit's sound, or an .srt), style them,
 // and edit them line by line - text, timing (set to the playhead), split, merge, delete, add. Data: project.captions
 // (public/js/captions.js); burned into renders, previewed live in the viewer.
+import { guarded } from './errlog.js';
 import { S, on, emit, commit, layout } from './store.js';
 import { api, enc, watchJob } from './api.js';
 import { fmt, uid } from './model.js';
@@ -9,7 +10,8 @@ import { loadLib, libCached, saveCaptionStyle } from './library.js';
 import { CAPTION_PRESETS, CAPTION_FONTS, defaultCaptions, cuesFromSegments, cuesFromSrt, splitCue, mergeCue } from './captions.js';
 
 let root, busy = false, lastActive = null;
-const cap = () => (S.project.captions ||= defaultCaptions());
+// (an older or half-written project can have captions without a style / cue list: the missing parts are filled in)
+const cap = () => { const c = (S.project.captions ||= defaultCaptions()), d = defaultCaptions(); c.style = { ...d.style, ...(c.style || {}) }; if (!Array.isArray(c.cues)) c.cues = []; return c; };
 const r3 = (x) => Math.round(x * 1000) / 1000;
 
 export function mountCapsPanel(el) {
@@ -25,7 +27,8 @@ export function mountCapsPanel(el) {
 }
 export const refreshCaps = () => draw();
 
-function draw() {
+function draw() { return guarded(root, 'Captions', drawNow); }
+function drawNow() {
   if (!root || !S.project) return;
   const c = cap(), st = c.style, vo = S.project.tracks.A1?.find((x) => S.mediaById[x.mediaId]);
   root.innerHTML = `<div class="cc-top">

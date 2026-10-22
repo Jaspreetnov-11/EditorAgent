@@ -1,4 +1,5 @@
 // App shell: Home (projects) and the editor pages Media · Edit · Color · Audio · Deliver.
+import { reportError } from './errlog.js';
 import { applyLook, icon, mountDock } from './ui2.js';
 import { mountWorkspaces, openWorkspaceMenu, current as currentWorkspace } from './workspaces.js';
 import { mountSourceMonitor } from './sourcemon.js';
@@ -142,24 +143,25 @@ function shell() {
     const p = e.target.closest('[data-page-btn]')?.dataset.pageBtn;
     if (p) showPage(p);
   });
-  mountPool($('#pool'));
-  mountFxPanel($('#fxPanel'));
-  mountCapsPanel($('#ccPanel'));
-  mountNotesPanel($('#notesPanel'));
+  // 🛡 each panel is built on its own - one that fails (odd data in a project) never leaves the others unbuilt
+  safely('Media panel', () => mountPool($('#pool')));
+  safely('Effects panel', () => mountFxPanel($('#fxPanel')));
+  safely('Captions panel', () => mountCapsPanel($('#ccPanel')));
+  safely('Notes panel', () => mountNotesPanel($('#notesPanel')));
   editorEl.querySelector('.ptabs').addEventListener('click', (e) => {
     const t = e.target.closest('[data-ptab]')?.dataset.ptab; if (t) selectTab(t);
   });
-  mountPool($('#poolBig'), { big: true });
-  mountViewer($('#viewer'));
-  mountInspector($('#inspector'));
-  mountTimeline($('#timeline'));
-  mountDeliver($('#deliverPage'));
-  mountText($('#textPage'));
-  mountMotion($('#motionPage')); // 🎬 After Effects-style compositions
-  mountFusion($('#fusionPage')); // ✨ Resolve Fusion-style node effects
-  mountColor($('#colorPage'));
-  mountAudio($('#audioPage'));
-  mountAssistant(setBusy);
+  safely('Media page', () => mountPool($('#poolBig'), { big: true }));
+  safely('Viewer', () => mountViewer($('#viewer')));
+  safely('Effect Controls', () => mountInspector($('#inspector')));
+  safely('Timeline', () => mountTimeline($('#timeline')));
+  safely('Deliver page', () => mountDeliver($('#deliverPage')));
+  safely('Text page', () => mountText($('#textPage')));
+  safely('Motion page', () => mountMotion($('#motionPage'))); // 🎬 After Effects-style compositions
+  safely('Fusion page', () => mountFusion($('#fusionPage'))); // ✨ Resolve Fusion-style node effects
+  safely('Color page', () => mountColor($('#colorPage')));
+  safely('Audio page', () => mountAudio($('#audioPage')));
+  safely('Assistant', () => mountAssistant(setBusy));
 }
 
 // a menu item (menubar.js): a keyboard command, a top-bar button, a page, or one of these
@@ -276,12 +278,13 @@ export function showPage(p) {
   S.page = p;
   $$('[data-page]').forEach((s) => (s.hidden = s.dataset.page !== p));
   $$('[data-page-btn]').forEach((b) => b.setAttribute('aria-current', String(b.dataset.pageBtn === p)));
-  if (p === 'deliver') showDeliver(); else hideDeliver();
-  if (p === 'color') showColor(); else hideColor();
-  if (p === 'audio') showAudio(); else hideAudio();
-  if (p === 'text') showText(); else hideText();
-  if (p === 'motion') showMotion(); else hideMotion();
-  if (p === 'fusion') showFusion(); else hideFusion();
+  // (🛡 each page on its own: one that fails to show is logged, the page bar keeps working)
+  safely('Deliver page', () => (p === 'deliver' ? showDeliver() : hideDeliver()));
+  safely('Color page', () => (p === 'color' ? showColor() : hideColor()));
+  safely('Audio page', () => (p === 'audio' ? showAudio() : hideAudio()));
+  safely('Text page', () => (p === 'text' ? showText() : hideText()));
+  safely('Motion page', () => (p === 'motion' ? showMotion() : hideMotion()));
+  safely('Fusion page', () => (p === 'fusion' ? showFusion() : hideFusion()));
   if (p !== 'edit' && p !== 'audio') pause();
   emit('change', {});
   try { localStorage.setItem('ve-page', p); } catch {}
@@ -291,7 +294,7 @@ async function loadLuts() { try { S.luts = await api('GET', `/api/luts?p=${enc(S
 
 // 🛡 a step of opening a project that goes wrong is logged and skipped - the project stays open (only a project that
 // cannot be read at all goes back to Home)
-const safely = (label, fn) => { try { const r = fn(); return r?.catch ? r.catch((e) => console.error(`${label} failed`, e)) : r; } catch (e) { console.error(`${label} failed`, e); } };
+const safely = (label, fn) => { try { const r = fn(); return r?.catch ? r.catch((e) => reportError(label, e)) : r; } catch (e) { reportError(label, e); } };
 async function openProject(name) {
   let project;
   try { project = await api('GET', `/api/project?p=${enc(name)}`); }

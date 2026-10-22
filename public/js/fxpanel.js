@@ -1,6 +1,7 @@
 // ✨ Effects panel (Premiere's Effects panel): transitions, cut effects, video effects and audio clean-ups in folders,
 // with search. Drag an item onto a clip on the timeline (a transition onto a cut), or select clips and double-click
 // it. Applied effects are then adjusted in Effect Controls (the Inspector).
+import { guarded } from './errlog.js';
 import { S, on, emit, commit, findClip } from './store.js';
 import { loadLib, libCached, applyFxPreset, deletePreset } from './library.js';
 import { TRANSITIONS, RAMPS, setRamp, setTransition } from './model.js';
@@ -51,7 +52,8 @@ export function mountFxPanel(el) {
   draw();
 }
 
-function draw() {
+function draw() { return guarded(null, 'Effects panel', drawNow); }
+function drawNow() {
   if (!root) return;
   const html = items().map(([cat, list]) => {
     const vis = list.filter((x) => !query || x.label.toLowerCase().includes(query) || x.type.includes(query));

@@ -1,5 +1,6 @@
 // Multi-track timeline: V2 overlays/titles, V1 magnetic main story, A1 voice-over, A2 music, A3 SFX.
 // Drag to move (V1 reorders), drag edges to trim, blade/S to split, drop media from the pool, snapping to edges + playhead.
+import { guarded } from './errlog.js';
 import { S, on, emit, commit, layout, duration, findClip, saveNow } from './store.js';
 import { zoneBandsHTML } from './zones.js';
 import { seqMenu, seqName, openSequence, nestSelected, renameSequence } from './sequences.js';
@@ -243,7 +244,9 @@ const nestedName = (c) => { const sid = S.mediaById[c.mediaId]?.seqOf; const s =
 // edits with many clips (an agent edit can have hundreds) draw only the clips within a screen of the view (+ selected)
 let drawn = null, scrollRender = 0;
 const VIRTUAL_AT = 150;
-function render() {
+// 🛡 drawn through guarded(): a clip it cannot draw leaves a note + Reload over the tracks, never a blank timeline
+function render() { return guarded(rowsEl, 'Timeline', renderNow); }
+function renderNow() {
   if (!S.project || !root) return;
   syncBar();
   const L = layout(), D = duration();

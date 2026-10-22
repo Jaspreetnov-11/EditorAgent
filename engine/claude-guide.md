@@ -26,7 +26,12 @@ Run `node engine/edtool.mjs help` once if unsure. The commands:
   frame per shot - Read it. **Same-to-same edit from a reference:** match its order of shot kinds (wide / close / face / action /
   text card), each shot's length and the cut rhythm (snap to the song's beats), its transitions and cut effects, its titles
   (words, position, size, animation), its look (`settings.look`, colour) and frame shape - all with the project's own footage.
-  Never put the reference file itself on the timeline. Finish by saying how close it is and what you could not match.
+  Never put the reference file itself on the timeline. **Then always run `reflook <file>`**: it puts the reference's
+  EFFECTS on your cut shot by shot - its looks (black & white, vignette, film grain, letterbox bars, blur, a warmer / cooler
+  part) as adjustment layers (type `adjust`, `refLook: true`) on a free V track over the matching V1 shots, and its cut
+  effects / transitions (flash, whip, dip to black, dissolve) on the V1 cuts. Shot k of V1 gets reference shot k, so build
+  the cut first, in the reference's order; run it again after changing the cut. `ref` also lists each shot's look.
+  Finish by saying how close it is and what you could not match.
 - `preview` (fast, low-res) / `render --preset youtube|reel|shorts|whatsapp|master [--res 1080|2160]` - export.
 
 ## How a good edit is made (do this, in this order)

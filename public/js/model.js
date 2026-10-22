@@ -43,6 +43,20 @@ export function trackList(project) {
 // overlay video tracks, bottom to top (V2 first)
 export const overlayTracks = (project) => trackList(project).filter((t) => t.kind === 'video' && t.id !== 'V1').map((t) => t.id).reverse();
 export const audioTracks = (project) => trackList(project).filter((t) => t.kind === 'audio').map((t) => t.id);
+// 🎚 adjustment layers copying a reference's looks (refstyle.mjs refAdjustLayers): the old ones go, the new ones sit
+// on the first video track that is free over their time and above every overlay used there (so the look reaches the
+// B-roll too); a new track when there is none. Returns the track id.
+export function placeRefLooks(project, clips, media = {}) {
+  for (const id of Object.keys(project.tracks)) project.tracks[id] = project.tracks[id].filter((c) => !c.refLook);
+  if (!clips?.length) return null;
+  const a = Math.min(...clips.map((c) => c.start)), b = Math.max(...clips.map((c) => c.start + c.dur));
+  const ov = Object.keys(project.tracks).filter((id) => trackKind(id) === 'video' && id !== 'V1').sort((x, y) => trackNum(x) - trackNum(y));
+  const busy = (id) => project.tracks[id].some((c) => (c.start || 0) < b && (c.start || 0) + clipDur(c, media) > a);
+  const lastBusy = ov.reduce((k, id, i) => (busy(id) ? i : k), -1);
+  const id = ov.slice(lastBusy + 1).find((t) => !busy(t)) || addTrack(project, 'video');
+  project.tracks[id].push(...clips);
+  return id;
+}
 export function addTrack(project, kind) {
   const pre = kind === 'audio' ? 'A' : 'V';
   const n = Math.max(2, ...Object.keys(project.tracks).filter((id) => id[0] === pre).map(trackNum)) + 1;
@@ -73,6 +87,59 @@ export function newProject(name, { aspect = '16:9', fps = 30 } = {}) {
     subtitles: { file: '', style: {} },
     markers: [],
   };
+}
+
+// 🛡 A project as the editor expects it, whatever wrote it (an older version, Claude, the agent, a half-saved file):
+// missing parts are filled in, wrong kinds of values are replaced, clips that are not clips are dropped - so no panel
+// ever meets something it cannot draw. Changes the project in place (and returns it); a sound project is left as it is.
+const isObj = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
+const CLIP_TYPES = new Set(['video', 'image', 'audio', 'title', 'adjust', 'graphic']);
+function normSeqData(d, base) {
+  d.settings = { ...base.settings, ...(isObj(d.settings) ? d.settings : {}) };
+  if (!isObj(d.tracks)) d.tracks = {};
+  for (const id of ['V1', 'V2', 'A1', 'A2']) if (!Array.isArray(d.tracks[id])) d.tracks[id] = [];
+  for (const id of Object.keys(d.tracks)) {
+    if (!/^[VA]\d+$/.test(id)) { delete d.tracks[id]; continue; }
+    const l = Array.isArray(d.tracks[id]) ? d.tracks[id] : [];
+    d.tracks[id] = l.filter((c) => isObj(c) && CLIP_TYPES.has(c.type));
+    for (const c of d.tracks[id]) {
+      if (typeof c.id !== 'string' || !c.id) c.id = uid();
+      for (const k of ['start', 'in', 'out', 'dur', 'speed', 'volume', 'opacity']) if (k in c && c[k] !== undefined && c[k] !== null && !Number.isFinite(+c[k])) delete c[k];
+      for (const k of ['effects', 'masks']) if (k in c && !Array.isArray(c[k])) delete c[k];
+      if (Array.isArray(c.effects)) c.effects = c.effects.filter((e) => isObj(e) && typeof e.type === 'string').map((e) => ({ ...e, id: e.id || uid(), p: isObj(e.p) ? e.p : {} }));
+      for (const k of ['color', 'transform', 'keys', 'cutFx', 'transitionIn', 'omask', 'gfx']) if (k in c && !isObj(c[k])) delete c[k];
+      if (c.type === 'graphic' && !isObj(c.gfx)) c.gfx = { tpl: 'text', text: '' };
+      if (c.type === 'title' && typeof c.text !== 'string') c.text = String(c.text ?? '');
+    }
+  }
+  if (!isObj(d.trackState)) d.trackState = {};
+  for (const id of Object.keys(d.tracks)) d.trackState[id] = { mute: false, hide: false, lock: false, volume: 1, ...(isObj(d.trackState[id]) ? d.trackState[id] : {}) };
+  if (!Array.isArray(d.markers)) d.markers = [];
+  d.markers = d.markers.filter((m) => isObj(m) && Number.isFinite(+m.t));
+  if ('captions' in d) {
+    if (!isObj(d.captions)) delete d.captions;
+    else { if (!Array.isArray(d.captions.cues)) d.captions.cues = []; if (!isObj(d.captions.style)) d.captions.style = {}; }
+  }
+  if (!isObj(d.subtitles)) d.subtitles = { ...base.subtitles };
+  return d;
+}
+export function normalizeProject(p) {
+  if (!isObj(p)) return p;
+  const base = newProject(typeof p.name === 'string' ? p.name : 'Project');
+  if (typeof p.name !== 'string') p.name = base.name;
+  normSeqData(p, base);
+  if (!isObj(p.logo)) p.logo = { ...base.logo };
+  if ('sequences' in p) {
+    if (!isObj(p.sequences)) delete p.sequences;
+    else for (const [id, s] of Object.entries(p.sequences)) {
+      if (!isObj(s)) { delete p.sequences[id]; continue; }
+      if (!isObj(s.data)) s.data = {};
+      if (typeof s.name !== 'string') s.name = 'Sequence';
+      normSeqData(s.data, base);
+    }
+  }
+  if ('seq' in p && !(isObj(p.seq) && typeof p.seq.id === 'string')) delete p.seq;
+  return p;
 }
 
 // ---------------- sequences ----------------

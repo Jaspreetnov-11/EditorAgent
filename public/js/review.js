@@ -1,6 +1,7 @@
 // Review & share: 📝 notes at a moment of the timeline (yours and ones typed on a phone), 🕘 versions (auto backups +
 // named versions: go back to an earlier edit, or bring it in as a sequence) and 📱 phone review over the local network.
 // Notes are markers with a text: { id, t, note, by, done, at, phone, render } - the ruler draws them, orange until done.
+import { guarded } from './errlog.js';
 import { S, on, emit, commit, saveNow } from './store.js';
 import { api, enc } from './api.js';
 import { fmtTC, seqOf, seqData, uid } from './model.js';
@@ -42,7 +43,8 @@ export function mountNotesPanel(el) {
 
 function drawAt() { if (root) $('[data-nat]', root).textContent = `at ${fmtTC(S.playhead, S.project?.settings.fps || 30)}`; }
 export function refreshNotes() { draw(); drawAt(); }
-function draw() {
+function draw() { return guarded(null, 'Notes', drawNow); }
+function drawNow() {
   if (!root || !S.project) return;
   drawAt();
   const all = notes().sort((a, b) => a.t - b.t), list = all.filter((n) => showDone || !n.done), open = all.filter((n) => !n.done).length;

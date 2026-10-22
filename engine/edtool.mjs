@@ -8,9 +8,10 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { placed, totalDuration, seqOf, SEQ_FIELDS } from '../public/js/model.js';
+import { placed, totalDuration, seqOf, SEQ_FIELDS, placeRefLooks, setTransition } from '../public/js/model.js';
+import { CUTFX } from '../public/js/fx.js';
 import { viewOf, toShared } from '../public/js/myseq.js';
-import { analyzeReference, describeRef } from './refstyle.mjs';
+import { analyzeReference, describeRef, describeLooks, refAdjustLayers } from './refstyle.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // --name value pairs are taken out first; what is left are the command and its words
@@ -45,7 +46,8 @@ function api(method, url, body) {
     req.end();
   });
 }
-const P = (...x) => path.join(ROOT, 'Projects', PROJ, ...x);
+// (VEDIT_DATA: a test editor's own folder - edtool then never writes into the real projects)
+const P = (...x) => path.join(process.env.VEDIT_DATA ? path.resolve(process.env.VEDIT_DATA) : ROOT, 'Projects', PROJ, ...x);
 const workDir = () => { const d = P('cache', 'claude'); fs.mkdirSync(d, { recursive: true }); return d; };
 async function waitJob(id, label = 'job') {
   for (let i = 0; ; i++) {
@@ -103,6 +105,10 @@ CHANGE
   apply <file.json>           replace parts of the project: { "tracks": { "V1": [...], "V2": [...] }, "settings": {...},
                               "captions": {...}, "trackState": {...}, "markers": [...] } - only the keys you give change
   ops <file.json>             small live changes (see public/js/livepatch.js): [{ "o":"set","p":["tracks","V1","#<clipId>","in"],"v":2.5 }]
+  reflook <ref-file> [--cuts no]   after building an edit like a reference: puts the reference's EFFECTS on it - its
+                              looks (black & white, vignette, grain, bars, blur, warmer / cooler) as adjustment layers on
+                              a free V track over the matching V1 shots, and what happens on each of its cuts (flash, whip,
+                              dip to black, dissolve). Shot k of V1 gets reference shot k. Run it again after changing the cut
   agent <opts.json>           run the built-in agent (song / montage / VO edit) and put its edit on the timeline
                               opts like { "clips":[ids], "music":id, "editStyle":"song", "songPart":"full", "lyrics":"...", "styleName":"GenZ lyric video" }
 
@@ -244,7 +250,9 @@ async function cmdApply(f) {
   const pj = await project(); delete pj._rev; const before = JSON.parse(JSON.stringify(pj));
   if (patch.tracks) for (const [k, v] of Object.entries(patch.tracks)) { if (!Array.isArray(v)) die(`tracks.${k} must be a list`); pj.tracks[k] = v.map((c) => ({ id: c.id || crypto.randomBytes(4).toString('hex'), ...c })); }
   if (patch.settings) pj.settings = { ...pj.settings, ...patch.settings };
-  for (const k of ['captions', 'trackState', 'markers', 'logo', 'subtitles']) if (k in patch) pj[k] = k === 'trackState' ? { ...pj.trackState, ...patch[k] } : patch[k];
+  // (captions / trackState / logo / subtitles: what is given goes over what is there - a captions patch without its
+  // style used to wipe the style, and the editor's Captions panel then could not open)
+  for (const k of ['captions', 'trackState', 'markers', 'logo', 'subtitles']) if (k in patch) pj[k] = k === 'markers' || !patch[k] || typeof patch[k] !== 'object' ? patch[k] : { ...(pj[k] || {}), ...patch[k], ...(k === 'captions' && patch[k].style ? { style: { ...(pj.captions?.style || {}), ...patch[k].style } } : {}) };
   const items = await mediaList(), ids = new Set(items.map((m) => m.id));
   const bad = Object.values(pj.tracks).flat().filter((c) => c.mediaId && !ids.has(c.mediaId));
   if (bad.length) die(`${bad.length} clips point to media that is not in the project (e.g. ${bad[0].mediaId}) - use ids from "media"`);
@@ -275,6 +283,7 @@ async function cmdAgent(f) {
   if (r.captions) pj.captions = r.captions;
   if (r.subtitles) pj.subtitles = { ...pj.subtitles, file: r.subtitles };
   if (r.settings) { if (r.settings.look) pj.settings.look = r.settings.look; if ('kenburns' in r.settings) pj.settings.kenburns = r.settings.kenburns; }
+  if (r.refLooks) placeRefLooks(pj, r.refLooks, Object.fromEntries((await mediaList()).map((m) => [m.id, m])));
   pj.agentReport = { at: Date.now(), ...r.report }; pj.agentOpts = o;
   await saveView(before, pj, 'Claude (agent edit)');
   out(`agent edit applied: ${r.tracks.V1.length} shots, ${r.duration}s. ${r.report.warnings.join(' / ')}`);
@@ -320,8 +329,35 @@ ${sh}`);
   out([`reference "${name}": ${r2(r.duration)}s, ${w}x${h} (${r.aspect || '?'}), ${describeRef(r)}`,
     r.color ? `colour (0..1): mean RGB ${(r.color.mean || []).map((v) => (+v).toFixed(2)).join(" ")}  saturation ${(+r.color.sat).toFixed(2)}` : '',
     'shots (start, length, how it cuts in, motion 0..1):', ...rows,
+    describeLooks(r), ...r.shots.map((x, i) => (x.look ? `  shot ${i + 1} look: ${JSON.stringify(x.look)}` : '')).filter(Boolean),
     `one frame per shot, in order (Read it to see what kind of shot each is, the text on screen, the look):\n${sh}`,
-    "Rebuild this with the project's own footage: same order of shot kinds and lengths (on the song's beats if there is a song), the same kinds of cuts, text and look. Never put the reference file itself on the timeline."].filter(Boolean).join('\n'));
+    "Rebuild this with the project's own footage: same order of shot kinds and lengths (on the song's beats if there is a song), the same kinds of cuts, text and look. Never put the reference file itself on the timeline.",
+    `When the cut is built, run: node engine/edtool.mjs reflook "${file}" - it adds the reference's effects (adjustment layers + cut effects) shot by shot.`].filter(Boolean).join('\n'));
+}
+// 🎚 the reference's effects on the edit that was built like it: looks as adjustment layers, cut effects on V1
+async function cmdRefLook(file) {
+  if (!file || !fs.existsSync(file)) die('reflook <ref-file>');
+  const pr = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height:format=duration', '-of', 'json', file], { encoding: 'utf8' });
+  let w = 0, h = 0, dur = 0;
+  try { const j = JSON.parse(pr.stdout); w = j.streams?.[0]?.width || 0; h = j.streams?.[0]?.height || 0; dur = +j.format?.duration || 0; } catch {}
+  const ref = await analyzeReference(file, { cacheFile: path.join(workDir(), `ref_${crypto.createHash('md5').update(file).digest('hex').slice(0, 8)}.json`), width: w, height: h, duration: dur });
+  await snap('reflook');
+  const pj = await project(); delete pj._rev; const before = JSON.parse(JSON.stringify(pj));
+  const items = await mediaList(), by = Object.fromEntries(items.map((m) => [m.id, m]));
+  const V1 = placed(pj, by).V1.filter((x) => !x.clip.gap);
+  if (!V1.length) die('V1 is empty - build the cut first');
+  const layers = refAdjustLayers(ref, V1.map((x) => ({ start: x.start, end: x.end }))), track = placeRefLooks(pj, layers, by);
+  let cuts = 0;
+  if (flag('cuts') !== 'no') {
+    V1.forEach((x, k) => {
+      const t = k ? ref.shots[k % ref.shots.length].cutIn : null, c = x.clip, i = pj.tracks.V1.indexOf(c);
+      if (!t || i <= 0 || pj.tracks.V1[i - 1]?.gap) return;
+      if ((t === 'flash' || t === 'whip') && (c.type === 'video' || c.type === 'image')) { c.cutFx = { type: t, dur: CUTFX[t].dur }; cuts++; }
+      else if ((t === 'dip' || t === 'fade') && setTransition(pj, by, i, t === 'dip' ? 'fadeblack' : 'fade', 0.4)) cuts++;
+    });
+  }
+  await saveView(before, pj, 'Claude (reference effects)');
+  out(`${describeLooks(ref)}\n${layers.length ? `${layers.length} adjustment layer(s) on ${track}: ${layers.map((l) => `${r2(l.start)}-${r2(l.start + l.dur)}s ${l.name.replace('Ref look: ', '')}`).join(' | ')}` : 'no adjustment layers needed'}\n${cuts} cut effect(s) / transition(s) copied from the reference's cuts`);
 }
 async function cmdStyles() { const r = await api('GET', '/api/styles'); out(r.styles.map((x) => `${x.name}${x.name === r.default ? ' (default)' : ''}: ${x.summary}`).join('\n') || 'no saved styles'); }
 
@@ -330,6 +366,6 @@ if (!cmd || cmd === 'help') { out(HELP); process.exit(0); }
 if (!PROJ) die('no project: set VEDIT_PROJECT or pass --p "<project name>"');
 const run = { state: () => cmdState(), media: () => cmdMedia(), find: () => cmdFind(rest), scan: () => cmdScan(), look: () => cmdLook(rest[0]), frames: () => cmdFrames(rest.map(Number)),
   sheet: () => cmdSheet(), song: () => cmdSong(rest[0]), apply: () => cmdApply(rest[0]), ops: () => cmdOps(rest[0]), agent: () => cmdAgent(rest[0]),
-  preview: () => cmdRender(true), render: () => cmdRender(false), styles: () => cmdStyles(), ref: () => cmdRef(rest[0]) }[cmd];
+  preview: () => cmdRender(true), render: () => cmdRender(false), styles: () => cmdStyles(), ref: () => cmdRef(rest[0]), reflook: () => cmdRefLook(rest[0]) }[cmd];
 if (!run) die(`unknown command "${cmd}" - try: node engine/edtool.mjs help`);
 await run();

@@ -1127,3 +1127,37 @@ button.pulse { animation: dvpulse 1.6s ease-out; }
 .vw-frame.over-text { cursor: move; }
 .type-box { position: absolute; z-index: 25; margin: 0; padding: 0 2px; border: 1px dashed #ffd24a; outline: none; resize: none; overflow: hidden;
   white-space: pre; caret-color: #ffd24a; box-sizing: content-box; }
+
+/* 🛡 a panel that could not be drawn (errlog.js guarded): a note + Reload instead of a blank panel */
+.panel-err { display: grid; gap: 6px; justify-items: start; margin: 12px; padding: 10px 12px; border: 1px solid #a8443c; border-radius: 6px; background: #2a1514; color: #f2d6d2; font-size: 12.5px; }
+.panel-err span { color: #c9a8a3; }
+
+/* 🎞 Agent: the clip picker - clean rows of folders, big thumbnails, a clear count */
+.ag-pickbar, .ag-pickbar2 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ag-pickbar input[type="search"] { flex: 1 1 220px; max-width: 320px; }
+.ag-kinds { display: flex; gap: 4px; }
+.ag-count { font-size: 13px; color: var(--muted); } .ag-count b { color: var(--accent); font-size: 15px; }
+.ag-clips { max-height: 52vh; overflow: auto; display: grid; gap: 6px; align-content: start; padding-right: 4px; }
+.ag-bin { border: 1px solid var(--line); border-radius: 8px; background: var(--bg-2); }
+.ag-bin > summary { display: flex; align-items: center; gap: 10px; padding: 8px 12px; cursor: pointer; list-style: none; user-select: none; }
+.ag-bin > summary::-webkit-details-marker { display: none; }
+.ag-bin > summary::after { content: '▸'; margin-left: auto; color: var(--muted); transition: transform .15s; }
+.ag-bin[open] > summary::after { transform: rotate(90deg); }
+.ag-bin > summary:hover { background: var(--panel-2); border-radius: 8px; }
+.ag-bname { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ag-bmeta { color: var(--muted); font-size: 12px; white-space: nowrap; } .ag-bmeta b { color: var(--accent); font-weight: 600; }
+.ag-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 4px 12px 12px; }
+.ag-tile { display: grid; gap: 5px; cursor: pointer; min-width: 0; }
+.ag-tile input { position: absolute; opacity: 0; pointer-events: none; }
+.ag-th { position: relative; display: block; aspect-ratio: 16 / 9; border-radius: 6px; overflow: hidden; background: #0b0b0a; border: 2px solid transparent; }
+.ag-th img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ag-th > i { display: grid; place-items: center; height: 100%; font-style: normal; font-size: 26px; opacity: .5; }
+.ag-th em { position: absolute; right: 5px; bottom: 5px; font: 600 10.5px/1 ui-monospace, Consolas, monospace; font-style: normal; color: #fff; background: #000b; padding: 2px 5px; border-radius: 3px; }
+.ag-tick { position: absolute; left: 5px; top: 5px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; background: #000a; color: transparent; border: 1.5px solid #fff9; }
+.ag-tile:hover .ag-th { border-color: var(--line-2); }
+.ag-tile.on .ag-th { border-color: var(--accent); }
+.ag-tile.on .ag-tick { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.ag-tile:not(.on) .ag-th img { opacity: .55; }
+.ag-tile input:focus-visible + .ag-th { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ag-tn { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ag-tile.on .ag-tn { color: var(--text); }

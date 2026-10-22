@@ -1,4 +1,5 @@
 // Inspector: properties of the selected clip, or project settings when nothing is selected.
+import { guarded } from './errlog.js';
 import { S, on, emit, commit, findClip, layout, duration, saveNow } from './store.js';
 import { ASPECTS, TRANSITIONS, clipDur, fmt, parseTime, fmtTC, KEYABLE, propAt, hasKeys, RAMPS, EASES, BLEND_MODES, setTransition } from './model.js';
 import { api, enc } from './api.js';
@@ -42,7 +43,8 @@ const timeDef = (k, label, ph) => ({ k, label, type: 'time', fmt: (v) => (v === 
 
 function doCommit(label, key) { selfCommit = true; commit(label, key); selfCommit = false; }
 
-function render() {
+function render() { return guarded(root, 'Effect Controls', renderNow); }
+function renderNow() {
   if (!root || !S.project) return;
   if (S.sel.size === 1) return renderClip([...S.sel][0]);
   if (S.sel.size > 1) {

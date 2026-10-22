@@ -3,7 +3,7 @@
 import { S, emit, commit, findClip, layout } from './store.js';
 import { sequenceForAgent } from './sequences.js';
 import { api, enc, watchJob } from './api.js';
-import { fmt, clipDur } from './model.js';
+import { fmt, clipDur, placeRefLooks } from './model.js';
 import { $, $$, h, esc, toast, modal, progressClock } from './ui.js';
 import { pickFolder, refreshMedia, uploadAudioInto } from './mediapool.js';
 import { openReels } from './reels.js';
@@ -45,7 +45,12 @@ export function openAgent(setBusy) {
       </div>
     </div>
     <div class="ag-page" data-p="1" hidden>
-      <div class="row-in"><button type="button" class="small" data-a="addFolder">+ Import a folder</button><button type="button" class="small" data-a="all">Select all</button><button type="button" class="small" data-a="none">None</button><span class="grow"></span><span class="muted" data-count></span></div>
+      <div class="ag-pickbar">
+        <input type="search" data-q placeholder="Search clips…" aria-label="Search clips">
+        <div class="ag-kinds" role="group" aria-label="Show"><button type="button" class="chip on" data-kind="">All</button><button type="button" class="chip" data-kind="video">🎞 Video</button><button type="button" class="chip" data-kind="image">🖼 Photos</button></div>
+        <span class="grow"></span><span class="ag-count" data-count></span>
+      </div>
+      <div class="ag-pickbar2"><button type="button" class="small" data-a="all">Select all shown</button><button type="button" class="small" data-a="none">Clear</button><button type="button" class="small" data-a="openall">Open all folders</button><span class="grow"></span><button type="button" class="small" data-a="addFolder">+ Import a folder</button></div>
       <div class="ag-clips" data-clips></div>
       <small class="muted">The agent looks at every selected clip, skips blurry / dark / shaky moments and never uses the same moment twice.</small>
     </div>
@@ -122,15 +127,36 @@ export function openAgent(setBusy) {
     f('editStyle').value = t.editStyle || (t.id === 'reel' ? 'montage' : 'standard'); f('cinematic').checked = !!t.cinematic; if (t.look) f('look').value = t.look;
     body.querySelector('[data-ref]').hidden = t.id !== 'reference';
   };
+  // 🎞 the clip picker: folders as rows that open (short names), big thumbnails, search + Video / Photos, a clear count
+  const pick = { q: '', kind: '', open: new Set() };
+  const usable = () => S.media.filter((m) => (m.kind === 'video' || m.kind === 'image') && m.status === 'ready');
+  const shown = () => usable().filter((m) => (!pick.kind || m.kind === pick.kind) && (!pick.q || `${m.name} ${m.bin || ''}`.toLowerCase().includes(pick.q)));
+  const shortBin = (b) => { const parts = String(b || 'Other').split(/[\\/]/).filter(Boolean); return parts.length > 2 ? `…/${parts.slice(-2).join('/')}` : parts.join('/') || 'Other'; };
+  const countLine = () => { const all = usable().length; body.querySelector('[data-count]').innerHTML = `<b>${st.clips.size}</b> of ${all} selected`; };
   const renderClips = () => {
-    const vis = S.media.filter((m) => (m.kind === 'video' || m.kind === 'image') && m.status === 'ready');
     const bins = {};
-    vis.forEach((m) => (bins[m.bin || 'Other'] ||= []).push(m));
-    body.querySelector('[data-clips]').innerHTML = Object.entries(bins).map(([b, list]) => `<div class="ag-bin"><label class="chk"><input type="checkbox" data-bin="${esc(b)}"${list.every((m) => st.clips.has(m.id)) ? ' checked' : ''}> <b>${esc(b)}</b> <span class="muted">(${list.length})</span></label>
-      <div class="pick">${list.map((m) => `<label title="${esc(m.name)}"><input type="checkbox" value="${m.id}"${st.clips.has(m.id) ? ' checked' : ''}>${m.urls.thumb ? `<img src="${m.urls.thumb}" alt="">` : '<i></i>'}<span>${esc(m.name)}</span></label>`).join('')}</div></div>`).join('')
-      || '<div class="muted pad">No footage yet - use "+ Import a folder".</div>';
-    body.querySelector('[data-count]').textContent = `${st.clips.size} selected`;
+    shown().forEach((m) => (bins[m.bin || 'Other'] ||= []).push(m));
+    const names = Object.keys(bins);
+    // open: a folder that has chosen clips, the only folder, every folder while searching, or one opened by hand
+    const isOpen = (b) => pick.open.has(b) || names.length === 1 || !!pick.q || (names.length <= 3 && bins[b].some((m) => st.clips.has(m.id)));
+    const box = body.querySelector('[data-clips]'), keep = box.scrollTop; // (ticking a clip redraws the list where it was)
+    box.innerHTML = names.map((b) => {
+      const list = bins[b], sel = list.filter((m) => st.clips.has(m.id)).length;
+      return `<details class="ag-bin"${isOpen(b) ? ' open' : ''} data-binrow="${esc(b)}"><summary title="${esc(b)}">
+          <input type="checkbox" data-bin="${esc(b)}"${sel === list.length ? ' checked' : ''}${sel && sel < list.length ? ' data-mixed' : ''} aria-label="Select the whole folder">
+          <span class="ag-bname">📁 ${esc(shortBin(b))}</span><span class="ag-bmeta">${list.length} clip${list.length > 1 ? 's' : ''}${sel ? ` · <b>${sel} selected</b>` : ''}</span></summary>
+        <div class="ag-tiles">${list.map((m) => `<label class="ag-tile${st.clips.has(m.id) ? ' on' : ''}" title="${esc(m.name)}"><input type="checkbox" value="${m.id}"${st.clips.has(m.id) ? ' checked' : ''}>
+          <span class="ag-th">${m.urls.thumb ? `<img src="${m.urls.thumb}" alt="" loading="lazy">` : `<i>${m.kind === 'image' ? '🖼' : '🎞'}</i>`}${m.kind === 'video' && m.duration ? `<em>${fmt(m.duration)}</em>` : ''}<b class="ag-tick">✓</b></span>
+          <span class="ag-tn">${esc(m.name)}</span></label>`).join('')}</div></details>`;
+    }).join('') || (usable().length ? '<div class="muted pad">Nothing matches - clear the search.</div>' : '<div class="muted pad">No footage yet - use "+ Import a folder".</div>');
+    body.querySelectorAll('[data-mixed]').forEach((x) => { x.indeterminate = true; });
+    box.scrollTop = keep;
+    countLine();
   };
+  body.querySelector('[data-q]').addEventListener('input', (e) => { pick.q = e.target.value.trim().toLowerCase(); renderClips(); });
+  body.querySelector('[data-clips]').addEventListener('toggle', (e) => { const b = e.target.dataset?.binrow; if (b === undefined) return; if (e.target.open) pick.open.add(b); else pick.open.delete(b); }, true);
+  // the folder checkbox sits in the row: ticking it must not open / close the row
+  body.querySelector('[data-clips]').addEventListener('click', (e) => { if (e.target.matches('summary input[data-bin]')) e.stopPropagation(); }, true);
   const show = () => {
     $$('.ag-page', body).forEach((p) => (p.hidden = +p.dataset.p !== st.step));
     $$('[data-go]', body).forEach((li) => li.classList.toggle('on', +li.dataset.go === st.step));
@@ -153,16 +179,18 @@ export function openAgent(setBusy) {
     if (e.target.closest('[data-clips]')) {
       if (e.target.dataset.bin) {
         const b = e.target.dataset.bin;
-        S.media.filter((m) => (m.bin || 'Other') === b && (m.kind === 'video' || m.kind === 'image')).forEach((m) => (e.target.checked ? st.clips.add(m.id) : st.clips.delete(m.id)));
+        shown().filter((m) => (m.bin || 'Other') === b).forEach((m) => (e.target.checked ? st.clips.add(m.id) : st.clips.delete(m.id)));
         renderClips();
-      } else if (e.target.value) { e.target.checked ? st.clips.add(e.target.value) : st.clips.delete(e.target.value); body.querySelector('[data-count]').textContent = `${st.clips.size} selected`; }
+      } else if (e.target.value) { e.target.checked ? st.clips.add(e.target.value) : st.clips.delete(e.target.value); e.target.closest('.ag-tile')?.classList.toggle('on', e.target.checked); renderClips(); }
     }
   });
   body.addEventListener('click', async (e) => {
     const go = e.target.closest('[data-go]'); if (go) { st.step = +go.dataset.go; show(); }
     const a = e.target.closest('[data-a]')?.dataset.a;
-    if (a === 'all') { S.media.filter((m) => m.kind === 'video' || m.kind === 'image').forEach((m) => st.clips.add(m.id)); renderClips(); }
+    if (a === 'all') { shown().forEach((m) => st.clips.add(m.id)); renderClips(); }
     if (a === 'none') { st.clips.clear(); renderClips(); }
+    if (a === 'openall') { const all = $$('[data-binrow]', body), open = all.some((d) => !d.open); all.forEach((d) => { d.open = open; }); e.target.textContent = open ? 'Close all folders' : 'Open all folders'; }
+    const kb = e.target.closest('[data-kind]'); if (kb) { pick.kind = kb.dataset.kind; $$('[data-kind]', body).forEach((x) => x.classList.toggle('on', x === kb)); renderClips(); }
     if (a === 'addFolder') {
       const folder = await pickFolder('Footage folder for the agent');
       if (!folder) return;
@@ -283,6 +311,8 @@ async function applyAgentResult(r, o) {
   S.project.tracks.V1 = r.tracks.V1; S.project.tracks.V2 = r.tracks.V2; S.project.tracks.A1 = r.tracks.A1; S.project.tracks.A2 = r.tracks.A2;
   // sound design: the agent's effects replace its earlier ones; your own A3 sounds stay
   if (r.tracks.A3?.length) { await refreshMedia(); S.project.tracks.A3 = [...(S.project.tracks.A3 || []).filter((c) => !c.sfx), ...r.tracks.A3]; }
+  // 🎚 the reference's effects as adjustment layers above the story (the ones from an earlier reference edit go)
+  if (r.refLooks) { const tr = placeRefLooks(S.project, r.refLooks, S.mediaById); if (tr) toast(`🎚 ${r.refLooks.length} adjustment layer${r.refLooks.length > 1 ? 's' : ''} on ${tr} copy the reference's effects - change them in Effect Controls`); }
   for (const [k, v] of Object.entries(r.trackState)) S.project.trackState[k] = { ...S.project.trackState[k], ...v };
   if (r.subtitles) S.project.subtitles = { ...S.project.subtitles, file: r.subtitles };
   if (r.captions) S.project.captions = r.captions; // 🎵 lyrics on screen

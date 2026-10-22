@@ -16,7 +16,7 @@ import os from 'node:os';
 import dns from 'node:dns';
 import { Readable } from 'node:stream';
 import zlib from 'node:zlib';
-import { newProject, uid, placed, clipDur, seqOf, seqHash, ASPECTS } from './public/js/model.js';
+import { newProject, uid, placed, clipDur, seqOf, seqHash, ASPECTS, normalizeProject } from './public/js/model.js';
 import { gfxKey } from './public/js/graphics.js';
 import { ensureLuts, guessLogLut } from './engine/lutgen.mjs';
 import { ensureLooks } from './engine/looklut.mjs';
@@ -895,7 +895,7 @@ const outReserved = new Map(); // `${project}/${file}` -> when a render was prom
 // o.write = false: b.project is only a copy to render (the render queue), not the edit to save; o.jobFile: where to write
 function prepareRender(name, b, o = {}) {
   checkOffline(name, true); // 🔗 a moved file is found again before the render needs it
-  const saved = b.project || readJSON(P(name, 'project.json'));
+  const saved = normalizeProject(b.project || readJSON(P(name, 'project.json'))); // (🛡 sound before it is rendered)
   // (a preview's copy is never saved: it can be one editor's own view of the project - 🎞 my sequence)
   if (b.project && o.write !== false && !b.preview) writeJSON(P(name, 'project.json'), { ...saved, modified: Date.now() });
   // another sequence of the project (Teaser, Reel…) renders as if it were the open timeline
@@ -1418,7 +1418,7 @@ const sessions = new Map(); // token -> { name, role, at }
 const OWNER_ONLY = [/^\/api\/team(\/|$)/];
 function allowed(who, method, p) {
   if (who.role === 'owner') return true;
-  if (/^\/api\/(me|lock|unlock)$/.test(p)) return true;
+  if (/^\/api\/(me|lock|unlock|clientlog)$/.test(p)) return true;
   // (reading the settings only tells whether keys are set; the publish list and accounts show no tokens)
   if (OWNER_ONLY.some((r) => r.test(p))) return method === 'GET' && p === '/api/team/shortcut'; // (the shortcut is only a link)
   if (who.role === 'viewer') return method === 'GET';
@@ -1641,10 +1641,17 @@ if (farmCfg().on && !process.env.VEDIT_NO_RESUME) resumeServer(startFarm, 'farm'
 function claudeExe() {
   // the Claude app is a Store (MSIX) package: from outside the package its Roaming files live under Local\Packages\Claude_*
   const local = process.env.LOCALAPPDATA || '', pkgs = (() => { try { return fs.readdirSync(path.join(local, 'Packages')).filter((d) => /^Claude_/i.test(d)); } catch { return []; } })();
-  for (const base of [path.join(process.env.APPDATA || '', 'Claude', 'claude-code'), ...pkgs.map((d) => path.join(local, 'Packages', d, 'LocalCache', 'Roaming', 'Claude', 'claude-code'))]) try {
+  // (newer app versions keep it in Local\Claude-Data\claude_<package>\claude-code - updated together with the app)
+  const dataDirs = (() => { try { return fs.readdirSync(path.join(local, 'Claude-Data')).filter((d) => /^claude/i.test(d)).map((d) => path.join(local, 'Claude-Data', d, 'claude-code')); } catch { return []; } })();
+  for (const base of [...dataDirs, path.join(process.env.APPDATA || '', 'Claude', 'claude-code'), ...pkgs.map((d) => path.join(local, 'Packages', d, 'LocalCache', 'Roaming', 'Claude', 'claude-code'))]) try {
     const vers = fs.readdirSync(base).filter((v) => /^\d/.test(v)).sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
     for (const v of vers) for (const h of fs.readdirSync(path.join(base, v))) { const f = path.join(base, v, h, process.platform === 'win32' ? 'claude.exe' : 'claude'); if (fs.existsSync(f)) return f; }
   } catch {}
+  // Claude Code's own installer (~/.local/bin) and npm - an update of the Claude app once moved its copy away and every
+  // PC lost the Assistant's Claude; these are looked at too (the server runs from the tray, whose PATH may not have them)
+  const home = process.env.USERPROFILE || process.env.HOME || '';
+  for (const f of [path.join(home, '.local', 'bin', process.platform === 'win32' ? 'claude.exe' : 'claude'), path.join(process.env.APPDATA || '', 'npm', 'claude.cmd'), path.join(local, 'Programs', 'claude', 'claude.exe')])
+    if (f && fs.existsSync(f)) return f;
   const w = spawnSync(process.platform === 'win32' ? 'where' : 'which', ['claude'], { encoding: 'utf8' });
   return w.status === 0 ? w.stdout.split(/\r?\n/)[0].trim() : null;
 }
@@ -1796,11 +1803,11 @@ const LIVE_COLORS = ['#ff7a45', '#36cfc9', '#9254de', '#f759ab', '#73d13d', '#ff
 function liveOf(name) {
   const f = P(name, 'project.json'), mt = fs.statSync(f).mtimeMs;
   let L = live.get(name);
-  if (!L) { L = { rev: 1, pj: readJSON(f), mtime: mt, log: [], subs: new Map(), timer: null, colorN: 0 }; live.set(name, L); return L; }
+  if (!L) { L = { rev: 1, pj: normalizeProject(readJSON(f)), mtime: mt, log: [], subs: new Map(), timer: null, colorN: 0 }; live.set(name, L); return L; }
   if (mt !== L.mtime) {
     // written by something else: that version wins, and every open editor switches to it
     clearTimeout(L.timer); L.timer = null;
-    L.pj = readJSON(f); L.mtime = mt; L.rev++; L.log = [];
+    L.pj = normalizeProject(readJSON(f)); L.mtime = mt; L.rev++; L.log = [];
     liveSend(L, { type: 'reset', rev: L.rev, project: L.pj });
   }
   return L;
@@ -1958,7 +1965,7 @@ const routes = {
   // a whole project at once (older tabs, tools): it replaces the live copy, and every open editor gets it
   'PUT /api/project': async (req, res, u) => {
     const name = needProject(q(u, 'p'));
-    const pj = await readJson(req);
+    const pj = normalizeProject(await readJson(req)); // (🛡 a whole project from the agent, Claude or an older tab: made sound before it is kept)
     delete pj._rev;
     const L = liveOf(name);
     L.pj = pj; L.rev++; L.log = [];
@@ -3228,6 +3235,19 @@ const routes = {
     const { autoCleanFx } = await import('./public/js/audiofx.js');
     return autoCleanFx(v[Math.floor(v.length * 0.1)], v[Math.floor(v.length * 0.9)]);
   },
+  // 🛡 an error in someone's editor, written down here (logs/client-errors.log) so it can be found and fixed
+  'POST /api/clientlog': async (req) => {
+    const b = await readJson(req).catch(() => ({}));
+    const line = JSON.stringify({ at: new Date().toISOString(), who: req.who?.name || 'Owner', ...Object.fromEntries(['where', 'msg', 'stack', 'project', 'page', 'ua'].map((k) => [k, String(b[k] ?? '').slice(0, 3000)])) });
+    try {
+      const f = path.join(DATA, 'logs', 'client-errors.log');
+      fs.mkdirSync(path.dirname(f), { recursive: true });
+      if (fs.existsSync(f) && fs.statSync(f).size > 5e6) fs.renameSync(f, `${f}.old`);
+      fs.appendFileSync(f, `${line}\n`);
+    } catch {}
+    return { ok: true };
+  },
+  'GET /api/clientlog': (req, res, u) => { const f = path.join(DATA, 'logs', 'client-errors.log'); return fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim().split('\n').slice(-(+q(u, 'n') || 50)).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean) : []; },
   // 🔊 Audio gain › Normalize: the loudest moment (dB below full scale) of a clip's part of its file
   'GET /api/audio/peak': async (req, res, u) => {
     const name = needProject(q(u, 'p')), m = mediaItem(name, q(u, 'id'));

@@ -1,4 +1,5 @@
 // App state, undo/redo history and auto-save. Every timeline change goes through commit().
+import { reportError } from './errlog.js';
 import { api, enc } from './api.js';
 import { placed, totalDuration, syncLinked } from './model.js';
 import { diffOps, applyOps, applyWithInverse, eq, opKey, overlaps } from './livepatch.js';
@@ -29,7 +30,7 @@ export const on = (evt, fn) => { (listeners[evt] ||= []).push(fn); };
 // 🛡 one panel's mistake never stops the others (or the editor): each listener runs on its own; errors are logged once
 const seenErr = new Set();
 export const emit = (evt, data) => (listeners[evt] || []).forEach((fn) => {
-  try { fn(data); } catch (e) { const k = `${evt}:${e?.stack || e}`; if (!seenErr.has(k)) { seenErr.add(k); console.error(`"${evt}" listener failed`, e); } }
+  try { fn(data); } catch (e) { const k = `${evt}:${e?.stack || e}`; if (!seenErr.has(k)) { seenErr.add(k); reportError(`"${evt}" listener`, e); } }
 });
 
 // ---- history + 🔴 live editing ----

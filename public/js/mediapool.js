@@ -1,5 +1,6 @@
 // Media pool: import a whole raw-footage folder (files stay where they are), upload extras,
 // search/filter/bins, hover-scrub thumbnails, drag clips onto the timeline.
+import { guarded } from './errlog.js';
 import { S, on, emit, commit, setMedia, saveNow } from './store.js';
 import { api, enc, upload } from './api.js';
 import { fmt, seqList } from './model.js';
@@ -135,7 +136,8 @@ const visible = () => { const dups = dupIds(); return S.media.filter((m) => (fil
   && tagOk(m, dups) && (!query || m.name.toLowerCase().includes(query) || (m.bin || '').toLowerCase().includes(query) || m.tags?.some((t) => t.startsWith(query)))); };
 
 const POOL_STEP = 400;
-function render(p) {
+function render(p) { return guarded(null, 'Media', () => renderNow(p)); }
+function renderNow(p) {
   const el = p.el;
   if (!el.isConnected && !el.offsetParent && !p.big && !el.closest('body')) return;
   $$('[data-f]', el).forEach((b) => b.classList.toggle('on', b.dataset.f === filter));

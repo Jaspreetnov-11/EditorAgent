@@ -1,6 +1,7 @@
 // Viewer: "Timeline" mode plays the edit live from proxies (V1 with transitions, V2 overlays/titles, logo,
 // all audio tracks); "Source" mode previews one media file with In/Out marks.
 // Live playback is a close preview; "Accurate preview" renders the exact result with FFmpeg.
+import { reportError } from './errlog.js';
 import * as SM from './sourcemon.js';
 import { S, on, emit, layout, duration, commit } from './store.js';
 import { ASPECTS, fmtTC, fmt, clipDur, propAt, sourceAt, speedAt, rampPts, setAnimated, overlayTracks, audioTracks, evalKeys } from './model.js';
@@ -837,7 +838,7 @@ function drawOverlays(t, isPlay) {
 let drawErr = '';
 function drawProgram(t, isPlay) {
   try { drawProgramNow(t, isPlay); }
-  catch (e) { const k = String(e?.stack || e); if (k !== drawErr) { drawErr = k; console.error('viewer: a clip could not be drawn', e); } }
+  catch (e) { const k = String(e?.stack || e); if (k !== drawErr) { drawErr = k; reportError('Viewer (a clip could not be drawn)', e); } }
 }
 function drawProgramNow(t, isPlay) {
   if (!S.project || mode !== 'program') return;

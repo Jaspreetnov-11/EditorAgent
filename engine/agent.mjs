@@ -14,7 +14,7 @@ import path from 'node:path';
 import { analyzeClip, extractFrames, run } from './analyze.mjs';
 import { beats, bestSection, energyCurve } from './music.mjs';
 import { measure, autoGrade, looksLog, matchGrade } from './colorstats.mjs';
-import { describeRef } from './refstyle.mjs';
+import { describeRef, describeLooks, refAdjustLayers } from './refstyle.mjs';
 import { guessLogLut } from './lutgen.mjs';
 import { FX_PRESETS } from '../public/js/audiofx.js';
 import { uid, RAMPS, rampAvg, rampPts } from '../public/js/model.js';
@@ -564,7 +564,11 @@ export async function runAgent(ctx) {
   const captions = songPlan && opts.lyricsOnScreen && capSrc.length && !styleTitles.length
     ? { ...defaultCaptions(), cues: cuesFromSegments(capSrc, opts.aspect === '9:16' || opts.aspect === '4:5' ? 4 : 6, 0) } : null;
   const settings = sty ? { look: sty.look.look || { letterbox: '', vignette: 0, grain: 0 }, kenburns: sty.look.kenburns } : null;
-  return { tracks: { V1, V2, A1, A2, A3 }, trackState, subtitles, captions, settings, report, duration: r3(fullLen), language: voSegs ? 'detected' : null, skippedIds, aspect: opts.aspect };
+  // 🎚 the reference's effects (black & white, vignette, grain, bars, blur, a warmer / cooler part) as adjustment layers
+  // over the matching shots - the editor puts them on a free video track above the story
+  const refLooks = ref ? refAdjustLayers(ref, slots) : [];
+  if (ref) report.warnings.unshift(`Reference ${describeLooks(ref)}${refLooks.length ? ` - ${refLooks.length} adjustment layer${refLooks.length > 1 ? 's' : ''} copy them` : ''}`);
+  return { refLooks, tracks: { V1, V2, A1, A2, A3 }, trackState, subtitles, captions, settings, report, duration: r3(fullLen), language: voSegs ? 'detected' : null, skippedIds, aspect: opts.aspect };
 }
 
 // ---------------- A/V script -> sections ----------------
