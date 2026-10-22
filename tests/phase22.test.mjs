@@ -63,3 +63,19 @@ test('templates: every one applies, keeps the shot length, and comes off cleanly
     else assert(!c.ramp && !c.tpl && c.effects.length === 1, `${t.id}: ramp taken off`);
   }
 });
+
+test('Labs: hits play at their moment, timed effects only inside their window', async () => {
+  const { fxPreview, hitsOf } = await import('../public/js/fx.js');
+  const { effectsCss, inWindow } = await import('../public/js/effects.js');
+  const c = { cutFx: { type: 'punch', dur: 0.3 }, hits: [{ t: 2, type: 'flash', dur: 0.4 }, { t: 5, type: 'nope' }] };
+  eq(hitsOf(c).length, 1, 'unknown hit kinds are left out');
+  assert(fxPreview(c, 0.1)?.transform, 'the cut effect at the start');
+  eq(fxPreview(c, 1), null, 'nothing between them');
+  assert(fxPreview(c, 2.1)?.overlay?.opacity > 0, 'the flash at 2 s');
+  eq(fxPreview(c, 2.5), null, 'over after its 0.4 s');
+  const e = { type: 'bw', on: true, p: {}, from: 1, to: 2 };
+  assert(!inWindow(e, 0.5) && inWindow(e, 1.5) && !inWindow(e, 2.5) && inWindow(e, undefined));
+  const cl = { effects: [e] };
+  eq(effectsCss(cl, 0.3, 0.5).filter, '', 'outside: no filter');
+  assert(effectsCss(cl, 0.3, 1.5).filter, 'inside: the effect');
+});

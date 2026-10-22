@@ -161,11 +161,13 @@ export function stabOf(c) {
 
 // live preview: the combined CSS of a clip's effects; k = viewer px per 1920-wide output px
 // (an effect with a mask is left out here - the viewer lays it over just the masked part, maskedEffectsCss)
-export function effectsCss(c, k = 0.3) {
+// rel: seconds into the clip - an effect with a time window (e.from / e.to, Labs) shows only inside it
+export const inWindow = (e, rel) => rel === undefined || ((e.from === undefined || rel >= e.from) && (e.to === undefined || rel <= e.to));
+export function effectsCss(c, k = 0.3, rel) {
   const f = [], t = [], ov = [];
   let clip = '', grain = false;
   for (const e of activeEffects(c)) {
-    if (e.mask?.shape) continue;
+    if (e.mask?.shape || !inWindow(e, rel)) continue;
     const r = VFX[e.type].css?.(e.p || {}, k);
     if (!r) continue;
     if (r.filter) f.push(r.filter);

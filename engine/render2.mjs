@@ -18,7 +18,7 @@ import { ASPECTS, clipDur, placed, totalDuration, keysExpr, rampPts, sourceAt, o
 import { fxFilters } from '../public/js/audiofx.js';
 import { aeffectFilters, fadeCurve } from '../public/js/audioeffects.js';
 import { colorFilters, stager } from './color.mjs';
-import { cutFxDur, wordWindows, isKinetic } from '../public/js/fx.js';
+import { cutFxDur, wordWindows, isKinetic, hitsOf, CUTFX } from '../public/js/fx.js';
 import { VFX, activeEffects, stabOf } from '../public/js/effects.js';
 import { buildAss, capTracks } from '../public/js/captions.js';
 import { maskTrack } from '../public/js/tracking.js';
@@ -216,10 +216,10 @@ const volumeFilter = (c, dflt = 1) => (c.keys?.volume?.length ? `volume='${keysE
 
 // Cut effect (public/js/fx.js) on the first moments of a clip; t = seconds since the clip started. Returns the out label.
 // Effects that only exist for a moment are built from timeline-enabled filters or from a trimmed copy overlaid on top.
-function cutFxGraph(c, inL, dur, g) {
+function cutFxGraph(c, inL, dur, g, tag = '') {
   const D = Math.min(cutFxDur(c), dur - 0.02);
   if (!(D > 0.04)) return inL;
-  const d = D.toFixed(3), k = `max(0,1-t/${d})`, out = `vfx${segN}`, px = (f) => Math.max(1, Math.round(W * f));
+  const d = D.toFixed(3), k = `max(0,1-t/${d})`, out = `vfx${segN}${tag}`, px = (f) => Math.max(1, Math.round(W * f));
   const slices = (n, fn) => Array.from({ length: n }, (_, i) => fn(i, `:enable='between(t,${((D * i) / n).toFixed(3)},${((D * (i + 1)) / n).toFixed(3)})'`)).join(',');
   const moving = (z, x, y) => // a moving window over a short trimmed copy, laid over the clip's first D seconds
     `[${inL}]split[${out}a][${out}b];[${out}b]trim=0:${d},setpts=PTS-STARTPTS,zoompan=z='${z}':x='${x}':y='${y}':d=1:s=${W}x${H}:fps=${F},setsar=1[${out}c];` +
@@ -247,6 +247,22 @@ function cutFxGraph(c, inL, dur, g) {
   return out;
 }
 
+// ⚡ hits (Labs): a cut effect at any moment of the clip - that moment is cut out, given the effect (built for t = 0)
+// and laid back over the clip there. c.hits = [{ t, type, dur }] (seconds into the clip).
+function hitsGraph(c, inL, dur, g) {
+  let cur = inL;
+  hitsOf(c).forEach((h, i) => {
+    const d = Math.min(+h.dur || CUTFX[h.type].dur, dur - h.t - 0.02), t0 = +h.t;
+    if (!(d > 0.04) || t0 >= dur) return;
+    const p = `ht${segN}_${i}`;
+    g.push(`[${cur}]split[${p}a][${p}b]`, `[${p}b]trim=start=${t0.toFixed(3)}:duration=${d.toFixed(3)},setpts=PTS-STARTPTS[${p}c]`);
+    const fx = cutFxGraph({ id: `${c.id}-${i}`, cutFx: { type: h.type, dur: d } }, `${p}c`, d + 0.03, g, `h${i}`);
+    g.push(`[${fx}]setpts=PTS+${t0.toFixed(3)}/TB[${p}d]`, `[${p}a][${p}d]overlay=eof_action=pass:enable='between(t,${t0.toFixed(3)},${(t0 + d).toFixed(3)})'[${p}]`);
+    cur = p;
+  });
+  return cur;
+}
+
 // a clip's video effects in order; chain effects are joined, graph effects (glow, mirror) get their own labels.
 // Chroma key is left to the final pass, where the overlay keeps its transparency.
 // ◯ An effect with a mask (public/js/shapemask.js) works on a copy of the picture, which is then laid back over it
@@ -258,9 +274,13 @@ function vfxGraph(c, inL, g, pre = `vx${segN}`, addMask = null) {
     const r = VFX[e.type].ff(e.p || {}, { W, H }), out = `${pre}_${k++}`;
     if (r === 'null') continue;
     const masked = e.mask?.shape && addMask;
-    const src = masked ? `${out}s` : cur, dst = masked ? `${out}f` : out;
+    // ⏱ a time window (Labs: e.from / e.to, seconds into the clip): the effect is made on a copy that shows only then
+    const timed = !masked && (e.from !== undefined || e.to !== undefined);
+    const src = masked ? `${out}s` : timed ? `${out}tb` : cur, dst = masked ? `${out}f` : timed ? `${out}tx` : out;
     if (masked) g.push(`[${cur}]split[${out}a][${out}s]`);
+    if (timed) g.push(`[${cur}]split[${out}ta][${out}tb]`);
     g.push(typeof r === 'string' ? `[${src}]${r}[${dst}]` : r.graph(src, dst));
+    if (timed) g.push(`[${out}ta][${out}tx]overlay=eof_action=pass:enable='between(t,${(+e.from || 0).toFixed(3)},${(+(e.to ?? 1e6)).toFixed(3)})'[${out}]`);
     if (masked) {
       const mk = addMask(maskPng(e.mask));
       g.push(`[${dst}]format=yuva420p[${out}g]`, `[${out}g][${mk}]alphamerge[${out}h]`, `[${out}a][${out}h]overlay=format=auto,format=yuv420p[${out}]`);
@@ -417,6 +437,7 @@ function segment(c, label, fixed = null) {
   }
   if (mot.length) { g.push(`[${cur}]${mot.join(',')}[vp]`); cur = 'vp'; }
   cur = cutFxGraph(c, cur, dur, g);
+  cur = hitsGraph(c, cur, dur, g);
   // opacity on V1: the picture fades towards the black below it (static, or keyframed per frame with geq)
   const opK = c.keys?.opacity?.length, opS = c.opacity ?? 1;
   if (label.startsWith('V1') && (opK || opS < 1)) {

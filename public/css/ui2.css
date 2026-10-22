@@ -644,3 +644,16 @@ html.ui2 .mo-num { color: #8fc1ff; }
 .lw-grid { grid-template-columns: 240px minmax(0, 1fr) 320px; }
 .lw-frame { max-height: 360px; }
 .lw-list { overflow-x: hidden; } .lw-item { min-width: 0; }
+
+/* Labs: hits, effect windows, zoom, sticky row names */
+.lw-tl { overflow-x: auto; overflow-y: hidden; padding-bottom: 4px; }
+.lbt-name { position: sticky; left: 0; z-index: 4; background: var(--panel); }
+.lbt-hit { position: absolute; top: 2px; bottom: 2px; border-radius: 5px; background: #ff5a6433; border: 1px solid #ff5a6488; font-size: 10.5px; display: flex; align-items: center; padding: 0 10px 0 6px; white-space: nowrap; overflow: hidden; cursor: grab; z-index: 2; }
+.lbt-hit span { overflow: hidden; text-overflow: ellipsis; }
+.lbt-efx { inset: 2px auto 2px auto; padding: 0 14px; }
+.lbt-efx .lbt-trim { width: 7px; }
+.lw-zoom { display: inline-flex; align-items: center; gap: 6px; margin-left: 14px; font-size: 11px; color: var(--muted); }
+.lw-zoom input { width: 110px; }
+.lwi-hit { display: grid; grid-template-columns: minmax(0, 1fr) 62px 56px 26px; gap: 5px; align-items: center; }
+.lwi-hit input, .lwi-hit select { min-width: 0; width: 100%; }
+.lwi-btn { align-self: end; }

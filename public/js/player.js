@@ -417,7 +417,7 @@ function look(c, rel = 0) {
   const fx = fxPreview(c, rel);
   if (fx?.filter) filt.push(fx.filter);
   // the clip's video effects (approximate; exact in Accurate preview), amounts scaled to the viewer's size
-  const [FW] = ASPECTS[S.project.settings.aspect] || [1920], ef = effectsCss(c, (frame?.clientWidth || 640) / FW);
+  const [FW] = ASPECTS[S.project.settings.aspect] || [1920], ef = effectsCss(c, (frame?.clientWidth || 640) / FW, rel);
   if (ef.filter) filt.push(ef.filter);
   if (lookFilter && mode === 'program') filt.push(lookFilter);
   const tf = [z !== 1 || x || y || r ? `translate(${x}%, ${y}%) scale(${z}) rotate(${r}deg)` : '', fx?.transform || '', ef.transform].filter(Boolean).join(' ');

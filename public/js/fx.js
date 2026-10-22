@@ -31,11 +31,18 @@ export const isKinetic = (c) => c?.type === 'title' && (c.anim === 'words' || c.
 // ---------------- viewer preview ----------------
 const hash = (n) => { const x = Math.sin(n * 12.9898) * 43758.5453; return x - Math.floor(x); };
 // { transform, filter, overlay: { background, opacity, blend } } for a clip `rel` seconds after it starts, or null
+// ⚡ hits (Labs): the same effects at any moment of a clip - c.hits = [{ t, type, dur }] (seconds into the clip)
+export const hitsOf = (c) => (Array.isArray(c?.hits) ? c.hits.filter((h) => CUTFX[h.type] && h.t >= 0) : []);
 export function fxPreview(c, rel) {
-  const D = cutFxDur(c);
-  if (!D || rel < 0 || rel > D) return null;
+  const D0 = cutFxDur(c);
+  if (D0 && rel >= 0 && rel <= D0) return fxAt(c.cutFx.type, rel, D0);
+  for (const h of hitsOf(c)) { const d = +h.dur || CUTFX[h.type].dur; if (rel >= h.t && rel <= h.t + d) return fxAt(h.type, rel - h.t, d); }
+  return null;
+}
+// the look of cut effect `type` at `rel` seconds into its `D` seconds
+function fxAt(type, rel, D) {
   const u = rel / D, k = 1 - u, out = { transform: '', filter: '', overlay: null };
-  switch (c.cutFx.type) {
+  switch (type) {
     case 'flash': out.overlay = { background: '#fff', opacity: 0.85 * k ** 1.5 }; break;
     case 'strobe': out.overlay = { background: Math.floor(rel * 20) % 2 ? '#fff' : '#000', opacity: 0.6 }; break;
     case 'punch': out.transform = `scale(${(1 + 0.22 * k * k).toFixed(3)})`; break;
