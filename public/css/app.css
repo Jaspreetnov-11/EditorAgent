@@ -1431,3 +1431,7 @@ html.ui2 .tl-row .clip.lab .clip-lbl, .tl-row .clip.lab .clip-lbl { background: 
 .qc-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; align-self: center; }
 .qc-dot.fail { background: var(--red); } .qc-dot.warn { background: #f5a524; } .qc-dot.ok { background: var(--green); }
 .vo-note { margin: 0; font-size: 12px; color: var(--accent-2); grid-column: 1 / -1; }
+.clip.k-labs { background: linear-gradient(90deg, #a07a12, #d4a81c) !important; border-color: #f5d35a !important; }
+.clip.k-labs .clip-name { color: #1a1300; font-weight: 600; }
+.clip.k-labs .clip-bg { opacity: .28; mix-blend-mode: luminosity; } /* (the Labs clip reads yellow; its frames show faintly) */
+.clip.k-labs .clip-lbl, .clip.k-labs .clip-dur { color: #1a1300; text-shadow: none; }

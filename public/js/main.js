@@ -27,6 +27,7 @@ import { mountAssistant, toggleAssistant } from './assistant.js';
 import { mountColor, showColor, hideColor } from './colorpage.js';
 import { mountAudio, showAudio, hideAudio } from './audiopage.js';
 import { mountAI, showAI, hideAI } from './aipage.js';
+import { openLabsClip } from './labsedit.js';
 import './liveedit.js'; // (🔴 a live same-day edit carries on after a refresh)
 import { layout, duration } from './store.js';
 import { openSequences, seqName, openSequence, nestSelected } from './sequences.js';
@@ -279,6 +280,7 @@ on('openClip', (id) => {
   const f = findClip(id), c = f?.clip, m = c?.mediaId && S.mediaById[c.mediaId];
   if (c?.type === 'graphic' && c.gfx?.tpl === 'comp') return openComp(c); // 🎬 a Motion comp: open it on the Motion page
   if (c?.type === 'graphic' && c.gfx?.tpl === 'fusion') return openFusion(c); // ✨ a Fusion: open it on the Fusion page
+  if (c?.labsId) return openLabsClip(c); // 🧪 a Labs clip (yellow): open it on the Labs page
   if (c?.type === 'graphic' && c.gfx?.tpl === 'text') { // T a Type tool text: type in it on the monitor (the playhead goes onto it)
     const x = layout()[f.track]?.find((p) => p.clip.id === id);
     if (x && (S.playhead < x.start || S.playhead >= x.end)) emit('seek', x.start + Math.min(0.5, (x.end - x.start) / 2));

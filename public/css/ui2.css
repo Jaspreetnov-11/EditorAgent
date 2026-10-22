@@ -531,3 +531,39 @@ html.ui2 .pool-bar :is(button, .btn):hover:not(:disabled) { background: var(--pa
 
 /* Versions: who edited */
 .ver-by { color: var(--muted); } .ver-by b { color: var(--text); font-weight: 550; }
+
+/* Labs workspace: clips list · preview · its own timeline */
+.lab-work { display: grid; gap: 12px; padding: 16px 18px; border-radius: 14px; border: 1px solid var(--line); background: var(--panel); }
+.lab-work .lab-sec-h .primary { padding: 8px 16px; border-radius: 8px; }
+.lw-grid { display: grid; grid-template-columns: 240px 1fr; gap: 12px; min-height: 260px; }
+.lw-list { display: grid; align-content: start; gap: 6px; max-height: 320px; overflow: auto; }
+.lw-item { display: flex; gap: 10px; align-items: center; text-align: left; padding: 9px 10px; border-radius: 9px; background: var(--panel-2); border: 1px solid var(--line); cursor: pointer; }
+.lw-item.on { border-color: #d4a81c88; background: #d4a81c12; }
+.lw-item span { display: grid; gap: 2px; min-width: 0; } .lw-item b { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lw-item small { color: var(--muted); font-size: 11px; }
+.lw-sw { flex: none; width: 10px; height: 26px; border-radius: 3px; background: linear-gradient(180deg, #f5d35a, #b8901a); }
+.lw-stage { display: grid; grid-template-rows: 1fr auto; gap: 8px; min-width: 0; }
+.lw-frame { position: relative; overflow: hidden; border-radius: 10px; background: #000; border: 1px solid var(--line); aspect-ratio: 16 / 9; max-height: 300px; justify-self: center; width: 100%; }
+.lw-frame.empty::after { content: 'Open a Labs clip to see it here'; position: absolute; inset: 0; display: grid; place-items: center; color: var(--faint); font-size: 12px; }
+.lw-frame video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; transform-origin: 50% 50%; }
+.lw-ov { position: absolute; inset: 0; pointer-events: none; }
+.lw-tr { display: flex; align-items: center; gap: 10px; justify-content: center; }
+.lw-tc { color: var(--tc); font-size: 12px; }
+.lw-tl { --lbt-name: 74px; }
+.lbt { position: relative; display: grid; gap: 4px; padding: 6px 0; user-select: none; cursor: col-resize; }
+.lbt-row { display: grid; grid-template-columns: var(--lbt-name) 1fr; align-items: center; min-height: 26px; }
+.lbt-name { font-size: 11px; color: var(--muted); padding-left: 2px; }
+.lbt-lane { position: relative; height: 26px; border-radius: 6px; background: var(--bg-2); border: 1px solid var(--line); }
+.lbt-ruler .lbt-lane { height: 16px; background: none; border: 0; }
+.lbt-ruler .lbt-lane span { position: absolute; top: 0; transform: translateX(-50%); font: 10px var(--mono); color: var(--faint); }
+.lbt-clip { position: absolute; inset: 2px; border-radius: 5px; background: linear-gradient(90deg, #a07a12, #d4a81c); display: flex; align-items: center; gap: 8px; padding: 0 8px; color: #1a1300; overflow: hidden; white-space: nowrap; }
+.lbt-clip b { font-size: 11.5px; } .lbt-clip i { font-style: normal; font-size: 10.5px; opacity: .75; }
+.lbt-key { position: absolute; top: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px; transform: rotate(45deg); background: #fff; border: 1px solid #1a1300; }
+.lbt-curve { position: absolute; inset: 2px 0; width: 100%; height: calc(100% - 4px); }
+.lbt-curve polyline { fill: none; stroke: var(--accent-2); stroke-width: 1.6; vector-effect: non-scaling-stroke; }
+.lbt-cap { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); font-size: 10.5px; color: var(--faint); }
+.lbt-fx { position: absolute; left: 2px; top: 2px; bottom: 2px; min-width: 70px; border-radius: 5px; background: #4f8cff33; border: 1px solid #4f8cff66; font-size: 10.5px; display: flex; align-items: center; padding: 0 6px; white-space: nowrap; overflow: hidden; }
+.lbt-chips { position: absolute; inset: 0 6px; display: flex; align-items: center; gap: 5px; }
+.lbt-chips span { font-size: 10.5px; padding: 2px 7px; border-radius: 99px; background: var(--panel-3); color: var(--text); }
+.lbt-ph { position: absolute; top: 0; bottom: 0; width: 1.5px; background: var(--accent-2); pointer-events: none; }
+@media (max-width: 900px) { .lw-grid { grid-template-columns: 1fr; } }

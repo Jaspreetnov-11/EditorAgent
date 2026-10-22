@@ -8,6 +8,7 @@ import { uid, fmt, clipDur } from './model.js';
 import { esc, toast, modal } from './ui.js';
 import { refreshMedia } from './mediapool.js';
 import { TEMPLATES, templateById, applyTemplate, clearTemplate } from './aitemplates.js';
+import { labsWorkHTML, mountLabsWork, draw as drawLabs, labOpen, labTemplate, labClear, stopLabs } from './labsedit.js';
 
 let root = null;
 // languages a dub can go to: the same-voice model speaks the ones marked ★ (others use a Microsoft Edge voice)
@@ -60,6 +61,7 @@ export function mountAI(el) {
   root = el;
   el.innerHTML = `<div class="lab">
     <header class="lab-head"><div><h1>Labs</h1><p>AI tools for dubbing, camera moves and faster edits - all running on this computer.</p></div></header>
+    ${labsWorkHTML()}
     <section class="lab-hero">
       <div class="lab-hero-ic">${glyph('dub')}</div>
       <div class="lab-hero-txt"><span class="lab-kicker">AI dubbing</span><h2>Any language, in the speaker's own voice</h2>
@@ -75,23 +77,27 @@ export function mountAI(el) {
       <div class="lab-sec-h"><div><span class="lab-kicker">Tools</span><h2>Edit faster</h2></div></div>
       <div class="lab-list">${TOOLS.map(([id, l, s]) => `<button class="lab-row" data-tool="${id}"><span class="lab-row-ic">${glyph(id)}</span><span class="lab-tile-t"><b>${esc(l)}</b><small>${esc(s)}</small></span><svg class="lab-chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5L10.5 8 6 12.5"/></svg></button>`).join('')}</div>
     </section></div>`;
+  mountLabsWork(el.querySelector('[data-work]'));
   el.addEventListener('click', (e) => {
     const a = e.target.closest('[data-a]')?.dataset.a, tpl = e.target.closest('[data-tpl]')?.dataset.tpl, tool = e.target.closest('[data-tool]')?.dataset.tool;
     if (a === 'dub') openAiDub();
     if (a === 'setup') setupVoice();
-    if (a === 'untpl') removeTemplates();
-    if (tpl) putTemplate(templateById(tpl));
+    // (with a Labs clip open, the templates go on it - Update on timeline puts them on the edit)
+    if (a === 'untpl') { if (!labClear()) removeTemplates(); }
+    if (tpl) { if (!labTemplate(templateById(tpl))) putTemplate(templateById(tpl)); }
     if (tool) runTool(tool);
   });
 }
-export function showAI() { if (!root) return; drawSel(); voiceState(); }
-export function hideAI() {}
+export function showAI() { if (!root) return; drawSel(); voiceState(); drawLabs(); }
+export function hideAI() { stopLabs(); }
 on('select', () => { if (S.page === 'ai') drawSel(); });
+on('change', () => { if (S.page === 'ai') drawLabs(); }); // (undo / redo of a Labs edit)
 
 function drawSel() {
   const c = selClip(), n = S.sel.size;
   const m = c && S.mediaById[c.clip.mediaId];
   root.querySelector('[data-dubsel]').textContent = c ? `Selected: ${m?.name || c.clip.type}${m?.hasAudio ? '' : ' - this clip has no sound to dub'}` : 'Select a clip with speech on the Edit timeline (an interview, a speech, a VO).';
+  if (labOpen()) { root.querySelector('[data-tplsel]').textContent = `Goes on the open Labs clip "${labOpen().name}" - then Update on timeline`; return; }
   root.querySelector('[data-tplsel]').textContent = n ? `${n} shot${n > 1 ? 's' : ''} selected${c?.clip.tpl ? ` · has "${templateById(c.clip.tpl.id)?.label}"` : ''}` : 'Select shots on the Edit timeline first (V1 or above).';
 }
 

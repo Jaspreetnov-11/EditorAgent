@@ -6,6 +6,7 @@ import { zoneBandsHTML } from './zones.js';
 import { seqMenu, seqName, openSequence, nestSelected, renameSequence } from './sequences.js';
 import { makeCompFromClip, textBehindFromClip, trackMatteFromClips } from './motionpage.js';
 import { fusionFromClip, rotoFromClip } from './fusionpage.js';
+import { labsFromClip } from './labsedit.js';
 import { seqList, seqHash } from './model.js';
 import { VFX } from './effects.js';
 import { AFX } from './audioeffects.js';
@@ -264,7 +265,7 @@ export function fitZoom() {
 }
 
 // ---------------- render ----------------
-const mName = (c) => (c.type === 'title' ? (c.text || 'Title').split('\n')[0] : c.type === 'adjust' ? '◩ Adjustment layer' : c.type === 'graphic' ? (c.gfx?.tpl === 'fusion' ? `${c.gfx.fusion?.name || 'Fusion'}` : c.gfx?.tpl === 'comp' ? `${c.gfx.comp?.name || 'Comp'}` : `${c.gfx?.title || GFX[c.gfx?.tpl]?.label || 'Graphic'}`) : nestedName(c) || S.mediaById[c.mediaId]?.name || 'Missing media');
+const mName = (c) => (c.labsId && S.project.labs?.[c.labsId] ? S.project.labs[c.labsId].name : c.type === 'title' ? (c.text || 'Title').split('\n')[0] : c.type === 'adjust' ? '◩ Adjustment layer' : c.type === 'graphic' ? (c.gfx?.tpl === 'fusion' ? `${c.gfx.fusion?.name || 'Fusion'}` : c.gfx?.tpl === 'comp' ? `${c.gfx.comp?.name || 'Comp'}` : `${c.gfx?.title || GFX[c.gfx?.tpl]?.label || 'Graphic'}`) : nestedName(c) || S.mediaById[c.mediaId]?.name || 'Missing media');
 // a nested clip is named after its sequence (renaming the sequence renames the clip)
 const nestedName = (c) => { const sid = S.mediaById[c.mediaId]?.seqOf; const s = sid && seqList(S.project).find((x) => x.id === sid); return s ? `${s.name}` : null; };
 
@@ -558,7 +559,7 @@ function clipHTML(track, x, i) {
   } else if (c.type === 'title') bg = `background:${track === 'V1' ? esc(c.bg || '#0b2545') : ''}`;
   else if (c.type === 'graphic') bg = c.gfx?.tpl === 'comp' || c.gfx?.tpl === 'fusion' ? '' : 'background:linear-gradient(90deg,#0b2545,#1d4e89)';
   // 🎨 kinds you can tell apart at a glance: ⤵ nested sequence (green), 🎬 Motion comp (orange), ✨ Fusion (maroon)
-  const kind = c.gfx?.tpl === 'comp' ? ' k-comp' : c.gfx?.tpl === 'fusion' ? ' k-fusion' : c.mediaId && S.mediaById[c.mediaId]?.seqOf ? ' k-nest' : '';
+  const kind = c.labsId ? ' k-labs' : c.gfx?.tpl === 'comp' ? ' k-comp' : c.gfx?.tpl === 'fusion' ? ' k-fusion' : c.mediaId && S.mediaById[c.mediaId]?.seqOf ? ' k-nest' : '';
   const badges = [c.color && Object.keys(c.color).length ? '<i title="Colour graded">CC</i>' : '', c.speed && c.speed !== 1 ? `<i>${c.speed}×</i>` : '',
     c.text && c.type !== 'title' ? '<i title="Has text">T</i>' : '', c.loop ? '<i title="Loops">⟲</i>' : '', c.duck ? '<i title="Ducks under speech">duck</i>' : '',
     c.link ? `<i class="lk" title="Linked to its ${c.type === 'audio' ? 'picture' : 'sound'} - they move and trim together (Alt + click takes one; right-click › Unlink)">${c.type === 'audio' ? 'A' : 'V'}🔗</i>` : '',
@@ -1808,7 +1809,7 @@ function onContext(e) {
     ...(soundClips([id]).length ? [['gain', 'Audio gain…', 'G']] : []),
     ...((c.type === 'video' || c.type === 'audio') && !linkedPartner(S.project, c) ? [['mute', c.mute ? 'Unmute' : 'Mute']] : []),
     ...(linkedPartner(S.project, c) ? [['unlink', 'Unlink audio / video']] : c.type === 'video' && S.mediaById[c.mediaId]?.hasAudio && !c.link ? [['linkA', 'Separate audio (linked)']] : c.type === 'video' && c.link && S.mediaById[c.mediaId]?.hasAudio ? [['linkA', 'Bring back its sound (linked)']] : []),
-    ...(c.type === 'video' ? ['-', ['comp', 'Make Motion comp (animate it in Motion)'], ['fusion', 'Open in Fusion (node effects)'], ['roto', 'Roto: cut out the subject (AI)']] : []),
+    ...(c.type === 'video' ? ['-', ['comp', 'Make Motion comp (animate it in Motion)'], ['fusion', 'Open in Fusion (node effects)'], ['labs', c.labsId ? 'Open in Labs' : 'Edit in Labs (templates, AI)'], ['roto', 'Roto: cut out the subject (AI)']] : []),
     ...(c.mediaId ? ['-', ['replace', 'Replace clip…']] : []),
     '-', ['more', 'More…'],
   ];
@@ -1856,6 +1857,7 @@ function onContext(e) {
     if (a === 'comp') makeCompFromClip(id, findClip); // (stays on the timeline: double-click the orange clip to open it)
     if (a === 'behind') textBehindFromClip(id, findClip);
     if (a === 'fusion') fusionFromClip(id, findClip); // (double-click the maroon clip to open it)
+    if (a === 'labs') labsFromClip(id); // (a yellow copy over it on V3; double-click it to open it in Labs)
     if (a === 'roto') rotoFromClip(id, findClip);
     if (a === 'ramp') rampMenu(e);
     if (a === 'copy') copyClips();
