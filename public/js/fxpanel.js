@@ -2,15 +2,16 @@
 // with search. Drag an item onto a clip on the timeline (a transition onto a cut), or select clips and double-click
 // it. Applied effects are then adjusted in Effect Controls (the Inspector).
 import { guarded } from './errlog.js';
-import { S, on, emit, commit, findClip } from './store.js';
+import { S, on, emit, commit, findClip, layout } from './store.js';
 import { loadLib, libCached, applyFxPreset, deletePreset } from './library.js';
 import { TRANSITIONS, RAMPS, setRamp, setTransition, keepLength, clipDur } from './model.js';
 import { CUTFX } from './fx.js';
 import { VFX, VFX_CATS, newEffect } from './effects.js';
 import { FX_PRESETS, FX_DEFAULT } from './audiofx.js';
+import { AFX, AFX_CATS, ATRANS, newAudioEffect } from './audioeffects.js';
 import { $, esc, toast } from './ui.js';
 
-const ICON = { transition: '⧓', cutfx: '⚡', vfx: '✦', afx: '🎚', preset: '⭐', ramp: '⏩' };
+const ICON = { transition: '⧓', cutfx: '⚡', vfx: '✦', afx: '🎚', preset: '⭐', ramp: '⏩', aeffect: '🔊', atrans: '◢◣' };
 const RAMP_CAT = '⏩ Speed ramp (presets)';
 let root, query = '', open = new Set(['⭐ My presets', 'Transitions', RAMP_CAT]), trDur = 0.5;
 
@@ -23,6 +24,9 @@ function items() {
   out.push(['Cut effects (on the cut, keep the beat)', Object.entries(CUTFX).map(([k, x]) => ({ kind: 'cutfx', type: k, label: x.label }))]);
   for (const cat of VFX_CATS) out.push([`Video effects · ${cat}`, Object.entries(VFX).filter(([, x]) => x.cat === cat).map(([k, x]) => ({ kind: 'vfx', type: k, label: x.label, hint: x.v2only ? 'V2 overlays' : '' }))]);
   out.push(['Audio clean-up', Object.entries(FX_PRESETS).filter(([k]) => k !== 'flat').map(([k, x]) => ({ kind: 'afx', type: k, label: x.label }))]);
+  // 🔊 Premiere's Audio Effects folders, and Audio Transitions › Crossfade
+  for (const cat of AFX_CATS) out.push([`Audio effects · ${cat}`, Object.entries(AFX).filter(([, x]) => x.cat === cat).map(([k, x]) => ({ kind: 'aeffect', type: k, label: x.label, hint: x.hint || (x.live || x.meter ? '' : 'in renders') }))]);
+  out.push(['Audio transitions · Crossfade', ATRANS.map(([k, l]) => ({ kind: 'atrans', type: k, label: l, hint: k === 'power' ? 'default' : '' }))]);
   return out;
 }
 
@@ -98,6 +102,12 @@ export function applyFx(fx, clipId, side = null) {
     if (!p || !visual || c.type === 'title') return null;
     return `⭐ ${applyFxPreset(p, c)}`;
   }
+  if (fx.kind === 'aeffect' || fx.kind === 'atrans') {
+    const m = S.mediaById[c.mediaId];
+    if (!(c.type === 'audio' || (c.type === 'video' && m?.hasAudio))) return null;
+    if (fx.kind === 'aeffect') { (c.aeffects ||= []).push(newAudioEffect(fx.type)); return `🔊 ${AFX[fx.type].label}`; }
+    return crossfade(f, c, fx.type, side);
+  }
   if (fx.kind === 'afx') {
     const m = S.mediaById[c.mediaId];
     if (!(c.type === 'audio' || (c.type === 'video' && m?.hasAudio))) return null;
@@ -105,6 +115,28 @@ export function applyFx(fx, clipId, side = null) {
     return FX_PRESETS[fx.type].label;
   }
   return null;
+}
+
+// 🎚 Audio Transitions › Crossfade, like Premiere, on a sound clip's end (side). Where another sound clip on the same
+// track meets it there, the two overlap by the transition's length - half before the cut, half after, from the sound
+// beyond their ends - and fade across with the chosen curve; nothing else moves. Alone at that end (or a linked sound,
+// which follows its picture): a fade in / out with that curve.
+function crossfade(f, c, curve, side) {
+  side ||= 'in';
+  const L = layout()[f.track] || [], x = L.find((p) => p.clip.id === c.id), at = side === 'in' ? x.start : x.end;
+  const label = ATRANS.find((a) => a[0] === curve)?.[1] || 'Crossfade';
+  const fade = (cl, end, d) => { cl[end === 'in' ? 'fadeIn' : 'fadeOut'] = +d.toFixed(3); cl[end === 'in' ? 'fadeInCurve' : 'fadeOutCurve'] = curve; };
+  const nb = L.find((p) => p.clip.id !== c.id && p.clip.type === 'audio' && Math.abs((side === 'in' ? p.end : p.start) - at) < 0.03);
+  if (!nb || c.type !== 'audio' || c.loop || nb.clip.loop || c.link || nb.clip.link) { fade(c, side, trDur); return `${label}: sound fades ${side} (${trDur} s)`; }
+  const A = side === 'in' ? nb.clip : c, B = side === 'in' ? c : nb.clip; // A ends at the cut, B starts there
+  const mA = S.mediaById[A.mediaId], spA = A.speed || 1, spB = B.speed || 1, h = trDur / 2;
+  const ha = Math.max(0, Math.min(h, ((mA?.duration ?? 0) - (A.out ?? mA?.duration ?? 0)) / spA));
+  const hb = Math.max(0, Math.min(h, (B.in || 0) / spB));
+  if (ha + hb < 0.05) { fade(A, 'out', trDur); fade(B, 'in', trDur); return `${label}: no sound to spare beyond the cut - both fade (${trDur} s)`; }
+  A.out = +((A.out ?? mA.duration) + ha * spA).toFixed(3);
+  B.in = +((B.in || 0) - hb * spB).toFixed(3); B.start = +((B.start || 0) - hb).toFixed(3);
+  fade(A, 'out', ha + hb); fade(B, 'in', ha + hb);
+  return `${label} crossfade (${(ha + hb).toFixed(2)} s) across the cut`;
 }
 
 function applyToSelection(fx) {
@@ -116,13 +148,14 @@ function applyToSelection(fx) {
   toast(`✨ ${msgs[msgs.length - 1]}${ids.length > 1 ? ` · ${ids.length} clips` : ''}`);
 }
 // 🎛 an effect just put on a clip opens in Effect Controls, ready to adjust by hand
-const EC_SECTION = { vfx: 'vfx', preset: 'vfx', cutfx: 'cutfx', ramp: 'ramp', transition: 'transition', afx: 'audio' };
+const EC_SECTION = { vfx: 'vfx', preset: 'vfx', cutfx: 'cutfx', ramp: 'ramp', transition: 'transition', afx: 'audio', aeffect: 'aeffects', atrans: 'audio' };
 function showInEC(fx) { if (EC_SECTION[fx.kind]) emit('inspect', EC_SECTION[fx.kind]); }
 
 export const transitionLength = () => trDur;
 // timeline drop: a transition dropped near a clip's start goes on that cut, near its end on the next cut
 export function dropFx(fx, clipId, relX) {
   let id = clipId, side = null;
+  if (fx.kind === 'atrans') side = relX > 0.5 ? 'out' : 'in'; // (🎚 the end of the sound clip it was dropped near)
   if (fx.kind === 'transition') {
     const f = findClip(clipId);
     side = relX > 0.5 ? 'out' : 'in';

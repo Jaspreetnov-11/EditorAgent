@@ -39,6 +39,8 @@ import { mountFusion, showFusion, hideFusion, openFusionClip } from './fusionpag
 import { mountMenuBar, openLogo, openBackups } from './menubar.js';
 import { openTemplates } from './titlesui.js';
 import { openAudioGain } from './audiogain.js';
+import { nudgeSelected, groupSelected, ungroupSelected, replaceEdit, typeTimecode, closeAllGaps, goGap, addClipMarker, exportFrame } from './editing.js';
+import { toggleTrimMode } from './trimmode.js';
 import './presence.js'; // 📊 session time (Team & users > Sessions)
 
 applyLook(); // 🖥 Studio (Premiere-style) look unless this browser chose Classic (⚙ in the header)
@@ -68,12 +70,14 @@ function shell() {
         <button class="icon-btn" data-a="redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">${icon('redo')}</button>
         <button class="icon-btn ai-undo-btn" data-a="aiundo" title="↶ AI Undo: bring back the edit as it was before an Agent edit, Re-edit or Claude change (works after a refresh too)" aria-label="AI undo">${icon('aiundo')}</button>
         <button class="icon-btn" data-a="versions" title="Versions: go back to an earlier edit, or save this one with a name" aria-label="Versions">${icon('versions')}</button>
+        <button class="icon-btn" data-a="refresh" title="Refresh: save, then load the editor again (newest version, panels fresh)" aria-label="Refresh">${icon('refresh')}</button>
       </div>
       <div class="tgroup" role="group" aria-label="Team and project">
         <button class="icon-btn" data-a="team" title="Team: other computers in the office edit too (logins, roles, shared folders)" aria-label="Team" hidden>${icon('team')}</button>
         <button class="icon-btn" data-a="activity" title="Activity: who changed what on this project - take back one person's one change" aria-label="Activity">${icon('activity')}</button>
         <button class="icon-btn" data-a="zones" title="Zones: who owns which part of the timeline - warns before you change someone else's part" aria-label="Zones">${icon('zones')}</button>
         <button class="icon-btn" data-a="mediamgr" title="Media manager: relink offline files, pack the project, clean up disk" aria-label="Media manager">${icon('media')}</button>
+        <button class="icon-btn sf-btn" data-a="safety" title="Mazbooti: health, nightly backup, standby PC" aria-label="Mazbooti" hidden>${icon('health')}</button>
         <button class="icon-btn" data-a="brand" title="Brand kit (logo, colours, intro/outro) and project templates" aria-label="Brand kit">${icon('brand')}</button>
         <button class="icon-btn" data-a="report" title="Report: which shot the agent chose for which line, and why" aria-label="Report">${icon('report')}</button>
       </div>
@@ -136,10 +140,12 @@ function shell() {
     if (a === 'deliver') showPage('deliver');
     if (a === 'seq') openSequences();
     if (a === 'versions') openVersions();
+    if (a === 'refresh') { toast('Saving and refreshing…'); saveNow(true).catch(() => {}).finally(() => location.reload()); } // (🔄 nothing unsaved is lost)
     if (a === 'aiundo') openAiUndo();
     if (a === 'activity') openActivity();
     if (a === 'zones') openZones();
     if (a === 'mediamgr') openMediaMgr();
+    if (a === 'safety') import('./safety.js').then((x) => x.openSafety());
     if (a === 'team') openTeam();
     const p = e.target.closest('[data-page-btn]')?.dataset.pageBtn;
     if (p) showPage(p);
@@ -201,12 +207,18 @@ async function whoAmI() {
   chip.hidden = !!S.me.local;
   chip.innerHTML = S.me.local ? '' : `${esc(S.me.name)} · ${S.me.role} <a href="/team/logout" title="Sign out">⎋</a>`;
   $('[data-a="team"]').hidden = !(S.me.local && S.me.role === 'owner');
+  // 🩺 Mazbooti: the owner on the editing computer (a dot when something needs a look)
+  const sf = $('[data-a="safety"]');
+  if (sf && S.me.local && S.me.role === 'owner' && sf.hidden) { sf.hidden = false; import('./safety.js').then((x) => x.watchSafety(sf)); }
+  // 🖥 this is a standby PC's editor (the main one is down): say so, once per page
+  if (S.me.standby && !$('#sbBanner')) $('.top').after(h(`<div id="sbBanner" class="ro-banner sb" role="status">🖥 Standby editor on ${esc(S.me.standby)} - the main editor is down. Work as usual: everything saved here goes back to it when it is up again.</div>`));
 }
 on('readonly', (x) => {
   let b = $('#roBanner');
   if (!S.readOnly) { b?.remove(); return; }
   if (!b) { b = h('<div id="roBanner" class="ro-banner" role="status"></div>'); $('.top').after(b); }
-  b.textContent = S.me?.role === 'viewer' ? '👁 View only - you can watch and play, not change this project.'
+  b.textContent = S.me?.hold ? `🖥 The standby PC ${S.me.hold.host} is running the editor (since ${new Date(S.me.hold.since).toLocaleTimeString()}) - edit there. This editor takes over again about 2 minutes after it is back; reload then.`
+    : S.me?.role === 'viewer' ? '👁 View only - you can watch and play, not change this project.'
     : S.lockHolder && S.lockHolder === S.me?.name ? '🔒 Read only - this project is open in another tab or computer of yours. Close it there (editing opens up here within a minute).'
     : `🔒 Read only - ${S.lockHolder || 'someone'} is editing this project. You can watch; editing opens up when they close it.`;
   if (x?.tried) toast(`Not changed - ${S.me?.role === 'viewer' ? 'you are a viewer' : `${S.lockHolder} is editing`}`, 'err');
@@ -334,7 +346,7 @@ async function openProject(name) {
     safely('Page', () => showPage(S.media.length ? (pg === 'deliver' ? 'edit' : pg) : 'media'));
     safely('Viewer', () => setMode('program')); // also refreshes the viewer title when switching projects
     // everyone with edit rights edits together (🔴 live); only viewers watch
-    await safely('Who am I', whoAmI); S.readOnly = S.me?.role === 'viewer'; S.lockHolder = null; emit('readonly', {}); safely('Presence', sendPresence);
+    await safely('Who am I', whoAmI); S.readOnly = S.me?.role === 'viewer' || !!S.me?.hold; S.lockHolder = null; emit('readonly', {}); safely('Presence', sendPresence);
     safely('Agent job', () => resumeAgentJob(setBusy)); // an agent edit still running on the server (page refreshed / reopened)
     safely('Render queue', pollQueue); // renders still running / waiting in the background queue
     safely('Phone notes', watchPhoneNotes); // notes sent from a phone (📱 review)
@@ -366,7 +378,8 @@ const goEdge = (dir) => {
   if (t !== undefined) emit('seek', t);
 };
 const goMarker = (dir) => {
-  const ts = (S.project.markers || []).map((m) => m.t).sort((a, b) => a - b);
+  // (📍 clip markers count too, where their clip is now)
+  const ts = [...(S.project.markers || []).map((m) => m.t), ...Object.values(layout()).flat().flatMap((x) => (x.clip.markers || []).map((m) => x.start + m.t))].sort((a, b) => a - b);
   const t = dir < 0 ? [...ts].reverse().find((x) => x < S.playhead - 0.01) : ts.find((x) => x > S.playhead + 0.01);
   if (t !== undefined) emit('seek', t); else toast(dir < 0 ? 'No marker before the playhead' : 'No marker after the playhead');
 };
@@ -401,6 +414,14 @@ const ACTIONS = {
   selectTool: () => setTool('select'), razorTool: () => setTool('blade'), typeTool: () => { setTool('type'); toast('T Type tool: click on the picture and type (Esc when done; V = back to selection)'); },
   rippleTool: () => setTool('ripple'), rollingTool: () => setTool('rolling'), rateTool: () => setTool('rate'), penTool: () => setTool('pen'), remixTool: () => setTool('remix'),
   slipTool: () => setTool('slip'), slideTool: () => setTool('slide'), handTool: () => setTool('hand'), zoomTool: () => setTool('zoom'),
+  trackFwdTool: () => setTool('trackfwd'), trackBackTool: () => setTool('trackback'),
+  nudgeL: () => nudgeSelected(-1), nudgeR: () => nudgeSelected(1), nudgeL5: () => nudgeSelected(-5), nudgeR5: () => nudgeSelected(5),
+  pasteInsert: () => { if (S.page !== 'edit') return false; pasteClips({ insert: true }).catch((err) => toast(err.message, 'err')); },
+  group: () => groupSelected(), ungroup: () => ungroupSelected(), trimMode: () => toggleTrimMode(), replaceEdit: () => replaceEdit(),
+  timecode: () => { if (S.page !== 'edit') showPage('edit'); const tc = $('#tlTC'); if (tc) typeTimecode(tc); },
+  exportFrame: () => exportFrame(), closeGaps: () => closeAllGaps(), nextGap: () => goGap(1), prevGap: () => goGap(-1), clipMarker: () => addClipMarker(),
+  rippleMarkers: () => { const s = S.project.settings; s.rippleMarkers = !s.rippleMarkers || undefined; commit(s.rippleMarkers ? 'Ripple markers on' : 'Ripple markers off'); toast(s.rippleMarkers ? '📍 Ripple Sequence Markers on: markers move with the story when it ripples' : '📍 Ripple Sequence Markers off: markers stay where they are'); },
+  history: () => import('./history.js').then((x) => x.openHistory()), autoReframe: () => import('./aiui.js').then((x) => x.autoReframeSequence()), seqSettings: () => import('./seqsettings.js').then((x) => x.openSequenceSettings()),
   addEdit: () => splitAtPlayhead(), addEditAll: () => { S.sel = new Set(); splitAtPlayhead(); },
   rippleTrimPrev: () => trimAtPlayhead('start'), rippleTrimNext: () => trimAtPlayhead('end'),
   clear: () => deleteSelected(false), rippleDelete: () => deleteSelected(true), duplicate: () => duplicateSelected(), pasteAttr: () => import('./attrs.js').then((x) => x.pasteAttributes()),

@@ -49,6 +49,28 @@ function addSeq(name, aspect, copy) {
   switchTo(id);
 }
 
+// 🎯 Auto Reframe Sequence: a copy of the open sequence in another frame shape (it opens)
+export const copySequenceAs = (aspect) => addSeq(freeName(`${seqOf(S.project).name} ${aspect}`), aspect, true);
+
+// 🎞 New Sequence From Clip, like Premiere: a sequence shaped like the file (frame shape and rate) with the chosen
+// files on it, in order; it opens. A file's own sound comes along as usual.
+export function newSequenceFromClip(ids) {
+  const ms = ids.map((id) => S.mediaById[id]).filter((m) => m && m.kind !== 'audio' && m.status !== 'offline');
+  if (!ms.length) return toast('Pick a video or a photo in Media');
+  const m = ms[0], turn = Math.abs(+m.rotation || 0) % 180 === 90, w = turn ? m.height : m.width, h = turn ? m.width : m.height;
+  const r = w > 0 && h > 0 ? w / h : 16 / 9;
+  const aspect = Object.entries(ASPECTS).sort((a, b) => Math.abs(a[1][0] / a[1][1] - r) - Math.abs(b[1][0] / b[1][1] - r))[0][0];
+  // (high-speed camera files - 100 / 120 fps, for slow motion - go on a normal-rate sequence, as an edit would use them)
+  const fps = m.kind === 'video' && m.fps > 0 && m.fps <= 61 ? Math.round(m.fps) : S.project.settings.fps;
+  const name = freeName(String(m.name || 'Sequence').replace(/\.[^.]+$/, '')), id = uid(), blank = newProject(name, { aspect, fps });
+  (S.project.sequences ||= {})[id] = { name, data: { tracks: blank.tracks, trackState: blank.trackState, markers: [], subtitles: blank.subtitles, settings: { ...S.project.settings, aspect, fps } }, modified: Date.now() };
+  commit(`New sequence ${name}`);
+  switchTo(id);
+  for (const x of ms) placeMedia(x.id, 'V1', 1e9, {});
+  commit(`${ms.length} clip${ms.length > 1 ? 's' : ''} into ${name}`);
+  toast(`🎞 New sequence "${name}" (${aspect}, ${fps} fps) from ${ms.length > 1 ? `${ms.length} clips` : m.name}`);
+}
+
 // a new sequence holding these main-story clips (📝 Text page: rough cut from chosen sentences); it opens
 export function newSequenceWith(name, V1) {
   const id = uid(), blank = newProject(name, { aspect: S.project.settings.aspect, fps: S.project.settings.fps });

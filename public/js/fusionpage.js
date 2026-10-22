@@ -57,6 +57,7 @@ function refresh() {
   if (!root || !S.project) return;
   if (fid && !fu()) { fid = Object.keys(fusions())[0] || null; selId = null; }
   if (selId && !node(selId)) selId = null;
+  { const b = root.querySelector('[data-f="toTimeline"]'); if (b && fu()) b.textContent = onTimeline(fu().id).length ? '⤵ Update on timeline' : '⤵ Add to timeline'; } // (already there: updated, not added)
   T = clamp(T, 0, fu()?.dur || 0);
   renderLib(); renderInsp(); size(); draw(); drawGraph();
   $('#fuEmpty', root).hidden = !!fu();
@@ -111,7 +112,7 @@ function onClick(e) {
   const a = b.dataset.f;
   if (a === 'play') playing ? stop() : play();
   if (a === 'start') seek(0);
-  if (a === 'toTimeline') toTimeline();
+  if (a === 'toTimeline') toTimeline(e);
   if (a === 'new') {
     const vids = S.media.filter((m) => m.kind === 'video');
     if (!vids.length) return toast('Bring a video into Media first', 'err');
@@ -136,7 +137,19 @@ function placeOver(f, start, track) {
   S.project.tracks[tr].push({ id: uid(), type: 'graphic', start: +start.toFixed(3), dur: f.dur, gfx: { tpl: 'fusion', fusionId: f.id, fusion: JSON.parse(JSON.stringify(f)) } });
   return tr;
 }
-function toTimeline() { const f = fu(); if (!f) return; const tr = placeOver(f, S.playhead || 0, 'V1'); commit(`Add fusion "${f.name}" to the timeline`); toast(`⤵ "${f.name}" is on ${tr} at the playhead`); }
+// the clips of the open sequence that show fusion `id`
+const onTimeline = (id) => Object.entries(S.project.tracks).filter(([t]) => t[0] === 'V').flatMap(([t, l]) => l.filter((x) => x.type === 'graphic' && x.gfx?.tpl === 'fusion' && x.gfx.fusionId === id).map((x) => ({ t, x })));
+// a fusion opened from the timeline (or put there before) is updated in place - not added again; Shift = another copy
+function toTimeline(e) {
+  const f = fu(); if (!f) return;
+  const there = onTimeline(f.id);
+  if (there.length && !e?.shiftKey) {
+    save(`Update fusion "${f.name}" on the timeline`);
+    S.sel = new Set(there.map((p) => p.x.id)); emit('select');
+    return toast(`⤵ "${f.name}" updated on ${[...new Set(there.map((p) => p.t))].join(', ')} - no new clip (Shift + click adds another copy)`);
+  }
+  const tr = placeOver(f, S.playhead || 0, 'V1'); commit(`Add fusion "${f.name}" to the timeline`); toast(`⤵ "${f.name}" is on ${tr} at the playhead`);
+}
 // right-click a video clip → ✨ Open in Fusion: a fusion of that clip, laid exactly over it (the clip keeps its sound)
 export function fusionFromClip(clipId, findClip) {
   const f0 = findClip(clipId), c = f0?.clip, m = c && S.mediaById[c.mediaId];

@@ -16,10 +16,11 @@ import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 import { ASPECTS, clipDur, placed, totalDuration, keysExpr, rampPts, sourceAt, overlayTracks, audioTracks, syncLinked } from '../public/js/model.js';
 import { fxFilters } from '../public/js/audiofx.js';
+import { aeffectFilters, fadeCurve } from '../public/js/audioeffects.js';
 import { colorFilters, stager } from './color.mjs';
 import { cutFxDur, wordWindows, isKinetic } from '../public/js/fx.js';
 import { VFX, activeEffects, stabOf } from '../public/js/effects.js';
-import { buildAss } from '../public/js/captions.js';
+import { buildAss, capTracks } from '../public/js/captions.js';
 import { maskTrack } from '../public/js/tracking.js';
 import { gfxKey } from '../public/js/graphics.js';
 import { maskAlpha, movedMask, maskKey } from '../public/js/shapemask.js';
@@ -207,7 +208,8 @@ function transformFilters(c) {
   return f;
 }
 // a clip's own audio clean-up (clip.afx, same settings as the track effects), before speed and volume
-const clipFx = (c) => { const f = fxFilters(c.afx); return f.length ? `${f.join(',')},` : ''; };
+// (+ its 🔊 audio effects, Premiere's Audio Effects - clip.aeffects, public/js/audioeffects.js)
+const clipFx = (c) => { const f = [...fxFilters(c.afx), ...aeffectFilters(c.aeffects)]; return f.length ? `${f.join(',')},` : ''; };
 const getP = (o, p) => p.split('.').reduce((a, k) => a?.[k], o);
 // Clip volume: static value, or the keyframed curve evaluated per audio frame (t = time since the clip started).
 const volumeFilter = (c, dflt = 1) => (c.keys?.volume?.length ? `volume='${keysExpr(c.keys.volume, 't')}':eval=frame` : `volume=${c.volume ?? dflt}`);
@@ -578,8 +580,10 @@ const inputs = [], g = [];
 // Final pass
 console.log(`  [${++step}/${total}] finishing (joining, overlays, titles, audio mix, loudness)...`);
 let n = inputs.filter((x) => x === '-i').length, v = 'jvout';
-const fxOf = (id) => { const f = fxFilters(ts[id]?.fx); return f.length ? `${f.join(',')},` : ''; };
-const speechParts = [`[jaout]${fxOf('V1')}volume=${ts.V1?.mute || (anySolo && !ts.V1?.solo) ? 0 : ts.V1?.volume ?? 1},${AFMT}[orig]`];
+// (+ 🎛 the track's effect slots - trackState.aeffects, Audio page)
+const fxOf = (id) => { const f = [...fxFilters(ts[id]?.fx), ...aeffectFilters(ts[id]?.aeffects)]; return f.length ? `${f.join(',')},` : ''; };
+const v1Vol = ts.V1?.mute || (anySolo && !ts.V1?.solo) ? 0 : ts.V1?.volume ?? 1; // (🎚 + its volume keyframes, on the timeline's clock)
+const speechParts = [`[jaout]${fxOf('V1')}${v1Vol && ts.V1?.volKeys?.length ? `volume='${v1Vol}*(${keysExpr(ts.V1.volKeys, 't')})':eval=frame` : `volume=${v1Vol}`},${AFMT}[orig]`];
 const speechLabels = ['orig'];
 
 // a mask picture as an input of the final pass -> its label
@@ -675,7 +679,9 @@ if (titles.length) {
 
 // 📊 motion graphics (baked by the editor at the edit's own frame size, transparent); a reframed export fits them in
 ovl.filter((x) => x.clip.type === 'graphic').forEach((x, k) => {
-  const [BW, BH] = ASPECTS[S.aspect] || ASPECTS['16:9'], f = path.join(job.gfxDir || '', `${gfxKey(x.clip.gfx, BW, BH, S.fps, x.end - x.start)}.mov`);
+  const [BW, BH] = ASPECTS[S.aspect] || ASPECTS['16:9'], f0 = path.join(job.gfxDir || '', `${gfxKey(x.clip.gfx, BW, BH, S.fps, x.end - x.start)}.mov`);
+  // 📌 a pinned graphic baked at the export's own frame (gfxui bakeAll) sits on its edge there; else the edit's one, fitted in
+  const fx = reframed && x.clip.gfx?.pin && path.join(job.gfxDir || '', `${gfxKey(x.clip.gfx, FW, FH, S.fps, x.end - x.start)}.mov`), f = fx && fs.existsSync(fx) ? fx : f0;
   if (!job.gfxDir || !fs.existsSync(f)) die('a motion graphic is not prepared - open the project in the editor and render again');
   const i = n++, st = x.start.toFixed(3), en = x.end.toFixed(3);
   inputs.push('-i', f);
@@ -692,7 +698,8 @@ if (project.logo?.mediaId && media[project.logo.mediaId]) {
 }
 
 // Captions edited in the app (public/js/captions.js) win over a subtitles file
-const caps = project.captions?.on && project.captions.cues?.length ? project.captions : null;
+// (🗂 every shown caption track is burned in; track 1 when hidden gives no lines but the others still show)
+const caps = capTracks(project.captions).some((t) => t.on && t.cues?.length) ? { ...project.captions, cues: project.captions.on ? project.captions.cues || [] : [] } : null;
 if (caps) {
   fs.writeFileSync(path.join(wd, 'captions.ass'), buildAss(caps, W, H), 'utf8');
   fs.mkdirSync(path.join(wd, 'fonts'), { recursive: true });
@@ -723,7 +730,10 @@ if (EX.burnTC || EX.burnName) {
   if (EX.burnTC) { g.push(`[${v}]drawtext=fontfile=${font('0123456789:')}:timecode='${tc}':rate=${ff}:fontsize=${sz}:fontcolor=white:${box}:x=(w-tw)/2:y=h-th-${Math.round(H * 0.04)}[vtc]`); v = 'vtc'; }
   if (EX.burnName) { const nm = String(project.seq?.name || project.name || ''); g.push(`[${v}]drawtext=fontfile=${font(nm)}:textfile=${textfile(nm)}:expansion=none:fontsize=${Math.round(sz * 0.8)}:fontcolor=white:${box}:x=${Math.round(W * 0.03)}:y=${Math.round(H * 0.04)}[vnm]`); v = 'vnm'; }
 }
-g.push(`[${v}]format=yuv420p[vout]`);
+function OWN0() { return ['wav', 'mp3', 'gif', 'png'].includes(EX.codec); }
+// 🌈 HDR (Sequence Settings › Working colour space): the export goes to Rec. 2100 - HLG or PQ (HDR10) - 10-bit; previews stay SDR
+const HDR = !job.preview && !OWN0() && ['hlg', 'pq'].includes(S.colorSpace) ? S.colorSpace : null;
+g.push(HDR ? `[${v}]zscale=tin=bt709:min=bt709:pin=bt709:rin=tv:t=${HDR === 'hlg' ? 'arib-std-b67' : 'smpte2084'}:m=bt2020nc:p=bt2020:r=tv:npl=203,format=yuv420p10le[vout]` : `[${v}]format=yuv420p[vout]`);
 
 // Audio tracks: each clip trimmed, faded and placed at its start; A1 joins the speech bus, A2 is ducked under speech.
 function trackBus(id) {
@@ -743,14 +753,16 @@ function trackBus(id) {
       inputs.push('-ss', String(tin), '-t', String(len * speed), '-i', m.path);
       chain = `[${i}:a]asetpts=PTS-STARTPTS,${c.reverse ? 'areverse,' : ''}${clipFx(c)}${speed !== 1 ? `${speedAudio(c, speed)},` : ''}${AFMT}`;
     }
-    chain += `,${volumeFilter(c)}${fi ? `,afade=t=in:d=${fi}` : ''}${fo ? `,afade=t=out:st=${Math.max(0, len - fo).toFixed(3)}:d=${fo}` : ''}`;
+    chain += `,${volumeFilter(c)}${fi ? `,afade=t=in:d=${fi}:curve=${fadeCurve(c.fadeInCurve)}` : ''}${fo ? `,afade=t=out:st=${Math.max(0, len - fo).toFixed(3)}:d=${fo}:curve=${fadeCurve(c.fadeOutCurve)}` : ''}`; // (🎚 Constant Gain / Power / Exponential)
     chain += `,adelay=${ms}|${ms}[${id}c${k}]`;
     g.push(chain);
     labels.push(`${id}c${k}`);
   });
   if (!labels.length) return null;
   const vol = ts[id]?.volume ?? 1;
-  g.push(`${labels.map((l) => `[${l}]`).join('')}${labels.length > 1 ? `amix=inputs=${labels.length}:normalize=0,` : ''}${fxOf(id)}volume=${vol}[${id}bus]`);
+  // 🎚 track volume keyframes (trackState.volKeys, timeline seconds - the bus runs on the timeline's clock), x the fader
+  const auto = ts[id]?.volKeys?.length ? `volume='${vol}*(${keysExpr(ts[id].volKeys, 't')})':eval=frame` : `volume=${vol}`;
+  g.push(`${labels.map((l) => `[${l}]`).join('')}${labels.length > 1 ? `amix=inputs=${labels.length}:normalize=0,` : ''}${fxOf(id)}${auto}[${id}bus]`);
   return `${id}bus`;
 }
 // 🔗 a track carrying clips' own sound (linked [A] clips) joins the speech bus like the clip sound always did:
@@ -787,7 +799,11 @@ g.push(lufs === false || lufs === 'off' ? '[mix]anull[aout]' : `[mix]loudnorm=I=
 fs.mkdirSync(path.dirname(path.resolve(job.output)), { recursive: true });
 // Final encode: ProRes 422 HQ for editing/broadcast hand-off, otherwise H.264 under the preset's bitrate ceiling.
 let finalEnc, cpuEnc;
-if (!job.preview && EX.codec === 'prores') {
+// (+ DNxHR HQ .mov for Avid / broadcast; WAV / MP3 / GIF / PNG frames are written below, on their own)
+const OWN = job.preview ? null : { wav: 'a', mp3: 'a', gif: 'v', png: 'v' }[EX.codec] || null;
+if (!job.preview && EX.codec === 'dnxhr') {
+  finalEnc = ['-c:v', 'dnxhd', '-profile:v', 'dnxhr_hq', '-pix_fmt', 'yuv422p', '-r', String(F), '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2'];
+} else if (!job.preview && EX.codec === 'prores') {
   finalEnc = ['-c:v', 'prores_ks', '-profile:v', '3', '-vendor', 'apl0', '-pix_fmt', 'yuv422p10le', '-r', String(F), '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2'];
 } else {
   finalEnc = ENC(job.preview ? (FAST ? 27 : 21) : EX.crf ?? S.crf ?? 20, job.preview ? (FAST ? 'ultrafast' : 'veryfast') : 'medium');
@@ -795,8 +811,14 @@ if (!job.preview && EX.codec === 'prores') {
     // H.265: about half the size of H.264 at the same quality; hvc1 tag so Apple devices / QuickTime play it
     const i = finalEnc.indexOf('libx264'); finalEnc.splice(i, 1, 'libx265'); finalEnc.push('-tag:v', 'hvc1', '-x265-params', 'log-level=error');
   }
+  if (HDR) { // 10-bit HEVC with the HDR colour tags (CPU - the GPU pipe carries 8-bit frames)
+    const i = finalEnc.indexOf('-c:v'); finalEnc.splice(i, 2, '-c:v', 'libx265');
+    const tr = HDR === 'hlg' ? 'arib-std-b67' : 'smpte2084';
+    finalEnc.push('-pix_fmt', 'yuv420p10le', '-tag:v', 'hvc1', '-color_primaries', 'bt2020', '-color_trc', tr, '-colorspace', 'bt2020nc',
+      '-x265-params', `log-level=error:repeat-headers=1:colorprim=bt2020:transfer=${tr}:colormatrix=bt2020nc${HDR === 'pq' ? ':hdr-opt=1:master-display=G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1):max-cll=1000,400' : ''}`);
+  }
   cpuEnc = finalEnc.slice();
-  if (!job.preview && NV) {
+  if (!job.preview && NV && !HDR) {
     // NVIDIA encoder: much faster for 4K; constant-quality mode instead of CRF
     const c = finalEnc.indexOf('-c:v'), cq = finalEnc[finalEnc.indexOf('-crf') + 1];
     finalEnc.splice(c, 6, '-c:v', EX.codec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc', '-preset', 'p6', '-tune', 'hq', '-rc', 'vbr', '-cq', String(+cq + 2), '-b:v', '0');
@@ -812,7 +834,7 @@ if (!job.preview && EX.codec === 'prores') {
   }
 }
 const finalArgs = [...inputs.map((x, i) => (inputs[i - 1] === '-i' ? short(x) : x)), ...fcArgs(g.join(';')), '-map', '[vout]', '-map', '[aout]', ...(R ? ['-ss', R.in.toFixed(3), '-t', (R.out - R.in).toFixed(3)] : ['-t', String(D)])];
-const gpuFinal = !!(!job.preview && NV && EX.codec !== 'prores');
+const gpuFinal = !!(!job.preview && NV && !['prores', 'dnxhr'].includes(EX.codec) && !OWN && !HDR);
 // GPU: the system FFmpeg filters and sends raw frames + audio (NUT) down a pipe to the encoder FFmpeg
 function ffPipe(args, enc, out) {
   return new Promise((ok) => {
@@ -828,7 +850,20 @@ function ffPipe(args, enc, out) {
   });
 }
 const outFile = path.resolve(job.output);
-if (!gpuFinal || !(await ffPipe(finalArgs, [...finalEnc, '-movflags', '+faststart'], outFile))) {
+if (OWN) {
+  // 🎧 sound only (WAV 24-bit / MP3), 🎞 GIF (720 wide, its own colour palette) or 🖼 a PNG for every frame (into a folder)
+  const gg = [...g];
+  if (OWN === 'a') gg.push('[vout]nullsink');
+  else {
+    gg.push('[aout]anullsink');
+    if (EX.codec === 'gif') gg.push(`[vout]fps=${Math.min(15, F)},scale=720:-2:flags=lanczos,split[gA][gB];[gA]palettegen=stats_mode=diff[gP];[gB][gP]paletteuse=dither=bayer:bayer_scale=4[gifout]`);
+  }
+  const enc = { wav: ['-c:a', 'pcm_s24le', '-ar', '48000'], mp3: ['-c:a', 'libmp3lame', '-b:a', `${EX.abr || 320}k`, '-ar', '48000'], gif: ['-loop', '0'], png: ['-c:v', 'png'] }[EX.codec];
+  let out = outFile;
+  if (EX.codec === 'png') { fs.mkdirSync(outFile, { recursive: true }); out = path.join(outFile, 'frame_%05d.png'); }
+  ff([...inputs.map((x, i) => (inputs[i - 1] === '-i' ? short(x) : x)), ...fcArgs(gg.join(';')), '-map', OWN === 'a' ? '[aout]' : EX.codec === 'gif' ? '[gifout]' : '[vout]',
+    ...(R ? ['-ss', R.in.toFixed(3), '-t', (R.out - R.in).toFixed(3)] : ['-t', String(D)]), ...enc, out]);
+} else if (!gpuFinal || !(await ffPipe(finalArgs, [...finalEnc, '-movflags', '+faststart'], outFile))) {
   if (gpuFinal) console.log('GPU encoder failed - finishing on the CPU');
   ff([...finalArgs, ...(cpuEnc || finalEnc), '-movflags', '+faststart', outFile]);
 }

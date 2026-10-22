@@ -169,6 +169,8 @@ function panel(W, H, g, aspectW, aspectH) {
 let gfxVideo = null;
 export function setGfxVideo(fn) { gfxVideo = fn; }
 export function drawGraphic(ctx, W, H, g, t, dur, extra = {}) {
+  // ⏱ responsive time: intro and outro play at their own speed, only the middle stretches
+  if (rtimeOn(g)) { const [I, O, D0] = rtimeOf(g); t = rtimeMap(t, dur, D0, I, O); dur = D0; }
   if (g.tpl === 'comp') return g.comp ? drawComp(ctx, W, H, g.comp, t, { img: gfxImage, video: extra.video || gfxVideo, cut: cutOut }) : ctx.clearRect(0, 0, W, H);
   // ✨ a Fusion node graph (fusion.js)
   if (g.tpl === 'fusion') return g.fusion ? drawFusion(ctx, W, H, g.fusion, t, { img: gfxImage, video: extra.video || gfxVideo, cut: cutOut }) : ctx.clearRect(0, 0, W, H);
@@ -179,8 +181,81 @@ export function drawGraphic(ctx, W, H, g, t, dur, extra = {}) {
   ctx.save();
   ctx.globalAlpha = fade;
   if (g.pos === 'full' && g.tpl !== 'route' && g.tpl !== 'callout') { ctx.fillStyle = th.solid || th.card.replace(/[\d.]+\)$/, '1)'); ctx.fillRect(0, 0, W, H); }
+  // 📌 pinned: the graphic as drawn on this frame is moved (and fitted) to its edge / corner (Type tool text does this in textLayout)
+  if (pinOn(g) && g.tpl !== 'text') {
+    const b = gfxBox(W, H, g, dur);
+    if (b) { const p = pinBox(b, W, H, g); ctx.translate(p.x - b.x * p.k, p.y - b.y * p.k); ctx.scale(p.k, p.k); }
+  }
   (DRAW[g.tpl] || DRAW.counter)(ctx, W, H, g, t, dur, th);
   ctx.restore();
+}
+
+// ---------------- 📌 Responsive Design (Premiere's "Pin to" + intro / outro) ----------------
+// Pin to: g.pin = tl | t | tr | l | c | r | bl | b | br, pinMX / pinMY = margin from that edge (% of the frame's width /
+// height, inward; for a centre pin an offset), pinSafe (default on) = measured from title safe (10% in) and kept inside it,
+// pinW = also grow / shrink with the frame's width (against pinRef, the frame it was pinned on). A pinned graphic keeps its
+// place against that edge whatever the sequence / export shape is, and never runs off the frame.
+export const PIN_TPL = ['text', 'lower3', 'kinetic', 'logoreveal', 'ticker', 'counter', 'stats', 'bars', 'columns', 'line', 'donut', 'progress', 'list'];
+export const PINS = [['', 'Not pinned'], ['tl', '↖ Top left'], ['t', '↑ Top'], ['tr', '↗ Top right'], ['l', '← Left'], ['c', '● Centre'], ['r', '→ Right'], ['bl', '↙ Bottom left'], ['b', '↓ Bottom'], ['br', '↘ Bottom right']];
+export const SAFE = 0.1; // title safe: 10% in from every edge (the monitor's Guides)
+export const pinOk = (g) => PIN_TPL.includes(g?.tpl) && g.pos !== 'full';
+export const pinOn = (g) => !!g?.pin && pinOk(g);
+// where a box { x, y, w, h } (frame px) of a graphic goes on a W x H frame when pinned: its new top-left and scale k
+export function pinBox(b, W, H, g, { scale = true } = {}) {
+  const pin = String(g.pin || 'c'), safe = g.pinSafe !== false;
+  const R = safe ? { x: W * SAFE, y: H * SAFE, w: W * (1 - 2 * SAFE), h: H * (1 - 2 * SAFE) } : { x: 0, y: 0, w: W, h: H };
+  const ref = Array.isArray(g.pinRef) && g.pinRef[0] > 0 && g.pinRef[1] > 0 ? g.pinRef : null;
+  // (the templates already size themselves by the frame's short side; "scale with width" keeps the share of the width)
+  let k = scale && g.pinW && ref ? (W / ref[0]) * (Math.min(ref[0], ref[1]) / Math.min(W, H)) : 1;
+  if (scale && b.w > 0 && b.h > 0) k = Math.min(k, R.w / b.w, R.h / b.h); // never bigger than the room it has
+  const w = b.w * k, h = b.h * k, mx = ((+g.pinMX || 0) / 100) * W, my = ((+g.pinMY || 0) / 100) * H;
+  const hx = pin.endsWith('l') ? 0 : pin.endsWith('r') ? 1 : 0.5, vy = pin.startsWith('t') ? 0 : pin.startsWith('b') ? 1 : 0.5;
+  let x = hx === 0 ? R.x + mx : hx === 1 ? R.x + R.w - w - mx : R.x + (R.w - w) / 2 + mx;
+  let y = vy === 0 ? R.y + my : vy === 1 ? R.y + R.h - h - my : R.y + (R.h - h) / 2 + my;
+  if (safe) { x = clamp(x, R.x, R.x + R.w - w); y = clamp(y, R.y, R.y + R.h - h); }
+  return { x, y, w, h, k };
+}
+// the box a graphic covers on a W x H frame (its settled look: middle of the clip + just before the outro), measured from
+// the pixels once and remembered; null where there is no canvas (tests) - then it is drawn unpinned
+const BOXES = new Map();
+let boxCv = null;
+export function gfxBox(W, H, g, dur) {
+  // (dur / t here are already the template's own time: drawn without the pin and without responsive time)
+  const { pin, pinMX, pinMY, pinSafe, pinW, pinRef, rtime, intro, outro, ...raw } = g, key = JSON.stringify([raw, W, H, +(+dur).toFixed(3)]);
+  if (BOXES.has(key)) return BOXES.get(key);
+  if (!boxCv) { try { boxCv = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(8, 8) : typeof document !== 'undefined' ? document.createElement('canvas') : null; } catch {} }
+  if (!boxCv) return null;
+  const q = Math.min(1, 480 / Math.max(W, H)), cw = Math.max(2, Math.ceil(W * q)), ch = Math.max(2, Math.ceil(H * q));
+  boxCv.width = cw; boxCv.height = ch;
+  const ctx = boxCv.getContext('2d', { willReadFrequently: true });
+  let x0 = cw, y0 = ch, x1 = -1, y1 = -1;
+  for (const t of [dur * 0.5, Math.max(0.05, dur - 0.55)]) {
+    ctx.save(); ctx.setTransform(q, 0, 0, q, 0, 0); drawGraphic(ctx, W, H, raw, t, dur); ctx.restore();
+    const d = ctx.getImageData(0, 0, cw, ch).data;
+    for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) if (d[(y * cw + x) * 4 + 3] > 8) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  }
+  const b = x1 < 0 ? null : { x: x0 / q, y: y0 / q, w: (x1 - x0 + 1) / q, h: (y1 - y0 + 1) / q };
+  if (BOXES.size > 300) BOXES.clear();
+  BOXES.set(key, b);
+  return b;
+}
+
+// ⏱ responsive time (Premiere's intro / outro): the template's intro and outro keep their length when the clip is made
+// longer or shorter - only the middle (the hold) stretches. g.rtime on, g.intro / g.outro in seconds (defaults per template)
+const RT = { counter: [3, 0.5], stats: [2.8, 0.5], bars: [3, 0.5], columns: [2.8, 0.5], line: [3, 0.5], donut: [2, 0.5], progress: [2, 0.5], list: [4.5, 0.5],
+  callout: [1, 0.5], lower3: [1, 0.5], kinetic: [2.5, 0.5], logoreveal: [1.8, 0.5], endcard: [2, 0.5] };
+export const rtimeOk = (g) => !!RT[g?.tpl];
+export const rtimeOn = (g) => !!g?.rtime && rtimeOk(g);
+export const rtimeOf = (g) => { const [i, o] = RT[g.tpl] || [0, 0]; return [Math.max(0, num(g.intro ?? i)), Math.max(0, num(g.outro ?? o)), GFX[g.tpl]?.dur || 5]; };
+// t seconds into a clip of length d -> the time of the template's own D0-second animation (intro I, outro O)
+export function rtimeMap(t, d, D0, I, O) {
+  I = Math.min(I, D0); O = Math.min(O, D0 - I);
+  if (!(d > 0)) return t;
+  if (d < I + O) { const u = (t * (I + O)) / d; return u <= I ? u : D0 - (I + O - u); } // shorter than intro + outro: both squeezed
+  if (t <= I) return t;
+  if (t >= d - O) return D0 - (d - t);
+  const mid = d - I - O;
+  return mid > 0 ? I + ((t - I) * (D0 - I - O)) / mid : I;
 }
 
 function card(ctx, p, th, t, { pad = true } = {}) {
@@ -657,7 +732,16 @@ const DRAW = {
 // T where a Type tool text sits on a W x H frame: its lines, font, line height and box (x, y = its top-left, w, h);
 // the viewer uses it to hit-test and to put the typing box exactly over the text
 export function textLayout(ctx, W, H, g) {
-  const k = Math.min(W, H) / 1080, px = Math.max(4, (+g.size || 90) * k), lh = px * (+g.lead || 1.2);
+  const L = textLayoutAt(ctx, W, H, g);
+  if (!pinOn(g)) return L;
+  // 📌 pinned: the block (with its background box) goes to its edge, at the size the pin gives it
+  const pad = g.bg ? L.px * 0.28 : 0, box = (l) => ({ x: l.x - pad, y: l.y - pad * 0.6, w: l.w + pad * 2, h: l.h + pad * 1.2 });
+  const p0 = pinBox(box(L), W, H, g), M = Math.abs(p0.k - 1) > 1e-6 ? textLayoutAt(ctx, W, H, g, p0.k) : L;
+  const p = pinBox(box(M), W, H, g, { scale: false }), dx = p.x + pad - M.x, dy = p.y + pad * 0.6 - M.y;
+  return { ...M, x: M.x + dx, y: M.y + dy, cx: M.cx + dx, cy: M.cy + dy };
+}
+function textLayoutAt(ctx, W, H, g, s = 1) {
+  const k = (Math.min(W, H) / 1080) * s, px = Math.max(4, (+g.size || 90) * k), lh = px * (+g.lead || 1.2);
   const fam = `${g.font ? `"${String(g.font).replace(/"/g, '')}", ` : ''}"Nirmala UI", "Segoe UI", Arial, sans-serif`;
   const font = `${g.italic ? 'italic ' : ''}${g.bold === false ? 400 : 700} ${Math.round(px)}px ${fam}`;
   ctx.font = font;

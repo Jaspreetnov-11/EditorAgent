@@ -16,12 +16,14 @@ export async function renderHome(el, openProject) {
     <div class="home-brand" aria-label="Limelight Editor"><img src="/img/limelight-mark-dark.png" alt=""><div class="hb-word"><b>LIME<em>LIGHT</em></b><span><i></i>EDITOR<i></i></span></div></div>
     <div class="home-head">
       <div><h1>Projects</h1><p class="muted">Each project is saved in its own folder with its timeline, previews, subtitles and renders.<br><span class="mono" id="projRoot"></span></p></div>
-      <div class="home-actions"><button class="small" data-a="team" hidden title="Admin: people who can sign in from other computers - names, passwords, roles (Owner / Editor / Viewer), shared folders, render farm">👥 Team &amp; users</button><button class="small" data-a="sessions" hidden title="Who worked in the editor, when and for how long - the last 30 days">📊 Sessions</button><button class="link small" data-a="deleted" hidden>🗑 Recycle Bin</button><button class="primary big" data-a="new">+ New project</button></div>
+      <div class="home-actions"><button class="small" data-a="team" hidden title="Admin: people who can sign in from other computers - names, passwords, roles (Owner / Editor / Viewer), shared folders, render farm">👥 Team &amp; users</button><button class="small" data-a="sessions" hidden title="Who worked in the editor, when and for how long - the last 30 days">📊 Sessions</button><button class="link small" data-a="deleted" hidden>🗑 Recycle Bin</button><button class="small home-refresh" data-a="refresh" title="Refresh: load the editor again (newest version) - always here">🔄 Refresh</button><button class="primary big" data-a="new">+ New project</button></div>
     </div>
     <div class="pf-bar" id="pfBar"></div>
     <div class="proj-grid" id="projGrid"><div class="muted">Loading…</div></div>
   </div>`;
   el.onclick = async (e) => {
+    if (e.target.closest('[data-a="refresh"]')) return location.reload(); // (🔄 always on Home - also when the projects could not load)
+    if (e.target.closest('[data-a="signin"]')) { location.href = '/team/logout'; return; } // (back to the sign-in page)
     if (e.target.closest('[data-a="new"]')) return newProjectDialog(openProject);
     if (e.target.closest('[data-a="deleted"]')) return deletedDialog(() => renderHome(el, openProject));
     if (e.target.closest('[data-a="team"]')) return openTeam(); // 👥 admin: users, passwords, roles
@@ -61,7 +63,11 @@ export async function renderHome(el, openProject) {
       c.addEventListener('dragend', () => document.body.classList.remove('pf-dragging'));
     });
     if (cur !== 'all' && !list.length) grid.insertAdjacentHTML('beforeend', '<div class="muted pf-empty">No projects in this folder yet - drag a project card onto the folder above, or use 🗂 on a card.</div>');
-  } catch (e) { $('#projGrid', el).innerHTML = `<div class="err">Could not load projects: ${esc(e.message)}</div>`; }
+  } catch (e) {
+    // signed out (the session ended): straight to the sign-in page from here, instead of a dead end
+    const out = /sign in/i.test(e.message);
+    $('#projGrid', el).innerHTML = `<div class="err">Could not load projects: ${esc(e.message)}</div><p>${out ? '<button class="primary" data-a="signin">Sign in</button> ' : ''}<button data-a="refresh">🔄 Refresh</button></p>`;
+  }
 }
 
 // ---------------- 📁 folders on Home ----------------

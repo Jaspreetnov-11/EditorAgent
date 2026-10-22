@@ -2,7 +2,7 @@
 // and subtitles (generate, proof-read, burn in).
 import { S, on, emit, commit, saveNow, duration } from './store.js';
 import { api, enc, watchJob } from './api.js';
-import { fmtTC, ASPECTS, rangeOf } from './model.js';
+import { fmtTC, ASPECTS, rangeOf, seqHash } from './model.js';
 import { PRESETS, presetById, presetWarnings, REFRAME } from './presets.js';
 import { CAPTION_STYLES } from './templates.js';
 import { seqList, seqOf } from './model.js';
@@ -10,6 +10,8 @@ import { staleNested, updateNested } from './sequences.js';
 import { bakeAll } from './gfxui.js';
 import { openThumbs } from './thumbs.js';
 import { openPublish } from './publish.js';
+import { openSendReview } from './review.js';
+import { openQC } from './qc.js';
 import { $, $$, esc, toast, fmtSize, modal, progressClock } from './ui.js';
 import { pickFolder } from './mediapool.js';
 import { localSaveAvailable, whyNoLocal, localDir, pickLocalDir, saveToLocal } from './localsave.js';
@@ -35,7 +37,7 @@ export function mountDeliver(el) {
       <details class="dv-q" open><summary>Quality</summary><div class="fgrid">
         <label class="fld"><span>Resolution</span><select id="qRes"><option value="">Platform default</option><option value="2160">4K UHD (2160p)</option><option value="1440">2K QHD (1440p)</option><option value="1080">Full HD (1080p)</option><option value="720">HD (720p)</option><option value="480">SD (480p)</option></select></label>
         <label class="fld"><span>Frame rate</span><select id="qFps"><option value="">Same as the edit</option><option>24</option><option>25</option><option>30</option><option>50</option><option>60</option></select></label>
-        <label class="fld"><span>Codec</span><select id="qCodec"><option value="">Platform default</option><option value="h264">H.264 (plays everywhere)</option><option value="hevc">H.265 / HEVC (half the size)</option><option value="prores">ProRes 422 HQ (editing master)</option></select></label>
+        <label class="fld"><span>Codec</span><select id="qCodec"><option value="">Platform default</option><option value="h264">H.264 (plays everywhere)</option><option value="hevc">H.265 / HEVC (half the size)</option><option value="prores">ProRes 422 HQ (editing master)</option><option value="dnxhr">DNxHR HQ .mov (Avid / broadcast)</option><option value="gif">GIF (720 wide, no sound)</option><option value="png">PNG frames (a picture per frame, in a folder)</option><option value="wav">WAV - sound only (24-bit)</option><option value="mp3">MP3 - sound only (320k)</option></select></label>
         <label class="fld"><span>Quality</span><select id="qCrf"><option value="">Platform default</option><option value="14">Best (big file)</option><option value="17">Very high</option><option value="19">High</option><option value="22">Standard</option><option value="26">Small</option></select></label>
         <label class="fld"><span>Audio</span><select id="qAbr"><option value="">Platform default</option><option value="320">320 kbps</option><option value="256">256 kbps</option><option value="192">192 kbps</option><option value="128">128 kbps</option></select></label>
         <label class="chk" id="qGpuL"><input type="checkbox" id="qGpu"> Use the NVIDIA GPU (faster 4K)</label>
@@ -51,6 +53,7 @@ export function mountDeliver(el) {
       <h2 class="dv-h">Render queue <button class="link small" id="dvQClear" title="Remove finished, failed and stopped renders from the list">Clear finished</button></h2>
       <div id="dvQueue" class="dv-list"></div>
       <button class="wide" id="dvPreview">Quick accurate preview (low-res)</button>
+      <button class="wide" id="dvQC" title="Before it goes out: black frames, stuck picture, flashing, broadcast-safe colours, loudness for the channel, spelling of the titles">🧪 QC check the edit</button>
       <div class="row-in"><button class="wide" id="dvThumb" title="Make a thumbnail from the best frames of the video">🖼 Thumbnail</button><button class="wide accent" id="dvPublish" title="Upload to YouTube, Facebook and Instagram - now or at a set time">🚀 Publish</button></div>
       <div class="job" id="dvJob" hidden><div class="job-top"><span id="dvJobL"></span><span id="dvJobT"></span></div><div class="bar"><div id="dvBar"></div></div>
         <details><summary>Log</summary><pre id="dvLog"></pre></details></div>
@@ -93,6 +96,7 @@ export function mountDeliver(el) {
   $('#qGpu', el).addEventListener('change', (e) => { e.target.dataset.touched = '1'; });
   $('#dvFit', el).onchange = syncSpec;
   $('#dvRender', el).onclick = () => enqueue([current()]);
+  $('#dvQC', el).onclick = () => openQC(null);
   $('#dvBundle', el).onclick = bundleDialog;
   $('#dvQClear', el).onclick = async () => { await api('POST', '/api/queue/clear'); pollQueue(); };
   $('#dvPreview', el).onclick = () => render(true);
@@ -224,7 +228,7 @@ export async function enqueue(items, { quiet = false } = {}) {
   // nested sequences changed since they were nested: bring them up to date first (only the open timeline's)
   const stale = staleNested().filter((m) => Object.values(S.project.tracks).flat().some((c) => c.mediaId === m.id));
   if (stale.length && items.some((j) => !j.seq) && confirm(`${stale.map((m) => m.name).join(', ')} changed since you nested ${stale.length > 1 ? 'them' : 'it'}. Update before rendering? (OK = update, Cancel = render the old copy)`)) await updateNested(stale);
-  try { await bakeAll(); } catch (e) { toast(`Graphics: ${e.message}`, 'err'); return false; }
+  try { await bakeAll(items.map((j) => j.aspect)); } catch (e) { toast(`Graphics: ${e.message}`, 'err'); return false; }
   await saveNow();
   const name = (root && $('#dvName', root).value.trim()) || S.project.name;
   try {
@@ -347,7 +351,7 @@ function bundleDialog() {
 async function render(preview, job = null) {
   if (busy) { toast('Wait for the preview to finish', 'err'); return false; }
   if (!Object.values(S.project.tracks).flat().length) { toast('The timeline is empty', 'err'); return false; }
-  try { await bakeAll(); } catch (e) { toast(`Graphics: ${e.message}`, 'err'); return false; }
+  try { await bakeAll(job ? [job.aspect] : []); } catch (e) { toast(`Graphics: ${e.message}`, 'err'); return false; }
   await saveNow();
   busy = true;
   const box = $('#dvJob', root); box.hidden = false; box.className = 'job';
@@ -367,6 +371,8 @@ async function render(preview, job = null) {
       emit('job', { running: true, label: `${preview ? 'Preview' : 'Render'} ${j.progress}%`, progress: j.progress });
     });
     box.classList.add('done');
+    // (🟩 render bar: this part of this sequence, as it is now, has been rendered)
+    if (preview) { const D = duration(), r = rangeOf(S.project, D); S.rendered = { hash: seqHash(S.project), a: r ? r.in : 0, b: r ? r.out : D }; emit('change', {}); }
     $('#dvJobL', root).textContent = preview ? 'Preview ready' : `Done: ${j.result.output}`;
     await loadRenders();
     // (a preview asked for from the Edit page plays only in its own window - not also, unseen, in Deliver's monitor)
@@ -393,8 +399,10 @@ async function loadRenders() {
   $('#dvList', root).innerHTML = S.renders.length ? S.renders.map((r) => `<div class="dv-item">
       ${/\.mov$/i.test(r.name) ? `<span class="link" title="ProRes plays in Premiere, Resolve or VLC, not in the browser">${esc(r.name)}</span>`
         : `<button class="link" data-play="${esc(r.url)}" data-name="${esc(r.name)}">${esc(r.name)}</button>`}<span class="muted">${fmtSize(r.size)}</span>
-      <a class="link small" href="${r.url}?download" download title="Download to this PC">⬇ Download</a></div>`).join('') : '<div class="muted">Nothing rendered yet</div>';
+      <a class="link small" href="${r.url}?download" download title="Download to this PC">⬇ Download</a>${/\.(mp4|m4v|webm)$/i.test(r.name) ? `<button class="link small" data-review="${esc(r.name)}" title="Send this video to a client: a link they open anywhere, comment on and approve">📤 Send for review</button>` : ''}${/\.(mp4|mov|m4v)$/i.test(r.name) ? `<button class="link small" data-qc="${esc(r.name)}" title="QC before it goes out: black frames, flashing, broadcast-safe, loudness, spelling">🧪 QC</button>` : ''}</div>`).join('') : '<div class="muted">Nothing rendered yet</div>';
   $$('[data-play]', root).forEach((b) => (b.onclick = () => play(b.dataset.play, b.dataset.name)));
+  $$('[data-review]', root).forEach((b) => (b.onclick = () => openSendReview(b.dataset.review))); // 🔗 client review link
+  $$('[data-qc]', root).forEach((b) => (b.onclick = () => openQC(b.dataset.qc, (t, name) => { const r = S.renders.find((x) => x.name === name); if (!r) return; play(r.url, name); const v = $('#dvVideo', root); v.currentTime = t; })));
   fillSources();
 }
 function play(url, name) { const v = $('#dvVideo', root); v.src = url; showView('render'); $('#dvNow', root).textContent = name; v.play().catch(() => {}); }

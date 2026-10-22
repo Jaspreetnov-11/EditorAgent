@@ -93,6 +93,7 @@ function refresh() {
   if (!root || !S.project) return;
   if (compId && !comp()) { compId = Object.keys(comps())[0] || null; selIds.clear(); }
   for (const id of [...selIds]) if (!layer(id)) selIds.delete(id);
+  { const b = root.querySelector('[data-m="toTimeline"]'); if (b && comp()) b.textContent = onTimeline(comp().id).length ? '⤵ Update on timeline' : '⤵ Add to timeline'; } // (already there: updated, not added)
   T = clamp(T, 0, comp()?.dur || 0);
   renderList(); renderProps(); renderLHead(); size(); draw(); drawTl();
   $$('[data-tool]', root).forEach((b) => b.classList.toggle('on', b.dataset.tool === tool));
@@ -191,14 +192,23 @@ function onClick(e) {
   if (m === 'end') seek(comp()?.dur || 0);
   if (m === 'prevKey' || m === 'nextKey') jumpKey(m === 'nextKey' ? 1 : -1);
   if (m === 'graph') { graphOn = !graphOn; refresh(); }
-  if (m === 'toTimeline') toTimeline();
+  if (m === 'toTimeline') toTimeline(e);
 }
 // a text animation added at time T: its keyframes start at T
 function shiftAnim(a, t0) { const walk = (o) => { if (!o || typeof o !== 'object') return; if (Array.isArray(o.k)) o.k.forEach((k) => (k.t = +(k.t + t0).toFixed(4))); else Object.values(o).forEach(walk); }; walk(a.range); }
 
 // ---------------- the comp on the edit timeline ----------------
-function toTimeline() {
+// the clips of the open sequence that show comp `id`
+const onTimeline = (id) => Object.entries(S.project.tracks).filter(([t]) => t[0] === 'V').flatMap(([t, l]) => l.filter((x) => x.type === 'graphic' && x.gfx?.tpl === 'comp' && x.gfx.compId === id).map((x) => ({ t, x })));
+// a comp opened from the timeline (or put there before) is updated in place - not added again; Shift = another copy
+function toTimeline(e) {
   const c = comp(); if (!c) return;
+  const there = onTimeline(c.id);
+  if (there.length && !e?.shiftKey) {
+    save(`Update comp "${c.name}" on the timeline`);
+    S.sel = new Set(there.map((p) => p.x.id)); emit('select');
+    return toast(`⤵ "${c.name}" updated on ${[...new Set(there.map((p) => p.t))].join(', ')} - no new clip (Shift + click adds another copy)`);
+  }
   const t = S.playhead || 0, dur = c.dur;
   const id = compTrack(S.project, t, dur, S.mediaById);
   const clip = { id: uid(), type: 'graphic', start: +t.toFixed(3), dur, gfx: { tpl: 'comp', compId: c.id, comp: JSON.parse(JSON.stringify(c)) } };

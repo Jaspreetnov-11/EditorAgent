@@ -19,6 +19,8 @@ export function applyLook() {
 // ---- line icons (16 px, stroke = the text colour) ----
 const P = {
   undo: '<path d="M4 7h7a4 4 0 0 1 0 8H8"/><path d="M7 4 4 7l3 3"/>',
+  refresh: '<path d="M13.2 6.2A5.5 5.5 0 1 0 13.5 9"/><path d="M13.5 2.5v3.8H9.7"/>',
+  health: '<path d="M8 13.5S2 10 2 5.8A3 3 0 0 1 8 4.6a3 3 0 0 1 6 1.2C14 10 8 13.5 8 13.5z"/><path d="M3.5 8.2h2.2l1-1.6 1.6 3 1-1.4h3.2"/>',
   redo: '<path d="M12 7H5a4 4 0 0 0 0 8h3"/><path d="m9 4 3 3-3 3"/>',
   team: '<circle cx="6" cy="6" r="2.5"/><path d="M1.5 14c.6-2.6 2.3-4 4.5-4s3.9 1.4 4.5 4"/><circle cx="11.5" cy="5.5" r="2"/><path d="M11 10c1.9 0 3.2 1.2 3.6 3.2"/>',
   activity: '<path d="M2 8h3l2-5 2 10 2-5h3"/>',

@@ -5,7 +5,7 @@ import { S, commit, findClip, on, emit, layout } from './store.js';
 import { api, enc } from './api.js';
 import { ASPECTS, uid, clipDur, trackList, addTrack, parseTime, fmt } from './model.js';
 import { $, $$, esc, toast, modal, fieldsHTML, bindFields } from './ui.js';
-import { GFX, gfxFields, newGraphic, drawGraphic, gfxKey, setGfxAssets, setGfxVideo, gfxReady, brandOf } from './graphics.js';
+import { GFX, gfxFields, newGraphic, drawGraphic, gfxKey, setGfxAssets, setGfxVideo, gfxReady, brandOf, PINS, pinOk, rtimeOk, rtimeOf } from './graphics.js';
 import { compVideos } from './motion.js';
 import { fusionVideos } from './fusion.js';
 import * as CV from './compvideo.js';
@@ -22,7 +22,25 @@ function made(tpl) {
     if (b) Object.assign(g, { theme: 'brand', brand: b, ...(S.project.brand.font ? { font: S.project.brand.font } : {}) });
     if ('logo' in g && !g.logo && S.project.logo?.mediaId) g.logo = S.project.logo.mediaId;
   }
+  if (rtimeOk(g)) g.rtime = true; // ⏱ new graphics keep their intro / outro when stretched
   return g;
+}
+
+// 📌 ⏱ Responsive Design fields (Effect Controls): pin to an edge, and the intro / outro that do not stretch
+function respFields(g) {
+  const out = [];
+  if (pinOk(g)) {
+    out.push({ type: 'section', label: '📌 Responsive - position' }, { k: 'pin', label: 'Pin to', type: 'select', options: PINS });
+    if (g.pin) out.push({ k: 'pinMX', label: 'Margin ↔ (% of width)', type: 'range', min: -20, max: 40, step: 0.5, def: 0 },
+      { k: 'pinMY', label: 'Margin ↕ (% of height)', type: 'range', min: -20, max: 40, step: 0.5, def: 0 },
+      { k: 'pinSafe', label: 'Keep inside title safe', type: 'check', def: true }, { k: 'pinW', label: 'Scale with frame width', type: 'check' });
+  }
+  if (rtimeOk(g)) {
+    const [i, o] = rtimeOf({ ...g, intro: undefined, outro: undefined });
+    out.push({ type: 'section', label: '⏱ Responsive - time' }, { k: 'rtime', label: 'Keep intro / outro when stretched', type: 'check' });
+    if (g.rtime) out.push({ k: 'intro', label: 'Intro', type: 'num', min: 0, step: 0.1, unit: 'sec', ph: String(i) }, { k: 'outro', label: 'Outro', type: 'num', min: 0, step: 0.1, unit: 'sec', ph: String(o) });
+  }
+  return out;
 }
 
 const frameSize = () => ASPECTS[S.project.settings.aspect] || [1920, 1080];
@@ -81,6 +99,7 @@ export function gfxInspector(c) {
     { k: 'tpl', label: 'Template', type: 'select', options: Object.entries(GFX).map(([k, x]) => [k, x.label]), wide: true },
     ...gfxFields(g.tpl).map((f) => (f.k === 'logo' ? { ...f, options: [['', 'None (round placeholder)'], ...S.media.filter((m) => m.kind === 'image').slice(0, 2000).map((m) => [m.id, m.name])] } : f)),
     ...(GFX[g.tpl]?.motion ? [{ k: 'font', label: 'Font', type: 'select', options: [['', 'Default (Nirmala UI - Hindi)'], ...CAPTION_FONTS.map((f) => [f, f])] }] : []),
+    ...respFields(g),
   ], g)}</div>
   <div class="fgrid">${fieldsHTML([{ k: 'start', label: 'Starts at', type: 'time', fmt, ph: '0:00.0' }, { k: 'dur', label: 'Length', type: 'num', min: 1, step: 0.5, unit: 'sec' }], c)}</div>
   <small class="hint">Numbers count up, bars grow and lines draw in during the first seconds; the last 0.4 s fades out. Hindi works too.</small></div>`;
@@ -99,6 +118,9 @@ export function bindGfxInspector(root, id, render) {
       const c = findClip(id)?.clip; if (!c) return;
       if (k === 'tpl') { const n = made(v); c.gfx = GFX[v].motion ? { ...n, ...(c.gfx.theme ? { theme: c.gfx.theme, brand: c.gfx.brand, font: c.gfx.font } : {}) } : { ...n, title: c.gfx.title || n.title, theme: c.gfx.theme, pos: c.gfx.pos }; c.dur = GFX[v].dur; commit('Graphic template'); render(); return; }
       // 🏷 brand look: the brand kit's colours (and font) are copied in now
+      // 📌 pinned on this frame shape (what "scale with frame width" measures against); the panel shows the pin's settings
+      if (k === 'pin') { if (v && !c.gfx.pinRef) c.gfx.pinRef = frameSize().slice(); commit('Pin graphic', `gfx-${id}-${k}`); render(); return; }
+      if (k === 'rtime' || k === 'pos') { commit('Edit graphic', `gfx-${id}-${k}`); render(); return; }
       if (k === 'theme' && v === 'brand') { c.gfx.brand = brandOf(S.project) || { primary: '#0b2545', accent: '#ff9933', text: '#ffffff' }; if (!c.gfx.font && S.project.brand?.font) c.gfx.font = S.project.brand.font; if (!brandOf(S.project)) toast('No brand kit set - choose colours in 🏷 Brand kit; MyGov colours are used for now'); render(); }
       commit('Edit graphic', `gfx-${id}-${k}`);
     },
@@ -108,20 +130,20 @@ export function bindGfxInspector(root, id, render) {
 
 // ---- baking (frames -> server) ----
 const baked = new Set(); // keys known to be on the server
-const keyOf = (c) => { const [W, H] = frameSize(); return gfxKey(c.gfx, W, H, S.project.settings.fps, clipDur(c, S.mediaById)); };
+const keyOf = (c, [W, H] = frameSize()) => gfxKey(c.gfx, W, H, S.project.settings.fps, clipDur(c, S.mediaById));
 const allGraphics = () => Object.entries(S.project.tracks).filter(([t]) => t[0] === 'V').flatMap(([, l]) => l).filter((c) => c.type === 'graphic');
 
 const inflight = new Map(); // key -> promise: the auto-bake and a render never bake the same graphic twice at once
-function bake(c, onProgress, forRender = false) {
-  const key = keyOf(c);
+function bake(c, onProgress, forRender = false, fr = frameSize()) {
+  const key = keyOf(c, fr);
   if (baked.has(key)) return Promise.resolve(key);
-  if (!inflight.has(key)) inflight.set(key, bakeNow(c, key, onProgress, forRender).finally(() => inflight.delete(key)));
+  if (!inflight.has(key)) inflight.set(key, bakeNow(c, key, onProgress, forRender, fr).finally(() => inflight.delete(key)));
   return inflight.get(key);
 }
-async function bakeNow(c, key, onProgress, forRender = false) {
+async function bakeNow(c, key, onProgress, forRender = false, [W, H] = frameSize()) {
   const has = await api('GET', `/api/gfx/has?p=${enc(S.proj)}&key=${key}`).catch(() => ({}));
   if (has.ok) { baked.add(key); return key; }
-  const [W, H] = frameSize(), fps = S.project.settings.fps, dur = clipDur(c, S.mediaById), n = Math.max(1, Math.round(dur * fps));
+  const fps = S.project.settings.fps, dur = clipDur(c, S.mediaById), n = Math.max(1, Math.round(dur * fps));
   await gfxReady(c.gfx); // the logo must be in every frame
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const ctx = cv.getContext('2d');
@@ -141,11 +163,12 @@ async function bakeNow(c, key, onProgress, forRender = false) {
   baked.add(key);
   return key;
 }
-// before a render / preview: every graphic of every sequence that renders must be baked (here: the open one)
-export async function bakeAll() {
-  const list = allGraphics();
-  for (const [i, c] of list.entries()) {
-    await bake(c, (k) => emit('job', { running: true, label: `Preparing graphics ${i + 1}/${list.length} · ${Math.round(k * 100)}%` }), true);
+// before a render / preview: every graphic of every sequence that renders must be baked (here: the open one).
+// 📌 aspects = the export frames: a pinned graphic is baked for each other frame shape too, so it sits on its edge there
+export async function bakeAll(aspects = []) {
+  const own = S.project.settings.aspect, list = allGraphics().flatMap((c) => [[c, frameSize()], ...(c.gfx?.pin ? [...new Set(aspects)].filter((a) => a && a !== own && ASPECTS[a]).map((a) => [c, ASPECTS[a]]) : [])]);
+  for (const [i, [c, fr]] of list.entries()) {
+    await bake(c, (k) => emit('job', { running: true, label: `Preparing graphics ${i + 1}/${list.length} · ${Math.round(k * 100)}%` }), true, fr);
   }
   if (list.length) emit('job', { running: false });
   return list.length;

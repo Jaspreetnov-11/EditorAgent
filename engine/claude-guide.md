@@ -94,6 +94,8 @@ Clip fields (seconds):
 Settings you may change with `apply {"settings":{…}}`: `aspect` ("16:9","9:16","1:1","4:5"), `fps`, `kenburns` (auto zoom on photos),
 `look` `{ "lut":"Warm Film (look).cube", "mix":0.85, "letterbox":"2.0"|"2.39"|"", "vignette":0..1, "grain":0..1 }`.
 Captions (lyrics/subtitles burnt in, word by word): `{"captions":{"on":true,"style":{"preset":"karaoke"},"cues":[{"start":1,"end":3,"text":"…"}]}}`.
+More caption tracks (e.g. a second language): `captions.tracks: [{"id":"en1","name":"English","lang":"en","on":true,"style":{…},"cues":[…]}]` -
+the `captions` object itself is track 1; every track with `on` shows and is burned in, stacked above track 1 at the same position.
 
 ## Rules
 - **Run edtool as one plain command:** `node engine/edtool.mjs <command> <args>` - nothing else. No `cd`, `&&`, `;`, pipes,

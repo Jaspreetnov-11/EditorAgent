@@ -142,7 +142,7 @@ export function mountPool(el, { big = false } = {}) {
     const menu = h(`<div class="ctx" role="menu">
       <button data-c="src">Open in source viewer</button><button data-c="append">Add to end of timeline</button>
       <button data-c="logo"${m.kind !== 'image' ? ' hidden' : ''}>Use as logo</button><hr>
-      <button data-c="subclip"${m.kind === 'video' || m.kind === 'audio' ? '' : ' hidden'}>Make subclip (Source In - Out)</button><button data-c="label">Label colour…</button><button data-c="interpret"${m.kind === 'video' ? '' : ' hidden'}>Interpret footage (frame rate)…</button><hr><button data-c="tobin">Move to folder…</button><button data-c="copydir">📋 Copy folder path</button>${IS_EDITOR_PC ? '<button data-c="reveal">📂 Reveal in Explorer</button>' : ''}<button data-c="path">Show file location</button><button data-c="redo">Re-read file</button><hr>
+      <button data-c="newseq"${m.kind === 'audio' ? ' hidden' : ''}>🎞 New sequence from clip${poolSel.size > 1 ? `s (${poolSel.size})` : ''}</button><button data-c="subclip"${m.kind === 'video' || m.kind === 'audio' ? '' : ' hidden'}>Make subclip (Source In - Out)</button><button data-c="label">Label colour…</button><button data-c="interpret"${m.kind === 'video' ? '' : ' hidden'}>Interpret footage (frame rate)…</button><hr><button data-c="tobin">Move to folder…</button><button data-c="copydir">📋 Copy folder path</button>${IS_EDITOR_PC ? '<button data-c="reveal">📂 Reveal in Explorer</button>' : ''}<button data-c="path">Show file location</button><button data-c="redo">Re-read file</button><hr>
       <button data-c="remove">🗑 Delete from project <kbd>Del</kbd></button></div>`);
     document.body.append(menu);
     menu.style.left = `${Math.min(e.clientX, innerWidth - 220)}px`; menu.style.top = `${Math.min(e.clientY, innerHeight - 240)}px`;
@@ -166,6 +166,7 @@ export function mountPool(el, { big = false } = {}) {
       }
       if (c === 'reveal') revealInExplorer(m.id);
       if (c === 'subclip') makeSubclip(m.id);
+      if (c === 'newseq') import('./sequences.js').then((x) => x.newSequenceFromClip([...poolSel]));
       if (c === 'label') pickLabel([...poolSel]);
       if (c === 'interpret') interpretFootage([...poolSel]);
       if (c === 'copydir') copyFolderPath(m.id);

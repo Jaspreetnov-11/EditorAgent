@@ -2,8 +2,8 @@
 // 🧽 Clean up picture. The looking is done on the server (engine/vision.py); public/js/aitools.js makes the edits.
 import { S, commit, findClip, emit, layout } from './store.js';
 import { api, enc, watchJob } from './api.js';
-import { ASPECTS } from './model.js';
-import { toast } from './ui.js';
+import { ASPECTS, seqOf } from './model.js';
+import { esc, toast, modal } from './ui.js';
 import { followKeys, faceMasks, fillWindow } from './aitools.js';
 
 // ▭ what a box drawn over a logo / text does (clip.masks entries with area: true; tracking.js / render2.mjs)
@@ -31,6 +31,40 @@ async function follow(c) {
   c.fit = 'fill';
   c.keys = { ...(c.keys || {}), [k.axis]: k.keys };
   return { moves: k.moves, faces: k.faces };
+}
+
+// 🎯 Auto Reframe Sequence (Sequence menu), like Premiere: a copy of the open sequence in another frame shape - 9:16 for
+// reels, 1:1, 4:5 - opens, and every video shot on it fills the new frame and follows the faces (the one speaking /
+// moving). The original sequence stays as it is.
+export function autoReframeSequence() {
+  const cur = S.project.settings.aspect, shapes = Object.keys(ASPECTS).filter((a) => a !== cur);
+  const d = modal('🎯 Auto Reframe Sequence', `<p>A copy of <b>${esc(seqOf(S.project).name)}</b> (${cur}) is made in the new shape and opens; every video shot then follows the faces. The original stays as it is.</p>
+    <div class="segbtns" role="radiogroup">${shapes.map((a, i) => `<button data-shape="${a}" aria-pressed="${i === 0}">${a}${a === '9:16' ? ' (reel)' : a === '1:1' ? ' (square)' : a === '4:5' ? ' (feed)' : ''}</button>`).join('')}</div>
+    <p class="muted small">Reading the faces takes a few seconds per shot. Shots already of the new shape, speed-ramped or without anyone in them are left centred.</p>
+    <div class="dlg-actions"><button class="accent" data-action="go">Make the reframed sequence</button><button data-close>Cancel</button></div>`, {
+    width: 520,
+    onAction: async (a) => {
+      if (a !== 'go') return;
+      const shape = d.el.querySelector('[data-shape][aria-pressed="true"]')?.dataset.shape || shapes[0];
+      d.close();
+      const { copySequenceAs } = await import('./sequences.js');
+      copySequenceAs(shape);
+      // a cinema letterbox (2.39 bars) on a taller frame leaves only a thin strip - the reframed copy goes without it
+      const lb = S.project.settings.look?.letterbox;
+      if (lb) S.project.settings.look = { ...S.project.settings.look, letterbox: undefined };
+      const list = Object.entries(S.project.tracks).filter(([t]) => t[0] === 'V').flatMap(([, l]) => l).filter((x) => x.type === 'video' && !x.gap);
+      let done = 0, skipped = 0;
+      try {
+        for (const [i, x] of list.entries()) {
+          emit('job', { running: true, label: `🎯 Reframing shot ${i + 1}/${list.length}…` });
+          try { const r = await follow(x); if (r.skip) { x.fit = 'fill'; skipped++; } else done++; } catch { skipped++; }
+        }
+      } finally { emit('job', { running: false }); }
+      commit(`Auto Reframe ${shape}`);
+      toast(`🎯 ${seqOf(S.project).name}: ${done} shot${done === 1 ? '' : 's'} follow the faces${skipped ? `, ${skipped} filled and centred` : ''}${lb ? ` - the ${lb} letterbox is off in this copy` : ''}`);
+    },
+  });
+  d.el.addEventListener('click', (e) => { const b = e.target.closest('[data-shape]'); if (b) d.el.querySelectorAll('[data-shape]').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); });
 }
 
 export function aiHTML(c) {

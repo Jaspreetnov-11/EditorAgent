@@ -5,7 +5,7 @@ import { reportError } from './errlog.js';
 import * as SM from './sourcemon.js';
 import { useContext as audioOut } from './audioout.js';
 import { S, on, emit, layout, duration, commit } from './store.js';
-import { ASPECTS, fmtTC, fmt, clipDur, propAt, sourceAt, speedAt, rampPts, setAnimated, overlayTracks, audioTracks, evalKeys } from './model.js';
+import { ASPECTS, fmtTC, fmtTime, fmt, clipDur, propAt, sourceAt, speedAt, rampPts, setAnimated, overlayTracks, audioTracks, evalKeys } from './model.js';
 import { stabState, stabBanner } from './stabprev.js';
 
 // 🎞 Full quality, like Premiere: a camera file the browser can decode itself - HEVC / H.265 (DJI drones, Sony, phones;
@@ -23,17 +23,18 @@ export const canPlay = (m) => !!m && (m.playable || direct(m));
 export const playUrl = (m) => (direct(m) ? m.urls.play.replace(/\/play$/, '/orig') : m.urls.play);
 import { lookCss } from './looks.js';
 import { buildFxNodes } from './audiofx.js';
+import { buildClipAudioChain, fadeShape } from './audioeffects.js';
 import { $, $$, h, esc, clamp, toast } from './ui.js';
 import { placeMedia, targets } from './timeline.js';
 import { api, enc } from './api.js';
 import { Grader, loadLut, cachedLut } from './colorgl.js';
 import { isNeutral } from './colormath.js';
 import { fxPreview, wordWindows, isKinetic } from './fx.js';
-import { drawGraphic, textLayout } from './graphics.js';
+import { drawGraphic, textLayout, pinOn } from './graphics.js';
 import { addTextAt } from './gfxui.js';
 import { effectsCss, maskedEffectsCss, grainCss } from './effects.js';
 import { maskAlpha, movedMask, unmovedMask, maskKey } from './shapemask.js';
-import { captionAt } from './captions.js';
+import { captionAt, capTracks, capStack } from './captions.js';
 import { fitMap, framingOf, srcSize, boxAt, srcTimeAt } from './tracking.js';
 
 let root, frame, els = {}, mode = 'program', srcId = null, grader = null;
@@ -97,6 +98,7 @@ export function mountViewer(el) {
     <button class="icon-btn play" data-act="play" title="Play / pause (Space)" aria-label="Play">▶</button>
     <button class="icon-btn" data-act="fwd" title="Forward 1 frame (→)">▸</button>
     <button class="icon-btn" data-act="end" title="Go to end (End)">⏭</button>
+    <button class="icon-btn" data-act="frame" title="Export Frame (Ctrl+Shift+E): this frame as a PNG, exactly as the export makes it" aria-label="Export Frame">📷</button>
     <span class="grow"></span>
     <span class="src-only" hidden>
       <button class="small" data-act="in" title="Mark In (I)">In</button>
@@ -122,7 +124,7 @@ export function mountViewer(el) {
     ({ play: toggle, start: () => seek(0), end: () => seek(curDuration()), back: () => step(-1), fwd: () => step(1),
       in: () => mark('in'), out: () => mark('out'), insert: () => sourceTo('insert'), append: () => sourceTo('append'), overlay: () => sourceTo('overlay'),
       guides: () => { const g = $('#lyGuides'); g.hidden = !g.hidden; e.target.closest('button').classList.toggle('on', !g.hidden); },
-      accurate: () => emit('accuratePreview') })[a]?.();
+      accurate: () => emit('accuratePreview'), frame: () => import('./editing.js').then((x) => x.exportFrame()) })[a]?.();
   });
   $('#srcBar', el).addEventListener('pointerdown', (e) => {
     const bar = $('#srcBar'), go = (ev) => { const b = bar.getBoundingClientRect(); seek(clamp((ev.clientX - b.left) / b.width, 0, 1) * curDuration()); };
@@ -449,7 +451,7 @@ function syncVideo(v, m, c, start, t, play, vol, track = 'V1') {
   // browser find a frame again and stutters; slow motion and ramps used to jump many times a second (DaVinci doesn't).
   // Only a real gap (over half a second, or the shot just came on) is a jump.
   const drift = target - v.currentTime;
-  setVol(v, rampPts(c) || c.reverse ? 0 : vol, track); // ramped shots are silent, like the render (and reversed ones here)
+  setVol(v, rampPts(c) || c.reverse ? 0 : vol, track, c); // ramped shots are silent, like the render (and reversed ones here)
   if (v.readyState >= 1) {
     if (c.reverse) { if (!v.paused) v.pause(); if (Math.abs(v.currentTime - target) > 0.03) v.currentTime = target; return; }
     if (play) {
@@ -619,7 +621,14 @@ function bindTypeTool() {
     const c = hit.c, r = frame.getBoundingClientRect(), x0 = +c.gfx.x || 50, y0 = +c.gfx.y || 50;
     if (!S.sel.has(c.id)) { S.sel = new Set([c.id]); emit('select'); }
     let moved = false;
-    const mv = (ev) => { c.gfx.x = +clamp(x0 + ((ev.clientX - e.clientX) / r.width) * 100, -20, 120).toFixed(2); c.gfx.y = +clamp(y0 + ((ev.clientY - e.clientY) / r.height) * 100, -20, 120).toFixed(2); moved = true; drawProgram(S.playhead, false); };
+    // 📌 a pinned text keeps its pin: the drag changes its margins from that edge instead
+    const pin = c.gfx.pin && pinOn(c.gfx) ? String(c.gfx.pin) : '', sx = pin.endsWith('r') ? -1 : 1, sy = pin.startsWith('b') ? -1 : 1, mx0 = +c.gfx.pinMX || 0, my0 = +c.gfx.pinMY || 0;
+    const mv = (ev) => {
+      const dx = ((ev.clientX - e.clientX) / r.width) * 100, dy = ((ev.clientY - e.clientY) / r.height) * 100;
+      if (pin) { c.gfx.pinMX = +clamp(mx0 + sx * dx, -20, 40).toFixed(2); c.gfx.pinMY = +clamp(my0 + sy * dy, -20, 40).toFixed(2); }
+      else { c.gfx.x = +clamp(x0 + dx, -20, 120).toFixed(2); c.gfx.y = +clamp(y0 + dy, -20, 120).toFixed(2); }
+      moved = true; drawProgram(S.playhead, false);
+    };
     const up = () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); if (moved) commit('Move text', `move-text:${c.id}`); };
     window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
   }, true);
@@ -807,14 +816,20 @@ export function pickBox(hint = 'Drag a box around the thing to follow (Esc cance
 }
 
 // Captions (public/js/captions.js) as they will be burned in: style, position, word highlight / pop
+// 🗂 every shown caption track, stacked as in the render (capStack: track 2 above track 1 at the same position)
 function drawCaption(t) {
-  const el = els.lyCap, at = captionAt(S.project.captions, t);
-  el.hidden = !at;
-  if (!at) return;
-  const st = S.project.captions.style || {}, [FW, FH] = ASPECTS[S.project.settings.aspect] || [1920, 1080];
-  const px = ((st.size || 54) * Math.min(FW, FH)) / 1080 / FH * 100; // % of the frame height, as in the render
-  el.className = `lyr capl p-${st.pos || 'bottom'}`;
-  el.innerHTML = `<span style="font-family:'${esc(st.font || 'Arial')}','Nirmala UI',sans-serif;font-size:${px.toFixed(2)}cqh;color:${esc(st.color || '#fff')};${st.box ? `background:${esc(st.box)};padding:.12em .4em;` : `-webkit-text-stroke:${((st.outline ?? 3) / 40).toFixed(2)}em #000;paint-order:stroke fill;`}">${at.words.map((w) => (w.active ? `<b style="color:${esc(st.hl || '#ffd400')};display:inline-block;transform:scale(${(1 + 0.18 * w.pop).toFixed(3)})">${esc(w.w)}</b>` : esc(w.w))).join(' ')}</span>`;
+  const el = els.lyCap, shown = capTracks(S.project.captions).filter((x) => x.on && x.cues?.length);
+  const ats = shown.map((x) => [x, captionAt(x, t)]).filter(([, at]) => at);
+  el.hidden = !ats.length;
+  if (!ats.length) return;
+  const [FW, FH] = ASPECTS[S.project.settings.aspect] || [1920, 1080], stack = capStack(shown, FW, FH);
+  el.className = 'lyr capl';
+  el.innerHTML = ats.map(([x, at]) => {
+    const st = x.style || {}, pos = st.pos || 'bottom', lift = ((stack.get(x) || 0) / FH) * 100;
+    const px = ((st.size || 54) * Math.min(FW, FH)) / 1080 / FH * 100; // % of the frame height, as in the render
+    const place = pos === 'top' ? `top:${(8 + lift).toFixed(2)}cqh` : pos === 'middle' ? `top:${(50 - lift).toFixed(2)}cqh;transform:translateY(-50%)` : `bottom:${(8 + lift).toFixed(2)}cqh`;
+    return `<div style="position:absolute;left:7%;right:7%;display:flex;justify-content:center;${place}"><span style="font-family:'${esc(st.font || 'Arial')}','Nirmala UI',sans-serif;font-size:${px.toFixed(2)}cqh;color:${esc(st.color || '#fff')};${st.box ? `background:${esc(st.box)};padding:.12em .4em;` : `-webkit-text-stroke:${((st.outline ?? 3) / 40).toFixed(2)}em #000;paint-order:stroke fill;`}">${at.words.map((w) => (w.active ? `<b style="color:${esc(st.hl || '#ffd400')};display:inline-block;transform:scale(${(1 + 0.18 * w.pop).toFixed(3)})">${esc(w.w)}</b>` : esc(w.w))).join(' ')}</span></div>`;
+  }).join('');
 }
 function drawOverlays(t, isPlay) {
   const L = layout(), ts = S.project.trackState, stack = els.lyOvStack, below = [];
@@ -874,9 +889,9 @@ function drawProgram(t, isPlay) {
 }
 function drawProgramNow(t, isPlay) {
   if (!S.project || mode !== 'program') return;
-  applyMix();
+  applyMix(); autoMix(t); // (🎚 track volume keyframes at this frame)
   const L = layout(), ts = S.project.trackState;
-  $('#vwTC').textContent = fmtTC(t, S.project.settings.fps);
+  $('#vwTC').textContent = fmtTime(t, S.project.settings); // (⚙ Display format)
   { const lkEl = els.lyLook || (els.lyLook = $('#lyLook', root)); if (lkEl?.dataset.grain) lkEl.style.backgroundPosition = [...Array(+lkEl.dataset.grain).fill('0 0'), grainShift()].join(', '); }
   drawRuler(t); // (redrawn only when the edit's length or the monitor's width changed)
   $('#vwDur').textContent = fmtTC(duration(), S.project.settings.fps);
@@ -991,8 +1006,9 @@ function drawProgramNow(t, isPlay) {
       let target = (c.in || 0) + (t - x.start) * sp;
       if (c.loop) { const seg = Math.max(0.5, (c.out ?? m.duration) - (c.in || 0)); target = (c.in || 0) + (((t - x.start) * sp) % seg); }
       const fi = c.fadeIn || 0, fo = c.fadeOut || 0, rel = t - x.start, rem = x.end - t;
-      const fade = Math.min(fi ? clamp(rel / fi, 0, 1) : 1, fo ? clamp(rem / fo, 0, 1) : 1);
-      setVol(a, propAt(c, 'volume', rel) * fade, id);
+      // (🎚 Constant Gain / Constant Power / Exponential Fade: the fade's shape)
+      const fade = Math.min(fi ? fadeShape(rel / fi, c.fadeInCurve) : 1, fo ? fadeShape(rem / fo, c.fadeOutCurve) : 1);
+      setVol(a, propAt(c, 'volume', rel) * fade, id, c);
       a.playbackRate = clamp(sp, 0.25, 4);
       if (a.readyState >= 1) {
         // (a clip's own linked sound keeps lip sync tighter)
@@ -1046,18 +1062,44 @@ function trackAudible(id) {
   if (ts[id]?.mute) return false;
   return !Object.values(ts).some((x) => x?.solo) || !!ts[id]?.solo;
 }
-function setVol(el, vol, track) {
-  if (actx) { route(el, track); el.muted = false; el._g.gain.setTargetAtTime(Math.max(0, vol), actx.currentTime, 0.015); return; }
+// 🔊 a clip's own audio effects (clip.aeffects) between its element and its gain - rebuilt only when they change
+function clipAudio(el, c) {
+  if (!actx || !el._src) return;
+  const sig = c?.aeffects?.length ? JSON.stringify(c.aeffects) : '';
+  if (el._fxSig === sig) return;
+  el._fxSig = sig;
+  try { el._src.disconnect(); } catch {}
+  try { el._fx?.output.disconnect(); } catch {}
+  el._fx = sig ? buildClipAudioChain(actx, c.aeffects) : null;
+  if (el._fx) { el._src.connect(el._fx.input); el._fx.output.connect(el._g); } else el._src.connect(el._g);
+}
+function setVol(el, vol, track, c = null) {
+  if (actx) { route(el, track); clipAudio(el, c); el.muted = false; el._g.gain.setTargetAtTime(Math.max(0, vol), actx.currentTime, 0.015); return; }
   const v = vol * (trackAudible(track) ? S.project.trackState?.[track]?.volume ?? 1 : 0);
   el.volume = clamp(v, 0, 1); el.muted = v <= 0;
+}
+// 🎚 the track fader where the track has volume keyframes: its value at the playhead (x the fader), every frame
+const trackGain = (st, t) => (st.volume ?? 1) * (st.volKeys?.length ? evalKeys(st.volKeys, t) : 1);
+function autoMix(t) {
+  if (!actx || !S.project) return;
+  for (const [id, st] of Object.entries(S.project.trackState || {})) if (st?.volKeys?.length && chains[id] && trackAudible(id)) chains[id].fader.gain.setTargetAtTime(trackGain(st, t), actx.currentTime, 0.01);
 }
 export function applyMix() {
   if (!actx || !S.project) return;
   for (const id of Object.keys(chains)) {
     const st = S.project.trackState?.[id] || {};
-    chains[id].fader.gain.setTargetAtTime(trackAudible(id) ? st.volume ?? 1 : 0, actx.currentTime, 0.02);
+    chains[id].fader.gain.setTargetAtTime(trackAudible(id) ? trackGain(st, S.playhead) : 0, actx.currentTime, 0.02);
     const sig = JSON.stringify(st.fx || {});
     if (fxSig[id] !== sig) { chains[id].fx.set(st.fx || {}); fxSig[id] = sig; }
+    // 🎛 the track's effect slots (trackState.aeffects) between its clean-up and its fader - rebuilt when they change
+    const ss = st.aeffects?.length ? JSON.stringify(st.aeffects) : '', ch = chains[id];
+    if (ch.slotSig !== ss) {
+      ch.slotSig = ss;
+      try { ch.fx.output.disconnect(); } catch {}
+      try { ch.slots?.output.disconnect(); } catch {}
+      ch.slots = ss ? buildClipAudioChain(actx, st.aeffects) : null;
+      if (ch.slots) { ch.fx.output.connect(ch.slots.input); ch.slots.output.connect(ch.fader); } else ch.fx.output.connect(ch.fader);
+    }
   }
 }
 // Peak / RMS in dBFS per track and master, for the meters (null until audio has started).

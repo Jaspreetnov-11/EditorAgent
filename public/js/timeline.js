@@ -6,11 +6,13 @@ import { zoneBandsHTML } from './zones.js';
 import { seqMenu, seqName, openSequence, nestSelected, renameSequence } from './sequences.js';
 import { makeCompFromClip, textBehindFromClip, trackMatteFromClips } from './motionpage.js';
 import { fusionFromClip, rotoFromClip } from './fusionpage.js';
-import { seqList } from './model.js';
+import { seqList, seqHash } from './model.js';
+import { VFX } from './effects.js';
+import { AFX } from './audioeffects.js';
 import { sharedSeqId } from './store.js';
 import { openAudioGain, soundClips } from './audiogain.js';
 import { copyClips, pasteClips, clipboard } from './clipboard.js';
-import { clipDur, uid, fmtTC, fmt, trackList, trackKind, addTrack, syncLinked, linkAudioOf, linkedPartner, freeAudioTrack, RAMPS, setRamp, rampPts, rampPart, TRANSITIONS, setTransition, trHandles, propAt, keepLength, sourceAt } from './model.js';
+import { clipDur, uid, fmtTC, fmt, trackList, trackKind, addTrack, syncLinked, linkAudioOf, linkedPartner, linkedIds, groupedIds, syncShift, rippleMarkers, evalKeys, fmtTime, freeAudioTrack, RAMPS, setRamp, rampPts, rampPart, profileAt, TRANSITIONS, setTransition, trHandles, propAt, keepLength, sourceAt } from './model.js';
 import { $, $$, h, esc, clamp, toast, modal } from './ui.js';
 import { api, enc } from './api.js';
 import { openTemplates } from './titlesui.js';
@@ -20,6 +22,7 @@ import { autoSoundDesign } from './sfxui.js';
 import { openReplace } from './replace.js';
 import { dropFx, transitionLength } from './fxpanel.js';
 import { editMarker, markerNear } from './markers.js';
+import { typeTimecode, replaceEdit, groupSelected, ungroupSelected, addClipMarker, clearClipMarkers } from './editing.js'; // (editing.js uses this module's gapClip / tidyGaps only when called)
 
 // row heights: the main story is tallest; voice-over and music get room for their waveforms
 // track heights: drag the bottom edge of a track header (double-click = back to normal); kept in this browser
@@ -54,6 +57,7 @@ export function mountTimeline(el) {
         <button data-tool="remix" title="Remix: drag a music clip's end to the length you need - the music is re-cut to fit, from its best part" aria-label="Remix tool"><b>♫</b></button>
         <button data-tool="slip" title="Slip (Y): drag a clip - it shows an earlier / later part of its file; its place and length stay" aria-label="Slip tool"><b>↔</b></button>
         <button data-tool="slide" title="Slide (U): drag a main-story clip between its neighbours - the one before gets longer, the one after shorter (or the other way); nothing else moves" aria-label="Slide tool"><b>⇆</b></button>
+        <button data-tool="trackfwd" title="Track Select Forward (A) / Backward (Shift+A): click - that clip and everything after (before) it on every track is selected (Shift+click: only that track). Drag an overlay clip to move them all, or Alt+← / → to nudge" aria-label="Track select tool"><b>⇥⇥</b></button>
         <button data-tool="hand" title="Hand (H): drag to scroll the timeline" aria-label="Hand tool"><b>✋</b></button>
         <button data-tool="zoom" title="Zoom (Z): click to zoom in where you click, Alt+click to zoom out" aria-label="Zoom tool"><b>⌕</b></button>
       </div>
@@ -77,7 +81,7 @@ export function mountTimeline(el) {
       <div class="tl-seqtabs" id="tlSeqTabs" role="tablist" aria-label="Sequences"></div>
       <button data-act="seq" class="tl-seq" title="Sequences: switch, make a new one, copy / paste a timeline, manage" aria-haspopup="menu"><b>🎞</b><span id="tlSeqName"></span><i class="tl-seq-caret">▾</i></button>
       <span class="sep"></span>
-      <span class="tl-tc" id="tlTC">00:00:00:00</span><span class="tl-dur" id="tlDur"></span>
+      <span class="tl-tc" id="tlTC" title="Click and type a timecode: 1:10:00 or 11000 goes there, +15 / -1:00 moves by that (the selected clips, else the playhead)">00:00:00:00</span><span class="tl-dur" id="tlDur"></span>
       <span class="grow"></span>
       <button data-act="fit" title="Fit the whole edit (Shift+Z)">Fit</button>
       <label class="zoom" title="Zoom (+ / -)">${ICON.zoomOut}<input type="range" id="tlZoom" min="2" max="300" step="1" aria-label="Timeline zoom">${ICON.zoomIn}</label>
@@ -92,6 +96,8 @@ export function mountTimeline(el) {
         <div class="tl-playhead" id="tlPlayhead"><div class="ph-head"></div></div>
         <div class="tl-snapline" id="tlSnap" hidden></div>
         <div class="tl-insert" id="tlInsert" hidden></div>
+        <div class="tl-editpt" id="tlEditPt" hidden></div>
+        <div class="tl-auto" id="tlAuto"></div>
       </div>
     </div>
   </div>`;
@@ -130,9 +136,21 @@ export function mountTimeline(el) {
     if (a === 'snap') { S.snap = !S.snap; syncBar(); }
     if (a === 'fit') fitZoom();
   });
+  // ⌨ the timecode is a field, like Premiere's: click it and type where to go / how far to move
+  $('#tlTC', el).addEventListener('click', () => typeTimecode($('#tlTC', el)));
   const z = $('#tlZoom', el);
   z.value = S.zoom;
   z.oninput = () => setZoom(+z.value, true);
+  // 🔍 the zoom slider (with Fit) sits at the bottom left, on the page bar beside Media · Edit · Motion (Edit page only)
+  const pb = document.querySelector('.pagebar');
+  if (pb) {
+    const box = h('<div class="pb-zoom" id="pbZoom"></div>');
+    box.append($('[data-act="fit"]', el), z.closest('label'));
+    box.querySelector('[data-act="fit"]').onclick = () => fitZoom();
+    pb.prepend(box);
+    const vis = () => { box.hidden = S.page !== 'edit'; };
+    on('change', vis); vis();
+  }
   scroller.addEventListener('scroll', () => {
     headsEl.scrollTop = scroller.scrollTop; drawRuler(); drawWaves();
     // big edits draw only the clips near the view: scrolled close to the edge of what is drawn -> draw that part
@@ -189,7 +207,8 @@ export function mountTimeline(el) {
 
 export function setTool(t) { S.tool = t; syncBar(); root.classList.toggle('blade', t === 'blade'); root.dataset.tool = t; render(); }
 function syncBar() {
-  $$('[data-tool]', root).forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tool === S.tool)));
+  $$('[data-tool]', root).forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tool === S.tool || (b.dataset.tool === 'trackfwd' && S.tool === 'trackback'))));
+  const tsb = root.querySelector('button[data-tool="trackfwd"] b'); if (tsb) tsb.textContent = S.tool === 'trackback' ? '⇤⇤' : '⇥⇥'; // (one slot for both, like Premiere)
   const sn = $('#tlSeqName', root); if (sn && S.project) sn.textContent = seqName(); // 🎞 the open sequence
   const tabs = $('#tlSeqTabs', root);
   if (tabs && S.project) {
@@ -227,7 +246,7 @@ on('seq', () => { if (!S.project) return; const open = seqList(S.project).find((
 export function setZoom(z, keepPlayhead = false, anchorX = null) {
   const old = S.zoom;
   S.zoom = clamp(z, 2, 300);
-  $('#tlZoom', root).value = S.zoom;
+  const zs = document.getElementById('tlZoom'); if (zs) zs.value = S.zoom; // (on the page bar - pbZoom)
   const rect = scroller.getBoundingClientRect();
   const ax = anchorX !== null ? anchorX - rect.left : keepPlayhead ? S.playhead * old - scroller.scrollLeft : 0;
   const t = (scroller.scrollLeft + ax) / old;
@@ -296,11 +315,54 @@ function renderNow() {
   const near = (x) => !drawn || (x.end * S.zoom >= drawn.a && x.start * S.zoom <= drawn.b) || S.sel.has(x.clip.id);
   patchRows(TR.map((t) => ({ id: t.id, cls: `tl-row ${t.kind}${ts[t.id]?.hide ? ' hidden-track' : ''}${ts[t.id]?.lock ? ' locked' : ''}`, h: rowH(t.id),
     clips: (L[t.id] || []).flatMap((x, i) => (near(x) ? [[String(x.clip.id), clipHTML(t.id, x, i)], ...(t.id === 'V1' && i > 0 && x.overlap ? [[`tr-${x.clip.id}`, transHTML(x)]] : [])] : [])) })));
-  $('#tlDur', root).textContent = `/ ${fmtTC(D, S.project.settings.fps)}`;
+  $('#tlDur', root).textContent = `/ ${fmtTime(D, S.project.settings)}`;
   placePlayhead();
+  placeEditPt();
+  drawAuto();
   drawRuler();
   decoratePeers();
   drawWaves();
+}
+// 🎚 track volume keyframes (trackState.volKeys: [{ t, v }], v 0..2 = x the fader): a yellow line across the track with
+// a dot per keyframe - drag a dot (up / down = louder / softer, sideways = when), double-click it to remove it
+const AUTO_MAX = 2;
+function drawAuto() {
+  const box = root && $('#tlAuto', root); if (!box) return;
+  const ts = S.project.trackState || {}, W = $('#tlCanvas', root).offsetWidth;
+  box.innerHTML = Object.entries(ts).filter(([id, st]) => st?.volKeys?.length && S.project.tracks[id]).map(([id, st]) => {
+    const h = rowH(id), top = rowTop(id), y = (v) => (h - 6) * (1 - v / AUTO_MAX) + 3, k = st.volKeys;
+    const pts = [[0, y(k[0].v)], ...k.map((p) => [p.t * S.zoom, y(p.v)]), [W, y(k[k.length - 1].v)]];
+    return `<svg class="ta-svg" data-ta="${id}" style="top:${top}px;height:${h}px;width:${W}px" viewBox="0 0 ${W} ${h}">
+      <polyline points="${pts.map((p) => p.map((n) => n.toFixed(1)).join(',')).join(' ')}"/>
+      ${k.map((p, i) => `<circle data-tai="${i}" cx="${(p.t * S.zoom).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="4.5"><title>${Math.round(p.v * 100)}% at ${fmtTC(p.t, S.project.settings.fps)}</title></circle>`).join('')}</svg>`;
+  }).join('');
+  box.querySelectorAll('circle[data-tai]').forEach((c) => {
+    const id = c.closest('[data-ta]').dataset.ta, i = +c.dataset.tai;
+    c.ondblclick = (e) => { e.stopPropagation(); const st = S.project.trackState[id]; st.volKeys.splice(i, 1); if (!st.volKeys.length) delete st.volKeys; commit('Remove track volume keyframe'); };
+    c.onpointerdown = (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const st = S.project.trackState[id], k = st.volKeys, h = rowH(id), r = c.ownerSVGElement.getBoundingClientRect();
+      const lo = i > 0 ? k[i - 1].t + 0.01 : 0, hi = i < k.length - 1 ? k[i + 1].t - 0.01 : Infinity;
+      const move = (ev) => {
+        k[i].t = +clamp(timeAt(ev.clientX), lo, hi).toFixed(3);
+        k[i].v = +clamp((1 - (ev.clientY - r.top - 3) / (h - 6)) * AUTO_MAX, 0, AUTO_MAX).toFixed(3);
+        drawAuto(); toast(`🎚 ${id} ${Math.round(k[i].v * 100)}%`); emit('mix');
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', () => { window.removeEventListener('pointermove', move); commit('Track volume keyframe'); }, { once: true });
+    };
+  });
+}
+
+// ✂ the edit point Trim mode works on (trimmode.js): a bright bar on the cut, on V1. null = none.
+let editPt = null;
+export function markEditPoint(t, side = 'roll') { editPt = t === null ? null : { t, side }; placeEditPt(); }
+function placeEditPt() {
+  const el = root && $('#tlEditPt', root); if (!el) return;
+  el.hidden = !editPt;
+  if (!editPt) return;
+  Object.assign(el.style, { left: `${editPt.t * S.zoom}px`, top: `${rowTop('V1')}px`, height: `${rowH('V1')}px` });
+  el.dataset.side = editPt.side;
 }
 
 // ---------------- 🔊 waveforms ----------------
@@ -403,6 +465,8 @@ function drawHeads(TR, ts) {
         ${t.kind === 'video' ? `<button class="tbtn${st.hide ? ' on' : ''}" data-tst="hide" title="Hide track">${st.hide ? ICON.eyeOff : ICON.eye}</button>` : ''}
         <button class="tbtn${st.mute ? ' on' : ''}" data-tst="mute" title="${t.kind === 'video' ? 'Mute clip sound' : 'Mute track'}">M</button>
         ${t.kind === 'audio' ? `<button class="tbtn solo${st.solo ? ' on' : ''}" data-tst="solo" title="Solo Track: hear only the soloed tracks">S</button><button class="tbtn rec" data-rec="${t.id}" title="Voice-over record: 3-2-1, then the edit plays and your voice goes onto ${t.name} from the playhead (click again or Esc to stop)">🎙</button>` : ''}
+        ${t.kind === 'audio' || t.id === 'V1' ? `<button class="tbtn tkey${st.volKeys?.length ? ' on' : ''}" data-tkey="${t.id}" title="Track volume keyframe at the playhead (${st.volKeys?.length || 0} now) - drag the dots on the track's yellow line, double-click one to remove it">◆</button>` : ''}
+        ${t.id !== 'V1' ? `<button class="tbtn sync${st.sync ? ' on' : ''}" data-tst="sync" title="Sync Lock: when the main story ripples (Ripple delete, Q / W, Insert, ripple trim, Paste Insert, Trim mode) the clips on ${t.name} after that point move along with it">⇋</button>` : ''}
         <button class="tbtn${st.lock ? ' on' : ''}" data-tst="lock" title="Lock track">${ICON.lock}</button>
       </div>
       <div class="th-resize" data-rowh="${t.id}" title="Drag to make ${t.name} taller / shorter (double-click: normal)"></div>
@@ -412,8 +476,16 @@ function drawHeads(TR, ts) {
   $$('[data-tst]', headsEl).forEach((b) => (b.onclick = () => {
     const id = b.closest('.th').dataset.track, k = b.dataset.tst;
     ts[id] = { ...ts[id], [k]: !ts[id]?.[k] };
-    commit(`Track ${k}`);
+    commit(k === 'sync' ? 'Sync Lock' : `Track ${k}`);
+    if (k === 'sync') toast(ts[id].sync ? `⇋ Sync Lock on ${id}: its clips move along when the main story ripples` : `Sync Lock off on ${id}: its clips stay where they are`);
     emit('mix'); // (the preview mix follows mute / solo at once)
+  }));
+  // 🎚 track volume keyframe at the playhead: the value the line has there (1 = the fader as it is)
+  $$('[data-tkey]', headsEl).forEach((b) => (b.onclick = () => {
+    const id = b.dataset.tkey, st = (ts[id] ||= {}), k = (st.volKeys ||= []), t = +S.playhead.toFixed(3);
+    const v = k.length ? +evalKeys(k, t).toFixed(3) : 1, i = k.findIndex((x) => Math.abs(x.t - t) < 0.02);
+    if (i >= 0) k[i].v = v; else { k.push({ t, v }); k.sort((p, q) => p.t - q.t); }
+    commit('Track volume keyframe'); toast(`◆ ${id} volume keyframe at ${fmtTC(t, S.project.settings.fps)} - drag its dot up / down on the track`);
   }));
   $$('[data-rec]', headsEl).forEach((b) => (b.onclick = () => import('./vorecord.js').then((m) => m.toggleRecord(b.dataset.rec))));
   $$('[data-tg]', headsEl).forEach((b) => (b.onclick = (e) => { e.stopPropagation(); setTarget(trackKind(b.dataset.tg) === 'video' ? 'v' : 'a', b.dataset.tg); }));
@@ -491,8 +563,11 @@ function clipHTML(track, x, i) {
     c.text && c.type !== 'title' ? '<i title="Has text">T</i>' : '', c.loop ? '<i title="Loops">⟲</i>' : '', c.duck ? '<i title="Ducks under speech">duck</i>' : '',
     c.link ? `<i class="lk" title="Linked to its ${c.type === 'audio' ? 'picture' : 'sound'} - they move and trim together (Alt + click takes one; right-click › Unlink)">${c.type === 'audio' ? 'A' : 'V'}🔗</i>` : '',
     c.mute && !(c.link && c.type === 'video') ? '<i title="Muted">M</i>' : '',
+    c.soundType ? `<i title="Audio type: ${c.soundType} (Essential Sound)">${{ dialogue: '🗣', music: '🎵', sfx: '💥', ambience: '🌿' }[c.soundType] || ''}</i>` : '',
+    c.locked ? '<i class="lkb" title="Locked clip (right-click › Unlock clip)">🔒</i>' : '',
+    c.grp ? '<i class="grpb" title="Grouped - selected, moved and deleted together (Alt + click takes one; Ctrl+Shift+G ungroups)">▣</i>' : '',
     // fx (like Premiere): the clip has effects - video effects, a cut effect, audio clean-up or masks
-    c.effects?.length || c.cutFx?.type || c.afx || c.masks?.length ? `<i class="fxb" title="Effects: ${esc([...(c.effects || []).map((e) => e.type), c.cutFx?.type, c.afx && 'audio clean-up', c.masks?.length && `${c.masks.length} mask${c.masks.length > 1 ? 's' : ''}`].filter(Boolean).join(', '))} (Effect Controls)">fx</i>` : '', c.sfx ? `<i title="Sound effect (auto)">${esc(c.sfx)}</i>` : '', c.ramp ? '<i title="Speed ramp">⤳</i>' : '', c.transform && (c.transform.zoom !== 1 || c.transform.x || c.transform.y || c.transform.rotation) ? '<i title="Transformed">◰</i>' : ''].join('');
+    c.effects?.length || c.cutFx?.type || c.afx || c.masks?.length || c.aeffects?.length ? `<i class="fxb" title="Effects: ${esc([...(c.effects || []).map((e) => e.type), c.cutFx?.type, c.afx && 'audio clean-up', ...(c.aeffects || []).map((e) => `🔊 ${e.type}`), c.masks?.length && `${c.masks.length} mask${c.masks.length > 1 ? 's' : ''}`].filter(Boolean).join(', '))} (Effect Controls)">fx</i>` : '', c.sfx ? `<i title="Sound effect (auto)">${esc(c.sfx)}</i>` : '', c.ramp ? '<i title="Speed ramp">⤳</i>' : '', c.transform && (c.transform.zoom !== 1 || c.transform.x || c.transform.y || c.transform.rotation) ? '<i title="Transformed">◰</i>' : ''].join('');
   // (no + on the cut any more: it sat - invisible - over the left trim edge, so taking a shot's start to trim it often
   // added a transition instead. Transitions: Effects panel, Ctrl+D, right-click. A transition's box is drawn on the row.)
   // 🌑 a fade from / to black at an end of the clip (a one-sided Dip to Black): a box like a transition's, click to change it
@@ -502,9 +577,14 @@ function clipHTML(track, x, i) {
   const ov = '';
   const kt = [...new Set(Object.values(c.keys || {}).flat().map((k) => +k.t.toFixed(3)))];
   const kfs = kt.length ? `<div class="kfs">${kt.map((t) => `<i style="left:${t * S.zoom}px"></i>`).join('')}</div>` : '';
-  return `<div class="clip t-${c.type}${kind}${S.sel.has(c.id) ? ' sel' : ''}${missing ? ' missing' : ''}${c.disabled ? ' off' : ''}${c.label ? ' lab' : ''}" data-id="${c.id}" data-track="${track}"
+  // ⏩ a speed-ramped shot shows its speed line across the clip (like Premiere's Time Remapping band; 100% = the middle)
+  const rp = c.type === 'video' && !c.gap ? rampPts(c) : null;
+  const spd = rp ? `<svg class="clip-spd" viewBox="0 0 200 100" preserveAspectRatio="none" aria-hidden="true"><polyline points="${Array.from({ length: 41 }, (_, i) => { const u = i / 40, s = Math.max(0.1, Math.min(10, profileAt(rp, u))); return `${(u * 200).toFixed(1)},${(50 - 45 * (Math.log(s) / Math.log(10))).toFixed(1)}`; }).join(' ')}"/></svg>` : '';
+  // 📍 clip markers (inside the clip, from its start)
+  const cmk = (c.markers || []).map((mk) => `<i class="cmk" style="left:${(mk.t - (vs - x.start)) * S.zoom}px" title="📍 ${esc(mk.name || 'Clip marker')} (right-click › Remove clip markers)"></i>`).join('');
+  return `<div class="clip t-${c.type}${kind}${S.sel.has(c.id) ? ' sel' : ''}${missing ? ' missing' : ''}${c.disabled ? ' off' : ''}${c.locked ? ' clocked' : ''}${c.label ? ' lab' : ''}" data-id="${c.id}" data-track="${track}"
     style="left:${vs * S.zoom}px;width:${w}px${c.label ? `;--lab:${c.label}` : ''}" title="${esc(mName(c))} · ${fmt(ve - vs)}${c.color && Object.keys(c.color).length ? ' · colour graded' : ''}${c.speed && c.speed !== 1 ? ` · ${c.speed}×` : ''}${c.ramp ? ' · speed ramp' : ''}${c.mute ? ' · muted' : ''}">
-    <div class="clip-bg" style="${bg}">${wv}</div>${ov}${(dupMarks?.get(c.id)?.segs || []).map(([a0, a1]) => `<i class="dupf" title="These frames are used in another clip too" style="left:${Math.max(0, (a0 - (vs - x.start)) * S.zoom)}px;width:${Math.max(2, (a1 - a0) * S.zoom)}px;background:${dupMarks.get(c.id).col}"></i>`).join('')}${kfs}${bandHTML(c, track, x.end - x.start)}
+    <div class="clip-bg" style="${bg}">${wv}</div>${ov}${(dupMarks?.get(c.id)?.segs || []).map(([a0, a1]) => `<i class="dupf" title="These frames are used in another clip too" style="left:${Math.max(0, (a0 - (vs - x.start)) * S.zoom)}px;width:${Math.max(2, (a1 - a0) * S.zoom)}px;background:${dupMarks.get(c.id).col}"></i>`).join('')}${kfs}${cmk}${spd}${bandHTML(c, track, x.end - x.start)}
     <div class="clip-lbl"><span class="nm">${missing ? '⚠ ' : ''}${esc(mName(c))}</span><span class="bd">${badges}</span></div>
     <div class="clip-dur">${fmt(ve - vs)}</div>
     <div class="trim l" data-trim="l"></div><div class="trim r" data-trim="r"></div>${trans}
@@ -545,6 +625,29 @@ function cutOf(x) {
   if (!x.overlap) return x.start;
   return x.start + Math.min(x.overlap, trHandles(x.clip.transitionIn).hB);
 }
+// 🟥🟨🟩 the render bar: red where a clip has work only a render shows exactly (stabilise, AI enhance / fill, smooth slow
+// motion, render-only effects, audio clean-up), yellow where effects are shown live as an approximation, green where the
+// last Accurate preview rendered this sequence as it is now. Worked out once per change.
+let rbCache = null;
+on('change', () => { rbCache = null; });
+const RB = { red: '#e5484d', yellow: '#e8b923', green: '#36c27e' };
+function clipLoad(c) {
+  if (c.gap) return null;
+  const red = c.stabilize || c.enhance || c.smooth || c.filled || c.afx || (c.effects || []).some((e) => e.on !== false && (!VFX[e.type]?.css || VFX[e.type]?.stab))
+    || (c.aeffects || []).some((e) => e.on !== false && !AFX[e.type]?.live && !AFX[e.type]?.meter);
+  if (red) return 'red';
+  return c.effects?.length || c.aeffects?.length || (c.color && Object.keys(c.color).length) || c.masks?.length || c.cutFx?.type || c.transitionIn || c.ramp || c.type === 'graphic' ? 'yellow' : null;
+}
+function renderBar() {
+  if (rbCache) return rbCache;
+  const out = [];
+  for (const [tr, list] of Object.entries(layout())) for (const x of list) { const k = clipLoad(x.clip); if (k && !(trackKind(tr) === 'audio' && k === 'yellow')) out.push([x.start, x.end, k]); }
+  // red over yellow where they overlap: yellow first, red after
+  out.sort((p, q) => (p[2] === q[2] ? 0 : p[2] === 'yellow' ? -1 : 1));
+  const done = S.rendered && S.rendered.hash === seqHash(S.project) ? [[S.rendered.a, S.rendered.b, 'green']] : [];
+  rbCache = [...out, ...done].map(([a, b, k]) => [a, b, RB[k]]);
+  return rbCache;
+}
 function drawRuler() {
   if (!ruler || !scroller || !S.project) return; // (no project: back on the Projects page)
   const w = scroller.clientWidth, dpr = window.devicePixelRatio || 1;
@@ -577,6 +680,12 @@ function drawRuler() {
     if (isMajor) g.fillText(fmtTC(t, S.project.settings.fps).replace(/^00:/, ''), x + 4, 11);
   }
   g.stroke();
+  // 🟥🟨🟩 render bar along the bottom of the ruler, like Premiere
+  for (const [a, b, col] of renderBar()) {
+    const xa = (a - t0) * S.zoom, xb = (b - t0) * S.zoom;
+    if (xb < 0 || xa > w) continue;
+    g.fillStyle = col; g.fillRect(Math.max(0, xa), 25, Math.min(w, xb) - Math.max(0, xa), 3);
+  }
   // markers
   for (const mk of S.project.markers || []) {
     const x = (mk.t - t0) * S.zoom;
@@ -632,6 +741,7 @@ export function liftExtract(extract) {
     }
   }
   tidyGaps();
+  if (extract) { S.project.markers = (S.project.markers || []).filter((m) => !(S.project.settings.rippleMarkers && m.t > a + eps && m.t < b - eps)); rippleMarkers(S.project, b, -len); } // (📍 with Ripple Sequence Markers)
   // (an Extract closes the range on V1 too; a gap that covered more than the range is cut down to fit)
   delete S.project.settings.range; S.sel.clear(); S.playhead = a;
   commit(extract ? `Extract ${len.toFixed(2)} s` : `Lift ${len.toFixed(2)} s`);
@@ -642,7 +752,7 @@ export function liftExtract(extract) {
 function placePlayhead() {
   if (!playheadEl) return;
   playheadEl.style.left = `${S.playhead * S.zoom}px`;
-  $('#tlTC', root).textContent = fmtTC(S.playhead, S.project?.settings.fps || 30);
+  $('#tlTC', root).textContent = S.project ? fmtTime(S.playhead, S.project.settings) : fmtTC(S.playhead, 30); // (⚙ Display format)
 }
 function followPlayhead() {
   if (drag) return;
@@ -699,6 +809,7 @@ function marqueeStart(e) {
       const q = c.getBoundingClientRect();
       if (q.right > l && q.left < r && q.bottom > t && q.top < b) hit.add(c.dataset.id);
     });
+    for (const id of groupedIds(S.project, hit)) hit.add(id); // (⛓ touching one clip of a group takes the group)
     if (hit.size !== S.sel.size || [...hit].some((id) => !S.sel.has(id))) { S.sel = hit; emit('select'); }
   };
   // keep scrolling while the pointer sits near the left / right edge
@@ -724,14 +835,30 @@ function marqueeStart(e) {
   window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
 }
 
-// clicking one half of a linked clip selects both ([V] + [A]); Alt + click takes only the half you clicked
+// clicking one half of a linked clip selects both ([V] + [A]), a grouped clip its whole group (⛓ Ctrl+G); Alt + click
+// takes only the clip you clicked
 function select(id, additive, single = false) {
   if (!additive) S.sel.clear();
   if (id) {
-    const f = findClip(id), pid = !single && f ? linkedPartner(S.project, f.clip)?.clip.id : null;
-    if (additive && S.sel.has(id)) { S.sel.delete(id); if (pid) S.sel.delete(pid); } else { S.sel.add(id); if (pid) S.sel.add(pid); }
+    const ids = single ? [id] : [...linkedIds(S.project, groupedIds(S.project, [id]))];
+    if (additive && S.sel.has(id)) ids.forEach((x) => S.sel.delete(x)); else ids.forEach((x) => S.sel.add(x));
   }
   emit('select');
+}
+
+// ⇥⇥ Track Select Forward (A) / ⇤⇤ Backward (Shift+A), like Premiere: the clicked clip (or the clicked time) and every
+// clip after / before it on all unlocked tracks; Shift+click = only that track
+function trackSelect(e, el) {
+  const fwd = S.tool === 'trackfwd', L = layout(), ts = S.project.trackState;
+  const x0 = el && L[el.dataset.track]?.find((p) => p.clip.id === el.dataset.id);
+  const t = x0 ? (fwd ? x0.start : x0.end) : timeAt(e.clientX), only = e.shiftKey ? el?.dataset.track || rowAt(e.clientY) : null;
+  S.sel = new Set();
+  for (const [tr, list] of Object.entries(L)) {
+    if (ts[tr]?.lock || (only && tr !== only)) continue;
+    for (const x of list) if (!x.clip.gap && (fwd ? x.start >= t - 0.01 : x.end <= t + 0.01)) S.sel.add(x.clip.id);
+  }
+  emit('select');
+  toast(S.sel.size ? `${S.sel.size} clip${S.sel.size > 1 ? 's' : ''} ${fwd ? 'from here on' : 'up to here'}${only ? ` on ${only}` : ''} selected` : 'Nothing there');
 }
 
 function onRowsDown(e) {
@@ -808,6 +935,12 @@ function onRowsDown(e) {
   }
   if (transBtn) { e.stopPropagation(); toggleTransition(transBtn.dataset.trans); return; }
   const el = e.target.closest('.clip');
+  if (S.tool === 'trackfwd' || S.tool === 'trackback') {
+    if (el && S.project.trackState[el.dataset.track]?.lock) { toast(`${el.dataset.track} is locked`); return; }
+    trackSelect(e, el);
+    // an overlay clip can be dragged at once (all the selected overlay clips go along); a main-story one stays put
+    if (!el || e.shiftKey || el.dataset.track === 'V1' || el.classList.contains('t-gap')) return;
+  }
   if (!el) { marqueeStart(e); return; }
   const id = el.dataset.id, track = el.dataset.track;
   if (S.tool !== 'blade' && !e.target.closest('[data-trim]') && lastDown.id === id && Date.now() - lastDown.t < 400 && Math.abs(e.clientX - lastDown.x) < 6 && Math.abs(e.clientY - lastDown.y) < 6) {
@@ -815,6 +948,8 @@ function onRowsDown(e) {
   }
   lastDown = { id, t: Date.now(), x: e.clientX, y: e.clientY };
   if (S.project.trackState[track]?.lock) { toast(`${track} is locked`); return; }
+  // 🔒 a locked clip: it can be selected (and looked at), never moved, trimmed or cut
+  if (findClip(id)?.clip.locked) { if (!S.sel.has(id)) select(id, e.shiftKey || e.ctrlKey, e.altKey); toast('🔒 This clip is locked - right-click › Unlock clip'); return; }
   if (S.tool === 'blade') { splitClip(id, snap(timeAt(e.clientX), snapPoints(new Set([id])))); commit('Blade'); return; }
   if (S.tool === 'pen' && !e.target.closest('[data-trim]')) { penKey(id, track, e, el); return; }
   if (S.tool === 'slip' || S.tool === 'slide') { select(id, false); slipSlide(e, id, track); return; }
@@ -1177,6 +1312,7 @@ function onDragMove(e) {
         d = (ni - (o.in || 0)) / sp; c.in = +ni.toFixed(3);
       } else { const nd = Math.max(0.2, clipDur(o, S.mediaById) - d); d = clipDur(o, S.mediaById) - nd; c.dur = +nd.toFixed(3); }
       if (drag.track !== 'V1') c.start = +Math.max(0, (o.start || 0) + d).toFixed(3);
+      if (o.markers) { c.markers = o.markers.map((m) => ({ ...m, t: +(m.t - d).toFixed(3) })).filter((m) => m.t >= 0); if (!c.markers.length) delete c.markers; } // (📍 they stay on their frames)
     } else {
       const startT = drag.track === 'V1' ? s0 : o.start || 0;
       const endT = snap(startT + clipDur(o, S.mediaById) + dt, pts);
@@ -1259,7 +1395,7 @@ function v1Target(e, pts, live, from, yOff) {
   live.style.transform = `translate(${(at - from) * S.zoom}px, ${yOff}px)`; live.classList.add('dragging');
 }
 // an empty stretch of the main story (black, silent) - what a clip leaves behind when it is lifted out of V1
-const gapClip = (len) => ({ id: uid(), type: 'title', gap: true, text: '', bg: '#000000', dur: +Math.max(0.04, len).toFixed(3) });
+export const gapClip = (len) => ({ id: uid(), type: 'title', gap: true, text: '', bg: '#000000', dur: +Math.max(0.04, len).toFixed(3) });
 // Premiere's overwrite on V1: clip c goes in at time t0 and replaces whatever is there for its length (cut where it
 // starts and ends); everything before and after stays exactly where it was. Past the end: a gap, then the clip.
 export function overwriteV1(c, t0) {
@@ -1301,6 +1437,11 @@ function onDragUp(e) {
   if (lp?.track === 'V1') toast('This sound is linked to its picture on V1 - move the picture, or right-click › Unlink to move the sound alone');
   if (!f) return render();
   if (d.trim && d.remix) { remixTo(d.id); return; }
+  // ⇋ a ripple trim of a main-story shot: the sync-locked tracks move along by as much as the story after it did
+  if (d.trim && !d.roll && d.track === 'V1' && f.track === 'V1' && (d.v1?.ripple || e?.ctrlKey)) {
+    const end0 = (d.v1?.s0 || 0) + clipDur(d.orig, S.mediaById);
+    syncShift(S.project, end0, clipDur(f.clip, S.mediaById) - clipDur(d.orig, S.mediaById));
+  }
   if (d.trim || d.roll || d.rate) { commit(d.roll ? 'Rolling edit' : d.rate ? 'Rate stretch' : 'Trim'); return; }
   // the length a V1 clip takes on the timeline (what it leaves as a gap when it is lifted out)
   const v1Len = (id) => { const x = layout().V1.find((p) => p.clip.id === id); return x ? x.end - x.start - (x.overlap || 0) : 0; };
@@ -1355,6 +1496,10 @@ export function splitClip(id, t) {
     b.in = +cut.toFixed(3); c.out = +cut.toFixed(3);
   } else { b.dur = +(clipDur(c, S.mediaById) - off).toFixed(3); c.dur = +off.toFixed(3); }
   if (f.track !== 'V1') b.start = +t.toFixed(3);
+  if (c.markers?.length) { // (📍 each half keeps the clip markers on its own frames)
+    b.markers = c.markers.filter((m) => m.t >= off).map((m) => ({ ...m, t: +(m.t - off).toFixed(3) })); c.markers = c.markers.filter((m) => m.t < off);
+    if (!b.markers.length) delete b.markers; if (!c.markers.length) delete c.markers;
+  }
   if (c.textDuration && off < c.textDuration) b.textDuration = undefined;
   S.project.tracks[f.track].splice(f.index + 1, 0, b);
   return true;
@@ -1363,7 +1508,7 @@ export function splitAtPlayhead() {
   const t = S.playhead, L = layout(), ts = S.project.trackState;
   const targets = S.sel.size ? [...S.sel] : Object.entries(L).filter(([tr]) => !ts[tr]?.lock).flatMap(([, list]) => list.filter((x) => t > x.start && t < x.end).map((x) => x.clip.id));
   let n = 0;
-  for (const id of targets) if (splitClip(id, t)) n++;
+  for (const id of targets) if (!findClip(id)?.clip.locked && splitClip(id, t)) n++; // (🔒 a locked clip is not cut)
   if (n) commit('Split'); else toast('Put the playhead over a clip to split it');
 }
 // Premiere-style ripple trim (Q / W): cut the front or the back of the clip(s) under the playhead at the playhead.
@@ -1371,7 +1516,7 @@ export function splitAtPlayhead() {
 export function trimAtPlayhead(side) {
   const t = S.playhead, L = layout(), ts = S.project.trackState;
   const under = Object.entries(L).filter(([tr]) => !ts[tr]?.lock).flatMap(([tr, list]) => {
-    const hit = list.filter((x) => t > x.start + 0.04 && t < x.end - 0.04);
+    const hit = list.filter((x) => t > x.start + 0.04 && t < x.end - 0.04 && !x.clip.locked); // (🔒 a locked clip is not trimmed)
     return (tr === 'V1' ? hit.slice(-1) : hit).map((x) => ({ tr, x })); // in a dissolve, V1's visible clip is the incoming one
   });
   // selected clips under the playhead; nothing selected = the main story's clip (music / VO stay as they are)
@@ -1381,6 +1526,7 @@ export function trimAtPlayhead(side) {
   let v1Start = null;
   for (const { tr, x } of targets) {
     const c = x.clip, off = t - x.start, sp = c.speed || 1, media = c.type === 'video' || (c.type === 'audio' && !c.loop);
+    if (tr === 'V1') { if (side === 'start') syncShift(S.project, t, -off); else syncShift(S.project, x.end, -(x.end - t)); } // (⇋ Sync Lock)
     if (c.type === 'video' && rampPts(c)) {
       // a ramped shot: what stays keeps its own part of the speed curve (it plays as before, only shorter)
       const D = clipDur(c, S.mediaById), u = off / D;
@@ -1395,6 +1541,7 @@ export function trimAtPlayhead(side) {
       if (media) c.in = +((c.in || 0) + off * sp).toFixed(3); else c.dur = +(clipDur(c, S.mediaById) - off).toFixed(3);
       if (c.keys) for (const k of Object.values(c.keys)) for (const key of k) key.t = +(key.t - off).toFixed(3);
       if (tr !== 'V1') c.start = +t.toFixed(3); else v1Start = v1Start ?? x.start;
+      if (c.markers) { c.markers = c.markers.map((m) => ({ ...m, t: +(m.t - off).toFixed(3) })).filter((m) => m.t >= 0); if (!c.markers.length) delete c.markers; }
     } else {
       if (media) c.out = +((c.in || 0) + off * sp).toFixed(3); else c.dur = +off.toFixed(3);
     }
@@ -1416,24 +1563,28 @@ Ctrl+Z brings them back. A backup of the project is saved first.`)) return;
     saveNow('force');
   }
   let n = 0;
-  const L1 = layout().V1;
+  const L1 = layout().V1, closed = []; // [where, seconds] the main story closed up (⇋ Sync Lock follows it)
   for (const id of [...S.sel]) {
     const f = findClip(id);
-    if (!f || S.project.trackState[f.track]?.lock) continue;
+    if (!f || S.project.trackState[f.track]?.lock || f.clip.locked) continue; // (🔒 locked track / clip)
+    const x = f.track === 'V1' ? L1.find((p) => p.clip.id === id) : null, len = x ? x.end - x.start - (x.overlap || 0) : clipDur(f.clip, S.mediaById);
     if (f.track === 'V1' && !ripple && !f.clip.gap) {
       // the gap ends exactly where the clip ended, so every later clip keeps its place
-      const x = L1.find((p) => p.clip.id === id), len = x ? x.end - x.start - (x.overlap || 0) : clipDur(f.clip, S.mediaById);
       S.project.tracks.V1.splice(f.index, 1, { id: uid(), type: 'title', gap: true, text: '', bg: '#000000', dur: +Math.max(0.04, len).toFixed(3) });
-    } else S.project.tracks.V1 === S.project.tracks[f.track] ? S.project.tracks.V1.splice(f.index, 1) : S.project.tracks[f.track].splice(f.index, 1);
+    } else {
+      S.project.tracks[f.track].splice(f.index, 1);
+      if (x) closed.push([x.end, len]);
+    }
     n++;
     if (f.track === 'V1' && f.index === 0 && S.project.tracks.V1[0]) delete S.project.tracks.V1[0].transitionIn;
   }
+  for (const [at, len] of closed.sort((a, b) => b[0] - a[0])) syncShift(S.project, at, -len); // (latest first: each moves only what is after it)
   tidyGaps();
   S.sel.clear();
   if (n) commit(ripple ? `Ripple delete ${n} clip${n > 1 ? 's' : ''}` : `Delete ${n} clip${n > 1 ? 's' : ''}`);
 }
 // gaps next to each other become one; a gap at the very end of the story goes (it would only add black)
-function tidyGaps() {
+export function tidyGaps() {
   const v = S.project.tracks.V1;
   for (let i = v.length - 1; i > 0; i--) if (v[i].gap && v[i - 1].gap) { v[i - 1].dur = +(v[i - 1].dur + v[i].dur).toFixed(3); v.splice(i, 1); }
   while (v.length && v[v.length - 1].gap) v.pop();
@@ -1504,6 +1655,7 @@ export function placeMedia(mediaId, track, time, marks = {}) {
       let idx = L.findIndex((x) => time < (x.start + x.end) / 2);
       if (idx < 0) idx = L.length;
       S.project.tracks.V1.splice(idx, 0, c);
+      if (idx < L.length) syncShift(S.project, L[idx].start, clipDur(c, S.mediaById)); // (⇋ the story after it moved along)
     }
   } else {
     c.start = +time.toFixed(3);
@@ -1587,7 +1739,7 @@ function onDrop(e) {
 const CORE = new Set(['V1', 'V2', 'A1', 'A2', 'A3']);
 function trackMenu(e, id) {
   e.preventDefault();
-  const n = S.project.tracks[id]?.length || 0, items = [['rename', 'Rename…'], ['addv', '+ Video track'], ['adda', '+ Audio track'], ...(CORE.has(id) ? [] : ['-', ['del', `Delete ${id}${n ? ` (${n} clips)` : ''}`]])];
+  const n = S.project.tracks[id]?.length || 0, items = [['rename', 'Rename…'], ['addv', '+ Video track'], ['adda', '+ Audio track'], ...(S.project.trackState[id]?.volKeys?.length ? [['clrkeys', `🎚 Clear volume keyframes (${S.project.trackState[id].volKeys.length})`]] : []), ...(CORE.has(id) ? [] : ['-', ['del', `Delete ${id}${n ? ` (${n} clips)` : ''}`]])];
   const menu = h(`<div class="ctx" role="menu">${items.map((it) => (it === '-' ? '<hr>' : `<button role="menuitem" data-c="${it[0]}">${it[1]}</button>`)).join('')}</div>`);
   document.body.append(menu);
   menu.style.left = `${e.clientX}px`; menu.style.top = `${Math.min(e.clientY, innerHeight - menu.getBoundingClientRect().height - 8)}px`;
@@ -1598,6 +1750,7 @@ function trackMenu(e, id) {
     const a = ev.target.closest('[data-c]')?.dataset.c; if (!a) return;
     close();
     if (a === 'rename') { const nm = prompt(`Name for ${id}`, S.project.trackState[id]?.name || ''); if (nm !== null) { S.project.trackState[id] = { ...S.project.trackState[id], name: nm.trim() || undefined }; commit('Rename track'); } }
+    if (a === 'clrkeys') { delete S.project.trackState[id].volKeys; commit('Clear track volume keyframes'); }
     if (a === 'addv' || a === 'adda') { const nid = addTrack(S.project, a === 'addv' ? 'video' : 'audio'); commit(`Add track ${nid}`); }
     if (a === 'del') {
       if (n && !confirm(`Delete ${id} and its ${n} clips?\n\nCtrl+Z brings it back.`)) return;
@@ -1634,7 +1787,7 @@ function onContext(e) {
     if (!items.length) return;
     e.preventDefault();
     return ctxMenu(e, items, (a) => {
-      if (a === 'ripple') { const i = S.project.tracks.V1.indexOf(gap.clip); if (i >= 0) { S.project.tracks.V1.splice(i, 1); commit('Close gap'); } return; }
+      if (a === 'ripple') { const i = S.project.tracks.V1.indexOf(gap.clip); if (i >= 0) { S.project.tracks.V1.splice(i, 1); syncShift(S.project, gap.end, -(gap.end - gap.start)); commit('Close gap'); } return; }
       S.playhead = at; emit('playhead'); pasteClips().catch((err) => toast(err.message, 'err'));
     });
   }
@@ -1642,35 +1795,52 @@ function onContext(e) {
   const id = el.dataset.id;
   if (!S.sel.has(id)) select(id, false);
   const f = findClip(id), c = f.clip;
+  // the everyday edits only; the rest sit under "More…" (same spot) so the menu stays short
   const items = [
     ...(c.gap ? [['closegap', '⇤ Close gap (ripple)', 'Del'], '-'] : []),
     ['split', 'Split at playhead', 'S'], ['copy', S.sel.size > 1 ? `Copy ${S.sel.size} clips` : 'Copy', 'Ctrl+C'],
     ...(clipboard()?.kind === 'clips' ? [['paste', `Paste ${clipboard().items.length > 1 ? `${clipboard().items.length} clips ` : ''}at playhead`, 'Ctrl+V']] : []),
-    ['dup', 'Duplicate', 'Ctrl+D'], ['nest', S.sel.size > 1 ? `⤵ Nest ${S.sel.size} clips…` : '⤵ Nest…'],
-    ...(c.type === 'video' && !c.gap ? [['hold', 'Add Frame Hold (from the playhead)'], ['holdIns', 'Insert Frame Hold Segment (2 s)'], ['scenes', 'Scene Edit Detection (cut at its cuts)'],
-      ...(f.track === 'V1' && f.index > 0 && S.project.tracks.V1[f.index - 1]?.type === 'video' ? [['morph', '🪄 Morph Cut (smooth the jump cut before this clip)']] : []), ['extend', '⏩ Extend the end (+1 s, optical flow)']] : []),
-    ['pasteAttr', 'Paste Attributes…', 'Ctrl+Alt+V'], ['removeAttr', 'Remove Attributes…'], ['label', 'Label colour…'],
-    ...(S.sel.size === 2 ? [['matte', '◐ Track Matte Key (the upper clip is the matte)']] : []),
-    ...(c.mediaId && S.mediaById[c.mediaId] ? ['-', ['revealP', '📁 Reveal in Project'], ['copydir', '📋 Copy folder path'], ...(/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? [['revealE', '📂 Reveal in Explorer']] : []), '-'] : []),
-    ...(c.type === 'video' ? [['comp', '🎬 Make Motion comp (animate it in Motion)'], ['roto', '✂ Roto: cut out the subject (AI)'], ['behind', '✂ Text behind subject (AI roto)'], ['fusion', '✨ Open in Fusion (node effects)']] : []), ['del', 'Delete (leave a gap)', 'Del'], ...(f.track === 'V1' && !c.gap ? [['ripdel', 'Ripple delete (close the gap)', 'Shift+Del']] : []), '-',
-    ...(c.type === 'video' ? [['ramp', `⏩ Speed ramp…${c.ramp ? ' (on)' : ''}`]] : []),
-    ...(soundClips([id]).length ? [['gain', '🔊 Audio gain…', 'G']] : []),
+    ['dup', 'Duplicate', 'Ctrl+D'],
+    ...(c.gap ? [] : [['del', 'Delete (leave a gap)', 'Del'], ...(f.track === 'V1' ? [['ripdel', 'Ripple delete (close the gap)', 'Shift+Del']] : [])]),
+    ...(S.sel.size > 1 ? [['nest', `⤵ Nest ${S.sel.size} clips…`], ['group', '⛓ Group', 'Ctrl+G']] : []), ...(c.grp ? [['ungroup', '⛓ Ungroup', 'Ctrl+Shift+G']] : []),
+    '-',
     ['spdlg', '⏩ Speed / Duration…', 'Ctrl+R'],
-    ...(c.type === 'video' || c.type === 'audio' ? [['sp0.5', 'Speed 0.5× (slow-mo)'], ['sp1', 'Speed 1×'], ['sp2', 'Speed 2×'], ...(linkedPartner(S.project, c) ? [] : [['mute', c.mute ? 'Unmute' : 'Mute']])] : []),
-    ...(linkedPartner(S.project, c) ? [['unlink', '⛓ Unlink audio / video']] : c.type === 'video' && S.mediaById[c.mediaId]?.hasAudio && !c.link ? [['linkA', '🔊 Separate audio onto its own track (linked)']] : c.type === 'video' && c.link && S.mediaById[c.mediaId]?.hasAudio ? [['linkA', '🔊 Bring back its sound (linked)']] : []),
-    ...(f.track === 'V1' && f.index > 0 ? ['-', ['trans', c.transitionIn && c.transitionIn.type !== 'cut' ? 'Remove transition' : 'Add cross dissolve']] : []),
-    ...(['video', 'image', 'title', 'audio'].includes(c.type) && !c.gap ? [...(f.track === 'V1' && f.index > 0 ? [] : ['-']), ['fadein', c.fadeIn ? `Remove fade in (${c.fadeIn} s)` : c.type === 'audio' ? 'Fade in' : 'Fade in from black'], ['fadeout', c.fadeOut ? `Remove fade out (${c.fadeOut} s)` : c.type === 'audio' ? 'Fade out' : 'Fade out to black']] : []),
-    ...(c.mediaId ? ['-', ['replace', '🔄 Replace clip…'], ['src', 'Open in source viewer']] : []),
+    ...(soundClips([id]).length ? [['gain', '🔊 Audio gain…', 'G']] : []),
+    ...((c.type === 'video' || c.type === 'audio') && !linkedPartner(S.project, c) ? [['mute', c.mute ? 'Unmute' : 'Mute']] : []),
+    ...(linkedPartner(S.project, c) ? [['unlink', '⛓ Unlink audio / video']] : c.type === 'video' && S.mediaById[c.mediaId]?.hasAudio && !c.link ? [['linkA', '🔊 Separate audio (linked)']] : c.type === 'video' && c.link && S.mediaById[c.mediaId]?.hasAudio ? [['linkA', '🔊 Bring back its sound (linked)']] : []),
+    ...(c.type === 'video' ? ['-', ['comp', '🎬 Make Motion comp (animate it in Motion)'], ['fusion', '✨ Open in Fusion (node effects)'], ['roto', '✂ Roto: cut out the subject (AI)']] : []),
+    ...(c.mediaId ? ['-', ['replace', '🔄 Replace clip…']] : []),
+    '-', ['more', 'More…'],
   ];
-  const menu = h(`<div class="ctx" role="menu">${items.map((it) => (it === '-' ? '<hr>' : `<button role="menuitem" data-c="${it[0]}">${it[1]}${it[2] ? `<kbd>${it[2]}</kbd>` : ''}</button>`)).join('')}</div>`);
-  document.body.append(menu);
-  const r = menu.getBoundingClientRect();
-  menu.style.left = `${Math.min(e.clientX, innerWidth - r.width - 8)}px`; menu.style.top = `${Math.min(e.clientY, innerHeight - r.height - 8)}px`;
+  const more = [
+    ...(c.type === 'video' && !c.gap ? [['hold', 'Add Frame Hold (from the playhead)'], ['holdIns', 'Insert Frame Hold Segment (2 s)'], ['scenes', 'Scene Edit Detection (cut at its cuts)'],
+      ...(f.track === 'V1' && f.index > 0 && S.project.tracks.V1[f.index - 1]?.type === 'video' ? [['morph', '🪄 Morph Cut (smooth the jump cut before this clip)']] : []), ['extend', '⏩ Extend the end (+1 s, optical flow)'],
+      ['ramp', `⏩ Speed ramp…${c.ramp ? ' (on)' : ''}`]] : []),
+    ...(c.type === 'video' || c.type === 'audio' ? [['sp0.5', 'Speed 0.5× (slow-mo)'], ['sp1', 'Speed 1×'], ['sp2', 'Speed 2×']] : []),
+    '-',
+    ...(S.sel.size > 1 ? [] : [['nest', '⤵ Nest…']]),
+    ['clipMarker', '📍 Add clip marker at playhead'], ...(c.markers?.length ? [['clipMarkersOff', `📍 Remove clip markers (${c.markers.length})`]] : []),
+    ['pasteAttr', 'Paste Attributes…', 'Ctrl+Alt+V'], ['removeAttr', 'Remove Attributes…'], ['label', 'Label colour…'],
+    [c.locked ? 'unlockClip' : 'lockClip', c.locked ? '🔓 Unlock clip' : `🔒 Lock clip${S.sel.size > 1 ? `s (${S.sel.size})` : ''}`],
+    ...(S.sel.size === 2 ? [['matte', '◐ Track Matte Key (the upper clip is the matte)']] : []),
+    ...(c.type === 'video' ? ['-', ['behind', '✂ Text behind subject (AI roto)']] : []),
+    ...(c.mediaId && S.mediaById[c.mediaId] ? ['-', ['revealP', '📁 Reveal in Project'], ['copydir', '📋 Copy folder path'], ...(/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? [['revealE', '📂 Reveal in Explorer']] : [])] : []),
+    ...(c.mediaId ? ['-', ['replaceSrc', '🔄 Replace with clip from Source monitor'], ['src', 'Open in source viewer']] : []),
+  ];
+  const menu = h('<div class="ctx" role="menu"></div>');
+  const fill = (list) => {
+    list = list.filter((it, i) => it !== '-' || (i > 0 && list[i - 1] !== '-' && i < list.length - 1));
+    menu.innerHTML = list.map((it) => (it === '-' ? '<hr>' : `<button role="menuitem" data-c="${it[0]}">${it[1]}${it[2] ? `<kbd>${it[2]}</kbd>` : ''}</button>`)).join('');
+    const r = menu.getBoundingClientRect();
+    menu.style.left = `${Math.max(8, Math.min(e.clientX, innerWidth - r.width - 8))}px`; menu.style.top = `${Math.max(8, Math.min(e.clientY, innerHeight - r.height - 8))}px`;
+  };
+  document.body.append(menu); fill(items);
   const close = () => { menu.remove(); window.removeEventListener('pointerdown', outside, true); };
   const outside = (ev) => { if (!menu.contains(ev.target)) close(); };
   setTimeout(() => window.addEventListener('pointerdown', outside, true));
   menu.onclick = (ev) => {
     const a = ev.target.closest('[data-c]')?.dataset.c; if (!a) return;
+    if (a === 'more') return fill(more);
     close();
     if (a === 'split') { if (splitClip(id, S.playhead)) commit('Split'); else toast('Move the playhead inside this clip first'); }
     if (a === 'nest') nestSelected();
@@ -1703,6 +1873,12 @@ function onContext(e) {
     if (a === 'trans') { setTransition(S.project, S.mediaById, f.index, c.transitionIn && c.transitionIn.type !== 'cut' ? null : 'fade', 0.5); commit('Transition'); }
     if (a === 'src') emit('openSource', c.mediaId);
     if (a === 'replace') openReplace(id);
+    if (a === 'replaceSrc') replaceEdit(id);
+    if (a === 'clipMarker') addClipMarker();
+    if (a === 'lockClip' || a === 'unlockClip') { const lock = a === 'lockClip'; let k = 0; for (const s of S.sel) { const cl = findClip(s)?.clip; if (cl) { if (lock) cl.locked = true; else delete cl.locked; k++; } } commit(lock ? 'Lock clip' : 'Unlock clip'); toast(lock ? `🔒 ${k} clip${k > 1 ? 's' : ''} locked - they stay as they are` : `🔓 ${k} clip${k > 1 ? 's' : ''} unlocked`); }
+    if (a === 'clipMarkersOff') clearClipMarkers();
+    if (a === 'group') groupSelected();
+    if (a === 'ungroup') ungroupSelected();
   };
 }
 

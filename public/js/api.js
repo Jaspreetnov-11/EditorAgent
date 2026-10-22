@@ -8,8 +8,19 @@ export async function api(method, url, body) {
   }
   const r = await fetch(url, opts);
   const j = await r.json().catch(() => ({}));
+  if (r.status === 401) signedOut();
   if (!r.ok) throw new Error(j.error || r.statusText);
   return j;
+}
+// 🔑 the sign-in ended (another computer's team link): a bar at the top with Sign in - instead of things just failing
+function signedOut() {
+  if (document.getElementById('signedOut')) return;
+  const b = document.createElement('div');
+  b.id = 'signedOut'; b.className = 'ro-banner'; b.setAttribute('role', 'alert');
+  b.innerHTML = '🔑 You are signed out (the editor was restarted or the sign-in ended). <button class="primary small">Sign in</button> <button class="small">🔄 Refresh</button>';
+  const [inBtn, reBtn] = b.querySelectorAll('button');
+  inBtn.onclick = () => { location.href = '/team/logout'; }; reBtn.onclick = () => location.reload();
+  document.body.prepend(b);
 }
 
 // Upload with progress (fetch has no upload progress).

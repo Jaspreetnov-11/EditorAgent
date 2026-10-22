@@ -11,7 +11,12 @@
 //   logo, subtitles
 // Clip types: video | image | title (V1/V2), audio (A-tracks). Source trims: in/out (seconds in the file).
 
-export const ASPECTS = { '16:9': [1920, 1080], '9:16': [1080, 1920], '1:1': [1080, 1080], '4:5': [1080, 1350] };
+// frame shapes by name (1080-based; exports scale them) - and any "W x H" as "2560x1080" for a custom frame size
+// (Sequence settings › Custom size), read through the same ASPECTS[...] everywhere
+const SHAPES = { '16:9': [1920, 1080], '9:16': [1080, 1920], '1:1': [1080, 1080], '4:5': [1080, 1350], '4:3': [1440, 1080], '3:4': [1080, 1440], '21:9': [2520, 1080], '2.39:1': [2582, 1080], '17:9 DCI': [2048, 1080] };
+const customSize = (k) => { const m = /^(\d{2,5})x(\d{2,5})$/.exec(String(k)); return m ? [Math.max(16, Math.min(8192, +m[1])) & ~1, Math.max(16, Math.min(8192, +m[2])) & ~1] : undefined; };
+export const ASPECTS = new Proxy(SHAPES, { get: (t, k) => (k in t ? t[k] : customSize(k)), has: (t, k) => k in t || !!customSize(k) });
+export const shapeLabel = (k) => (SHAPES[k] ? k : customSize(k) ? `${customSize(k).join(' × ')} (custom)` : String(k || ''));
 
 export const TRACKS = [
   { id: 'V2', kind: 'video', name: 'V2', label: 'Overlays & titles' },
@@ -173,6 +178,11 @@ function normSeqData(d, base) {
   if ('captions' in d) {
     if (!isObj(d.captions)) delete d.captions;
     else { if (!Array.isArray(d.captions.cues)) d.captions.cues = []; if (!isObj(d.captions.style)) d.captions.style = {}; }
+    // 🗂 the 2nd, 3rd… caption tracks (public/js/captions.js): each with an id, a cue list and a style
+    if (isObj(d.captions) && 'tracks' in d.captions) {
+      d.captions.tracks = Array.isArray(d.captions.tracks) ? d.captions.tracks.filter(isObj) : [];
+      d.captions.tracks.forEach((t, i) => { if (!t.id) t.id = `cct${i + 2}`; if (!Array.isArray(t.cues)) t.cues = []; if (!isObj(t.style)) t.style = {}; });
+    }
   }
   if (!isObj(d.subtitles)) d.subtitles = { ...base.subtitles };
   return d;
@@ -252,16 +262,22 @@ const smooth = (u) => u * u * (3 - 2 * u);
 // The ease of a segment: smooth from its point to the next. A segment left over from a cut is only a piece of the
 // segment that was there - its point says which piece ([u, s, e0, e1]: e0..e1 of the old ease), so the speed follows
 // exactly the curve that was drawn and the cut part needs no extra points.
-function ease(x, e0 = 0, e1 = 1) {
-  if (e0 === 0 && e1 === 1) return smooth(x);
-  const s0 = smooth(e0), s1 = smooth(e1);
-  return s1 - s0 > 1e-9 ? (smooth(e0 + (e1 - e0) * x) - s0) / (s1 - s0) : x;
+// ⏩ the shape of a ramp from one keyframe to the next (the point's 5th item, like After Effects / Premiere): Easy Ease
+// (the S-curve, the default), Linear, Ease In (starts gently), Ease Out (arrives gently), Hold (jumps at the next keyframe)
+export const RAMP_EASES = [['io', 'Easy Ease (F9)'], ['linear', 'Linear'], ['in', 'Ease In'], ['out', 'Ease Out'], ['hold', 'Hold']];
+const SHAPE = { linear: (x) => x, in: (x) => x * x, out: (x) => 1 - (1 - x) * (1 - x) };
+function ease(x, e0 = 0, e1 = 1, mode) {
+  if (mode === 'hold') return e1 >= 1 - 1e-9 && x >= 1 - 1e-9 ? 1 : 0;
+  const f = SHAPE[mode] || smooth;
+  if (e0 === 0 && e1 === 1) return f(x);
+  const s0 = f(e0), s1 = f(e1);
+  return s1 - s0 > 1e-9 ? (f(e0 + (e1 - e0) * x) - s0) / (s1 - s0) : x;
 }
 export function profileAt(pts, u) {
   if (u <= pts[0][0]) return pts[0][1];
   for (let i = 0; i < pts.length - 1; i++) {
-    const [a, sa, e0, e1] = pts[i], [b, sb] = pts[i + 1];
-    if (u <= b) return sa + (sb - sa) * ease((u - a) / Math.max(1e-6, b - a), e0, e1);
+    const [a, sa, e0, e1, mode] = pts[i], [b, sb] = pts[i + 1];
+    if (u <= b) return sa + (sb - sa) * ease((u - a) / Math.max(1e-6, b - a), e0, e1, mode);
   }
   return pts[pts.length - 1][1];
 }
@@ -301,9 +317,10 @@ export function rampPart(c, u0, u1, D) {
     // the old segment this piece comes from, and which part of its ease it is (inside an older piece: of that one)
     const mid = (x + y) / 2, i = pts.findIndex((q, k) => k < pts.length - 1 && mid >= q[0] && mid <= pts[k + 1][0]);
     if (i < 0) return p; // (before the first point / after the last: the speed is flat there)
-    const [qa, , E0 = 0, E1 = 1] = pts[i], qb = pts[i + 1][0], t = (v) => Math.min(1, Math.max(0, (v - qa) / Math.max(1e-9, qb - qa)));
+    const [qa, , E0 = 0, E1 = 1, mode] = pts[i], qb = pts[i + 1][0], t = (v) => Math.min(1, Math.max(0, (v - qa) / Math.max(1e-9, qb - qa)));
     const e0 = E0 + (E1 - E0) * t(x), e1 = E0 + (E1 - E0) * t(y);
-    return e0 > 1e-6 || e1 < 1 - 1e-6 ? [...p, +e0.toFixed(6), +e1.toFixed(6)] : p;
+    // (the piece keeps its segment's ease too - Linear / Ease In / Out / Hold)
+    return e0 > 1e-6 || e1 < 1 - 1e-6 || mode ? [...p, +e0.toFixed(6), +e1.toFixed(6), ...(mode ? [mode] : [])] : p;
   });
   const k = (b - a) / (sp * len) / rampAvg(raw); // (≈ 1: only rounding - the part keeps its length)
   return { in: +a.toFixed(3), out: +b.toFixed(3), ramp: 'custom', rampPts: raw.map(([u, s, ...e]) => [u, +(s * k).toFixed(5), ...e]) };
@@ -531,17 +548,74 @@ export function linkedPartner(project, c) {
   return null;
 }
 
+// ⛓ Groups (Ctrl+G), like Premiere: clips sharing clip.grp are selected, moved, nudged and deleted together
+// (Ctrl+Shift+G ungroups). The given clip ids plus every clip in their groups.
+export function groupedIds(project, ids) {
+  const out = new Set(ids), gs = new Set();
+  for (const l of Object.values(project.tracks)) for (const c of l) if (out.has(c.id) && c.grp) gs.add(c.grp);
+  if (gs.size) for (const l of Object.values(project.tracks)) for (const c of l) if (c.grp && gs.has(c.grp)) out.add(c.id);
+  return out;
+}
+
+// 📍 Ripple Sequence Markers (Markers menu, like Premiere; settings.rippleMarkers): when the story ripples, the
+// sequence markers after that point move with it, so a marker stays on its moment
+export function rippleMarkers(project, at, by) {
+  if (!project.settings?.rippleMarkers || !by) return 0;
+  let n = 0;
+  for (const m of project.markers || []) if (m.t >= at - 0.01) { m.t = +Math.max(0, m.t + by).toFixed(3); n++; }
+  return n;
+}
+
+// 🔒 Sync Lock (the ⇋ button on a track header), like Premiere: when the main story ripples - Ripple delete, Q / W,
+// Insert, a ripple trim, Paste Insert, Trim mode - the clips on a sync-locked track that start at / after `at` move by
+// `by` seconds too, so titles, music and B-roll stay with the shots they belong to. Off unless turned on (clips never
+// move on their own). A sound linked to a V1 picture follows its picture anyway (syncLinked). Returns how many moved.
+export function syncShift(project, at, by) {
+  if (!by || Math.abs(by) < 1e-4) return 0;
+  rippleMarkers(project, at, by);
+  const ts = project.trackState || {}, v1Links = new Set((project.tracks.V1 || []).map((c) => c.link).filter(Boolean));
+  let n = 0;
+  for (const [id, list] of Object.entries(project.tracks)) {
+    if (id === 'V1' || !ts[id]?.sync || ts[id]?.lock) continue;
+    for (const c of list) {
+      if (c.link && v1Links.has(c.link)) continue;
+      if ((c.start || 0) >= at - 0.01) { c.start = +Math.max(0, (c.start || 0) + by).toFixed(3); n++; }
+    }
+  }
+  return n;
+}
+
 export function fmtTC(s, fps = 30) {
   s = Math.max(0, +s || 0);
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = Math.floor(s % 60), f = Math.floor((s % 1) * fps);
   const p = (n) => String(n).padStart(2, '0');
   return `${p(h)}:${p(m)}:${p(sec)}:${p(f)}`;
 }
+// ⚙ time as the sequence shows it (Sequence Settings › Display format): timecode, frames or seconds
+export function fmtTime(s, st = {}) { const fps = st.fps || 30; return st.tcMode === 'frames' ? String(Math.round(Math.max(0, +s || 0) * fps)) : st.tcMode === 'secs' ? fmt(s) : fmtTC(s, fps); }
 export function fmt(s) {
   if (s === undefined || s === null || isNaN(s)) return '';
   s = Math.max(0, +s);
   const m = Math.floor(s / 60), r = (s % 60).toFixed(1).padStart(4, '0');
   return `${m}:${r}`;
+}
+// ⌨ a typed timecode, like Premiere's timecode fields: 00:01:10:12, 1:10:12 or 1;10 (frames last), plain digits read
+// as HHMMSSFF from the right (1012 = 10 s 12 frames, 300 = 3 s), 2.5 = seconds. A leading + / - makes it relative.
+// -> { sec, rel } (rel: 0 absolute, 1 later, -1 earlier) or null when it is not a timecode.
+export function parseTC(v, fps = 30) {
+  const m = /^([+-]?)([\d:;.]+)$/.exec(String(v ?? '').replace(/\s+/g, ''));
+  if (!m || !/\d/.test(m[2])) return null;
+  const body = m[2];
+  let sec;
+  if (body.includes('.') && !/[:;]/.test(body)) sec = parseFloat(body);
+  else {
+    const parts = /[:;]/.test(body) ? body.split(/[:;]/) : body.length <= 8 ? body.padStart(8, '0').match(/\d\d/g) : null;
+    if (!parts || parts.length > 4 || parts.some((p) => !/^\d*$/.test(p))) return null;
+    const [f = 0, s = 0, mi = 0, h = 0] = parts.map((p) => +p || 0).reverse();
+    sec = h * 3600 + mi * 60 + s + f / fps;
+  }
+  if (!isFinite(sec)) return null;
+  return { sec: Math.round(sec * 1000) / 1000, rel: m[1] === '+' ? 1 : m[1] === '-' ? -1 : 0 };
 }
 export function parseTime(v) {
   if (v === undefined || v === null || String(v).trim() === '') return undefined;
@@ -569,17 +643,89 @@ export const EASES = [['', 'Linear'], ['io', 'Smooth (ease in + out)'], ['in', '
 const easeFn = (e, u) => (e === true || e === 'io' ? u * u * (3 - 2 * u) : e === 'in' ? u * u : e === 'out' ? 1 - (1 - u) * (1 - u) : e === 'hold' ? 0 : u);
 const getP = (o, p) => p.split('.').reduce((a, k) => a?.[k], o);
 
+// 📈 Per-keyframe interpolation (Premiere / After Effects), on top of the old per-segment `ease`:
+// key.ip = 'linear' | 'bezier' | 'cont' (Continuous Bezier) | 'auto' (Auto Bezier) | 'hold'
+// key.in / key.out = { s, f }: the handle's speed (value per second) and influence (0..1 of the segment's time).
+// A segment whose two keys have no `ip` keeps the old ease, so old projects play exactly as before.
+export const KEY_IPS = [['linear', 'Linear'], ['bezier', 'Bezier'], ['auto', 'Auto Bezier'], ['cont', 'Continuous Bezier'], ['hold', 'Hold'], ['easein', 'Ease In'], ['easeout', 'Ease Out'], ['easy', 'Easy Ease']];
+const F3 = 1 / 3;
+const slopeOf = (a, b) => (b.v - a.v) / Math.max(1e-6, b.t - a.t);
+// The handle of key i on one side ('in' = towards the key before, 'out' = towards the key after): { s, f }.
+export function keyHandle(keys, i, side) {
+  const k = keys[i], p = keys[i - 1], n = keys[i + 1], nb = side === 'in' ? p : n;
+  if (!nb) return { s: 0, f: F3 };
+  const m = side === 'in' ? slopeOf(p, k) : slopeOf(k, n);
+  if (!k.ip) {
+    // an old key: the handle that draws its old ease exactly (smooth = flat ends, ease in = u², ease out = 1-(1-u)²)
+    const owner = side === 'in' ? p : k;
+    if (side === 'in' && p.ip) return { s: m, f: F3 };
+    const e = owner.ease === true ? 'io' : owner.ease;
+    if (e === 'io') return { s: 0, f: F3 };
+    if (e === 'in') return { s: side === 'out' ? 0 : 2 * m, f: F3 };
+    if (e === 'out') return { s: side === 'out' ? 2 * m : 0, f: F3 };
+    return { s: m, f: F3 };
+  }
+  if (k.ip === 'linear' || (k.ip === 'hold' && !k[side])) return { s: m, f: F3 };
+  if (k.ip === 'auto' || !k[side]) return { s: p && n ? (n.v - p.v) / Math.max(1e-6, n.t - p.t) : 0, f: F3 };
+  return { s: +k[side].s || 0, f: Math.min(1, Math.max(0.01, k[side].f ?? F3)) };
+}
+// How the value moves from key i to key i+1: 'hold', an old ease, or a cubic bezier (x = share of the time, y = value)
+function segOf(keys, i) {
+  const a = keys[i], b = keys[i + 1], d = Math.max(1e-6, b.t - a.t);
+  if (a.ip === 'hold' || (!a.ip && a.ease === 'hold')) return { hold: true };
+  if (!a.ip && !b.ip) return { ease: a.ease };
+  const o = keyHandle(keys, i, 'out'), n = keyHandle(keys, i + 1, 'in');
+  return { x1: o.f, x2: 1 - n.f, y0: a.v, y1: a.v + o.s * o.f * d, y2: b.v - n.s * n.f * d, y3: b.v };
+}
+const cub = (p0, p1, p2, p3, s) => { const r = 1 - s; return r * r * r * p0 + 3 * r * r * s * p1 + 3 * r * s * s * p2 + s * s * s * p3; };
+// handles of a third of the time each: x moves evenly, so the curve is a plain cubic in u (no solving)
+const evenX = (g) => Math.abs(g.x1 - F3) < 1e-4 && Math.abs(g.x2 - 2 * F3) < 1e-4;
+function bezAt(g, u) {
+  let s = u;
+  if (!evenX(g)) { let lo = 0, hi = 1; for (let k = 0; k < 40; k++) { s = (lo + hi) / 2; if (cub(0, g.x1, g.x2, 1, s) < u) lo = s; else hi = s; } s = (lo + hi) / 2; }
+  return cub(g.y0, g.y1, g.y2, g.y3, s);
+}
+
 export function evalKeys(keys, t) {
   if (!keys?.length) return undefined;
   if (t <= keys[0].t) return keys[0].v;
   for (let i = 0; i < keys.length - 1; i++) {
     const a = keys[i], b = keys[i + 1];
     if (t < b.t) {
-      const u = easeFn(a.ease, (t - a.t) / Math.max(1e-6, b.t - a.t));
-      return a.v + (b.v - a.v) * u;
+      const u = (t - a.t) / Math.max(1e-6, b.t - a.t);
+      if (!a.ip && !b.ip) return a.v + (b.v - a.v) * easeFn(a.ease, u);
+      const g = segOf(keys, i);
+      return g.hold ? a.v : bezAt(g, u);
     }
   }
   return keys[keys.length - 1].v;
+}
+
+// Turn a property's old keys into per-key interpolation with the same curve (before editing handles / interpolation).
+export function keysToIp(keys) {
+  if (!keys?.length || keys.every((k) => k.ip)) return keys;
+  const h = keys.map((k, i) => ({ in: keyHandle(keys, i, 'in'), out: keyHandle(keys, i, 'out') }));
+  keys.forEach((k, i) => {
+    if (k.ip) return;
+    const lin = (side) => { const nb = keys[side === 'in' ? i - 1 : i + 1]; return !nb || Math.abs(h[i][side].s - (side === 'in' ? slopeOf(nb, k) : slopeOf(k, nb))) < 1e-9; };
+    k.ip = k.ease === 'hold' ? 'hold' : lin('in') && lin('out') ? 'linear' : 'bezier';
+    if (k.ip !== 'linear') { k.in = { s: +h[i].in.s.toFixed(5), f: F3 }; if (k.ip === 'bezier') k.out = { s: +h[i].out.s.toFixed(5), f: F3 }; }
+    delete k.ease;
+  });
+  return keys;
+}
+// Premiere's right-click > Temporal Interpolation (and F9 / Shift+F9 / Ctrl+Shift+F9) on key i.
+export function setKeyIp(keys, i, mode) {
+  keysToIp(keys);
+  const k = keys[i]; if (!k) return;
+  const cur = { in: keyHandle(keys, i, 'in'), out: keyHandle(keys, i, 'out') }, flat = { s: 0, f: F3 };
+  delete k.in; delete k.out;
+  if (mode === 'linear' || mode === 'auto') { k.ip = mode; return; }
+  if (mode === 'hold') { k.ip = 'hold'; k.in = cur.in; return; }
+  k.ip = 'bezier'; k.in = cur.in; k.out = cur.out;
+  if (mode === 'cont') { const s = +((cur.in.s + cur.out.s) / 2).toFixed(5); k.ip = 'cont'; k.in = { ...cur.in, s }; k.out = { ...cur.out, s }; }
+  if (mode === 'easein' || mode === 'easy') k.in = { ...flat };
+  if (mode === 'easeout' || mode === 'easy') k.out = { ...flat };
 }
 
 // Value of a property at clip-relative time t (keyframes win over the static value).
@@ -591,6 +737,24 @@ export function propAt(c, path, t) {
 }
 export const hasKeys = (c, path) => !!c.keys?.[path]?.length;
 
+// 📈 One bezier segment as an FFmpeg expression (`rest` = the expression after key b). Even handles: the exact cubic in
+// u; uneven ones (influence dragged): 24 points along the curve joined by straight lines - within a hair of evalKeys.
+function bezExpr(g, a, b, d, T, u, rest, f) {
+  if (g.hold) return `if(lt(${T},${f(b.t)}),${f(a.v)},${rest})`;
+  if (evenX(g)) {
+    const c1 = 3 * (g.y1 - g.y0), c2 = 3 * (g.y0 - 2 * g.y1 + g.y2), c3 = g.y3 - g.y0 + 3 * (g.y1 - g.y2);
+    return `if(lt(${T},${f(b.t)}),${f(g.y0)}+${u}*(${f(c1)}+${u}*(${f(c2)}+${u}*(${f(c3)}))),${rest})`;
+  }
+  const N = 24, pts = [];
+  for (let j = 0; j <= N; j++) { const s = j / N, t = a.t + cub(0, g.x1, g.x2, 1, s) * d; if (j === N || !pts.length || t - pts[pts.length - 1][0] > 1e-4) pts.push([j === N ? b.t : t, cub(g.y0, g.y1, g.y2, g.y3, s)]); }
+  let e = rest;
+  for (let j = pts.length - 1; j >= 1; j--) {
+    const [t0, v0] = pts[j - 1], [t1, v1] = pts[j];
+    e = `if(lt(${T},${f(t1)}),${f(v0)}+(${f((v1 - v0) / Math.max(1e-6, t1 - t0))})*(${T}-${f(t0)}),${e})`;
+  }
+  return e;
+}
+
 // FFmpeg expression of the same curve in variable `T` (e.g. 't' or 'it'). Commas are fine inside quoted filter args.
 export function keysExpr(keys, T = 't') {
   const f = (x) => (+x).toFixed(5);
@@ -599,6 +763,7 @@ export function keysExpr(keys, T = 't') {
   for (let i = keys.length - 2; i >= 0; i--) {
     const a = keys[i], b = keys[i + 1], d = Math.max(1e-6, b.t - a.t);
     const u = `((${T}-${f(a.t)})/${f(d)})`;
+    if (a.ip || b.ip) { e = bezExpr(segOf(keys, i), a, b, d, T, u, e, f); continue; }
     const s = a.ease === true || a.ease === 'io' ? `(${u}*${u}*(3-2*${u}))` : a.ease === 'in' ? `(${u}*${u})` : a.ease === 'out' ? `(1-(1-${u})*(1-${u}))` : a.ease === 'hold' ? '0' : u;
     e = `if(lt(${T},${f(b.t)}),${f(a.v)}+(${f(b.v - a.v)})*${s},${e})`;
   }

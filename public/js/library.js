@@ -35,8 +35,8 @@ export async function deletePreset(kind, id) {
   lib = await api('PUT', '/api/library/presets', { kind, id, remove: true }).then((p) => ({ ...(lib || {}), presets: p }));
   emit('library');
 }
-export async function saveCaptionStyle() {
-  const st = S.project.captions?.style; if (!st) return;
+export async function saveCaptionStyle(st = S.project.captions?.style) { // (🗂 the CC panel passes the track being edited)
+  if (!st) return;
   const name = prompt('Name for this caption style:', 'My captions');
   if (!name?.trim()) return;
   lib = await api('PUT', '/api/library/presets', { kind: 'captions', item: { id: uid(), name: name.trim(), data: { ...st } } }).then((p) => ({ ...(lib || {}), presets: p }));
@@ -60,7 +60,7 @@ export async function applyBrand(b, { intro = true, outro = true } = {}) {
   if (logo) P.logo = { ...(P.logo || {}), mediaId: logo.id, pos: b.logoPos || P.logo?.pos || 'tr', scale: P.logo?.scale ?? 0.12, opacity: P.logo?.opacity ?? 0.9 };
   // captions in the brand's colours and font
   const cs = P.captions?.style || { ...CAPTION_PRESETS.karaoke, preset: 'karaoke' };
-  P.captions = { on: P.captions?.on ?? false, cues: P.captions?.cues || [], style: { ...cs, ...(b.capPreset && CAPTION_PRESETS[b.capPreset] ? CAPTION_PRESETS[b.capPreset] : {}), preset: 'brand', font: b.font || cs.font, hl: b.accent || cs.hl, ...(cs.box || CAPTION_PRESETS[b.capPreset]?.box ? { box: b.primary } : {}) } };
+  P.captions = { ...(P.captions || {}), on: P.captions?.on ?? false, cues: P.captions?.cues || [], style: { ...cs, ...(b.capPreset && CAPTION_PRESETS[b.capPreset] ? CAPTION_PRESETS[b.capPreset] : {}), preset: 'brand', font: b.font || cs.font, hl: b.accent || cs.hl, ...(cs.box || CAPTION_PRESETS[b.capPreset]?.box ? { box: b.primary } : {}) } };
   // every title in the brand colours (new ones too: project.brand)
   for (const l of Object.values(P.tracks)) l.forEach((c) => recolor(c, b));
   P.brand = { primary: b.primary, accent: b.accent, text: b.text, font: b.font };

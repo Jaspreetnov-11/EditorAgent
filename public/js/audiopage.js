@@ -1,10 +1,11 @@
 // Audio page (Fairlight-style mixer): one strip per track with preset, EQ, noise reduction, de-esser, compressor,
 // gain, limiter, live meter, fader, mute/solo; music ducking controls; master loudness target + EBU R128 measurement.
 import { STUDIO_HTML, studio } from './audiostudio.js';
-import { S, on, emit, commit, duration } from './store.js';
+import { S, on, emit, commit, duration, layout, findClip } from './store.js';
+import { AFX, AFX_CATS, newAudioEffect } from './audioeffects.js';
 import { api, enc, watchJob } from './api.js';
 import { fmtTC } from './model.js';
-import { $, $$, h, esc, toast } from './ui.js';
+import { $, $$, h, esc, toast, modal } from './ui.js';
 import { FX_PRESETS, FX_DEFAULT, fxActive } from './audiofx.js';
 import { levels, toggle, isPlayingProgram } from './player.js';
 
@@ -35,13 +36,14 @@ export function mountAudio(el) {
     </div>
     ${STUDIO_HTML}
     <div class="ap-mixer" id="apMixer"></div>
+    <div class="panel ap-clipmix"><div class="sh"><b>🎛 Clip mixer</b> <small>the clip under the playhead on each track</small></div><div id="apClips"></div></div>
     <p class="muted ap-note">Live preview plays EQ, compressor, gain and limiter. Noise reduction, de-essing and music ducking are applied in renders and in <b>Measure final loudness</b>. Start playback once (Space) to light up the meters.</p>
   </div>`;
   el.addEventListener('click', onClick);
   el.addEventListener('click', (e) => { const b = e.target.closest('[data-st]'); if (b) studio(b.dataset.st, b); });
   $('#apTarget', el).onchange = (e) => { S.project.settings.loudness = e.target.value === 'off' ? 'off' : +e.target.value; commit('Loudness target'); };
   on('change', () => { if (S.page === 'audio') renderMixer(); });
-  on('playhead', () => { if (S.page === 'audio') $('#apTC', root).textContent = fmtTC(S.playhead, S.project.settings.fps); });
+  on('playhead', () => { if (S.page === 'audio') { $('#apTC', root).textContent = fmtTC(S.playhead, S.project.settings.fps); renderClipMixer(); } });
 }
 
 export function showAudio() { renderMixer(); startMeters(); }
@@ -76,6 +78,52 @@ function renderMixer() {
     toast(`${STRIPS.find((x) => x.id === id).name}: ${p.label}`);
   }));
   $$('[data-fx], [data-duck]', root).forEach(showVal);
+  $$('[data-slotadd]', root).forEach((sel) => sel.addEventListener('change', () => {
+    const id = sel.closest('[data-strip]').dataset.strip, t = sel.value; if (!t) return;
+    (st(id).aeffects ||= []).push(newAudioEffect(t)); commit(`${id}: add ${AFX[t].label}`); emit('mix');
+  }));
+  renderClipMixer();
+}
+
+// 🎛 a track effect (slot) to adjust: its settings in a small window, heard live while playing
+function editSlot(id, i) {
+  const e = st(id).aeffects?.[i], def = e && AFX[e.type]; if (!def) return;
+  const body = h(`<div class="fgrid">${Object.entries(def.params).map(([k, p]) => {
+    const v = e.p?.[k] ?? p.def;
+    return p.type === 'select' ? `<label class="fld"><span>${esc(p.label)}</span><select data-sp="${k}">${p.options.map(([o, l]) => `<option value="${esc(o)}"${o === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`
+      : `<label class="fld"><span>${esc(p.label)} <b data-sv="${k}">${v}${p.unit || ''}</b></span><input type="range" data-sp="${k}" min="${p.min}" max="${p.max}" step="${p.step}" value="${v}"></label>`;
+  }).join('') || '<p class="muted">Nothing to set.</p>'}</div>${def.live ? '' : '<small class="hint">Heard in Accurate preview and renders.</small>'}`);
+  modal(`🎛 ${STRIPS.find((s) => s.id === id)?.name || id} · ${def.label}`, body, { width: 460 });
+  body.querySelectorAll('[data-sp]').forEach((inp) => {
+    const k = inp.dataset.sp;
+    inp.addEventListener('input', () => { e.p = { ...(e.p || {}), [k]: inp.tagName === 'SELECT' ? inp.value : +inp.value }; const b = body.querySelector(`[data-sv="${k}"]`); if (b) b.textContent = `${inp.value}${def.params[k].unit || ''}`; emit('mix'); });
+    inp.addEventListener('change', () => commit(`${id} ${def.label} ${k}`, `${id}:slot${i}:${k}`));
+  });
+}
+
+// 🎛 Audio Clip Mixer, like Premiere: the clip under the playhead on each track - its own volume and mute - follows the
+// playhead
+let cmKey = '';
+function renderClipMixer() {
+  const box = root && $('#apClips', root); if (!box || !S.project) return;
+  const L = layout(), t = S.playhead;
+  const rows = Object.entries(L).filter(([tr]) => tr[0] === 'A' || tr === 'V1' || tr === 'V2').map(([tr, l]) => [tr, l.find((x) => !x.clip.gap && t >= x.start && t < x.end && (x.clip.type === 'audio' || (x.clip.type === 'video' && S.mediaById[x.clip.mediaId]?.hasAudio && !x.clip.link)))]).filter(([, x]) => x);
+  const key = JSON.stringify(rows.map(([tr, x]) => [tr, x.clip.id, x.clip.volume, x.clip.mute, !!x.clip.keys?.volume?.length]));
+  if (key === cmKey) return;
+  cmKey = key;
+  box.innerHTML = rows.length ? rows.map(([tr, x]) => {
+    const c = x.clip, keyed = c.keys?.volume?.length, v = c.volume ?? 1;
+    return `<div class="cm-row" data-cm="${c.id}"><b>${tr}</b><span class="cm-n" title="${esc(S.mediaById[c.mediaId]?.name || '')}">${esc(S.mediaById[c.mediaId]?.name || c.type)}</span>
+      <input type="range" min="0" max="2" step="0.01" value="${v}" data-cmv${keyed ? ' disabled title="This clip has volume keyframes - change them on the timeline"' : ''} aria-label="${tr} clip volume"><span class="cm-db">${fmtDb(dbOf(v))} dB</span>
+      <button class="tbtn${c.mute ? ' on' : ''}" data-cmm title="Mute this clip">M</button></div>`;
+  }).join('') : '<p class="muted small">No sound clip under the playhead.</p>';
+  box.querySelectorAll('[data-cm]').forEach((r) => {
+    const c = findClip(r.dataset.cm)?.clip; if (!c) return;
+    const sl = r.querySelector('[data-cmv]');
+    sl.oninput = () => { c.volume = +sl.value; r.querySelector('.cm-db').textContent = `${fmtDb(dbOf(+sl.value))} dB`; emit('mix'); };
+    sl.onchange = () => { cmKey = ''; commit('Clip volume (clip mixer)', `cm:${c.id}`); };
+    r.querySelector('[data-cmm]').onclick = () => { c.mute = !c.mute || undefined; cmKey = ''; commit(c.mute ? 'Mute clip' : 'Unmute clip'); };
+  });
 }
 
 function strip(s, used) {
@@ -92,6 +140,10 @@ function strip(s, used) {
       ${slider('nr', 'Noise reduction', 0, 1, 0.05, '%', 'render')}${slider('deess', 'De-esser', 0, 1, 0.05, '%', 'render')}
       ${slider('comp', 'Compressor', 0, 1, 0.05, '%')}${slider('gain', 'Gain', -12, 12, 0.5, 'dB')}
       <label class="chk"><input type="checkbox" data-fx="limit"${fx.limit ? ' checked' : ''}> Limiter (-1 dB)</label>
+    </div>
+    <div class="slots"><b>Effects</b> <small>(Premiere's track effect inserts)</small>
+      ${(x.aeffects || []).map((e, i) => `<div class="slot${e.on === false ? ' off' : ''}"><button class="slot-n" data-au="slotEdit" data-i="${i}" title="Adjust">${esc(AFX[e.type]?.label || e.type)}</button><button class="icon-btn small" data-au="slotOn" data-i="${i}" title="On / off">${e.on === false ? '◌' : '●'}</button><button class="icon-btn small" data-au="slotDel" data-i="${i}" title="Remove">✕</button></div>`).join('')}
+      <select data-slotadd aria-label="Add an effect to ${s.name}"><option value="">+ Add effect…</option>${AFX_CATS.map((cat) => `<optgroup label="${esc(cat)}">${Object.entries(AFX).filter(([, a]) => a.cat === cat && !a.meter).map(([k, a]) => `<option value="${k}">${esc(a.label)}</option>`).join('')}</optgroup>`).join('')}</select>
     </div>
     ${s.id === 'A2' ? `<div class="duck"><b>Ducking</b> <small>music dips under speech</small>
       <label class="fxr"><span>Depth</span><input type="range" data-duck="duckDepth" min="4" max="30" step="1" value="${x.duckDepth ?? 14}" data-unit="dB"><output></output></label>
@@ -131,6 +183,10 @@ async function onClick(e) {
   if (a === 'mute' || a === 'solo') { st(id)[a] = !st(id)[a] || undefined; commit(`${id} ${a}`); emit('mix'); }
   if (a === 'duckAll') { const n = S.project.tracks.A2.length; S.project.tracks.A2.forEach((c) => (c.duck = true)); commit('Duck all music'); toast(n ? `Ducking on for ${n} music clip${n > 1 ? 's' : ''}` : 'No music on A2 yet'); }
   if (a === 'measure') measure(e.target.closest('button'));
+  const si = +e.target.closest('[data-i]')?.dataset.i, sl = st(id || '').aeffects;
+  if (a === 'slotEdit') editSlot(id, si);
+  if (a === 'slotOn' && sl?.[si]) { sl[si].on = sl[si].on === false; commit(`${id} effect on/off`); emit('mix'); }
+  if (a === 'slotDel' && sl?.[si]) { sl.splice(si, 1); if (!sl.length) delete st(id).aeffects; commit(`${id} remove effect`); emit('mix'); }
 }
 function syncPlay() { const b = $('[data-au="play"]', root); if (b) b.textContent = isPlayingProgram() ? '❚❚' : '▶'; }
 

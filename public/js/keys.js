@@ -19,6 +19,12 @@ export const COMMANDS = [
   ['selectTool', 'Selection tool', 'Tools'], ['razorTool', 'Razor tool', 'Tools'], ['typeTool', 'Type tool (write on the monitor)', 'Tools'],
   ['rippleTool', 'Ripple edit tool', 'Tools'], ['rollingTool', 'Rolling edit tool', 'Tools'], ['rateTool', 'Rate stretch tool', 'Tools'], ['penTool', 'Pen tool', 'Tools'], ['remixTool', 'Remix tool', 'Tools'],
   ['slipTool', 'Slip tool', 'Tools'], ['slideTool', 'Slide tool', 'Tools'], ['handTool', 'Hand tool', 'Tools'], ['zoomTool', 'Zoom tool', 'Tools'],
+  ['trackFwdTool', 'Track select forward tool', 'Tools'], ['trackBackTool', 'Track select backward tool', 'Tools'],
+  ['nudgeL', 'Nudge selected clips 1 frame left', 'Timeline'], ['nudgeR', 'Nudge selected clips 1 frame right', 'Timeline'],
+  ['nudgeL5', 'Nudge selected clips 5 frames left', 'Timeline'], ['nudgeR5', 'Nudge selected clips 5 frames right', 'Timeline'],
+  ['pasteInsert', 'Paste insert (everything after the playhead moves along)', 'Application'], ['group', 'Group', 'Timeline'], ['ungroup', 'Ungroup', 'Timeline'],
+  ['trimMode', 'Trim mode (trim the cut nearest the playhead)', 'Timeline'], ['exportFrame', 'Export Frame (PNG of the playhead frame)', 'Application'], ['closeGaps', 'Close gaps (main story)', 'Timeline'],
+  ['nextGap', 'Go to next gap', 'Timeline'], ['prevGap', 'Go to previous gap', 'Timeline'], ['clipMarker', 'Add clip marker', 'Markers'], ['rippleMarkers', 'Ripple sequence markers (on / off)', 'Markers'], ['history', 'History panel', 'View'], ['autoReframe', 'Auto Reframe Sequence…', 'Timeline'], ['seqSettings', 'Sequence Settings…', 'Timeline'], ['replaceEdit', 'Replace with clip from Source monitor', 'Source monitor'], ['timecode', 'Type a timecode (go there, or +15 / -1:00 to move)', 'Timeline'],
   ['lift', 'Lift (In to Out out, leave a gap)', 'Timeline'], ['extract', 'Extract (In to Out out, close the gap)', 'Timeline'],
   ['addEdit', 'Add edit (split selected / at playhead)', 'Timeline'], ['addEditAll', 'Add edit to all tracks', 'Timeline'],
   ['rippleTrimPrev', 'Ripple trim previous edit to playhead', 'Timeline'], ['rippleTrimNext', 'Ripple trim next edit to playhead', 'Timeline'],
@@ -39,6 +45,8 @@ const PREMIERE = {
   prevEdit: ['Up', 'PageUp'], nextEdit: ['Down', 'PageDown'], goStart: ['Home'], goEnd: ['End'], matchFrame: ['F'],
   markIn: ['I'], markOut: ['O'], goIn: ['Shift+I'], goOut: ['Shift+O'], clearInOut: ['Ctrl+Shift+X'], openXml: ['Ctrl+O'], speedDuration: ['Ctrl+R'], insert: [','], overwrite: ['.'],
   selectTool: ['V'], razorTool: ['C'], typeTool: ['T'], rippleTool: ['B'], rollingTool: ['N'], rateTool: ['R'], penTool: ['P'], remixTool: [], slipTool: ['Y'], slideTool: ['U'], handTool: ['H'], zoomTool: ['Z'],
+  trackFwdTool: ['A'], trackBackTool: ['Shift+A'], nudgeL: ['Alt+Left'], nudgeR: ['Alt+Right'], nudgeL5: ['Alt+Shift+Left'], nudgeR5: ['Alt+Shift+Right'],
+  pasteInsert: ['Ctrl+Shift+V'], group: ['Ctrl+G'], ungroup: ['Ctrl+Shift+G'], trimMode: ['Shift+T'], replaceEdit: [], timecode: [], exportFrame: ['Ctrl+Shift+E'], closeGaps: [], nextGap: [], prevGap: [], clipMarker: [], rippleMarkers: [], history: [], autoReframe: [], seqSettings: [],
   lift: [';'], extract: ["'"], addEdit: ['Ctrl+K'], addEditAll: ['Ctrl+Shift+K'], rippleTrimPrev: ['Q'], rippleTrimNext: ['W'],
   // 📌 Delete leaves a gap, so every other clip stays exactly where it was put; Shift+Delete closes up (ripple) - like
   // Premiere. (For a while Delete closed up, and clips slid along whenever something before them was deleted.)

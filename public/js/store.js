@@ -110,6 +110,8 @@ export function redo() {
 }
 export const canUndo = () => undoStack.length > 0;
 export const canRedo = () => redoStack.length > 0;
+// 🕘 History panel: the steps that can be undone (oldest first) and the ones that can be redone (next first)
+export const historySteps = () => ({ done: undoStack.map((u) => u.label), undone: [...redoStack].reverse().map((r) => r.label) });
 
 function pruneSelection() {
   const ids = new Set(allClips().map((c) => c.id));

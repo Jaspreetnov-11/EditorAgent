@@ -137,6 +137,7 @@ async function cmdState() {
     }
   }
   if (pj.captions?.cues?.length) lines.push(`captions: ${pj.captions.cues.length} cues, style ${pj.captions.style?.preset || ''}`);
+  for (const t of pj.captions?.tracks || []) lines.push(`caption track "${t.name || t.id}"${t.lang ? ` (${t.lang})` : ''}: ${t.cues?.length || 0} cues${t.on ? '' : ', hidden'}`);
   if (pj.agentReport?.warnings?.length) lines.push(`last agent warnings: ${pj.agentReport.warnings.join(' / ')}`);
   out(lines.join('\n'));
 }

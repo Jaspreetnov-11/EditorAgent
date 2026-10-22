@@ -23,6 +23,8 @@ const marks = () => (S.sourceMarks[id] ||= {});
 // the Studio look uses this monitor; the classic look keeps its one viewer with Source / Timeline
 export const srcMonOn = () => !!root && document.documentElement.classList.contains('ui2');
 export const srcMonActive = () => srcMonOn() && active && !!id;
+// the clip open here and the frame shown (🔄 Replace with clip from Source monitor)
+export const sourceState = () => (id ? { id, t: time() } : null);
 
 export function mountSourceMonitor(host) {
   root = host;

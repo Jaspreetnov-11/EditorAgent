@@ -18,6 +18,7 @@ import { Readable } from 'node:stream';
 import zlib from 'node:zlib';
 import { newProject, uid, placed, clipDur, seqOf, seqHash, ASPECTS, normalizeProject, rangeOf, totalDuration } from './public/js/model.js';
 import { gfxKey } from './public/js/graphics.js';
+import { CAPTION_LANGS, translatePrompt, parseTranslation } from './public/js/captions.js';
 import { stabOf } from './public/js/effects.js';
 import { ensureLuts, guessLogLut } from './engine/lutgen.mjs';
 import { ensureLooks } from './engine/looklut.mjs';
@@ -36,6 +37,10 @@ import { mentioned, textHits, loadLibrary, saveLibrary, label as peopleLabel } f
 import { readXmeml, aspectOf } from './engine/xmlimport.mjs';
 import { ensureSfx, listSfx, SFX_KINDS } from './engine/sfx.mjs';
 import { gyroflowExe, findLog, gyroSamples, stabilise, LOG_EXT as GF_LOG } from './engine/gyroflow.mjs';
+import { runNightly, mirrorLive, restoreProject, nights as backupNights, standbyState, liveDir, dayOf, safeDir } from './engine/safety.mjs';
+import * as QC from './engine/qc.mjs';
+import { startHealth, noteRequest, healthSeries } from './engine/health.mjs';
+import { ReviewStore, Limiter, findLink, sameSecret, pwOk, pwCookie, cleanText, cleanName, cleanDraw, renderPath, expired, latest, clientView, ownerView, readLimited, newId, hashPw as rvHashPw, MAX_COMMENTS } from './engine/clientreview.mjs';
 
 // more file workers for Node (default 4): slow NAS reads of scans / probes took all four and the Program monitor's
 // video waited behind them (~0.1 MB/s for a 70 Mbps clip - a black monitor). Set here, before the first file read
@@ -53,7 +58,9 @@ fs.mkdirSync(PROJECTS, { recursive: true });
 // New project. project-places.json remembers where each one outside Projects is ({ name: its folder }); projDir finds it.
 const PLACES_FILE = path.join(DATA, 'project-places.json');
 let placesCache = null;
-const projectPlaces = () => (placesCache ||= readJSON(PLACES_FILE, {}));
+let placesMt = 0;
+// (read again when the file changed - ⚙ project workers and the main process each keep a copy)
+const projectPlaces = () => { let mt = 0; try { mt = fs.statSync(PLACES_FILE).mtimeMs; } catch {} if (!placesCache || mt !== placesMt) { placesCache = readJSON(PLACES_FILE, {}); placesMt = mt; } return placesCache; };
 function setPlace(name, dir) { const pl = { ...projectPlaces() }; if (dir) pl[name] = dir; else delete pl[name]; placesCache = pl; writeJSON(PLACES_FILE, pl); }
 // every project: the ones in Projects, then the ones saved elsewhere (a drive that is not connected right now is left out)
 const allProjects = () => [...fs.readdirSync(PROJECTS).filter((n) => fs.existsSync(path.join(PROJECTS, n, 'project.json'))),
@@ -152,6 +159,25 @@ const localStamp = () => { const d = new Date(), p = (x) => String(x).padStart(2
 const safeName = (n) => String(n).replace(/[\\/:*?"<>|]+/g, '_').replace(/^[.\s]+|[.\s]+$/g, '').slice(0, 120) || 'untitled';
 const err = (code, msg) => Object.assign(new Error(msg), { code });
 
+// ---------------- ⚙ project workers (config.cluster.workers, 🩺 Mazbooti) ----------------
+// Off (0) = one process does everything, as always. On (N): this process (the main one) keeps the doors (ports 3000,
+// team, farm, phone review), sign-ins, the render queue, publish / batch, backups and the settings, and starts N worker
+// processes (127.0.0.1:3401…). Every project belongs to one worker (by its name), which alone keeps it in memory: its
+// live editing, media list, thumbnails / previews, jobs. A project's heavy moment (a 5000-clip save, a slow NAS) then only
+// slows the projects of its own worker. The main process never holds a project's state, so two processes never write
+// one project's files; it hands every request about a project to its worker (handle -> forward).
+const WORKER_K = +process.env.VEDIT_WORKER || 0; // 1…N in a worker, 0 in the main process
+const WORKERS = Math.max(0, Math.min(16, WORKER_K ? +process.env.VEDIT_WORKERS || 0 : +(process.env.VEDIT_CLUSTER ?? config().cluster?.workers) || 0)); // (VEDIT_CLUSTER: the auto-tests)
+const IS_WORKER = WORKER_K > 0, CLUSTER = WORKERS > 0;
+const CL_KEY = process.env.VEDIT_KEY || crypto.randomBytes(18).toString('hex'); // (only the main process may talk to a worker)
+const workerPort = (k) => (+process.env.WORKER_BASE || 3400) + k;
+function ownerOf(name) {
+  if (!CLUSTER) return 0;
+  let h = 2166136261; for (const ch of safeName(name).toLowerCase()) { h ^= ch.codePointAt(0); h = Math.imul(h, 16777619) >>> 0; }
+  return 1 + (h % WORKERS);
+}
+const owns = (name) => !CLUSTER || (IS_WORKER && ownerOf(name) === WORKER_K); // this process keeps the project in memory
+
 function send(res, code, body, type = 'application/json') {
   const out = type === 'application/json' ? JSON.stringify(body) : body;
   // big answers (a 1000-file media list is ~1.3 MB) go gzipped when the browser takes it - ~10x smaller over the
@@ -239,15 +265,18 @@ function needProject(name) {
 }
 
 const mediaCache = new Map(); // project -> { items: [] }
+const mediaRead = new Map(); // ⚙ project kept by another process -> when its copy here was read
 function mediaDb(name) {
-  if (!mediaCache.has(name)) mediaCache.set(name, readJSON(P(name, 'media.json'), { items: [] }));
+  // (⚙ another process keeps it: a fresh read, held 2 s - while a change made here is waiting to be written, until then)
+  if (!owns(name) && mediaCache.has(name) && !saveTimers.has(name) && Date.now() - (mediaRead.get(name) || 0) > 2000) mediaCache.delete(name);
+  if (!mediaCache.has(name)) { mediaCache.set(name, readJSON(P(name, 'media.json'), { items: [] })); mediaRead.set(name, Date.now()); }
   return mediaCache.get(name);
 }
 const saveTimers = new Map();
 function saveMedia(name, now = false) {
   clearTimeout(saveTimers.get(name));
   // the project folder may have been deleted meanwhile - then there is nothing to save
-  const write = () => { if (fs.existsSync(projDir(name))) writeJSON(P(name, 'media.json'), mediaDb(name)); };
+  const write = () => { const db = mediaCache.get(name); saveTimers.delete(name); if (db && fs.existsSync(projDir(name))) writeJSON(P(name, 'media.json'), db); };
   if (now) write(); else saveTimers.set(name, setTimeout(write, 500));
 }
 const mediaItem = (name, id) => mediaDb(name).items.find((m) => m.id === id);
@@ -684,7 +713,7 @@ async function packProject(name, opts, job) {
 const quickQ = [], proxyQ = [];
 const jobs = new Map(); // background jobs (renders, agent, transcription...) - see startJob / startTask
 let quickActive = 0, proxyActive = 0;
-function enqueue(proj, id) { quickQ.push({ proj, id }); pump(); }
+function enqueue(proj, id) { if (!owns(proj)) return; quickQ.push({ proj, id }); pump(); } // (⚙ its own worker reads it - handOver)
 
 // ❗ why a file cannot be used, in words (instead of "Could not read this file")
 function whyUnreadable(file, stderr = '') {
@@ -864,7 +893,8 @@ async function processProxy(proj, id) {
 
 // Several files at a time; the project that is open in the browser goes first.
 // 3 proxies at once: decoding 4K camera files is the slow part and spreads over the cores; more would only wait on the drive
-const QUICK_WORKERS = 3, PROXY_WORKERS = 3;
+// (⚙ project workers share these out, so N workers together read no more files at once than one editor did)
+const QUICK_WORKERS = IS_WORKER ? Math.max(1, Math.ceil(4 / WORKERS)) : 3, PROXY_WORKERS = IS_WORKER ? Math.max(1, Math.ceil(3 / WORKERS)) : 3;
 let activeProject = null;
 // shots on the open project's timeline first (so the viewer can play them), then the rest of that project, then others
 let tlCache = { proj: null, mtime: 0, ids: new Set() };
@@ -918,7 +948,7 @@ async function pump() {
 }
 
 // On start, resume anything left unfinished last time (VEDIT_NO_RESUME=1: a second test server leaves that to the main one).
-for (const proj of process.env.VEDIT_NO_RESUME ? [] : allProjects()) {
+for (const proj of process.env.VEDIT_NO_RESUME && !IS_WORKER ? [] : allProjects().filter(owns)) { // (⚙ a worker: its own projects)
   ensureProjectDirs(proj);
   for (const m of mediaDb(proj).items) {
     if (m.status !== 'ready' && m.status !== 'offline') { m.status = 'queued'; quickQ[m.kind === 'audio' ? 'unshift' : 'push']({ proj, id: m.id }); }
@@ -936,8 +966,10 @@ function publicMedia(proj, m) {
 
 // ---------------- jobs ----------------
 let jobSeq = 0;
+// (⚙ a worker's jobs say whose they are - w3-12 - so the main process sends 'how far is it' to that worker)
+const JOB_ID = () => `${IS_WORKER ? `w${WORKER_K}-` : ''}${++jobSeq}`;
 function startJob(kind, cmd, args, onDone, meta = {}) {
-  const id = String(++jobSeq);
+  const id = JOB_ID();
   const job = { id, kind, status: 'running', progress: 0, log: [], started: Date.now(), result: null, ...meta };
   jobs.set(id, job);
   const p = spawn(cmd, args, { cwd: ROOT, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' } });
@@ -1001,7 +1033,7 @@ function leaveLine(job) {
 
 // In-process background task (same polling API as spawned jobs).
 function startTask(kind, fn, meta = {}) {
-  const id = String(++jobSeq);
+  const id = JOB_ID();
   const job = { id, kind, status: 'running', progress: 0, log: [], started: Date.now(), result: null, ...meta };
   jobs.set(id, job);
   let slot = false;
@@ -1064,13 +1096,16 @@ function prepareRender(name, b, o = {}) {
     ...(+qy.crf ? { crf: +qy.crf } : {}), ...(+qy.abr ? { abr: +qy.abr } : {}), ...(qy.gpu === 'off' ? { gpu: false } : qy.gpu && healthCache?.nvenc ? { gpu: true } : {}),
     ...(qy.burnTC ? { burnTC: true } : {}), ...(qy.burnName ? { burnName: true } : {}) } : null; // (⏱ burn-in for review copies)
   const base = safeName(b.filename || pj.name || name) + (pr && b.tag !== false ? `_${pr.tag}` : '') + (b.tag !== false && exp?.res ? { 2160: '_4K', 1440: '_2K', 1080: '_1080p', 720: '_720p', 480: '_480p' }[exp.res] || '' : '');
-  const ext = (exp?.codec || pr?.codec) === 'prores' ? 'mov' : 'mp4';
+  const cod = exp?.codec || pr?.codec;
+  // (🎞 DNxHR / ProRes .mov · 🎧 WAV / MP3 sound only · GIF · 🖼 PNG frames into a folder named like a file, no extension)
+  const ext = { prores: 'mov', dnxhr: 'mov', wav: 'wav', mp3: 'mp3', gif: 'gif', png: '' }[cod] ?? 'mp4';
   let out = '_preview.mp4';
   // names already promised to renders still waiting in the queue count as taken
   // (and names just given to a render started a moment ago - two renders at once used to write into the same file)
   const taken = (f) => fs.existsSync(P(name, 'renders', f)) || rq.items.some((x) => x.project === name && x.out === f && ['waiting', 'rendering'].includes(x.state))
     || Date.now() - (outReserved.get(`${name}/${f}`) || 0) < 6 * 3600e3;
-  if (!preview) { let v = 1; while (taken(`${base}_v${v}.${ext}`)) v++; out = `${base}_v${v}.${ext}`; outReserved.set(`${name}/${out}`, Date.now()); }
+  const fname = (v) => (ext ? `${base}_v${v}.${ext}` : `${base}_v${v} frames`);
+  if (!preview) { let v = 1; while (taken(fname(v))) v++; out = fname(v); outReserved.set(`${name}/${out}`, Date.now()); }
   const media = Object.fromEntries([...used].map((id) => [id, { path: byId[id].path, duration: byId[id].duration, hasAudio: byId[id].hasAudio, kind: byId[id].kind, width: byId[id].width, height: byId[id].height, rotation: byId[id].rotation, size: byId[id].size, mtime: byId[id].mtime, subOf: byId[id].subOf }]));
   const jobFile = o.jobFile || P(name, 'cache', preview ? 'render-job-preview.json' : `render-job-${safeName(out)}.json`);
   fs.mkdirSync(path.dirname(jobFile), { recursive: true });
@@ -1142,7 +1177,7 @@ function pumpQueue() {
     pumpQueue();
   });
 }
-setTimeout(pumpQueue, 4000); // whatever was waiting when the editor closed
+if (!IS_WORKER) setTimeout(pumpQueue, 4000); // (⚙ the render queue is the main process's) whatever was waiting when the editor closed
 
 // one entry per platform: { preset, aspect, fit, filename, quality, seq } - the timeline is copied now
 // 📁 "Save to" (Deliver): a folder of the owner's choice where the finished file is also put (the project keeps its copy
@@ -1310,6 +1345,204 @@ async function checkHealth() {
 }
 checkHealth();
 
+// ---------------- 🛟 Mazbooti (Phase 21): nightly backup, live mirror for a standby PC, health watch ----------------
+// config.safety = { on, dest, hour, keep, mirror } (🩺 Mazbooti window). engine/safety.mjs does the copying,
+// engine/health.mjs the watching, engine/standby.mjs runs on the second PC. A standby's own editor (VEDIT_STANDBY) runs
+// from the mirror and makes no backups or mirror of its own.
+const STANDBY = process.env.VEDIT_STANDBY || null;
+startHealth(path.join(DATA, 'logs'), IS_WORKER ? `-w${WORKER_K}` : ''); // (⚙ each project worker its own file)
+function safetyCfg() {
+  const s = config().safety || {};
+  const dest = s.dest || (fs.existsSync('Z:\\') ? 'Z:\\Limelight Backups' : ''); // (the NAS, when this PC has it)
+  return { on: s.on !== false && !!dest, dest, hour: Number.isInteger(s.hour) ? s.hour : 2, keep: Math.max(3, Math.min(60, +s.keep || 14)), mirror: !!s.mirror && !!dest };
+}
+function saveSafety(patch) { const c = config(); c.safety = { ...(c.safety || {}), ...patch }; fs.writeFileSync(CONFIG, JSON.stringify(c, null, 1)); }
+const safetyRun = { busy: null, last: null, failedAt: 0, mirrorAt: 0, mirrorErr: null, mirrored: new Map(), pull: null };
+const safeProjects = () => allProjects().map((name) => ({ name, dir: projDir(name) })).filter((p) => fs.existsSync(path.join(p.dir, 'project.json')));
+// what goes with the projects: into each night everything; into the live mirror only what a standby's editor reads
+// from its data folder (its Library and LUTs are its own)
+const appOf = (night) => (night
+  ? { files: [[PLACES_FILE, 'project-places.json'], [path.join(DATA, 'project-folders.json'), 'project-folders.json']], dirs: [[LIB, 'Library'], [GLOBAL_LUTS, 'LUTs']], config: config() }
+  : { files: [[path.join(DATA, 'project-folders.json'), 'project-folders.json']], config: config() });
+// (⚙ with project workers: each worker saves what it keeps)
+async function flushLive() { for (const [name, L] of live) { try { liveWrite(name, L, true); } catch {} } if (CLUSTER && !IS_WORKER) await Promise.all([...Array(WORKERS)].map((_, i) => askWorker(i + 1, 'flush').catch(() => {}))); }
+
+async function nightlyBackup(force = false) {
+  const s = safetyCfg();
+  if (STANDBY || safetyRun.busy || (!force && !s.on) || !s.dest) return null;
+  const st = readJSON(path.join(s.dest, 'status.json'), null), lastOk = (st?.history || []).find((x) => x.ok);
+  if (!force) {
+    // after the hour: once a day; before it: only when a night was missed (the very first one waits for the hour, or Back up now)
+    const now = new Date(), due = now.getHours() >= s.hour ? lastOk?.night !== dayOf(now) : !!lastOk && Date.now() - lastOk.at > 30 * 3600e3;
+    if (!due || Date.now() - safetyRun.failedAt < 3600e3) return null; // (a failed night is tried again after an hour)
+  }
+  safetyRun.busy = { kind: 'backup', step: 'starting', at: Date.now() };
+  try {
+    fs.mkdirSync(s.dest, { recursive: true });
+    await flushLive();
+    const r = await runNightly({ dest: s.dest, projects: safeProjects(), app: appOf(true), keep: s.keep, onProgress: (step) => { safetyRun.busy.step = step; } });
+    safetyRun.last = r; if (!r.ok) { safetyRun.failedAt = Date.now(); logCrash('nightly backup', r.errors.join('; ')); }
+    console.log(`🌙 Nightly backup ${r.ok ? 'done' : 'done with errors'}: ${r.projects} projects, ${Math.round(r.bytes / 1048576)} MB copied, ${r.secs} s → ${s.dest}`);
+    return r;
+  } catch (e) {
+    safetyRun.last = { night: dayOf(), at: Date.now(), ok: false, errors: [e.message] }; safetyRun.failedAt = Date.now();
+    logCrash('nightly backup', e);
+    return safetyRun.last;
+  } finally { safetyRun.busy = null; }
+}
+// 🔁 every 5 minutes: the projects that changed go to the live mirror (only while Standby is on, and never over edits a
+// standby PC made that are not back here yet)
+async function mirrorTick(all = false) {
+  const s = safetyCfg();
+  if (STANDBY || !s.mirror || safetyRun.mirroring) return;
+  const sb = standbyState(s.dest);
+  if (sb && sb.state !== 'pulled') return;
+  safetyRun.mirroring = true;
+  try {
+    await flushLive();
+    const key = (p) => ['project.json', 'media.json'].map((f) => { try { return fs.statSync(path.join(p.dir, f)).mtimeMs; } catch { return 0; } }).join('|');
+    const changed = safeProjects().filter((p) => all || safetyRun.mirrored.get(p.name) !== key(p));
+    if (changed.length || Date.now() - safetyRun.mirrorAt > 30 * 60e3) {
+      await mirrorLive({ dest: s.dest, projects: changed, app: appOf(false), host: os.hostname() });
+      for (const p of changed) safetyRun.mirrored.set(p.name, key(p));
+    }
+    safetyRun.mirrorAt = Date.now(); safetyRun.mirrorErr = null;
+  } catch (e) { safetyRun.mirrorErr = e.message; logCrash('live mirror', e); }
+  finally { safetyRun.mirroring = false; }
+}
+// 🖥 a standby PC that ran the editor (engine/standby.mjs): while it runs, this editor only shows (no two editors write
+// the same project); once it has handed back, its edits come in here - its timeline wins (this editor was down
+// meanwhile; the one from before goes into Versions), files added there are added here
+let standbyHold = null; // { host, since, pending?, error? } - edits are held back
+function writeStandby(dest, o) { const f = path.join(liveDir(dest), 'standby.json'); fs.writeFileSync(`${f}.tmp`, JSON.stringify(o, null, 1)); fs.renameSync(`${f}.tmp`, f); }
+// one project's edits from the standby's copy in folder pd - run by the process that keeps the project (⚙ its worker)
+function pullProject(name, pd) {
+  const lp = P(name, 'project.json');
+  // (opening a project on the standby touches its file - only a real change comes back)
+  const same = (f) => { const pj = normalizeProject(readJSON(f, {})); delete pj.modified; delete pj._rev; return JSON.stringify(pj); };
+  const changed = same(path.join(pd, 'project.json')) !== same(lp);
+  if (changed) {
+    const L = live.get(name); if (L) { clearTimeout(L.timer); L.timer = null; }
+    backup(name, true); fs.copyFileSync(path.join(pd, 'project.json'), lp); const now = new Date(); fs.utimesSync(lp, now, now);
+    if (L) liveOf(name); // (the open editors switch to it)
+  }
+  let added = 0;
+  const db = mediaDb(name), have = new Set(db.items.map((m) => m.id)), sdb = readJSON(path.join(pd, 'media.json'), { items: [] });
+  for (const m of sdb.items || []) {
+    if (have.has(m.id)) continue;
+    let p = m.origPath || m.path;
+    if (!m.origPath && p && path.resolve(p).toLowerCase().startsWith(pd.toLowerCase() + path.sep)) { // uploaded on the standby
+      const to = P(name, path.resolve(p).slice(pd.length + 1));
+      fs.mkdirSync(path.dirname(to), { recursive: true });
+      if (!fs.existsSync(to)) fs.copyFileSync(p, to);
+      p = to;
+    }
+    const it = { ...m, path: p, status: 'queued', proxy: m.kind === 'video' ? 'pending' : 'none' }; delete it.origPath; delete it.lite;
+    db.items.push(it); enqueue(name, it.id); added++;
+  }
+  if (added) saveMedia(name, true);
+  return { changed, added };
+}
+async function pullBack(dest, sb) {
+  const L = liveDir(dest), info = readJSON(path.join(L, 'mirror.json'), { projects: {} }), res = { projects: [], added: 0 };
+  for (const folder of fs.existsSync(path.join(L, 'Projects')) ? fs.readdirSync(path.join(L, 'Projects')) : []) {
+    const pd = path.join(L, 'Projects', folder), pf = path.join(pd, 'project.json');
+    if (!fs.existsSync(pf) || fs.statSync(pf).mtimeMs < (sb.since || 0) - 1000) continue; // (not changed on the standby)
+    const name = info.projects?.[folder]?.name || folder;
+    if (!allProjects().includes(name)) { // made on the standby: comes in as a project of its own
+      const to = path.join(PROJECTS, safeName(name));
+      await restoreProject({ dest, night: 'live', folder, to });
+      ensureProjectDirs(name); mediaCache.delete(name);
+      for (const m of mediaDb(name).items) if (m.status === 'queued') enqueue(name, m.id);
+      await handOver(name);
+      res.projects.push(`${name} (new)`); continue;
+    }
+    const r = CLUSTER && !IS_WORKER ? await askWorker(ownerOf(name), 'pull', name, 60000, { dir: pd }) : pullProject(name, pd);
+    res.added += r.added || 0;
+    if (r.changed || r.added) res.projects.push(name);
+  }
+  writeStandby(dest, { ...sb, state: 'pulled', pulledAt: Date.now(), result: res });
+  safetyRun.mirrored.clear(); // (the mirror is renewed from this editor next)
+  safetyRun.pull = { at: Date.now(), host: sb.host, ...res };
+  console.log(`🖥 Edits from the standby PC ${sb.host} brought back: ${res.projects.join(', ') || 'none'}${res.added ? ` (${res.added} new files)` : ''}`);
+  return res;
+}
+async function standbyTick() {
+  const s = safetyCfg();
+  if (STANDBY || !s.dest) { standbyHold = null; return; }
+  const sb = standbyState(s.dest);
+  if (!sb || sb.state === 'pulled') { standbyHold = null; return; }
+  if (sb.state === 'active' && Date.now() - (sb.beat || 0) < 3 * 60e3) { standbyHold = { host: sb.host, since: sb.since }; return; }
+  // handed back (or it stopped without saying so - what it saved is in the mirror): bring its edits in
+  standbyHold = { host: sb.host, since: sb.since, pending: true };
+  try { await pullBack(s.dest, sb); standbyHold = null; } catch (e) { standbyHold.error = e.message; logCrash('standby pull back', e); }
+}
+if (!process.env.VEDIT_NO_RESUME) {
+  setTimeout(() => { standbyTick().then(() => mirrorTick()).catch(() => {}); nightlyBackup().catch(() => {}); }, 60000);
+  setInterval(() => nightlyBackup().catch((e) => logCrash('nightly backup', e)), 10 * 60e3).unref?.();
+  setInterval(() => mirrorTick().catch((e) => logCrash('live mirror', e)), 5 * 60e3).unref?.();
+  setInterval(() => standbyTick().catch((e) => logCrash('standby', e)), 30000).unref?.();
+}
+// the server-errors.log of the last 24 h: how many, and the latest few
+function recentErrors() {
+  try {
+    const fd = fs.openSync(ERRLOG, 'r'), size = fs.fstatSync(fd).size, n = Math.min(size, 512 * 1024), buf = Buffer.alloc(n);
+    fs.readSync(fd, buf, 0, n, size - n); fs.closeSync(fd);
+    const since = Date.now() - 864e5, list = [];
+    for (const l of buf.toString('utf8').split('\n')) { const m = /^\[(\d{4}-\d\d-\d\dT[\d:.]+Z)\] ([^:]+): (.*)$/.exec(l); if (m && Date.parse(m[1]) >= since) list.push({ t: Date.parse(m[1]), kind: m[2], msg: m[3].slice(0, 200) }); }
+    return { count: list.length, latest: list.slice(-6).reverse() };
+  } catch { return { count: 0, latest: [] }; }
+}
+// free space where the projects, the editor's data and the backups are (a drive that does not answer in 3 s is left out)
+async function diskInfo() {
+  const s = safetyCfg(), roots = new Map();
+  const add = (p, what) => { if (!p) return; const r = path.parse(path.resolve(p)).root; if (!roots.has(r)) roots.set(r, new Set()); roots.get(r).add(what); };
+  add(DATA, 'Editor data'); add(s.dest, 'Backups');
+  for (const n of allProjects()) { try { add(projDir(n), 'Projects'); } catch {} }
+  const out = [];
+  await Promise.all([...roots].map(async ([root, what]) => {
+    try {
+      const st = await Promise.race([fs.promises.statfs(root), sleep(3000).then(() => { throw new Error('no answer'); })]);
+      out.push({ root, what: [...what], free: st.bavail * st.bsize, total: st.blocks * st.bsize });
+    } catch (e) { out.push({ root, what: [...what], error: e.message }); }
+  }));
+  return out.sort((a, b) => a.root.localeCompare(b.root));
+}
+async function healthView() {
+  const s = safetyCfg(), h = healthSeries(), disks = await diskInfo(), errs = recentErrors();
+  const st = s.dest ? readJSON(path.join(s.dest, 'status.json'), null) : null, lastOk = (st?.history || []).find((x) => x.ok), last = safetyRun.last || st?.last || null;
+  const recent = h.samples.slice(-10), warn = [];
+  const W = (level, text) => warn.push({ level, text });
+  if (standbyHold) W('bad', standbyHold.pending ? `Edits made on the standby PC ${standbyHold.host} are being brought back${standbyHold.error ? ` - failed: ${standbyHold.error}` : ''}` : `The standby PC ${standbyHold.host} is running the editor (since ${new Date(standbyHold.since).toLocaleString()}) - this one only shows until it hands back`);
+  for (const d of disks) {
+    if (d.error) { W('warn', `${d.root} (${d.what.join(', ')}) does not answer`); continue; }
+    const pct = d.free / d.total, gb = d.free / 1073741824;
+    if (pct < 0.05 || gb < 10) W('bad', `${d.root} is almost full: ${gb.toFixed(0)} GB free (${(pct * 100).toFixed(0)}%)`);
+    else if (pct < 0.1 || gb < 30) W('warn', `${d.root} is filling up: ${gb.toFixed(0)} GB free (${(pct * 100).toFixed(0)}%)`);
+  }
+  if (!STANDBY) {
+    if (!s.on) W('warn', 'Nightly backup is off');
+    else if (last && !last.ok) W('bad', `Last night's backup failed: ${(last.errors || [])[0] || 'see the errors'}`);
+    else if (!lastOk || Date.now() - lastOk.at > 30 * 3600e3) W('warn', lastOk ? `No backup since ${new Date(lastOk.at).toLocaleString()}` : 'No backup has been made yet');
+    if (s.mirror && safetyRun.mirrorErr) W('bad', `Live mirror for the standby PC failed: ${safetyRun.mirrorErr}`);
+  }
+  const lagNow = Math.max(0, ...recent.map((x) => x.lag)), p95Now = Math.max(0, ...recent.map((x) => x.p95));
+  if (lagNow > 1000) W('bad', `The editor is getting stuck (up to ${(lagNow / 1000).toFixed(1)} s in the last 10 minutes)`); else if (lagNow > 250) W('warn', `The editor is slow to answer at times (${lagNow} ms stalls)`);
+  if (p95Now > 3000) W('warn', `Some actions take long (${(p95Now / 1000).toFixed(1)} s)`);
+  if (h.now.rss > 6144) W('warn', `The editor uses a lot of memory (${(h.now.rss / 1024).toFixed(1)} GB) - a restart when nobody works frees it`);
+  if (errs.count > 50) W('warn', `${errs.count} errors in the last 24 hours`);
+  // ⚙ project workers: each one's own stuck time (a project's heavy moment shows in its worker only)
+  const wl = await workerStates();
+  for (const w of wl) { if (w.down) W('bad', `Project worker ${w.k} does not answer - it is being started again`); else if (w.lag > 1000) W('warn', `Project worker ${w.k} is getting stuck (${w.lag} ms) - ${w.projects.map((x) => x.name).join(', ') || 'its projects'}`); }
+  const starts24 = h.starts.filter((t) => t > Date.now() - 864e5).length;
+  if (starts24 > 3) W('warn', `The editor started ${starts24} times in the last 24 hours`);
+  return { warn, standby: STANDBY, host: os.hostname(), series: h, disks, errors: errs, cluster: { on: WORKERS, want: +config().cluster?.workers || 0, workers: wl.map((w) => ({ ...w, starts: workerProcs.get(w.k)?.starts || 0 })) },
+    work: { jobs: [...jobs.values()].filter((j) => j.status === 'running').length, renders: rq.items.filter((x) => ['waiting', 'rendering'].includes(x.state)).length,
+      people: [...live.values()].reduce((n, L) => n + L.subs.size, 0), farm: farmWorkers().length },
+    backup: { ...s, busy: safetyRun.busy, last, lastOk, history: (st?.history || []).slice(0, 14), mirrorAt: safetyRun.mirrorAt, mirrorErr: safetyRun.mirrorErr, pull: safetyRun.pull,
+      hold: standbyHold, standbyFile: s.dest ? standbyState(s.dest) : null, mainLink: teamServer ? `http://${os.hostname()}:${TEAM_PORT}` : null } };
+}
+
 // ---------------- versions ----------------
 // Auto backups (backups/project_<time>.json, every 5 min while editing, last 40) and named versions you save yourself
 // (backups/named/<time> <name>.json, kept until you delete them). A short summary of each for the Versions list.
@@ -1388,6 +1621,76 @@ function stopShare() {
   return shareInfo();
 }
 if (config().share?.on && !process.env.VEDIT_NO_RESUME) resumeServer(startShare, 'phone review');
+
+// ---------------- 🔗 client review links (internet) ----------------
+// "Send for review" on a finished render makes a secret link <team door>/review/<token> (https://<domain>/review/… once
+// the domain works). No team sign-in: the link shows only its own render(s) and their comments - never project data or
+// other files. The client comments at moments, replies, and approves or asks for changes per version; each comment also
+// lands in <project>/review-notes.json, which the editor takes onto its timeline like phone notes. The links live in
+// client-reviews.json next to the projects (engine/clientreview.mjs); only the main process keeps them.
+const reviews = IS_WORKER ? null : new ReviewStore(path.join(DATA, 'client-reviews.json'));
+const rvLimit = new Limiter(), rvNews = []; // (rvNews: the last client comments / decisions, for the editor's toast)
+const REVIEW_DIR = path.join(ROOT, 'public', 'review'), REVIEW_ASSETS = new Set(['client.js', 'client.css']);
+const RV_HEADERS = { 'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY', 'X-Robots-Tag': 'noindex, nofollow', 'Cache-Control': 'no-store' };
+const reviewUrl = (l) => `${permaLink()}review/${l.token}`;
+function reviewToProject(l, v, note, by, t, id) {
+  try {
+    const f = reviewNotesFile(l.project), list = readJSON(f, []);
+    list.push({ id, t, note, by, render: v.render, at: Date.now(), client: true, review: l.id, version: v.n });
+    writeJSON(f, list);
+  } catch (e) { logCrash('client review note', e); }
+  rvNews.push({ at: Date.now(), project: l.project, title: l.title, link: l.id, by, note: note.slice(0, 140) }); rvNews.splice(0, rvNews.length - 100);
+}
+async function clientReview(req, res, u) {
+  const out = (code, body, type = 'application/json', more = {}) => { res.writeHead(code, { ...RV_HEADERS, 'Content-Type': type, ...more }); res.end(type === 'application/json' ? JSON.stringify(body) : body); };
+  const body = async (max) => { try { return JSON.parse((await readLimited(req, max)) || '{}'); } catch (e) { throw e.code === 413 ? e : err(400, 'Bad request'); } };
+  try {
+    const a = /^\/review\/_\/([a-z]+\.(?:js|css))$/.exec(u.pathname);
+    if (a) return REVIEW_ASSETS.has(a[1]) && req.method === 'GET' ? out(200, fs.readFileSync(path.join(REVIEW_DIR, a[1])), MIME[path.extname(a[1])]) : out(404, 'Not found', 'text/plain');
+    const m = /^\/review\/([^/]+)(\/.*)?$/.exec(u.pathname), l = m && reviews ? findLink(reviews.links, m[1]) : null;
+    if (!l) { await sleep(300); return out(404, 'This review link does not exist.', 'text/plain; charset=utf-8'); }
+    const sub = m[2] || '/', ip = ipOf(req), get = req.method === 'GET' || req.method === 'HEAD', post = req.method === 'POST';
+    if (get && sub === '/') return out(200, fs.readFileSync(path.join(REVIEW_DIR, 'client.html')), 'text/html; charset=utf-8');
+    if (expired(l)) return out(410, { error: l.off ? 'This review link was turned off.' : 'This review link has expired - ask for a new one.' });
+    if (post && sub === '/api/unlock') {
+      if (!rvLimit.hit(`pw:${ip}`, 8, 10 * 60e3)) return out(429, { error: 'Too many tries - wait a few minutes' });
+      const b = await body(2048);
+      if (!pwOk(String(b.password ?? ''), l.pw)) { await sleep(600); return out(401, { error: 'Wrong password' }); }
+      return out(200, { ok: true }, 'application/json', { 'Set-Cookie': `rv_${l.id}=${pwCookie(reviews.secret, l)}; HttpOnly; SameSite=Strict; Path=/review/${l.token}; Max-Age=2592000${req.socket.encrypted ? '; Secure' : ''}` });
+    }
+    if (l.pw && !sameSecret(cookieOf(req, `rv_${l.id}`) || '', pwCookie(reviews.secret, l))) return out(401, { needPw: true, title: l.title });
+    if (get && sub === '/api/info') return out(200, clientView(l));
+    const mv = /^\/v\/(\d{1,4})$/.exec(sub);
+    if (get && mv) { // the render, by its stored name only
+      const v = l.versions.find((x) => x.n === +mv[1]), f = v && renderPath(P(l.project, 'renders'), v.render);
+      return f ? serveFile(req, res, f) : out(404, { error: 'This version is not there any more' });
+    }
+    if (post && sub === '/api/comment') {
+      if (!rvLimit.hit(`c:${l.id}:${ip}`, 40, 10 * 60e3) || !rvLimit.hit(`c:${l.id}`, 150, 10 * 60e3)) return out(429, { error: 'Too many comments in a short time - wait a few minutes' });
+      if (l.comments.length >= MAX_COMMENTS) return out(409, { error: 'This link has too many comments - ask for a new one' });
+      const b = await body(), text = cleanText(b.text), by = cleanName(b.by) || l.client || 'Client';
+      if (!text) return out(400, { error: 'Write a comment first' });
+      const parent = (b.parent && l.comments.find((c) => c.id === b.parent && !c.parent)) || null;
+      const v = l.versions.find((x) => x.n === (parent ? parent.v : +b.v)) || latest(l);
+      const c = { id: newId(), v: v.n, t: parent ? parent.t : Math.round(Math.min(36000, Math.max(0, +b.t || 0)) * 1000) / 1000, text, by, at: Date.now(), parent: parent?.id || null, draw: parent ? null : cleanDraw(b.draw) };
+      l.comments.push(c); reviews.save();
+      reviewToProject(l, v, `${parent ? '↪ ' : ''}${text}${c.draw ? ' ✏️' : ''}`, by, c.t, c.id);
+      return out(200, c);
+    }
+    if (post && sub === '/api/decide') {
+      if (!rvLimit.hit(`d:${l.id}:${ip}`, 12, 10 * 60e3)) return out(429, { error: 'Too many tries - wait a few minutes' });
+      const b = await body(), v = l.versions.find((x) => x.n === +b.v), ok = b.decision === 'approve', by = cleanName(b.by) || l.client || 'Client', text = cleanText(b.text);
+      if (!v || !['approve', 'changes'].includes(b.decision)) return out(400, { error: 'Bad request' });
+      Object.assign(v, { status: ok ? 'approved' : 'changes', decidedBy: by, decidedAt: Date.now() });
+      const c = { id: newId(), v: v.n, t: 0, text: `${ok ? '✅ Approved' : '✏️ Changes requested'}${text ? `: ${text}` : ''}`, by, at: Date.now(), parent: null, draw: null };
+      l.comments.push(c); reviews.save();
+      reviewToProject(l, v, `${c.text} (Version ${v.n})`, by, 0, c.id);
+      return out(200, clientView(l));
+    }
+    out(404, { error: 'not found' });
+  } catch (e) { if (!res.headersSent) out(e.code >= 400 && e.code < 600 ? e.code : 500, { error: e.code >= 400 && e.code < 600 ? e.message : 'Something went wrong' }); }
+}
 
 // ---------------- 🧠 smart footage ----------------
 // engine/footage.py (pictures) and people.py (faces + text) stay running (the model loads once, then searches are
@@ -1593,8 +1896,7 @@ async function pumpPublish() {
   savePub();
   pumpPublish();
 }
-setInterval(pumpPublish, 20000);
-setTimeout(pumpPublish, 6000);
+if (!IS_WORKER) { setInterval(pumpPublish, 20000); setTimeout(pumpPublish, 6000); } // (⚙ main process only)
 const pubView = (it) => it;
 
 // ---------------- ⚙ batch + automation ----------------
@@ -1656,8 +1958,7 @@ async function pumpBatch() {
   it.ended = Date.now(); bBusy = false; saveBatch();
   setTimeout(pumpBatch, 200);
 }
-setInterval(pumpBatch, 15000);
-setTimeout(pumpBatch, 5000);
+if (!IS_WORKER) { setInterval(pumpBatch, 15000); setTimeout(pumpBatch, 5000); } // (⚙ main process only)
 function addBatch(name, ids, actions, opts = {}, runAt = null) {
   const made = [];
   for (const id of ids) for (const a of actions) {
@@ -1704,11 +2005,24 @@ const TEAM_PORT = +process.env.TEAM_PORT || 3100;
 const teamCfg = () => config().team || { users: [], libraries: [] };
 const saveTeam = (t) => { const c = config(); c.team = t; fs.writeFileSync(CONFIG, JSON.stringify(c, null, 1)); };
 const hashPw = (pw, salt) => crypto.scryptSync(String(pw), salt, 32).toString('hex');
-const sessions = new Map(); // token -> { name, role, at }
+// 🔑 signed-in team members: kept in team-sessions.json next to the projects, so a restart of the editor (or of a project
+// worker) never signs everyone out. Stored by a hash of the cookie - the cookie itself is never written down; 30 days,
+// like the cookie. sessKey(cookie) is the key.
+const SESS_FILE = path.join(DATA, 'team-sessions.json'), SESS_MS = 30 * 864e5;
+const sessKey = (tok) => (tok ? crypto.createHash('sha256').update(String(tok)).digest('hex') : '-');
+class SavedSessions extends Map {
+  load() { const o = readJSON(SESS_FILE, {}); for (const [k, s] of Object.entries(o)) if (s && Date.now() - (s.at || 0) < SESS_MS) super.set(k, s); return this; }
+  save() { clearTimeout(this.t); this.t = setTimeout(() => { try { writeJSON(SESS_FILE, Object.fromEntries(this)); } catch (e) { logCrash('team sessions', e); } }, 300); }
+  set(k, v) { super.set(k, v); if (this.ready) this.save(); return this; }
+  delete(k) { const r = super.delete(k); if (r) this.save(); return r; }
+  clear() { super.clear(); this.save(); }
+}
+const sessions = IS_WORKER ? new Map() : new SavedSessions().load(); // hash of the cookie -> { name, role, at }
+sessions.ready = true;
 // Every signed-in editor may do everything; only the team itself stays the owner's: who may sign in (users and
 // passwords), the sign-in / sessions tracking and the team settings (/api/team…). Viewers still only watch.
 // (🧠 Claude is open to editors too, with its reading kept to the projects - see claudeRun)
-const OWNER_ONLY = [/^\/api\/team(\/|$)/];
+const OWNER_ONLY = [/^\/api\/team(\/|$)/, /^\/api\/safety(\/|$)/]; // (🛟 backups and restores: the owner's)
 function allowed(who, method, p) {
   if (who.role === 'owner') return true;
   if (/^\/api\/(me|lock|unlock|clientlog)$/.test(p)) return true;
@@ -1729,11 +2043,12 @@ function startTeam() {
   if (teamServer) return Promise.resolve();
   const srv = http.createServer(async (req, res) => {
     const u = new URL(req.url, 'http://x');
+    if (u.pathname.startsWith('/review/')) return clientReview(req, res, u); // 🔗 client review links: no sign-in, only that link's render
     if (u.pathname === '/team/login' && req.method === 'POST') {
       const b = await readJson(req).catch(() => ({})), t = teamCfg(), usr = (t.users || []).find((x) => x.name.toLowerCase() === String(b.name || '').trim().toLowerCase());
       if (!usr || hashPw(b.password || '', usr.salt) !== usr.hash) { await sleep(600); return send(res, 401, { error: 'Wrong name or password' }); }
       const tok = crypto.randomBytes(24).toString('hex');
-      sessions.set(tok, { name: usr.name, role: usr.role, at: Date.now() });
+      sessions.set(sessKey(tok), { name: usr.name, role: usr.role, at: Date.now() });
       (presence.logins ||= []).push({ t: Date.now(), name: usr.name, ip: ipOf(req) }); savePresence(); // 📊 sign-ins, for the Sessions view
       res.writeHead(200, { 'Content-Type': 'application/json', 'Set-Cookie': `ve_sess=${tok}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000` });
       return res.end(JSON.stringify({ ok: true, name: usr.name, role: usr.role }));
@@ -1743,8 +2058,10 @@ function startTeam() {
       res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename="Limelight Editor.url"' });
       return res.end(shortcutFile());
     }
-    if (u.pathname === '/team/logout') { sessions.delete(cookieOf(req, 've_sess')); res.writeHead(302, { 'Set-Cookie': 've_sess=; Path=/; Max-Age=0', Location: '/' }); return res.end(); }
-    const s = sessions.get(cookieOf(req, 've_sess'));
+    // 🖥 the standby PC asks this every 15 s whether the editor is up (engine/standby.mjs) - no sign-in, says nothing else
+    if (u.pathname === '/team/ping') return send(res, 200, { ok: true });
+    if (u.pathname === '/team/logout') { sessions.delete(sessKey(cookieOf(req, 've_sess'))); res.writeHead(302, { 'Set-Cookie': 've_sess=; Path=/; Max-Age=0', Location: '/' }); return res.end(); }
+    const s = sessions.get(sessKey(cookieOf(req, 've_sess')));
     // a user removed (or demoted) by the owner loses access at once
     const usr = s && (teamCfg().users || []).find((x) => x.name === s.name);
     if (!s || !usr) {
@@ -1819,7 +2136,7 @@ function checkDomain() {
     if (domainOk !== was) { writeShortcut(); if (domainOk) console.log(`Team editing on: http://${d}`); }
   }).catch(() => { if (domainOk) { domainOk = false; writeShortcut(); } });
 }
-setInterval(checkDomain, 5 * 60 * 1000).unref?.(); setTimeout(checkDomain, 2000);
+if (!IS_WORKER) { setInterval(checkDomain, 5 * 60 * 1000).unref?.(); setTimeout(checkDomain, 2000); }
 const shortHost = () => (domainOk && teamWeb ? teamCfg().domain || process.env.TEAM_DOMAIN : os.hostname());
 const permaLink = () => (teamTls && domainOk ? `https://${tlsInfo.domain}/` : `http://${shortHost()}${teamWeb ? '' : `:${TEAM_PORT}`}/`);
 const shortcutFile = () => `[InternetShortcut]\r\nURL=${permaLink()}\r\nIconFile=${permaLink()}img/favicon.ico\r\nIconIndex=0\r\n`;
@@ -2039,6 +2356,40 @@ function claudeRun(exe, name, sfile, message, model, job, ev, seq = '') {
   });
 }
 
+// 🌐 caption lines through Claude (POST /api/captions/translate): one turn, no tools, the prompt on stdin. The reply
+// must be a JSON array of the same length (asked again once if not); a used-up limit moves on to the next model.
+async function translateBatch(exe, texts, to, from, job) {
+  const models = [...new Set([String(config().translateModel || 'sonnet'), CLAUDE_BACKUP(), 'haiku'])];
+  let why = '';
+  for (const model of models) {
+    for (let tryNo = 0; tryNo < 2; tryNo++) {
+      if (job.stopped) throw new Error('Stopped');
+      const r = await claudeAsk(exe, translatePrompt(texts, to, from), model, job);
+      if (!r.ok) { why = r.text; if (!LIMIT_RE.test(why)) throw new Error(why); break; }
+      const got = parseTranslation(r.text, texts.length);
+      if (got) return got;
+      why = 'Claude gave back a different number of lines - try again';
+    }
+  }
+  throw new Error(why || 'Claude could not translate');
+}
+function claudeAsk(exe, prompt, model, job) {
+  return new Promise((ok) => {
+    const p = spawn(exe, ['-p', '--output-format', 'json', '--max-turns', '1', '--model', model], { cwd: os.tmpdir(), windowsHide: true, env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
+    Object.defineProperty(job, 'proc', { value: p, writable: true, configurable: true, enumerable: false }); // (Stop can kill it; not sent with the job)
+    let out = '', e = '';
+    p.stdout.on('data', (d) => (out += d));
+    p.stderr.on('data', (d) => (e = (e + d).slice(-2000)));
+    p.on('error', (x) => ok({ ok: false, text: String(x?.message || x) }));
+    p.on('close', (code) => {
+      let j = {}; try { j = JSON.parse(out); } catch {}
+      ok(code === 0 && !j.is_error && j.result ? { ok: true, text: j.result } : { ok: false, text: String(j.result || e.trim().split(/\r?\n/).pop() || `Claude stopped (code ${code})`) });
+    });
+    p.stdin.on('error', () => {});
+    p.stdin.end(prompt, 'utf8');
+  });
+}
+
 // 📜 activity: every change anyone made to a project (who, when, what; cache/activity.jsonl, newest 3000 kept). Small
 // changes keep their inverse ops, so one person's one change can be taken back later without touching anyone else's.
 const ACT_MAX_INV = 200000; // (bigger ones - a whole agent edit - are taken back with ↶ AI undo instead)
@@ -2095,6 +2446,8 @@ const live = new Map(); // project -> { rev, pj, mtime, log: [{ rev, client, nam
 const LIVE_COLORS = ['#ff7a45', '#36cfc9', '#9254de', '#f759ab', '#73d13d', '#ffc53d', '#40a9ff', '#ff4d4f', '#13c2c2', '#d3adf7', '#95de64', '#ffd666'];
 function liveOf(name) {
   const f = P(name, 'project.json'), mt = fs.statSync(f).mtimeMs;
+  // ⚙ kept by another process (its worker): a look at the saved file, never written from here (liveWrite skips it)
+  if (!owns(name)) return { rev: 0, pj: normalizeProject(readJSON(f)), mtime: mt, log: [], subs: new Map(), timer: null, colorN: 0, view: true };
   let L = live.get(name);
   if (!L) { L = { rev: 1, pj: normalizeProject(readJSON(f)), mtime: mt, log: [], subs: new Map(), timer: null, colorN: 0 }; live.set(name, L); return L; }
   if (mt !== L.mtime) {
@@ -2110,6 +2463,7 @@ function liveSend(L, msg, only = null) {
   for (const [c, sub] of L.subs) if (!only || only === c) { try { sub.res.write(data); } catch {} }
 }
 function liveWrite(name, L, now = false) {
+  if (L.view) { logCrash('live save', `${name}: not written here - its project worker keeps it`); return; }
   clearTimeout(L.timer);
   const go = () => { L.timer = null; L.pj.modified = Date.now(); writeJSON(P(name, 'project.json'), L.pj); L.mtime = fs.statSync(P(name, 'project.json')).mtimeMs; };
   if (now) go(); else L.timer = setTimeout(() => { try { go(); } catch (e) { logCrash('live save', e); } }, 400);
@@ -2161,9 +2515,62 @@ const routes = {
   'GET /api/health': () => healthCache || checkHealth(),
   // version handshake: a newer copy started from the .bat asks an older running one to step aside
   // busy: work that a restart would cut off (an agent edit, Claude, a render) - a newer copy starting then leaves this one running
-  'GET /api/version': () => ({ build: BUILD, busy: [...jobs.values()].filter((j) => j.status === 'running').length + (rqActive ? 1 : 0) }),
-  'POST /api/shutdown': (req, res) => {
-    const busy = [...jobs.values()].filter((j) => j.status === 'running').length + (rqActive ? 1 : 0);
+  // 🛟 Mazbooti (owner only): health, the nightly backup, restores and the standby PC
+  'GET /api/safety': () => healthView(),
+  'POST /api/safety': async (req) => {
+    const b = await readJson(req), patch = {};
+    if (typeof b.on === 'boolean') patch.on = b.on;
+    if (typeof b.mirror === 'boolean') patch.mirror = b.mirror;
+    if (Number.isInteger(b.hour) && b.hour >= 0 && b.hour <= 23) patch.hour = b.hour;
+    if (+b.keep >= 3 && +b.keep <= 60) patch.keep = Math.round(+b.keep);
+    // ⚙ project workers: how many after the next start (0 = off)
+    if (Number.isInteger(b.workers) && b.workers >= 0 && b.workers <= 16) { const c = config(); c.cluster = { ...(c.cluster || {}), workers: b.workers }; fs.writeFileSync(CONFIG, JSON.stringify(c, null, 1)); }
+    if (typeof b.dest === 'string') {
+      const d = b.dest.trim();
+      if (!path.isAbsolute(d)) throw err(400, 'Give a full folder path, e.g. Z:\\Limelight Backups');
+      const inside = (a, x) => { const r = path.relative(x, a); return !r.startsWith('..') && !path.isAbsolute(r); };
+      if (inside(path.resolve(d), PROJECTS) || inside(PROJECTS, path.resolve(d))) throw err(400, 'The backup folder must be outside the Projects folder');
+      try { fs.mkdirSync(d, { recursive: true }); fs.writeFileSync(path.join(d, '.write-test'), 'ok'); fs.rmSync(path.join(d, '.write-test')); } catch (e) { throw err(400, `Cannot write in ${d}: ${e.message}`); }
+      patch.dest = d;
+    }
+    saveSafety(patch);
+    if (patch.mirror) setTimeout(() => mirrorTick(true).catch(() => {}), 500); // (the first full mirror starts now)
+    return healthView();
+  },
+  'POST /api/safety/backup': () => {
+    if (safetyRun.busy) throw err(409, 'A backup is running already');
+    if (!safetyCfg().dest) throw err(400, 'Choose a backup folder first');
+    nightlyBackup(true).catch(() => {});
+    return { started: true };
+  },
+  'GET /api/safety/nights': () => { const s = safetyCfg(); return s.dest ? backupNights(s.dest) : []; },
+  // a project from a night as a new project "<name> (backup <night>)" - nothing that exists is overwritten
+  'POST /api/safety/restore': async (req) => {
+    const b = await readJson(req), s = safetyCfg();
+    if (!s.dest) throw err(400, 'No backup folder');
+    const night = String(b.night || ''), nm = String(b.project || '');
+    if (!/^\d{4}-\d\d-\d\d$/.test(night) || !nm) throw err(400, 'Pick a night and a project');
+    const name = safeName(`${nm} (backup ${night})`);
+    if (allProjects().includes(name)) throw err(409, `"${name}" is there already`);
+    await restoreProject({ dest: s.dest, night, folder: safeDir(nm), to: path.join(PROJECTS, name) });
+    ensureProjectDirs(name); mediaCache.delete(name);
+    for (const m of mediaDb(name).items) if (m.status === 'queued') enqueue(name, m.id);
+    await handOver(name);
+    return { name };
+  },
+  // the standby PC's edits: bring them in now (after a failed try), or leave them (this editor's own state stays)
+  'POST /api/safety/standby': async (req) => {
+    const b = await readJson(req), s = safetyCfg(), sb = s.dest && standbyState(s.dest);
+    if (!sb || sb.state === 'pulled') { standbyHold = null; return healthView(); }
+    if (sb.state === 'active' && Date.now() - (sb.beat || 0) < 3 * 60e3) throw err(409, `The standby PC ${sb.host} is still running the editor - stop it there first (or wait for it to hand back)`);
+    if (b.action === 'dismiss') { writeStandby(s.dest, { ...sb, state: 'pulled', pulledAt: Date.now(), dismissed: true }); standbyHold = null; safetyRun.mirrored.clear(); }
+    else await standbyTick();
+    return healthView();
+  },
+  // (⚙ the project workers' jobs count too - a newer editor never replaces one with an edit running in a worker)
+  'GET /api/version': async () => ({ build: BUILD, busy: [...jobs.values()].filter((j) => j.status === 'running').length + (rqActive ? 1 : 0) + (await workerStates()).reduce((n, w) => n + (w.jobs?.length || 0), 0) }),
+  'POST /api/shutdown': async (req, res) => {
+    const busy = [...jobs.values()].filter((j) => j.status === 'running').length + (rqActive ? 1 : 0) + (await workerStates()).reduce((n, w) => n + (w.jobs?.length || 0), 0);
     if (busy) return send(res, 409, { error: `${busy} job(s) running - not closing` });
     send(res, 200, { ok: true }); console.log('A newer version of the editor is starting - closing this one.'); setTimeout(() => process.exit(0), 300); },
 
@@ -2256,6 +2663,7 @@ const routes = {
     });
     writeJSON(P(name, 'project.json'), normalizeProject({ ...pj, modified: Date.now() }));
     saveMedia(name, true); pump(); // (the footage is read in the background: thumbnails, previews)
+    await handOver(name); // (⚙ by its project worker)
     return { name, clips, missing: [...missing].slice(0, 50), missingCount: missing.size, notes: x.notes };
   },
   // 🚚 move a project to another folder (an editor's own folder on the NAS): copied there, the copy checked (same files,
@@ -2263,6 +2671,7 @@ const routes = {
   // at the new place. Refused while anyone has it open or a render / job of it runs. Body { place } (the parent folder)
   'POST /api/projects/move': async (req, res, u) => {
     const name = needProject(q(u, 'p')), b = await readJson(req), L = live.get(name);
+    await askOwner(name, 'release'); // (⚙ its worker saves and lets go of it - refused while someone has it open)
     if (req.who?.role !== 'owner') throw err(403, 'Only the owner can move projects');
     folderAllowed(req, b.place);
     const people = L ? [...new Set([...L.subs.values()].map((x) => x.who.name))] : [];
@@ -2306,6 +2715,7 @@ const routes = {
   // Refused while anyone has it open or a render / job of it is running or waiting.
   'POST /api/projects/delete': async (req, res, u) => {
     const name = needProject(q(u, 'p')), L = live.get(name);
+    await askOwner(name, 'release'); // (⚙ its worker saves and lets go of it - refused while someone has it open)
     const people = L ? [...new Set([...L.subs.values()].map((x) => x.who.name))] : [];
     if (people.length) throw err(409, `Open right now by ${people.join(', ')} - ask them to close it first`);
     if (projectBusy(name) || rq.items.some((x) => x.project === name && ['waiting', 'rendering'].includes(x.state))) throw err(409, 'A render or job of this project is running or waiting - wait for it to finish');
@@ -2346,12 +2756,13 @@ const routes = {
     }).sort((a, b) => b.deleted - a.deleted);
   },
   // bring a deleted project back under its own name (or "name (restored)" when that name is taken meanwhile)
-  'POST /api/projects/restore': (req, res, u) => {
+  'POST /api/projects/restore': async (req, res, u) => {
     const f = binEntry(q(u, 'folder'));
     const base = safeName(String(path.basename(f)).replace(/ \(deleted .*$/, ''));
     let name = base; for (let k = 2; fs.existsSync(path.join(PROJECTS, name)); k++) name = `${base} (restored${k > 2 ? ` ${k - 1}` : ''})`;
     fs.renameSync(f, path.join(PROJECTS, name));
     binLog(req, 'restored', name);
+    await handOver(name);
     return { ok: true, name };
   },
   // delete one project in the Recycle Bin for good
@@ -2396,6 +2807,7 @@ const routes = {
       for (const f of scanFolder(b.folder)) if (addMediaFile(name, f.file, { bin: f.bin })) imported++;
       saveMedia(name, true);
     }
+    await handOver(name); // (⚙ its project worker reads the footage)
     return { name, imported, folder: projDir(name) };
   },
   // the live copy when people are editing it (with its revision, for the event stream), else the file
@@ -2786,7 +3198,7 @@ const routes = {
   },
 
   // renders
-  'GET /api/renders': (req, res, u) => listDir(P(needProject(q(u, 'p')), 'renders'), (n) => /\.(mp4|mov)$/i.test(n) && n !== '_preview.mp4')
+  'GET /api/renders': (req, res, u) => listDir(P(needProject(q(u, 'p')), 'renders'), (n) => (/\.(mp4|mov|wav|mp3|gif)$/i.test(n) || / frames$/.test(n)) && n !== '_preview.mp4')
     .map((r) => ({ ...r, url: `/pf/${encodeURIComponent(q(u, 'p'))}/renders/${encodeURIComponent(r.name)}` })),
   'POST /api/render': async (req, res, u) => {
     const name = needProject(q(u, 'p'));
@@ -2866,6 +3278,20 @@ const routes = {
     }
     return out;
   },
+  // 📈 Loudness Meter / Radar (audio effects): one clip's loudness as heard - its clean-up and the effects before the
+  // meter applied. Body { mediaId, in, out, afx, aeffects } -> { lufs, lra, peak }
+  'POST /api/audio/measure': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req), m = mediaItem(name, b.mediaId);
+    if (!m?.hasAudio) throw err(404, 'This clip has no sound');
+    const t0 = Math.max(0, +b.in || 0), t1 = Math.min(m.duration || Infinity, +b.out || m.duration || t0 + 600);
+    const { fxFilters } = await import('./public/js/audiofx.js'), { aeffectFilters } = await import('./public/js/audioeffects.js');
+    const chain = [...fxFilters(b.afx), ...aeffectFilters(Array.isArray(b.aeffects) ? b.aeffects : []), 'ebur128=peak=true'].join(',');
+    const r = await run('ffmpeg', ['-hide_banner', '-nostats', '-ss', String(t0), '-t', String(Math.max(0.5, t1 - t0)), '-i', m.path, '-vn', '-af', chain, '-f', 'null', '-']);
+    const s = r.stderr.slice(r.stderr.lastIndexOf('Summary')), num = (re) => { const x = re.exec(s); return x ? +x[1] : null; };
+    const lufs = num(/I:\s*(-?[\d.]+) LUFS/), lra = num(/LRA:\s*(-?[\d.]+) LU/), peak = num(/Peak:\s*(-?[\d.]+) dBFS/);
+    if (lufs === null) throw err(500, `Could not measure: ${r.stderr.trim().split(/\r?\n/).pop()}`);
+    return { lufs, lra, peak };
+  },
   // 🎵 beat grid of a music file: { period, first, bpm, duration }
   'GET /api/music/beats': async (req, res, u) => {
     const name = needProject(q(u, 'p')), m = mediaItem(name, q(u, 'id'));
@@ -2874,7 +3300,8 @@ const routes = {
     return { ...(beats(m.path) || {}), duration: m.duration };
   },
   // 👥 who is asking, project locks, team settings (owner)
-  'GET /api/me': (req) => ({ name: req.who.name, role: req.who.role, local: !!req.who.local, home: userHome(req.who), shared: req.who.role === 'viewer' ? [] : sharedDirs(), anyFolder: req.who.role !== 'viewer' }), // (shared: where an editor may save exports)
+  'GET /api/me': (req) => ({ name: req.who.name, role: req.who.role, local: !!req.who.local, home: userHome(req.who), shared: req.who.role === 'viewer' ? [] : sharedDirs(), anyFolder: req.who.role !== 'viewer',
+    standby: STANDBY, hold: standbyHold ? { host: standbyHold.host, since: standbyHold.since, pending: !!standbyHold.pending } : null }), // (🖥 standby PC: see Mazbooti) // (shared: where an editor may save exports)
   // 📊 an editor tab in use pings this about once a minute (a GET, so viewers count too)
   'GET /api/presence': (req, res, u) => {
     addBeat(presence, { name: whoLabel(req.who), project: (q(u, 'p') || '').slice(0, 120), where: req.who.local ? 'this PC' : ipOf(req) });
@@ -3051,6 +3478,39 @@ const routes = {
       const out = JSON.parse(r.stdout.trim().split(/\r?\n/).pop());
       return { from: rname || 'timeline', frames: out.frames.map((f) => ({ ...f, file: undefined, url: `/api/thumb/cand?p=${encodeURIComponent(name)}&f=${encodeURIComponent(path.basename(f.file))}&v=${Date.now()}` })) };
     }, { project: name });
+  },
+  // 📷 Export Frame: the frame at t of the open sequence, made by the export renderer (so it looks exactly like the export:
+  // effects, titles, colour, logo) -> output/frames/<sequence> <timecode>.png. Body { t, seq }
+  'POST /api/frame': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req);
+    const saved = normalizeProject(readJSON(P(name, 'project.json'))), pj = b.seq ? seqView(saved, b.seq) : saved;
+    const byId = Object.fromEntries(mediaDb(name).items.map((m) => [m.id, m]));
+    const F = pj.settings.fps || 30, D = totalDuration(pj, byId), len = Math.max(0.2, 3 / F);
+    const t = Math.max(0, Math.min(+b.t || 0, D - len - 0.01));
+    const jobFile = P(name, 'cache', 'render-job-frame.json'), mp4 = P(name, 'cache', 'frame.mp4');
+    prepareRender(name, { project: { ...pj, settings: { ...pj.settings, range: { in: +t.toFixed(3), out: +(t + len).toFixed(3) } } }, preview: true }, { jobFile, write: false });
+    writeJSON(jobFile, { ...readJSON(jobFile), output: mp4, preview: false, fastPreview: false, farm: null }); // (full quality, here)
+    const tc = [Math.floor(t / 3600), Math.floor((t % 3600) / 60), Math.floor(t % 60), Math.floor((t % 1) * F)].map((x) => String(x).padStart(2, '0')).join('-');
+    return startTask('frame', async (job) => {
+      job.stage = 'Making the frame…';
+      const r = await run(process.execPath, [path.join(ROOT, 'engine', 'render2.mjs'), jobFile]);
+      if (r.code !== 0 || !fs.existsSync(mp4)) throw new Error(`The frame could not be made: ${String(r.stderr || r.stdout).trim().split(/\r?\n/).pop()}`);
+      const dir = P(name, 'output', 'frames'); fs.mkdirSync(dir, { recursive: true });
+      const base = safeName(`${seqOf(pj).name || name} ${tc}`);
+      let f = `${base}.png`; for (let i = 2; fs.existsSync(path.join(dir, f)); i++) f = `${base} (${i}).png`;
+      const x = await run('ffmpeg', ['-y', '-v', 'error', '-i', mp4, '-frames:v', '1', path.join(dir, f)]);
+      fs.rmSync(mp4, { force: true });
+      if (x.code !== 0) throw new Error(`The frame could not be saved: ${x.stderr.trim().split(/\r?\n/).pop()}`);
+      const [w, h] = ASPECTS[pj.settings.aspect] || ASPECTS['16:9'];
+      return { name: f, url: `/pf/${encodeURIComponent(name)}/frames/${encodeURIComponent(f)}`, width: w, height: h };
+    }, { project: name });
+  },
+  // an exported frame into Media (folder "Frames"), like Premiere's "Import into project"
+  'POST /api/frame/import': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req), f = P(name, 'output', 'frames', path.basename(String(b.name || '')));
+    if (!fs.existsSync(f)) throw err(404, 'That frame is not there any more');
+    const it = addMediaFile(name, f, { bin: 'Frames' }); saveMedia(name, true);
+    return { ok: true, id: it?.id || null };
   },
   'GET /api/thumb/cand': (req, res, u) => serveFile(req, res, P(needProject(q(u, 'p')), 'cache', 'thumbcand', path.basename(q(u, 'f') || ''))),
   // a finished thumbnail (PNG from the designer) -> output/thumbnails/<name>.png
@@ -3540,6 +4000,43 @@ const routes = {
     if (q(u, 'take') && list.length) fs.rmSync(reviewNotesFile(name), { force: true });
     return list;
   },
+  // 🔗 client review links (?proj=, not ?p=: the links are kept by the main process, not by a project's worker)
+  'GET /api/clientreview': (req, res, u) => {
+    const name = needProject(q(u, 'proj'));
+    return { door: !!teamServer, links: reviews.ofProject(name).map((l) => ownerView(l, reviewUrl(l))).reverse() };
+  },
+  // body { render, title, client, password, days } = a new link; { render, link } = the next version on that link
+  'POST /api/clientreview': async (req, res, u) => {
+    const name = needProject(q(u, 'proj')), b = await readJson(req), f = renderPath(P(name, 'renders'), b.render);
+    if (!f || !fs.existsSync(f)) throw err(400, 'Pick a finished video (Renders)');
+    let l = null;
+    if (b.link) { l = reviews.byId(b.link); if (!l || l.project !== name) throw err(404, 'That review link is gone'); reviews.addVersion(l, b.render); }
+    else l = reviews.create({ project: name, render: b.render, title: b.title, client: b.client, password: b.password, days: b.days, by: req.who?.name });
+    return ownerView(l, reviewUrl(l));
+  },
+  // the team answers a client's comment (shown on the review page)
+  'POST /api/clientreview/reply': async (req, res, u) => {
+    const name = needProject(q(u, 'proj')), b = await readJson(req), l = reviews.byId(b.link), text = cleanText(b.text);
+    const parent = l?.project === name && l.comments.find((c) => c.id === b.parent && !c.parent);
+    if (!parent) throw err(404, 'That comment is gone');
+    if (!text) throw err(400, 'Write a reply first');
+    const c = { id: newId(), v: parent.v, t: parent.t, text, by: cleanName(req.who?.name === 'Owner' ? 'Limelight' : req.who?.name) || 'Limelight', at: Date.now(), parent: parent.id, draw: null, team: true };
+    l.comments.push(c); reviews.save();
+    return ownerView(l, reviewUrl(l));
+  },
+  // body { link, off, password ('' = none), days } - turn a link off / on, change its password or expiry; { link, remove }
+  'POST /api/clientreview/edit': async (req, res, u) => {
+    const name = needProject(q(u, 'proj')), b = await readJson(req), l = reviews.byId(b.link);
+    if (!l || l.project !== name) throw err(404, 'That review link is gone');
+    if (b.remove) { reviews.links = reviews.links.filter((x) => x !== l); reviews.save(); return { removed: true }; }
+    if (b.off !== undefined) l.off = !!b.off;
+    if (b.password !== undefined) l.pw = b.password ? rvHashPw(b.password) : null;
+    if (b.days !== undefined) l.expires = +b.days > 0 ? Date.now() + Math.min(365, +b.days) * 864e5 : null;
+    reviews.save();
+    return ownerView(l, reviewUrl(l));
+  },
+  // what clients said since a moment (every project) - the editor shows a toast
+  'GET /api/clientreview/news': (req, res, u) => rvNews.filter((x) => x.at > (+q(u, 'since') || 0)),
   // 🎬 Render queue (all projects): body { items: [{ preset, aspect, fit, filename, quality, seq }] }
   'GET /api/queue': () => ({ items: rq.items.map(queueView), gpu: !!healthCache?.nvenc }),
   'POST /api/queue': async (req, res, u) => {
@@ -3703,6 +4200,47 @@ const routes = {
     }, { project: name });
   },
 
+  // 🧪 Auto QC (Phase 22, engine/qc.mjs): a finished render (b.file) or, without one, a fast preview of the edit is checked
+  // for black holes, a stuck picture, flashing, broadcast-safe colour, loudness / peaks for the channel (b.target), and -
+  // with b.spell - the spelling of every title (Claude). The report is kept next to the render (renders/<file>.qc.json).
+  'POST /api/qc': async (req, res, u) => {
+    const name = needProject(q(u, 'p'));
+    const b = await readJson(req);
+    const target = QC.TARGETS[b.target] ? b.target : 'youtube';
+    let file = null, jobFile = null, out = null;
+    if (b.file) { file = P(name, 'renders', path.basename(String(b.file))); if (!fs.existsSync(file)) throw err(404, 'That render is not there any more'); }
+    else ({ jobFile, out } = prepareRender(name, { ...b, preview: true }));
+    const pj = normalizeProject(b.project || readJSON(P(name, 'project.json')));
+    const byId = Object.fromEntries(mediaDb(name).items.map((m) => [m.id, m]));
+    const titles = Object.values(placed(pj, byId)).flat().filter((x) => x.clip.type === 'title' && String(x.clip.text || '').trim()).map((x) => ({ text: String(x.clip.text).trim(), t: +x.start.toFixed(2) }))
+      .sort((x, y) => x.t - y.t).filter((x, i, a) => a.findIndex((y) => y.text === x.text) === i).slice(0, 120);
+    return startTask('qc', async (job) => {
+      if (!file) {
+        job.stage = 'Making a preview of the edit…'; job.progress = 2;
+        const r = await run(process.execPath, [path.join(ROOT, 'engine', 'render2.mjs'), jobFile], { onLine: (l) => { const m = /\[(\d+)\/(\d+)\]/.exec(l); if (m) job.progress = Math.round((+m[1] / +m[2]) * 45); } });
+        if (r.code !== 0) throw new Error(`Preview failed: ${r.stderr.slice(-300)}`);
+        file = P(name, 'renders', out);
+      }
+      const base = job.progress, span = (b.spell && titles.length ? 82 : 98) - base;
+      job.stage = 'Checking every frame and the sound…';
+      const a = await QC.analyze(file, (pc) => (job.progress = Math.round(base + (pc * span) / 100)));
+      let rep = QC.qcReport(a, { target, aspect: pj.settings?.aspect });
+      if (b.spell && titles.length) {
+        job.stage = `Checking the spelling of ${titles.length} title${titles.length > 1 ? 's' : ''}…`; job.progress = Math.max(job.progress, 85);
+        const exe = claudeExe();
+        const ans = exe ? await claudeAsk(exe, QC.spellPrompt(titles), CLAUDE_BACKUP(), job) : { ok: false };
+        rep = QC.addSpelling(rep, titles, ans.ok ? ans.text : '');
+      } else if (b.spell) rep.items.push({ level: 'ok', kind: 'spell', text: '✍ No titles to check' });
+      rep = { ...rep, file: path.basename(file), preview: !b.file, dur: a.info.dur, size: `${a.info.w}×${a.info.h}`, at: Date.now() };
+      if (b.file) try { writeJSON(`${file}.qc.json`, rep); } catch {}
+      return rep;
+    }, { project: name });
+  },
+  'GET /api/qc': (req, res, u) => {
+    const f = P(needProject(q(u, 'p')), 'renders', `${path.basename(q(u, 'file') || '')}.qc.json`);
+    return fs.existsSync(f) ? readJSON(f) : null;
+  },
+
   // subtitles
   'GET /api/subs': (req, res, u) => listDir(P(needProject(q(u, 'p')), 'subs'), (n) => /\.(srt|ass)$/i.test(n)),
   'GET /api/subs/file': (req, res, u) => {
@@ -3732,6 +4270,31 @@ const routes = {
     const json = b.json ? srt.replace(/\.srt$/, '.json') : null;
     if (json) args.push('--json', P(name, 'subs', json));
     return startJob('transcribe', PYTHON, args, () => ({ subs: srt, json, segments: json ? readJSON(P(name, 'subs', json), {}).segments || [] : undefined }), { project: name });
+  },
+
+  // ---------------- 🌐 translate captions (CC panel "Translate to…" makes a new caption track) ----------------
+  // { to: 'en' | 'hi' | 'hinglish', from?, lines: [text] } -> job; result { lines: [text] } in the same order, so the
+  // new track keeps every timing. Claude (the Assistant's copy, one turn, no tools) translates 40 lines at a time.
+  'POST /api/captions/translate': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req);
+    const lines = Array.isArray(b.lines) ? b.lines.map((x) => String(x ?? '').slice(0, 500)) : [];
+    if (!lines.length) throw err(400, 'No caption lines to translate');
+    if (lines.length > 5000) throw err(400, 'Too many caption lines (5000 at most)');
+    const to = String(b.to || ''), from = String(b.from || '');
+    if (!CAPTION_LANGS[to]) throw err(400, 'Translate to English, Hindi or Hinglish');
+    const exe = claudeExe();
+    if (!exe) throw err(400, 'Claude is not on this computer - translating captions needs it (install the Claude app)');
+    return startTask('translate', async (job) => {
+      const out = [], N = 40;
+      for (let i = 0; i < lines.length; i += N) {
+        if (job.stopped) throw new Error('Stopped');
+        const part = lines.slice(i, i + N);
+        job.stage = `Lines ${i + 1}-${i + part.length} of ${lines.length}`;
+        out.push(...(await translateBatch(exe, part, to, from, job)));
+        job.progress = Math.round(((i + part.length) / lines.length) * 100);
+      }
+      return { lines: out, to };
+    }, { project: name });
   },
 
   // music: most energetic part (async so seeking/polling stay responsive)
@@ -4261,8 +4824,116 @@ const routes = {
   },
   // Skip: the agent stops reading more clips and edits with the ones it has looked at
   'POST /api/jobs/skip': (req, res, u) => { const j = jobs.get(q(u, 'id')); if (!j) throw err(404, 'job not found'); j.skips = (j.skips || 0) + 1; return { skips: j.skips }; },
-  'GET /api/jobs': () => [...jobs.values()].filter((j) => j.status === 'running').map(({ log, proc, events, ...j }) => j),
+  'GET /api/jobs': async () => [...[...jobs.values()].filter((j) => j.status === 'running').map(({ log, proc, events, ...j }) => j), ...(await workerStates()).flatMap((w) => w.jobs || [])],
 };
+
+// ---------------- ⚙ project workers: routing, the worker side, starting them ----------------
+// Requests about a project that still belong to the main process: they use the render queue, publish / batch, the
+// people library, project places / folders or the sessions log (shared by all projects). The project's worker saves
+// first (flush), so what is read from disk is the latest; delete / move ask the worker to let go of it (release).
+const MAIN_ROUTES = new Set(['POST /api/projects/move', 'POST /api/projects/delete', 'GET /api/presence', 'POST /api/queue', 'POST /api/publish', 'POST /api/styles/learn',
+  'POST /api/library/template', 'GET /api/batch', 'POST /api/batch', 'POST /api/batch/cancel', 'POST /api/batch/clear']);
+const JOB_ROUTES = /^\/api\/(job|jobs\/skip|claude\/events|claude\/stop)$/;
+// which worker a request goes to (0 = this main process)
+function routeOf(method, u) {
+  if (JOB_ROUTES.test(u.pathname)) { const m = /^w(\d+)-/.exec(u.searchParams.get('id') || ''); return { k: m ? +m[1] : 0 }; }
+  let p = u.searchParams.get('p');
+  const m = /^\/(pm|pf)\/([^/]+)\//.exec(u.pathname); if (m) { try { p = decodeURIComponent(m[2]); } catch { p = null; } }
+  if (!p) return { k: 0 };
+  if (MAIN_ROUTES.has(`${method} ${u.pathname}`) || u.pathname.startsWith('/api/people')) return { k: 0, flush: p };
+  return { k: ownerOf(p) };
+}
+const fwdAgent = new http.Agent({ keepAlive: true, maxSockets: 512 });
+function forward(k, req, res, who) {
+  const pr = http.request({ host: '127.0.0.1', port: workerPort(k), method: req.method, path: req.url, agent: fwdAgent,
+    headers: { ...req.headers, 'x-vedit-key': CL_KEY, 'x-vedit-who': Buffer.from(JSON.stringify(who)).toString('base64') } }, (wr) => {
+    res.writeHead(wr.statusCode, wr.headers); wr.pipe(res);
+  });
+  pr.on('error', () => { if (!res.headersSent) send(res, 503, { error: 'This project\'s worker is restarting - try again in a few seconds' }); else res.destroy(); });
+  res.on('close', () => { if (!res.writableFinished) pr.destroy(); }); // (a closed live stream / player closes the worker's side too)
+  req.pipe(pr);
+}
+// the main process asks a worker something about project p (flush, release, resume) or about itself (state)
+async function askWorker(k, what, p = null, timeout = 15000, more = {}) {
+  const qs = new URLSearchParams({ ...(p ? { p } : {}), ...more }).toString();
+  const r = await fetch(`http://127.0.0.1:${workerPort(k)}/internal/${what}${qs ? `?${qs}` : ''}`, { method: what === 'state' ? 'GET' : 'POST', headers: { 'x-vedit-key': CL_KEY }, signal: AbortSignal.timeout(timeout) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw err(r.status, j.error || `worker ${k}: ${r.status}`);
+  return j;
+}
+const askOwner = (p, what) => (CLUSTER && !IS_WORKER ? askWorker(ownerOf(p), what, p) : Promise.resolve({}));
+// a project made / brought back / changed here (main process): what was read here is written now and forgotten, and its
+// worker reads it afresh and makes its thumbnails and previews
+async function handOver(name) {
+  if (!CLUSTER || IS_WORKER) return;
+  if (mediaCache.has(name)) { clearTimeout(saveTimers.get(name)); saveMedia(name, true); }
+  mediaCache.delete(name);
+  try { await askOwner(name, 'resume'); } catch (e) { logCrash('hand over', e); }
+}
+async function workerStates() {
+  if (!CLUSTER || IS_WORKER) return [];
+  return Promise.all([...Array(WORKERS)].map((_, i) => askWorker(i + 1, 'state', null, 3000).catch((e) => ({ k: i + 1, down: true, error: e.message }))));
+}
+// the worker side: /internal/… from the main process only
+const INTERNAL = {
+  pull: (p, u) => pullProject(p, String(u.searchParams.get('dir') || '')), // (🖥 the standby PC's edits of one of its projects)
+  state: () => ({ k: WORKER_K, pid: process.pid, up: Math.round(process.uptime()), lag: healthSeries().now.lag, rss: Math.round(process.memoryUsage().rss / 1048576),
+    projects: [...live].map(([name, L]) => ({ name, people: L.subs.size })), queue: quickQ.length + proxyQ.length,
+    jobs: [...jobs.values()].filter((j) => j.status === 'running').map(({ log, proc, events, ...j }) => j) }),
+  flush: (p) => {
+    for (const [name, L] of live) if (!p || name === p) { if (L.timer) liveWrite(name, L, true); }
+    for (const name of [...saveTimers.keys()]) if (!p || name === p) { clearTimeout(saveTimers.get(name)); saveMedia(name, true); }
+    return { ok: true };
+  },
+  release: (p) => {
+    const L = live.get(p), people = L ? [...new Set([...L.subs.values()].map((x) => x.who.name))] : [];
+    if (people.length) throw err(409, `Open right now by ${people.join(', ')} - ask them to close it first`);
+    if (projectBusy(p)) throw err(409, 'A job of this project is running - wait for it to finish');
+    INTERNAL.flush(p);
+    let dir = ''; try { dir = path.resolve(projDir(p)).toLowerCase() + path.sep; } catch {}
+    for (const st of openStreams) if (dir && String(st.file || '').toLowerCase().startsWith(dir)) st.destroy();
+    live.delete(p); mediaCache.delete(p); offlineChecked.delete(p);
+    for (const qq of [quickQ, proxyQ]) for (let i = qq.length - 1; i >= 0; i--) if (qq[i].proj === p) qq.splice(i, 1);
+    if (activeProject === p) activeProject = null;
+    return { ok: true };
+  },
+  resume: (p) => {
+    if (live.get(p)?.subs.size) { const L = live.get(p); L.mtime = -1; liveOf(p); } else live.delete(p); // (open: everyone switches to the file)
+    mediaCache.delete(p); offlineChecked.delete(p);
+    if (!fs.existsSync(P(p, 'project.json'))) return { ok: true };
+    ensureProjectDirs(p);
+    for (const m of mediaDb(p).items) {
+      if (m.status !== 'ready' && m.status !== 'offline') { m.status = 'queued'; quickQ.push({ proj: p, id: m.id }); }
+      else if (['queued', 'making', 'pending'].includes(m.proxy)) { m.proxy = 'queued'; proxyQ.push({ proj: p, id: m.id }); }
+    }
+    pump();
+    return { ok: true };
+  },
+};
+// main process: start the workers, and again when one stops
+const workerProcs = new Map(); // k -> { proc, starts }
+let stopping = false;
+function startWorker(k) {
+  const w = workerProcs.get(k) || { starts: 0 }; workerProcs.set(k, w);
+  w.starts++; w.at = Date.now();
+  const proc = spawn(process.execPath, [path.join(ROOT, 'server.mjs')], { cwd: ROOT, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, VEDIT_WORKER: String(k), VEDIT_WORKERS: String(WORKERS), VEDIT_KEY: CL_KEY, VEDIT_NO_RESUME: '1', UV_THREADPOOL_SIZE: '16' } });
+  w.proc = proc;
+  const pipe = (s, to) => s.on('data', (d) => { for (const l of String(d).split(/\r?\n/)) if (l.trim()) to.write(`[worker ${k}] ${l}\n`); });
+  pipe(proc.stdout, process.stdout); pipe(proc.stderr, process.stderr);
+  proc.on('exit', (code) => {
+    w.proc = null;
+    if (stopping) return;
+    logCrash(`project worker ${k}`, `stopped (code ${code}) - starting it again`);
+    setTimeout(() => startWorker(k), Date.now() - w.at < 10000 ? 5000 : 500); // (one that keeps failing at once: not in a tight loop)
+  });
+}
+if (CLUSTER && !IS_WORKER) {
+  for (let k = 1; k <= WORKERS; k++) startWorker(k);
+  const stopAll = () => { stopping = true; for (const w of workerProcs.values()) try { w.proc?.kill(); } catch {} };
+  process.on('exit', stopAll);
+  console.log(`⚙ ${WORKERS} project workers (ports ${workerPort(1)}-${workerPort(WORKERS)})`);
+}
 
 // who: the person asking - the owner on this computer (port 3000), or a team member signed in over the network
 async function handle(req, res, who) {
@@ -4270,10 +4941,21 @@ async function handle(req, res, who) {
   req.who = who;
   try {
     if (!allowed(who, req.method, u.pathname)) return send(res, 403, { error: who.role === 'viewer' ? 'You can only watch (viewer) - ask the owner for editor rights' : 'Only the owner can do this, on the editing computer' });
+    // 🖥 a standby PC runs the editor (or its edits are not back yet): this one only shows - two editors never write
+    // the same project
+    if (standbyHold && req.method !== 'GET' && !/^\/api\/(safety|me|lock|unlock|clientlog|live\/presence|live\/save|shutdown)(\/|$)/.test(u.pathname))
+      return send(res, 423, { error: standbyHold.pending ? `Edits made on the standby PC ${standbyHold.host} are being brought back - try again in a minute` : `The standby PC ${standbyHold.host} is running the editor (since ${new Date(standbyHold.since).toLocaleTimeString()}). Edit there - this editor takes over again about 2 minutes after it is back.` });
+    // ⚙ a project's request goes to its worker (the main process keeps no project in memory)
+    if (CLUSTER && !IS_WORKER) {
+      const r = routeOf(req.method, u);
+      if (r.k) return forward(r.k, req, res, who);
+      if (r.flush) await askOwner(r.flush, 'flush').catch(() => {});
+    }
     const route = routes[`${req.method} ${u.pathname}`];
     if (route) {
+      const t0 = performance.now();
       const out = await route(req, res, u);
-      if (!res.headersSent) send(res, 200, out);
+      if (!res.headersSent) { send(res, 200, out); noteRequest(performance.now() - t0); } // (🩺 streams and files are not timed)
       return;
     }
     // project media: /pm/<project>/<id>/<play|orig|thumb|strip|wave|peaks>
@@ -4295,8 +4977,8 @@ async function handle(req, res, who) {
       return serveFile(req, res, file, m[3] !== 'play' && m[3] !== 'orig');
     }
     // project files: /pf/<project>/<renders|subs>/<file>
-    m = /^\/pf\/([^/]+)\/(renders|subs|thumbnails)\/(.+)$/.exec(u.pathname);
-    if (req.method === 'GET' && m) return serveFile(req, res, P(needProject(decodeURIComponent(m[1])), ...(m[2] === 'thumbnails' ? ['output', 'thumbnails'] : [m[2]]), path.basename(decodeURIComponent(m[3]))));
+    m = /^\/pf\/([^/]+)\/(renders|subs|thumbnails|frames)\/(.+)$/.exec(u.pathname);
+    if (req.method === 'GET' && m) return serveFile(req, res, P(needProject(decodeURIComponent(m[1])), ...(m[2] === 'thumbnails' || m[2] === 'frames' ? ['output', m[2]] : [m[2]]), path.basename(decodeURIComponent(m[3]))));
     if (req.method === 'GET') {
       const f = path.join(ROOT, 'public', u.pathname === '/' ? 'index.html' : path.normalize(decodeURIComponent(u.pathname)));
       if (f.startsWith(path.join(ROOT, 'public'))) return serveFile(req, res, f);
@@ -4307,8 +4989,24 @@ async function handle(req, res, who) {
   }
 }
 const OWNER = { name: 'Owner', role: 'owner', local: true };
-const server = http.createServer((req, res) => handle(req, res, OWNER));
-const listen = () => server.listen(PORT, '127.0.0.1');
+// ⚙ a project worker: only the main process talks to it (its key), saying who asks; it stops when the main one is gone
+if (IS_WORKER) {
+  const ws = http.createServer(async (req, res) => {
+    if (req.headers['x-vedit-key'] !== CL_KEY) { res.writeHead(403); return res.end(); }
+    const u = new URL(req.url, 'http://localhost');
+    const m = /^\/internal\/(\w+)$/.exec(u.pathname);
+    if (m && INTERNAL[m[1]]) { try { return send(res, 200, await INTERNAL[m[1]](u.searchParams.get('p'), u)); } catch (e) { return send(res, e.code >= 400 && e.code < 600 ? e.code : 500, { error: e.message }); } }
+    let who = OWNER; try { who = JSON.parse(Buffer.from(String(req.headers['x-vedit-who'] || ''), 'base64').toString('utf8')) || OWNER; } catch {}
+    handle(req, res, who);
+  });
+  let tries = 0;
+  ws.on('error', (e) => { if (e.code === 'EADDRINUSE' && ++tries < 30) return setTimeout(() => ws.listen(workerPort(WORKER_K), '127.0.0.1'), 1000); console.error(e); process.exit(1); });
+  ws.listen(workerPort(WORKER_K), '127.0.0.1', () => console.log(`project worker ${WORKER_K}/${WORKERS} ready (pid ${process.pid})`));
+  const parent = process.ppid;
+  setInterval(() => { try { process.kill(parent, 0); } catch { process.exit(0); } }, 5000).unref?.();
+}
+const server = http.createServer((req, res) => (req.url.startsWith('/review/') ? clientReview(req, res, new URL(req.url, 'http://x')) : handle(req, res, OWNER)));
+const listen = () => { if (!IS_WORKER) server.listen(PORT, '127.0.0.1'); };
 server.on('listening', () => {
   console.log(`Video editor running at ${APP_URL}  (close this window to stop it)`);
   console.log(`Projects are saved in ${PROJECTS}`);
