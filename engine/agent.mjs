@@ -23,6 +23,7 @@ import { CUTFX, autoSfx } from '../public/js/fx.js';
 import { fixLyrics, planSong, songFx } from './songplan.mjs';
 import { imageCost, styleMotion, lyricTitles } from './editstyle.mjs';
 import { cuesFromSegments, defaultCaptions } from '../public/js/captions.js';
+import { loadPeople, loadLibrary, mentioned, textHits, faceTimes } from './people.mjs';
 
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
@@ -42,6 +43,13 @@ export async function runAgent(ctx) {
   let clips = (opts.clips || []).map((id) => media[id]).filter((m) => m && (m.kind === 'video' || m.kind === 'image'));
   if (!clips.length) throw new Error('Choose at least one video or photo for the agent');
   const vo = opts.vo && media[opts.vo], music = opts.music && media[opts.music];
+  // ❗ a voice-over / music that cannot be heard: said plainly, before minutes of work
+  for (const [m, what] of [[vo, 'voice-over'], [music, 'music']]) {
+    if (!m) continue;
+    if (m.status === 'error') throw new Error(`The ${what} "${m.name}" cannot be read: ${m.error || 'damaged or unsupported file'}`);
+    if (m.kind === 'image' || (m.hasAudio === false)) throw new Error(`The ${what} "${m.name}" has no sound in it - pick a file with audio (MP3, WAV, M4A, or a video with sound)`);
+    if (!fs.existsSync(m.path)) throw new Error(`The ${what} "${m.name}" is offline (not found at ${m.path}) - relink it in Media`);
+  }
   const src = (m) => (m.proxyPath && fs.existsSync(m.proxyPath) ? m.proxyPath : m.path);
   const keyOnly = (m) => src(m) === m.path && m.kind === 'video'; // no proxy yet: read only the keyframes of the camera file
   const report = { warnings: [], slots: [] };
@@ -266,7 +274,7 @@ export async function runAgent(ctx) {
       let next = Math.min(total, snap(t + s.len));
       if (next - t < 0.3) next = Math.min(total, t + s.len);
       const mid = (t + next) / 2;
-      slots.push({ start: t, end: next, sec: secAt(mid), act: actOf(mid, total), energy: energy ? energy.at(mid) : 0.5, refCut: k ? s.cutIn : null });
+      slots.push({ start: t, end: next, sec: secAt(mid), act: actOf(mid, total), energy: energy ? energy.at(mid) : 0.5, refCut: k ? s.cutIn : null, refK: k % ref.shots.length });
       t = next; k++;
     }
     if (slots.length) slots[slots.length - 1].end = total;
@@ -335,7 +343,23 @@ export async function runAgent(ctx) {
   const texts = sections.filter((s) => s.text).map((s) => ({ id: s.textId, text: s.text.slice(0, 300) }));
   if (style !== 'standard') texts.push(...Object.entries(ACT_PROMPTS).map(([k, t]) => ({ id: `act_${k}`, text: t })));
   const reqFile = path.join(cacheDir, 'agent', 'clip-req.json'), outFile = path.join(cacheDir, 'agent', 'clip-out.json');
-  fs.writeFileSync(reqFile, JSON.stringify({ cacheDir: path.join(cacheDir, 'agent', 'emb'), embeddings: true, texts, media: clips.map((m) => ({ id: m.id, frames: frames[m.id] })) }));
+  // 🎯 a reference: a frame from the middle of each of its shots goes to CLIP with the footage, so each slot can prefer
+  // the moment that LOOKS like its reference shot (subject, framing, colour) - it used to copy only the shot lengths and
+  // cut effects and pick pictures by the voice-over's words alone, so the edit hardly looked like the reference
+  const refMedia = ref && opts.reference ? media[opts.reference] : null, refId = refMedia ? `ref-${refMedia.id}` : null;
+  let refFrames = [];
+  if (refMedia && ref.shots.some((s) => Number.isFinite(s.at))) {
+    const dir = path.join(cacheDir, 'agent', refId);
+    fs.mkdirSync(dir, { recursive: true });
+    for (const [k, s] of ref.shots.entries()) {
+      if (!Number.isFinite(s.at)) continue;
+      const f = path.join(dir, `${String(k).padStart(3, '0')}.jpg`);
+      if (!fs.existsSync(f)) await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-ss', String(s.at), '-i', refMedia.path, '-frames:v', '1', '-vf', 'scale=-2:224', f]);
+      if (fs.existsSync(f)) refFrames.push({ t: k, path: f });
+    }
+  }
+  fs.writeFileSync(reqFile, JSON.stringify({ cacheDir: path.join(cacheDir, 'agent', 'emb'), embeddings: true, texts,
+    media: [...clips.map((m) => ({ id: m.id, frames: frames[m.id] })), ...(refFrames.length ? [{ id: refId, frames: refFrames }] : [])] }));
   let vis = null;
   const c = await run(python, [path.join(root, 'engine', 'clipmatch.py'), reqFile, outFile], { onErr: (l) => { const m = /^PROGRESS (\d+)/.exec(l); if (m) progress(56 + 14 * (+m[1] / 100)); } });
   if (c.code === 0) vis = JSON.parse(fs.readFileSync(outFile, 'utf8')).media;
@@ -367,6 +391,10 @@ export async function runAgent(ctx) {
   };
   // Look-alike guard: for every frame, how close it looks to any shot already used (CLIP cosine, 1 = identical).
   // Stops the same moment, the next second of it, or another take of the same scene coming back again and again.
+  const refEmb = {}; // reference shot k -> its picture (unit vector)
+  if (refId && vis?.[refId]?.emb?.length) vis[refId].emb.forEach((e, i) => { const v = Float32Array.from(e), n = Math.hypot(...v) || 1; refEmb[vis[refId].times[i]] = v.map((x) => x / n); });
+  const refStats = {}, unitDot = (a, b) => { let d = 0, na = 0; for (let i = 0; i < a.length; i++) { d += a[i] * b[i]; na += a[i] * a[i]; } return d / (Math.sqrt(na) || 1); };
+  const refMotMax = ref ? Math.max(1e-3, ...ref.shots.map((s) => s.motion || 0)) : 1;
   const emb = {}, dupAt = {};
   for (const m of clips) {
     const e = vis?.[m.id]?.emb;
@@ -384,6 +412,27 @@ export async function runAgent(ctx) {
       for (let i = 0; i < F.length; i++) { let dot = 0; for (let k = 0; k < look.length; k++) dot += F[i][k] * look[k]; dot /= n; if (dot > d[i]) d[i] = dot; }
     }
   };
+  // how much the moment a..b of clip m looks like reference shot k: the best frame, as a z-score among all the footage
+  const refLike = (m, a, b, k) => {
+    const r = refEmb[k], E = emb[m.id]; if (!r || !E) return 0;
+    if (!refStats[k]) { const all = Object.values(emb).flatMap((F) => F.map((f) => unitDot(f, r))); const mu = mean(all); refStats[k] = { mu, sd: Math.sqrt(mean(all.map((x) => (x - mu) ** 2))) || 1 }; }
+    const idx = windowIdx(m, a, b); if (!idx.length) return 0;
+    return (Math.max(...idx.map((i) => unitDot(E[i], r))) - refStats[k].mu) / refStats[k].sd;
+  };
+  // the clip that looks most like each reference shot, if it stands out (by 0.5 over the next one) - kept for that
+  // shot: an earlier slot that only half fits takes something else (it used to grab it, and the shot it was made for got
+  // whatever was left)
+  const bestFor = {}, claim = {}; // claim: clip -> { k, raw } - a clip best for several shots is kept for the one it matches most
+  const rawLike = (m, k) => { const r = refEmb[k], E = emb[m.id]; return r && E ? Math.max(...E.map((f) => unitDot(f, r))) : -1; };
+  if (Object.keys(refEmb).length) for (const k of new Set(slots.map((x) => x.refK).filter((x) => x !== undefined))) {
+    const sc = clips.map((m) => ({ id: m.id, z: emb[m.id] ? refLike(m, -1e9, 1e9, k) : -9 })).sort((a, b) => b.z - a.z);
+    if (!(sc[0] && sc[0].z > 0.5 && (!sc[1] || sc[0].z - sc[1].z > 0.5))) continue;
+    const id = sc[0].id, raw = rawLike(clips.find((m) => m.id === id), k);
+    if (claim[id] && claim[id].raw >= raw) continue;
+    if (claim[id]) delete bestFor[claim[id].k];
+    claim[id] = { k, raw }; bestFor[k] = id;
+  }
+  const keptFor = (m, si) => slots.slice(si + 1).filter((x) => x.refK !== undefined && bestFor[x.refK] === m.id).length;
   const fresh = () => clips.some((m) => !uses[m.id]);
   const nearUsed = (m, a, b) => used[m.id].some(([u0, u1]) => a < u1 + 6 && b > u0 - 6);
   // (bursts of nearly the same photo / take: 0.95 alike costs ~1.4, a copy ~2)
@@ -392,9 +441,18 @@ export async function runAgent(ctx) {
   const simW = (x) => Math.min(x, 2.2);
   const badQ = (q) => (q < -1.5 ? 2.5 * (-1.5 - q) + 1 : 0);
   const stockSet = new Set(opts.stockIds || []);
+  // 🧑 a line that names someone ("CM sahab ne kaha", "मुख्यमंत्री ...") wants a shot where that person's face is seen
+  // (cache/people.json from 🧠 Smart scan, names from Library/people); ✍ a banner / super saying the line's words helps a little
+  const pdata = loadPeople(cacheDir), plib = loadLibrary(root), named = pdata.people.filter((p) => p.name);
+  const lineOf = (sec) => [sec.orig, sec.text, sec.visual].filter(Boolean).join(' ');
+  const near = (ts, a, b) => ts.some((t) => t >= a - 1 && t <= b + 1);
   let prev = null;
   for (const [si, slot] of slots.entries()) {
     const L = slot.end - slot.start, tid = slot.sec.textId, SP = slot.sp || 1; // source seconds per timeline second
+    const who = named.length && !slot.sec.actOnly ? mentioned(lineOf(slot.sec), named, plib) : [];
+    const said = !slot.sec.actOnly && slot.sec.orig ? Object.fromEntries(textHits(slot.sec.orig, pdata.text).map((h) => [h.id, h.t])) : {};
+    const known = (m, a, b) => (who.some((p) => near(faceTimes(p, m.id), a, b)) ? 1.5 : 0) + (said[m.id] !== undefined && near([said[m.id]], a - 1, b + 1) ? 0.6 : 0);
+    slot.who = who.map((p) => p.name);
     let best = null;
     // runners-up for this slot (different clips / far-apart moments) so the report can offer "Change"
     const top = [];
@@ -412,8 +470,10 @@ export async function runAgent(ctx) {
       const reuse = stockPen + 0.9 * uses[m.id] ** 1.5 + (uses[m.id] && fresh() ? 1.2 : 0) + (prev === m.id ? 0.8 : 0);
       if (m.kind === 'image') {
         const { sim, q } = frameStats(m, 0, 0, tid);
-        const s = (tid ? simW(sim) : 0) + 0.45 * q - badQ(q) - reuse - 0.15 - dupPenalty(m, 0, 0) - imageCost(sty);
-        consider({ m, in: 0, score: s, sim, q });
+        const rl = slot.refK !== undefined ? refLike(m, 0, 0, slot.refK) : 0;
+        const kept = slot.refK !== undefined && bestFor[slot.refK] !== m.id ? keptFor(m, si) : 0;
+        const s = -3.5 * kept + (tid ? simW(sim) : 0) + 0.45 * q - badQ(q) - reuse - 0.15 - dupPenalty(m, 0, 0) - imageCost(sty) + known(m, 0, 0) + 1.4 * clamp(rl, -2, 2.5);
+        consider({ m, in: 0, score: s, sim, q, rl });
         continue;
       }
       const f = facts[m.id];
@@ -436,7 +496,15 @@ export async function runAgent(ctx) {
         if (crossCut) s -= 0.45;
         if (nearUsed(m, a, b)) s -= 0.6; // the seconds right next to a shot already in the edit
         s -= dupPenalty(m, a, b);
-        consider({ m, in: a, score: s, sim, q, len });
+        s += known(m, a, b);
+        // 🎯 copying a reference: look like its shot k, and move about as much as it does
+        let rl = 0;
+        if (slot.refK !== undefined && refEmb[slot.refK]) {
+          rl = refLike(m, a, b, slot.refK);
+          s += 1.4 * clamp(rl, -2, 2.5) - 0.5 * Math.abs(clamp(mot, 0, 1.5) - (ref.shots[slot.refK].motion || 0) / refMotMax);
+          if (bestFor[slot.refK] !== m.id) s -= 3.5 * keptFor(m, si); // (kept for a later shot it fits much better)
+        }
+        consider({ m, in: a, score: s, sim, q, len, rl });
       }
     }
     if (!best) {
@@ -451,6 +519,12 @@ export async function runAgent(ctx) {
     prev = best.m.id;
     slot.pick = best;
     slot.alts = top.filter((x) => x !== best).sort((a, b) => b.score - a.score).slice(0, 5);
+  }
+  // 🎯 how close to the reference: shots whose picture clearly looks like their reference shot (z > 0.5 among the footage)
+  if (Object.keys(refEmb).length) {
+    const n = slots.filter((x) => x.refK !== undefined).length, close = slots.filter((x) => (x.pick?.rl ?? 0) > 0.5).length;
+    report.refMatch = { shots: n, close };
+    report.warnings.unshift(`Looks like the reference: ${close} of ${n} shots show what its shot shows (framing, subject, colour)${close < n * 0.6 ? ' - for the rest your footage has nothing close; shoot / add clips like those reference shots for a closer copy' : ''}`);
   }
   progress(78);
 
@@ -469,7 +543,7 @@ export async function runAgent(ctx) {
     }
     if (transStyle === 'cinematic' && i > 0 && s.sec !== slots[i - 1].sec) clip.transitionIn = { type: 'fade', dur: 0.4 };
     report.slots.push({ clipId: clip.id, start: r3(s.start), end: r3(s.end), media: m.name, in: clip.in ?? 0, text: s.sec.orig || null, en: s.sec.text || null,
-      match: s.sec.textId ? r3(p.sim) : null, quality: r3(p.q), weak: !!s.sec.textId && !s.sec.actOnly && p.sim < 0.4,
+      match: s.sec.textId ? r3(p.sim) : null, quality: r3(p.q), ...(s.who?.length ? { who: s.who } : {}), weak: !!s.sec.textId && !s.sec.actOnly && p.sim < 0.4,
       alts: (s.alts || []).map((x) => ({ mediaId: x.m.id, in: r3(x.in), match: s.sec.textId ? r3(x.sim) : null })) });
     return clip;
   });

@@ -6,6 +6,8 @@ const projectOf = () => { try { const m = /^#\/p\/(.+)$/.exec(location.hash); re
 export function reportError(where, e) {
   try {
     const msg = String(e?.message || e || 'error').slice(0, 500), stack = String(e?.stack || '').slice(0, 3000);
+    // (the browser's own harmless notes - a video play() cut short by a pause / seek, ResizeObserver - are not problems)
+    if (/play\(\) request was interrupted|ResizeObserver loop|The operation was aborted|AbortError/i.test(msg)) return;
     const key = `${where}|${msg}`, now = Date.now();
     if (now - (sent.get(key) || 0) < 60000) return;
     sent.set(key, now);

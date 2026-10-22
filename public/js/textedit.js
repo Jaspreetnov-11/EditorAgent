@@ -1,8 +1,9 @@
 // 📝 Text page: edit the video by editing what is said. The main story's speech as a document - select words and press
 // Delete (or ✂) to cut them out of the video; ✨ Presets clean up in one go (ums, verbal fillers, stutters, retakes,
 // pauses in four styles, silent heads / tails) or build highlights (15 / 30 / 60 s, questions, a keyword) as a new
-// sequence; ✎ Mark mode strikes words first and cuts them together; double-click a word to correct it. The strip at the
-// bottom is the edit as a timeline - every word, filler and pause on it; click to jump, drag to select words.
+// sequence; ✎ Mark mode strikes words first and cuts them together; right-click a word (or F2) to correct it. Selecting
+// works like any text: drag, double-click a word, triple-click a line, Shift+arrows (Ctrl: by word), Ctrl+A. The strip at
+// the bottom is the edit as a timeline - every word, filler and pause on it; click to jump, drag to select words.
 // Maths in textcut.js; transcripts from engine/transcribe.py (cached per clip).
 import { S, on, emit, commit } from './store.js';
 import { api, enc, watchJob } from './api.js';
@@ -56,16 +57,50 @@ export function mountText(el) {
   $('[data-mark]', el).onclick = (e) => { markMode = !markMode; e.currentTarget.classList.toggle('on', markMode); toast(markMode ? '✎ Mark mode: select words and press Delete to strike them; Apply cuts them all' : 'Mark mode off: Delete cuts right away'); };
   $('[data-apply]', el).onclick = applyMarks;
   $('[data-clearm]', el).onclick = () => { marks.clear(); draw(); };
-  doc.addEventListener('keydown', (e) => { if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); cutSelection(markMode); } });
+  doc.addEventListener('keydown', (e) => {
+    if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); cutSelection(markMode); return; }
+    // selecting text with the keyboard - before the editor's own shortcuts (Ctrl+A = all clips, Shift+arrows = 5 frames)
+    const sel = window.getSelection(), ctrl = e.ctrlKey || e.metaKey;
+    if (ctrl && !e.shiftKey && e.key.toLowerCase() === 'a') { e.preventDefault(); e.stopPropagation(); const r = document.createRange(); r.selectNodeContents(doc); sel.removeAllRanges(); sel.addRange(r); return; }
+    if (ctrl && e.key.toLowerCase() === 'c') { e.stopPropagation(); return; } // (copy the text, not the clips)
+    const dir = { ArrowLeft: ['backward', 'character'], ArrowRight: ['forward', 'character'], ArrowUp: ['backward', 'line'], ArrowDown: ['forward', 'line'], Home: ['backward', 'lineboundary'], End: ['forward', 'lineboundary'] }[e.key];
+    if (dir && e.shiftKey && sel.rangeCount && doc.contains(sel.anchorNode)) {
+      e.preventDefault(); e.stopPropagation();
+      sel.modify('extend', dir[0], ctrl && dir[1] === 'character' ? 'word' : ctrl && dir[1] === 'lineboundary' ? 'documentboundary' : dir[1]);
+      return;
+    }
+    if (e.key === 'F2') { const w = (sel.anchorNode?.parentElement || sel.anchorNode)?.closest?.('[data-wi]'); if (w) { e.preventDefault(); e.stopPropagation(); fixWord(+w.dataset.wi); } }
+  });
+  // (a click puts the caret where it was clicked, so Shift+arrows / Shift+click have a place to start from)
   doc.addEventListener('click', (e) => { const w = e.target.closest('[data-wi]'); if (!w || !window.getSelection().isCollapsed) return; hear(+w.dataset.wi); });
-  // ✏ correct a word the transcript got wrong (kept in the project: project.wordFix)
-  doc.addEventListener('dblclick', (e) => {
-    const el2 = e.target.closest('[data-wi]'); if (!el2) return;
-    const w = words[+el2.dataset.wi], t = prompt('Correct this word (empty = back to what was heard)', w.w); if (t === null) return;
+  // ✏ correct a word the transcript got wrong (kept in the project: project.wordFix) - right-click it, or F2
+  // (double-click selects the word, like any text editor)
+  const fixWord = (i) => {
+    const w = words[i]; if (!w) return;
+    const t = prompt('Correct this word (empty = back to what was heard)', w.w); if (t === null) return;
     const fix = ((S.project.wordFix ||= {})[w.mediaId] ||= {});
     if (t.trim()) fix[`${w.si}:${w.i}`] = t.trim(); else delete fix[`${w.si}:${w.i}`];
     if (!Object.keys(fix).length) delete S.project.wordFix[w.mediaId];
     commit('Correct word'); window.getSelection().removeAllRanges();
+  };
+  doc.addEventListener('contextmenu', (e) => {
+    const el2 = e.target.closest('[data-wi]'); if (!el2) return;
+    e.preventDefault();
+    document.querySelector('.ui-menu')?.remove();
+    const m = document.createElement('div'); m.className = 'ui-menu tx-menu';
+    const has = !window.getSelection().isCollapsed;
+    m.innerHTML = `<button data-k="fix">✏ Correct this word… (F2)</button>${has ? '<button data-k="cut">✂ Cut the selected words (Delete)</button><button data-k="copy">Copy the text</button>' : ''}`;
+    document.body.append(m);
+    m.style.top = `${Math.min(e.clientY, innerHeight - m.offsetHeight - 8)}px`; m.style.left = `${Math.min(e.clientX, innerWidth - m.offsetWidth - 8)}px`;
+    const close = (ev) => { if (!m.contains(ev.target)) { m.remove(); document.removeEventListener('pointerdown', close, true); } };
+    setTimeout(() => document.addEventListener('pointerdown', close, true));
+    m.onclick = (ev) => {
+      const k = ev.target.closest('[data-k]')?.dataset.k; if (!k) return;
+      m.remove(); document.removeEventListener('pointerdown', close, true);
+      if (k === 'fix') fixWord(+el2.dataset.wi);
+      if (k === 'cut') cutSelection(markMode);
+      if (k === 'copy') navigator.clipboard?.writeText(window.getSelection().toString()).then(() => toast('Copied'));
+    };
   });
   // the word being heard lights up; playback stops at the clip's Out
   pv.addEventListener('timeupdate', () => {

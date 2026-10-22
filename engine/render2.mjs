@@ -168,6 +168,9 @@ function fit(inp, out, mode, c = {}) {
       `[${out}f]scale=${W}:${H}:force_original_aspect_ratio=decrease[${out}ff];[${out}bb][${out}ff]overlay=(W-w)/2:(H-h)/2,setsar=1[${out}]`;
   return `[${inp}]scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:black,setsar=1[${out}]`;
 }
+// ⏩ the sound of a clip at another speed: same pitch (atempo), or - "Maintain audio pitch" off (c.keepPitch === false) -
+// higher / lower like a tape played faster / slower
+const speedAudio = (c, speed) => (speed === 1 ? '' : c.keepPitch === false ? `aresample=48000,asetrate=${Math.round(48000 * speed)},aresample=48000` : atempo(speed));
 function atempo(speed) {
   const parts = []; let s = speed;
   while (s > 2) { parts.push(2); s /= 2; }
@@ -375,9 +378,10 @@ function segment(c, label, fixed = null) {
       // (the inverse of sourceAt, as a piecewise-linear curve with 64 pieces); fps then repeats / drops frames evenly
       const K = 64, keys = Array.from({ length: K + 1 }, (_, k) => ({ t: sourceAt({ ...c, in: 0 }, (dur * k) / K, dur), v: (dur * k) / K }));
       g.push(`[0:v]${stab}setpts='(${keysExpr(keys, 'T')})/TB'${rate}[v0]`);
-    } else g.push(`[0:v]${stab}setpts=(PTS-STARTPTS)/${speed}${rate}[v0]`);
-    if (smooth) smoothAfterFit = job.preview ? `minterpolate=fps=${F}:mi_mode=blend` : `minterpolate=fps=${F}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1`;
-    if (ramp) { /* ramped clips are silent (music carries them) */ } else if (m.hasAudio && !c.mute) aSrc = `[0:a]asetpts=PTS-STARTPTS,${clipFx(c)}${atempo(speed)},${volumeFilter(c)},${AFMT}[a]`;
+    } else g.push(`[0:v]${stab}${c.reverse ? 'reverse,' : ''}setpts=(PTS-STARTPTS)/${speed}${rate}[v0]`); // (⏪ Reverse speed: the shot backwards)
+    // Time interpolation (Clip Speed / Duration): 'blend' = frame blending (quick), true = optical flow (smoothest)
+    if (smooth) smoothAfterFit = job.preview || c.smooth === 'blend' ? `minterpolate=fps=${F}:mi_mode=blend` : `minterpolate=fps=${F}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1`;
+    if (ramp) { /* ramped clips are silent (music carries them) */ } else if (m.hasAudio && !c.mute) aSrc = `[0:a]asetpts=PTS-STARTPTS,${c.reverse ? 'areverse,' : ''}${clipFx(c)}${speedAudio(c, speed) ? `${speedAudio(c, speed)},` : ''}${volumeFilter(c)},${AFMT}[a]`;
   } else if (c.type === 'image') {
     const m = M(c.mediaId);
     dur = exact(clipDur(c, media));
@@ -513,8 +517,15 @@ console.log(`Rendering ${W}x${H}@${F}, ${D.toFixed(2)}s${job.preview ? ' (previe
 
 // plan every shot first (cheap), then render them side by side
 const frames = (t) => Math.round(t * F);
-const v1Segs = v1.map((x, i) => segment(x.clip, `V1 clip ${i + 1}`, (frames(x.end) - frames(x.start)) / F));
-const ovSegs = new Map(ovMedia.map((x, i) => [x, segment(x.clip, `${x.track} clip ${i + 1}`)]));
+// 🎬 In / Out (job.range): only that part is made - shots wholly outside it become plain black of the same length (nothing
+// is read or graded for them) and the final pass keeps only In to Out
+const R = job.range && +job.range.out > +job.range.in ? { in: +job.range.in, out: Math.min(D, +job.range.out) } : null;
+const outside = (x) => R && (x.end < R.in - 1 || x.start > R.out + 1);
+const blank = (dur, label) => ({ file: path.join(wd, `seg${String(segN++).padStart(4, '0')}.mp4`), dur, label: `${label} (outside In-Out)`, hit: null, pre: [],
+  main: ['-f', 'lavfi', '-i', `color=c=black:s=${W}x${H}:r=${F}:d=${dur.toFixed(3)}`, '-f', 'lavfi', '-t', dur.toFixed(3), '-i', 'anullsrc=r=48000:cl=stereo', '-map', '0:v', '-map', '1:a', '-t', dur.toFixed(3)] });
+const v1Segs = v1.map((x, i) => { const d = (frames(x.end) - frames(x.start)) / F; return outside(x) ? blank(d, `V1 clip ${i + 1}`) : segment(x.clip, `V1 clip ${i + 1}`, d); });
+const ovSegs = new Map(ovMedia.filter((x) => !outside(x)).map((x, i) => [x, segment(x.clip, `${x.track} clip ${i + 1}`)]));
+if (R) console.log(`  In-Out: ${R.in.toFixed(2)}s to ${R.out.toFixed(2)}s (${(R.out - R.in).toFixed(2)}s)`);
 {
   const all = [...v1Segs, ...ovSegs.values()], pending = [...all];
   // 🖥 render farm: other computers take shots from the end of the list while this one works from the start
@@ -591,7 +602,9 @@ ovl.forEach((x, k) => {
   const c = x.clip, st = x.start, en = x.end;
   if (c.type === 'adjust') { v = adjustLayer(c, v, st, en, k); return; }
   if (c.type !== 'video' && c.type !== 'image') return; // titles are drawn after the film look (below)
-  const s = ovSegs.get(x), i = n++;
+  const s = ovSegs.get(x);
+  if (!s) return; // (outside In-Out: not made)
+  const i = n++;
   inputs.push('-i', s.file);
   const op = c.opacity ?? 1;
   // keyframed opacity: per-frame alpha (geq's T = seconds into the clip, before it is moved to its start)
@@ -721,7 +734,7 @@ function trackBus(id) {
       chain = `[${i}:a]${AFMT},atrim=start=${tin}:end=${tin + seg},asetpts=PTS-STARTPTS,aloop=loop=-1:size=${Math.ceil(seg * 48000)},atrim=0:${len.toFixed(3)},asetpts=PTS-STARTPTS`;
     } else {
       inputs.push('-ss', String(tin), '-t', String(len * speed), '-i', m.path);
-      chain = `[${i}:a]asetpts=PTS-STARTPTS,${clipFx(c)}${speed !== 1 ? `${atempo(speed)},` : ''}${AFMT}`;
+      chain = `[${i}:a]asetpts=PTS-STARTPTS,${c.reverse ? 'areverse,' : ''}${clipFx(c)}${speed !== 1 ? `${speedAudio(c, speed)},` : ''}${AFMT}`;
     }
     chain += `,${volumeFilter(c)}${fi ? `,afade=t=in:d=${fi}` : ''}${fo ? `,afade=t=out:st=${Math.max(0, len - fo).toFixed(3)}:d=${fo}` : ''}`;
     chain += `,adelay=${ms}|${ms}[${id}c${k}]`;
@@ -791,7 +804,7 @@ if (!job.preview && EX.codec === 'prores') {
     if (cap) for (const e of [finalEnc, cpuEnc]) e.push('-maxrate', `${cap}k`, '-bufsize', `${cap * 2}k`);
   }
 }
-const finalArgs = [...inputs.map((x, i) => (inputs[i - 1] === '-i' ? short(x) : x)), ...fcArgs(g.join(';')), '-map', '[vout]', '-map', '[aout]', '-t', String(D)];
+const finalArgs = [...inputs.map((x, i) => (inputs[i - 1] === '-i' ? short(x) : x)), ...fcArgs(g.join(';')), '-map', '[vout]', '-map', '[aout]', ...(R ? ['-ss', R.in.toFixed(3), '-t', (R.out - R.in).toFixed(3)] : ['-t', String(D)])];
 const gpuFinal = !!(!job.preview && NV && EX.codec !== 'prores');
 // GPU: the system FFmpeg filters and sends raw frames + audio (NUT) down a pipe to the encoder FFmpeg
 function ffPipe(args, enc, out) {
@@ -815,4 +828,4 @@ if (!gpuFinal || !(await ffPipe(finalArgs, [...finalEnc, '-movflags', '+faststar
 if (!job.keep) fs.rmSync(wd, { recursive: true, force: true });
 if (reused) console.log(`Reused ${reused} unchanged shot${reused > 1 ? 's' : ''} from earlier renders`);
 try { trimCache(); } catch {}
-console.log(JSON.stringify({ output: job.output, duration: +D.toFixed(2), width: W, height: H }));
+console.log(JSON.stringify({ output: job.output, duration: +(R ? R.out - R.in : D).toFixed(2), width: W, height: H }));

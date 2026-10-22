@@ -16,7 +16,7 @@ import os from 'node:os';
 import dns from 'node:dns';
 import { Readable } from 'node:stream';
 import zlib from 'node:zlib';
-import { newProject, uid, placed, clipDur, seqOf, seqHash, ASPECTS, normalizeProject } from './public/js/model.js';
+import { newProject, uid, placed, clipDur, seqOf, seqHash, ASPECTS, normalizeProject, rangeOf, totalDuration } from './public/js/model.js';
 import { gfxKey } from './public/js/graphics.js';
 import { ensureLuts, guessLogLut } from './engine/lutgen.mjs';
 import { ensureLooks } from './engine/looklut.mjs';
@@ -31,8 +31,15 @@ import { learnStyle, describeStyle } from './engine/editstyle.mjs';
 import { analyzeClip, extractFrames } from './engine/analyze.mjs';
 import { addBeat, prune as prunePresence, summary as presenceSummary, KEEP_DAYS } from './engine/presence.mjs';
 import { toEnglishQuery } from './engine/searchwords.mjs';
+import { mentioned, textHits, loadLibrary, saveLibrary, label as peopleLabel } from './engine/people.mjs';
+import { readXmeml, aspectOf } from './engine/xmlimport.mjs';
 import { ensureSfx, listSfx, SFX_KINDS } from './engine/sfx.mjs';
 import { gyroflowExe, findLog, gyroSamples, stabilise, LOG_EXT as GF_LOG } from './engine/gyroflow.mjs';
+
+// more file workers for Node (default 4): slow NAS reads of scans / probes took all four and the Program monitor's
+// video waited behind them (~0.1 MB/s for a 70 Mbps clip - a black monitor). Set here, before the first file read
+// starts the pool, so it holds however the server is started (an old tray script in memory did not pass it).
+process.env.UV_THREADPOOL_SIZE ||= '32';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 // VEDIT_DATA: where projects, settings and queues live (default: this folder). The auto-tests run a second editor
@@ -41,6 +48,15 @@ const DATA = process.env.VEDIT_DATA ? path.resolve(process.env.VEDIT_DATA) : ROO
 const PROJECTS = path.join(DATA, 'Projects');
 const GLOBAL_LUTS = path.join(ROOT, 'LUTs');
 fs.mkdirSync(PROJECTS, { recursive: true });
+// 📍 a project can be saved in any folder this computer can open (Z:\ on the NAS, D:\Edits, \\GUNA-PC\D\...), chosen in
+// New project. project-places.json remembers where each one outside Projects is ({ name: its folder }); projDir finds it.
+const PLACES_FILE = path.join(DATA, 'project-places.json');
+let placesCache = null;
+const projectPlaces = () => (placesCache ||= readJSON(PLACES_FILE, {}));
+function setPlace(name, dir) { const pl = { ...projectPlaces() }; if (dir) pl[name] = dir; else delete pl[name]; placesCache = pl; writeJSON(PLACES_FILE, pl); }
+// every project: the ones in Projects, then the ones saved elsewhere (a drive that is not connected right now is left out)
+const allProjects = () => [...fs.readdirSync(PROJECTS).filter((n) => fs.existsSync(path.join(PROJECTS, n, 'project.json'))),
+  ...Object.entries(projectPlaces()).filter(([n, d]) => !fs.existsSync(path.join(PROJECTS, n, 'project.json')) && fs.existsSync(path.join(d, 'project.json'))).map(([n]) => n)];
 // 🗑 the Recycle Bin: deleted projects wait here (next to Projects) until restored or deleted for good. An older
 // "Deleted projects" folder is taken in once.
 const recycleBin = () => path.join(DATA, 'Recycle Bin');
@@ -154,7 +170,20 @@ const readJson = async (req) => JSON.parse((await readBody(req)) || '{}');
 // files being streamed right now (a project delete closes the ones in that project - Windows can't move an open file)
 const openStreams = new Set();
 const track = (st, file, res) => { st.file = file; openStreams.add(st); const done = () => openStreams.delete(st); st.on('close', done); res.on('close', () => { st.destroy(); done(); }); return st; };
+// ⚡ the editor's own files (public/: scripts, styles, icons) are kept in memory once read: reading them goes through
+// Node's few file workers, which slow camera files on the NAS (scans, proxies) can keep busy for seconds - every
+// one of ~100 scripts then waited, and the editor stayed black for a minute
+const PUBLIC_DIR = path.join(ROOT, 'public'), memFiles = new Map(); // file -> { mtime, size, buf }
 function serveFile(req, res, file, cache = false) {
+  if (file && file.startsWith(PUBLIC_DIR) && !req.headers.range) {
+    let st = null; try { st = fs.statSync(file); } catch {}
+    if (st?.isFile() && st.size < 4e6) {
+      let hit = memFiles.get(file);
+      if (!hit || hit.mtime !== st.mtimeMs || hit.size !== st.size) { hit = { mtime: st.mtimeMs, size: st.size, buf: fs.readFileSync(file) }; memFiles.set(file, hit); }
+      res.writeHead(200, { 'Content-Type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream', 'Cache-Control': cache ? 'max-age=31536000' : 'no-store', 'Content-Length': hit.buf.length });
+      return res.end(req.method === 'HEAD' ? undefined : hit.buf);
+    }
+  }
   if (!file || !fs.existsSync(file) || !fs.statSync(file).isFile()) return send(res, 404, { error: 'not found' });
   const size = fs.statSync(file).size, type = MIME[path.extname(file).toLowerCase()] || 'application/octet-stream';
   const base = { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Cache-Control': cache ? 'max-age=31536000' : 'no-store' };
@@ -190,13 +219,17 @@ const readJSON = (file, dflt) => { try { return JSON.parse(fs.readFileSync(file,
 
 // ---------------- projects ----------------
 const projDir = (name) => {
+  const at = projectPlaces()[safeName(name)];
+  if (at && !fs.existsSync(path.join(PROJECTS, safeName(name), 'project.json'))) return at;
   const d = path.join(PROJECTS, safeName(name));
   if (!d.startsWith(PROJECTS)) throw err(400, 'bad project name');
   return d;
 };
 const P = (name, ...parts) => path.join(projDir(name), ...parts);
 function ensureProjectDirs(name) {
-  for (const d of ['imports', 'cache/thumbs', 'cache/strips', 'cache/waves', 'cache/proxies', 'cache/analysis', 'subs', 'renders', 'exports', 'backups', 'luts'])
+  // (the folder for XML exports and thumbnails was called "exports" before - it is "output" now)
+  try { if (fs.existsSync(P(name, 'exports')) && !fs.existsSync(P(name, 'output'))) fs.renameSync(P(name, 'exports'), P(name, 'output')); } catch {}
+  for (const d of ['imports', 'cache/thumbs', 'cache/strips', 'cache/waves', 'cache/proxies', 'cache/analysis', 'subs', 'renders', 'output', 'backups', 'luts'])
     fs.mkdirSync(P(name, d), { recursive: true });
 }
 function needProject(name) {
@@ -218,6 +251,23 @@ function saveMedia(name, now = false) {
 }
 const mediaItem = (name, id) => mediaDb(name).items.find((m) => m.id === id);
 
+// an uploaded file (whole, or its last piece arrived) into the project: imports/ (or luts/, subs/), then into Media - in
+// the 📁 folder that was open (bin) - and read ahead of any big folder still being read (the agent may wait for it)
+function finishUpload(name, tmp, rawName, rawBin) {
+  let fname = safeName(path.basename(rawName || 'upload'));
+  const { name: b, ext } = path.parse(fname), kind = EXT_KIND(ext);
+  const dir = kind === 'lut' ? P(name, 'luts') : kind === 'subs' ? P(name, 'subs') : P(name, 'imports');
+  fs.mkdirSync(dir, { recursive: true });
+  for (let i = 1; fs.existsSync(path.join(dir, fname)); i++) fname = `${b}_${i}${ext}`;
+  const dest = path.join(dir, fname);
+  // (a project on the NAS: the rename can fail - the upload then fails with a message, the editor keeps running)
+  try { fs.renameSync(tmp, dest); } catch (e) { try { fs.rmSync(tmp, { force: true }); } catch {} throw err(500, `Could not save ${fname} into the project folder: ${e.code || e.message}`); }
+  if (kind === 'lut' || kind === 'subs') return { kind, name: fname };
+  const it = addMediaFile(name, dest, { bin: String(rawBin || '').replace(/\\/g, '/').slice(0, 120) || 'Uploads', imported: true });
+  saveMedia(name, true);
+  if (it) { const k = quickQ.findIndex((x) => x.proj === name && x.id === it.id); if (k > 0) quickQ.unshift(...quickQ.splice(k, 1)); pump(); }
+  return it ? publicMedia(name, it) : { kind: 'other', name: fname, error: 'Not a video, image or audio file' };
+}
 function addMediaFile(proj, file, { bin = '', imported = false } = {}) {
   const db = mediaDb(proj);
   const abs = path.resolve(file);
@@ -307,7 +357,7 @@ async function sfxLib(name) {
   return lib;
 }
 
-function scanFolder(dir,{ max = 5000, depth = 8 } = {}) {
+function scanFolder(dir, { max = 5000, depth = 8, other = null } = {}) {
   const found = [];
   const walk = (d, rel, lvl) => {
     if (lvl > depth || found.length >= max) return;
@@ -319,6 +369,7 @@ function scanFolder(dir,{ max = 5000, depth = 8 } = {}) {
       const full = path.join(d, e.name);
       if (e.isDirectory()) walk(full, rel ? `${rel}/${e.name}` : e.name, lvl + 1);
       else if (['video', 'image', 'audio'].includes(EXT_KIND(path.extname(e.name)))) found.push({ file: full, bin: rel });
+      else if (other && NOT_MEDIA[path.extname(e.name).toLowerCase()]) { const x = path.extname(e.name).toLowerCase(); other[x] = (other[x] || 0) + 1; } // (RAW / project files: told, not taken)
       if (found.length >= max) return;
     }
   };
@@ -515,12 +566,20 @@ const dirSize = (d) => {
   walk(d);
   return { bytes: n, files };
 };
+// the same without holding the server (a big project on the NAS has many thousands of files)
+async function dirSizeAsync(d) {
+  let n = 0, files = 0;
+  const walk = async (x) => { let ents = []; try { ents = await fs.promises.readdir(x, { withFileTypes: true }); } catch { return; }
+    for (const e of ents) { const f = path.join(x, e.name); if (e.isDirectory()) await walk(f); else { try { n += (await fs.promises.stat(f)).size; files++; } catch {} } } };
+  await walk(d);
+  return { bytes: n, files };
+}
 const DISK_PARTS = [
   ['segments', ['cache', 'segments'], 'Rendered shots (cache) - made again on the next render', true],
   ['proxies', ['cache', 'proxies'], 'Preview copies (small files for playback)', false],
   ['undo', ['cache', 'undo'], '↶ AI undo ki copies', true],
   ['renders', ['renders'], 'Bani hui videos (renders)', false],
-  ['exports', ['exports'], 'Exports (XML, thumbnails…)', false],
+  ['exports', ['output'], 'Output (XML, thumbnails…)', false],
   ['imports', ['imports'], 'Editor ki banayi files (VO, music, nested sequences)', false],
   ['backups', ['backups'], 'Project ki purani copies (backups)', true],
   ['media', ['Media'], 'Pack ki gayi footage', false],
@@ -613,7 +672,7 @@ async function packProject(name, opts, job) {
   }) };
   writeJSON(path.join(out, 'media.json'), media);
   writeJSON(path.join(out, 'project.json'), { ...L.pj, modified: Date.now() });
-  for (const d of ['imports', 'renders', 'exports', 'backups', 'subs', 'luts', 'cache/thumbs', 'cache/strips', 'cache/waves', 'cache/proxies', 'cache/analysis']) fs.mkdirSync(path.join(out, d), { recursive: true });
+  for (const d of ['imports', 'renders', 'output', 'backups', 'subs', 'luts', 'cache/thumbs', 'cache/strips', 'cache/waves', 'cache/proxies', 'cache/analysis']) fs.mkdirSync(path.join(out, d), { recursive: true });
   const info = { from: name, packedAt: Date.now(), files: plan.length, bytes: total, all: !!opts.all, missing: missing.map((m) => m.name) };
   writeJSON(path.join(out, 'pack-info.json'), info);
   job.progress = 100;
@@ -626,9 +685,27 @@ const jobs = new Map(); // background jobs (renders, agent, transcription...) - 
 let quickActive = 0, proxyActive = 0;
 function enqueue(proj, id) { quickQ.push({ proj, id }); pump(); }
 
+// ❗ why a file cannot be used, in words (instead of "Could not read this file")
+function whyUnreadable(file, stderr = '') {
+  let size = -1; try { size = fs.statSync(file).size; } catch {}
+  const e = String(stderr).toLowerCase();
+  if (size === 0) return 'The file is empty (0 bytes) - copy it again from the card or drive';
+  if (size >= 0 && size < 2048) return 'The file is too small to be a video / photo / sound - it may not have finished copying';
+  if (/moov atom not found|invalid data found|end of file|truncat/.test(e)) return 'The file is damaged or not fully copied (often a recording that stopped early) - copy it again, or repair it';
+  if (/permission denied|access is denied/.test(e)) return 'The editor is not allowed to open this file (Windows permissions / the NAS share)';
+  if (/no such file/.test(e)) return 'The file is not there any more';
+  if (/unknown|unsupported|not implemented/.test(e)) return `This file's format cannot be read here (${path.extname(file) || 'no extension'}) - export it as MP4 (H.264) or MOV (ProRes) first`;
+  return `This file cannot be read${stderr ? ` (${String(stderr).trim().split(/\r?\n/).pop().slice(0, 120)})` : ''} - try exporting it again as MP4`;
+}
+// camera RAW / project files a folder may hold: listed when a folder is imported, so they are not silently missing
+const NOT_MEDIA = { '.braw': 'Blackmagic RAW - export as ProRes / MP4 from DaVinci Resolve', '.r3d': 'RED RAW - export as ProRes / MP4 from REDCINE-X or Resolve',
+  '.ari': 'ARRI RAW - export as ProRes from Resolve', '.crm': 'Canon Cinema RAW - export as MP4 / ProRes', '.mxf.part': 'an unfinished copy',
+  '.cr2': 'a camera RAW photo - save it as JPG', '.cr3': 'a camera RAW photo - save it as JPG', '.nef': 'a camera RAW photo - save it as JPG', '.arw': 'a camera RAW photo - save it as JPG', '.dng': 'a RAW photo - save it as JPG',
+  '.psd': 'a Photoshop file - save it as PNG / JPG', '.ai': 'an Illustrator file - save it as PNG', '.prproj': 'a Premiere project - open it in Premiere, or export an XML (File › Open here)',
+  '.aep': 'an After Effects project - render it to a video first', '.drp': 'a Resolve project - export a timeline XML' };
 async function ffprobe(file) {
   const r = await run('ffprobe', ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', file]);
-  if (r.code !== 0) return null;
+  if (r.code !== 0) { ffprobe.lastErr = r.stderr; return null; }
   const j = JSON.parse(r.stdout);
   const v = j.streams.find((s) => s.codec_type === 'video' && s.disposition?.attached_pic !== 1);
   const a = j.streams.find((s) => s.codec_type === 'audio');
@@ -659,7 +736,7 @@ async function processQuick(proj, id) {
   if (!fs.existsSync(m.path)) { m.status = 'offline'; return; }
   m.status = 'probing';
   const info = await ffprobe(m.path);
-  if (!info) { m.status = 'error'; m.error = 'Could not read this file'; return; }
+  if (!info) { m.status = 'error'; m.error = whyUnreadable(m.path, ffprobe.lastErr); return; }
   Object.assign(m, info);
   if (m.kind !== 'image') m.kind = info.hasVideo ? 'video' : info.hasAudio ? 'audio' : m.kind; // trust contents over extension
   const C = (d, f) => P(proj, 'cache', d, f);
@@ -687,6 +764,35 @@ async function makeStrip(file, dur, out) {
   g.push(`${Array.from({ length: 12 }, (_, i) => `[f${i}]`).join('')}hstack=inputs=12[s]`);
   await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...ins, '-filter_complex', g.join(';'), '-map', '[s]', '-frames:v', '1', '-update', '1', '-q:v', '5', out]);
   return fs.existsSync(out);
+}
+// 🔊 the sound's real peaks for the timeline's waveform: one byte (0-255 = silence-full scale) every 10 ms, mono.
+// The timeline draws them at any zoom, so a word, a breath or a beat is where it is heard (the 1600 px picture of the
+// whole file, stretched over a long voice-over, did not match it). Made once, on first ask.
+const PEAKS_PER_SEC = 100, peaksMaking = new Map();
+function makePeaks(file, out) {
+  if (peaksMaking.has(out)) return peaksMaking.get(out);
+  const job = new Promise((ok) => {
+    const p = spawn('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-i', file, '-vn', '-ac', '1', '-ar', '8000', '-f', 's16le', '-'], { windowsHide: true });
+    const per = 8000 / PEAKS_PER_SEC, peaks = [];
+    let carry = Buffer.alloc(0), n = 0, max = 0;
+    p.stdout.on('data', (d) => {
+      const b = carry.length ? Buffer.concat([carry, d]) : d, len = b.length - (b.length % 2);
+      for (let i = 0; i < len; i += 2) {
+        const v = Math.abs(b.readInt16LE(i));
+        if (v > max) max = v;
+        if (++n === per) { peaks.push(Math.min(255, Math.round((max / 32767) * 255))); n = 0; max = 0; }
+      }
+      carry = b.subarray(len);
+    });
+    p.on('error', () => ok(false));
+    p.on('close', () => {
+      if (n) peaks.push(Math.min(255, Math.round((max / 32767) * 255)));
+      if (peaks.length) { fs.mkdirSync(path.dirname(out), { recursive: true }); fs.writeFileSync(out, Buffer.from(peaks)); }
+      ok(peaks.length > 0);
+    });
+  }).finally(() => peaksMaking.delete(out));
+  peaksMaking.set(out, job);
+  return job;
 }
 async function makeWave(file, out) {
   await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-i', file, '-filter_complex',
@@ -786,8 +892,7 @@ async function pump() {
 }
 
 // On start, resume anything left unfinished last time (VEDIT_NO_RESUME=1: a second test server leaves that to the main one).
-for (const proj of process.env.VEDIT_NO_RESUME ? [] : fs.readdirSync(PROJECTS)) {
-  if (!fs.existsSync(path.join(PROJECTS, proj, 'project.json'))) continue;
+for (const proj of process.env.VEDIT_NO_RESUME ? [] : allProjects()) {
   ensureProjectDirs(proj);
   for (const m of mediaDb(proj).items) {
     if (m.status !== 'ready' && m.status !== 'offline') { m.status = 'queued'; quickQ[m.kind === 'audio' ? 'unshift' : 'push']({ proj, id: m.id }); }
@@ -800,7 +905,7 @@ pump();
 function publicMedia(proj, m) {
   const base = `/pm/${encodeURIComponent(proj)}/${m.id}`;
   const playable = m.kind === 'video' ? (m.proxy === 'ready' || m.proxy === 'none') : m.kind !== 'image' || true;
-  return { ...m, camera: m.kind === 'video' && m.width && !m.seqOf ? cameraKey(m) : null, urls: { play: `${base}/play`, thumb: m.thumb ? `${base}/thumb` : null, strip: m.strip ? `${base}/strip` : null, wave: m.wave ? `${base}/wave` : null }, playable };
+  return { ...m, camera: m.kind === 'video' && m.width && !m.seqOf ? cameraKey(m) : null, urls: { play: `${base}/play`, thumb: m.thumb ? `${base}/thumb` : null, strip: m.strip ? `${base}/strip` : null, wave: m.wave ? `${base}/wave` : null, peaks: m.hasAudio ? `${base}/peaks` : null }, playable };
 }
 
 // ---------------- jobs ----------------
@@ -891,7 +996,8 @@ function startTask(kind, fn, meta = {}) {
 const analysisFile = (proj, m) => (m.proxy === 'ready' ? P(proj, 'cache', 'proxies', `${m.id}.mp4`) : m.path);
 
 const outReserved = new Map(); // `${project}/${file}` -> when a render was promised that name
-// Validate the timeline and write the job file render2.mjs reads. b = { project?, preview?, filename?, seq? }
+// Validate the timeline and write the job file render2.mjs reads. b = { project?, preview?, filename?, seq?, whole? }
+// 🎬 the timeline's In / Out (settings.range) is all that is made, unless b.whole (Export > Whole timeline)
 // o.write = false: b.project is only a copy to render (the render queue), not the edit to save; o.jobFile: where to write
 function prepareRender(name, b, o = {}) {
   checkOffline(name, true); // 🔗 a moved file is found again before the render needs it
@@ -934,11 +1040,13 @@ function prepareRender(name, b, o = {}) {
   const media = Object.fromEntries([...used].map((id) => [id, { path: byId[id].path, duration: byId[id].duration, hasAudio: byId[id].hasAudio, kind: byId[id].kind, width: byId[id].width, height: byId[id].height, rotation: byId[id].rotation, size: byId[id].size, mtime: byId[id].mtime }]));
   const jobFile = o.jobFile || P(name, 'cache', preview ? 'render-job-preview.json' : `render-job-${safeName(out)}.json`);
   fs.mkdirSync(path.dirname(jobFile), { recursive: true });
+  const range = b.whole ? null : rangeOf(pj, totalDuration(pj, byId));
   // segCache: shots that did not change since an earlier render are reused from cache/segments (engine/render2.mjs)
-  writeJSON(jobFile, { project: pj, media, output: P(name, 'renders', out), preview, fastPreview: preview && !!b.fast, luts: lutMap(name), export: exp, segCache: P(name, 'cache', 'segments'), gfxDir: P(name, 'cache', 'graphics'),
+  writeJSON(jobFile, { project: pj, media, output: P(name, 'renders', out), preview, range, fastPreview: preview && !!b.fast, luts: lutMap(name), export: exp, segCache: P(name, 'cache', 'segments'), gfxDir: P(name, 'cache', 'graphics'),
     farm: !preview && farmCfg().on ? { url: APP_URL } : null,
     subtitlesPath: pj.subtitles?.file ? P(name, 'subs', path.basename(pj.subtitles.file)) : null });
-  return { jobFile, out, preview, duration: Math.max(0, ...Object.values(placed(pj, byId)).flat().map((x) => x.end)) };
+  const D = Math.max(0, ...Object.values(placed(pj, byId)).flat().map((x) => x.end));
+  return { jobFile, out, preview, duration: range ? range.out - range.in : D, range };
 }
 
 // ---------------- sequences ----------------
@@ -1006,6 +1114,24 @@ setTimeout(pumpQueue, 4000); // whatever was waiting when the editor closed
 // 📁 "Save to" (Deliver): a folder of the owner's choice where the finished file is also put (the project keeps its copy
 // in renders/). Only the owner may choose one - a team member cannot make the editor write anywhere on this computer.
 // Editors may choose a folder inside the team's Shared folders only (Team & users > Shared folders, e.g. Z:Exports).
+// 💾 from another PC only the NAS can be browsed and used (folder picker, save a project, open one, import footage) -
+// this computer's own C: / D: / E: stay private. config.team.remoteDrives, default ["Z:\\"]; this PC itself: anything.
+const remoteDrives = () => (teamCfg().remoteDrives?.length ? teamCfg().remoteDrives : ['Z:\\']).map((d) => path.resolve(d));
+const underDrive = (p, d) => { const a = path.resolve(String(p)).toLowerCase(), r = d.toLowerCase(); return a === r || a.startsWith(r.endsWith(path.sep) ? r : r + path.sep); };
+function folderAllowed(req, p) {
+  if (!p || req.who?.local) return;
+  if (!remoteDrives().some((d) => underDrive(p, d))) throw err(403, `From another PC only the NAS (${remoteDrives().join(', ')}) can be used - not ${p}`);
+}
+// 👤 a person's own folder for new projects: Z:\Editor Projects\<the folder named like them> ("Vishal", "Venky Visuals"
+// for venky); on this PC itself, the owner's. config.team.userProjects changes the parent folder.
+function userHome(who) {
+  const base = teamCfg().userProjects || 'Z:\\Editor Projects';
+  const name = String(who?.local ? (teamCfg().users || []).find((x) => x.role === 'owner')?.name || '' : who?.name || '').trim();
+  if (!name || !fs.existsSync(base)) return null;
+  let dirs = []; try { dirs = fs.readdirSync(base, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name); } catch { return null; }
+  const n = name.toLowerCase(), hit = dirs.find((d) => d.toLowerCase() === n) || dirs.find((d) => d.toLowerCase().startsWith(`${n} `));
+  return path.join(base, hit || safeName(name[0].toUpperCase() + name.slice(1)));
+}
 const sharedDirs = () => (teamCfg().libraries || []).filter((d) => { try { return fs.statSync(d).isDirectory(); } catch { return false; } });
 const insideShared = (p) => sharedDirs().some((l) => { let r; try { r = fs.realpathSync(l); } catch { r = path.resolve(l); } const rel = path.relative(r, p); return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel)); });
 function saveToDir(who, d) {
@@ -1026,10 +1152,10 @@ function enqueueRender(name, list) {
   const made = [];
   for (const b of list) {
     const id = crypto.randomBytes(5).toString('hex');
-    const { jobFile, out, duration } = prepareRender(name, { ...b, project: saved }, { write: false, jobFile: P(name, 'cache', 'queue', `${id}.json`) });
+    const { jobFile, out, duration, range } = prepareRender(name, { ...b, project: saved }, { write: false, jobFile: P(name, 'cache', 'queue', `${id}.json`) });
     const seqName = b.seq ? seqView(saved, b.seq).seq?.name : saved.seq?.name;
     const pl = presetById(b.preset)?.label || 'Custom';
-    const it = { id, project: name, seq: seqName || null, preset: b.preset, aspect: b.aspect, label: b.aspect && !pl.includes(b.aspect) ? `${pl} · ${b.aspect}` : pl,
+    const it = { id, project: name, seq: seqName || null, preset: b.preset, aspect: b.aspect, label: (b.aspect && !pl.includes(b.aspect) ? `${pl} · ${b.aspect}` : pl) + (range ? ' · In-Out' : ''),
       out, jobFile, duration, state: 'waiting', progress: 0, added: Date.now(), ...(b.saveTo ? { saveTo: b.saveTo } : {}) };
     rq.items.push(it); made.push(it);
   }
@@ -1051,11 +1177,16 @@ function lutMap(proj) {
 function backup(proj, force = false) {
   const dir = P(proj, 'backups');
   fs.mkdirSync(dir, { recursive: true }); // (a project folder copied in by hand may not have one)
-  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
+  const files = fs.readdirSync(dir).filter((f) => f.startsWith('project_') && f.endsWith('.json')).sort();
   const last = files[files.length - 1];
   if (!force && last && Date.now() - fs.statSync(path.join(dir, last)).mtimeMs < 5 * 60 * 1000) return;
   fs.copyFileSync(P(proj, 'project.json'), path.join(dir, `project_${new Date().toISOString().replace(/[:.]/g, '-')}.json`));
   for (const f of files.slice(0, Math.max(0, files.length - 40))) fs.rmSync(path.join(dir, f), { force: true });
+  // 📅 and one for every day it was edited (its last state), kept 60 days - the 40 above only reach back a few hours
+  const d = new Date(), day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  try { fs.copyFileSync(P(proj, 'project.json'), path.join(dir, `daily_${day}.json`)); } catch {}
+  const days = fs.readdirSync(dir).filter((f) => /^daily_\d{4}-\d\d-\d\d\.json$/.test(f)).sort();
+  for (const f of days.slice(0, Math.max(0, days.length - 60))) fs.rmSync(path.join(dir, f), { force: true });
 }
 
 function listDir(dir, filter) {
@@ -1085,9 +1216,18 @@ function projectSummary(name) {
     thumb: thumbM ? `/pm/${encodeURIComponent(name)}/${thumbM.id}/thumb` : null };
 }
 
-function createProject({ name, aspect, fps }) {
+function createProject({ name, aspect, fps, place }) {
   const n = safeName(name);
-  if (fs.existsSync(P(n, 'project.json'))) throw err(409, `A project called "${n}" already exists`);
+  if (fs.existsSync(P(n, 'project.json')) || fs.existsSync(path.join(PROJECTS, n, 'project.json'))) throw err(409, `A project called "${n}" already exists`);
+  // 📍 saved in a folder of your choice: the project gets its own folder inside it
+  if (place) {
+    const base = path.resolve(String(place)), dir = path.join(base, n);
+    if (!fs.existsSync(base) && fs.existsSync(path.dirname(base))) try { fs.mkdirSync(base); } catch {} // (a new person's own folder)
+    if (!fs.existsSync(base)) throw err(400, `Folder not found: ${base}`);
+    if (fs.existsSync(path.join(dir, 'project.json'))) throw err(409, `${dir} already has a project - use 📂 Open project folder on Home to add it`);
+    try { fs.mkdirSync(dir, { recursive: true }); fs.accessSync(dir, fs.constants.W_OK); } catch (e) { throw err(400, `Cannot save in ${base} (${e.code || e.message}) - pick a folder you can write to`); }
+    if (dir.toLowerCase() !== path.join(PROJECTS, n).toLowerCase()) setPlace(n, dir);
+  }
   ensureProjectDirs(n);
   writeJSON(P(n, 'project.json'), newProject(n, { aspect, fps: +fps || 30 }));
   writeJSON(P(n, 'media.json'), { items: [] });
@@ -1123,11 +1263,15 @@ migrateV1();
 const FF_GPU = path.join(ROOT, 'tools', 'ffmpeg-7.1.1-essentials_build', 'bin', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
 // Importing torch takes seconds, so check the tools once in the background and remember the answer.
 let healthCache = null;
+const FACE_MODELS = ['face_detection_yunet_2023mar.onnx', 'face_recognition_sface_2021dec.onnx'].map((f) => path.join(ROOT, 'Models', f));
 async function checkHealth() {
   // nvenc: a tiny test encode, because the encoder is listed even when the NVIDIA driver is too old to run it
-  const [ff, py, clip, nv] = await Promise.all([run('ffmpeg', ['-version']), run(PYTHON, ['-c', 'import faster_whisper']), run(PYTHON, ['-c', 'import open_clip']),
-    run(fs.existsSync(FF_GPU) ? FF_GPU : 'ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=s=256x256:d=0.2', '-c:v', 'h264_nvenc', '-f', 'null', '-'])]);
-  healthCache = { ffmpeg: ff.code === 0, whisper: py.code === 0, clip: clip.code === 0, nvenc: nv.code === 0, projectsFolder: PROJECTS, lutsFolder: GLOBAL_LUTS };
+  const [ff, py, clip, nv, cv, ocr] = await Promise.all([run('ffmpeg', ['-version']), run(PYTHON, ['-c', 'import faster_whisper']), run(PYTHON, ['-c', 'import open_clip']),
+    run(fs.existsSync(FF_GPU) ? FF_GPU : 'ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=s=256x256:d=0.2', '-c:v', 'h264_nvenc', '-f', 'null', '-']),
+    run(PYTHON, ['-c', 'import cv2; cv2.FaceRecognizerSF']), run(PYTHON, ['-c', 'import easyocr'])]);
+  healthCache = { ffmpeg: ff.code === 0, whisper: py.code === 0, clip: clip.code === 0, nvenc: nv.code === 0, projectsFolder: PROJECTS, lutsFolder: GLOBAL_LUTS,
+    // 🧑 faces (OpenCV + the two face models in Models/) and ✍ text on the footage (EasyOCR)
+    people: cv.code === 0 && FACE_MODELS.every((f) => fs.existsSync(f)), ocr: ocr.code === 0 };
   return healthCache;
 }
 checkHealth();
@@ -1141,7 +1285,7 @@ function versionInfo(name, file, named) {
   const items = Object.fromEntries(mediaDb(name).items.map((m) => [m.id, m]));
   const seqs = 1 + Object.keys(pj.sequences || {}).length;
   let dur = 0; try { dur = Math.max(0, ...Object.values(placed(pj, items)).flat().map((x) => x.end)); } catch {}
-  const label = named ? path.parse(file).name.replace(/^\d{4}-\d\d-\d\d \d\d-\d\d-\d\d ?/, '') : '';
+  const label = named ? path.parse(file).name.replace(/^\d{4}-\d\d-\d\d \d\d-\d\d-\d\d ?/, '') : /^daily_/.test(path.basename(file)) ? '📅 End of that day' : '';
   return { file: path.basename(file), named, label, mtime: st.mtimeMs, clips: Object.values(pj.tracks || {}).flat().length, seqs, seq: pj.seq?.name || 'Main edit', duration: +dur.toFixed(1) };
 }
 const versionPath = (name, file, named) => path.join(P(name, 'backups', ...(named ? ['named'] : [])), path.basename(String(file || '')));
@@ -1174,7 +1318,7 @@ function startShare() {
     try {
       if (req.method === 'GET' && (sub === '/' || sub === '/index.html')) return serveFile(req, res, path.join(ROOT, 'public', 'review', 'index.html'));
       if (req.method === 'GET' && sub === '/api/projects') {
-        return send(res, 200, fs.readdirSync(PROJECTS).filter((n) => fs.existsSync(path.join(PROJECTS, n, 'project.json'))).map((n) => ({
+        return send(res, 200, allProjects().map((n) => ({
           name: n, renders: listDir(P(n, 'renders'), (f) => /\.mp4$/i.test(f) && f !== '_preview.mp4').slice(0, 30) })).filter((p) => p.renders.length)
           .sort((a, b) => b.renders[0].mtime - a.renders[0].mtime));
       }
@@ -1212,12 +1356,15 @@ function stopShare() {
 if (config().share?.on && !process.env.VEDIT_NO_RESUME) resumeServer(startShare, 'phone review');
 
 // ---------------- 🧠 smart footage ----------------
-// engine/footage.py stays running (the picture model loads once, then searches are instant) and stops itself after
-// 10 idle minutes. One request at a time: { req, onProgress, ok, bad }.
-let fw = null;
-function footageWorker() {
-  if (fw) { clearTimeout(fw.idle); return fw; }
-  const p = spawn(PYTHON, [path.join(ROOT, 'engine', 'footage.py')], { cwd: ROOT, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' } });
+// engine/footage.py (pictures) and people.py (faces + text) stay running (the model loads once, then searches are
+// instant) and stop themselves after 10 idle minutes. One request at a time: { req, onProgress, ok, bad }.
+const pyWorkers = {};
+const footageWorker = () => pyWorker('footage.py', 'The picture model');
+const peopleWorker = () => pyWorker('people.py', 'The face and text reader');
+function pyWorker(script, what) {
+  if (pyWorkers[script]) { clearTimeout(pyWorkers[script].idle); return pyWorkers[script]; }
+  const p = spawn(PYTHON, [path.join(ROOT, 'engine', script)], { cwd: ROOT, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' } });
+  p.stdout.setEncoding('utf8'); // (a Hindi letter split between two chunks must not turn into junk)
   const w = { p, waiting: [], cur: null, out: '', err: '' };
   const next = () => { if (w.cur || !w.waiting.length) return; w.cur = w.waiting.shift(); p.stdin.write(`${JSON.stringify(w.cur.req)}\n`); };
   w.send = (req, onProgress) => new Promise((ok, bad) => { clearTimeout(w.idle); w.waiting.push({ req, onProgress, ok, bad }); next(); });
@@ -1236,11 +1383,123 @@ function footageWorker() {
     const t = String(d); w.err = (w.err + t).slice(-4000);
     for (const m of t.matchAll(/PROGRESS (\d+) ?([^\r\n]*)/g)) w.cur?.onProgress?.(+m[1], m[2]);
   });
-  const fail = (e) => { for (const c of [w.cur, ...w.waiting].filter(Boolean)) c.bad(new Error(`The picture model stopped: ${e || w.err.trim().split(/\r?\n/).pop() || 'unknown error'}`)); fw = null; };
+  const fail = (e) => { for (const c of [w.cur, ...w.waiting].filter(Boolean)) c.bad(new Error(`${what} stopped: ${e || w.err.trim().split(/\r?\n/).pop() || 'unknown error'}`)); if (pyWorkers[script] === w) delete pyWorkers[script]; };
   p.on('error', (e) => fail(String(e)));
   p.on('close', () => fail());
-  fw = w;
+  pyWorkers[script] = w;
   return w;
+}
+// 🧑✍ engine/people.py on the given clips (the preview copy when there is one - the same file each time, so its cache
+// holds): faces grouped into people (named ones from Library/people), text read off the pictures. Writes
+// cache/people.json ({ at, people, text: { id: [{ t, text }] } }) and m.people (keys) / m.ocr (the words) in media.json.
+async function lookAtPeople(name, items, onProgress) {
+  const crops = P(name, 'cache', 'people');
+  fs.rmSync(crops, { recursive: true, force: true }); // (old face pictures: their numbers are given out again)
+  const src = (m) => { const px = P(name, 'cache', 'proxies', `${m.id}.mp4`); return m.proxy === 'ready' && fs.existsSync(px) ? px : m.path; };
+  const r = await peopleWorker().send({ cmd: 'look', cacheDir: P(name, 'cache', 'agent', 'people'), cropDir: crops, faces: true, ocr: !!healthCache?.ocr,
+    det: FACE_MODELS[0], rec: FACE_MODELS[1], library: loadLibrary(ROOT),
+    media: items.map((m) => { const txt = (m.tags || []).includes('text'); return { id: m.id, file: src(m), duration: m.duration || 0, image: m.kind === 'image', ocr: txt ? 6 : 2, rotate: txt }; }) }, onProgress);
+  const d = { at: Date.now(), people: r.people.map((p) => ({ ...p, thumb: p.thumb ? path.basename(p.thumb) : null })), text: r.text || {} };
+  writeJSON(P(name, 'cache', 'people.json'), d);
+  peopleToMedia(name, d, new Set(items.map((m) => m.id)));
+  return d;
+}
+// m.people / m.ocr of the clips that were looked at (shown in Media, searched by name)
+function peopleToMedia(name, d, ids) {
+  const byMedia = {};
+  for (const p of d.people) for (const id of Object.keys(p.media)) (byMedia[id] ||= []).push(p.key);
+  for (const m of mediaDb(name).items) {
+    if (!ids.has(m.id)) continue;
+    if (byMedia[m.id]) m.people = byMedia[m.id]; else delete m.people;
+    const words = [...new Set((d.text[m.id] || []).map((x) => x.text))].join(' · ').slice(0, 400);
+    if (words) m.ocr = words; else delete m.ocr;
+  }
+  saveMedia(name, true);
+}
+// change cache/people.json (name / join / remove) and keep media.json in step
+function editPeople(name, fn) {
+  const f = P(name, 'cache', 'people.json'), d = readJSON(f, null);
+  if (!d) throw err(400, 'Run 🧠 Smart scan first - it finds the people in the footage');
+  const out = fn(d);
+  writeJSON(f, d);
+  peopleToMedia(name, d, new Set(mediaDb(name).items.filter((m) => m.people || d.text[m.id] || d.people.some((p) => p.media[m.id])).map((m) => m.id)));
+  const { emb, ...rest } = out || {};
+  return rest;
+}
+function mergeInto(d, keep, rest) {
+  let n = keep.count;
+  const emb = keep.emb ? keep.emb.map((v) => v * keep.count) : null;
+  for (const x of rest) {
+    for (const [id, ts] of Object.entries(x.media)) keep.media[id] = [...new Set([...(keep.media[id] || []), ...ts])].sort((a, b) => a - b);
+    if (emb && x.emb) x.emb.forEach((v, i) => { emb[i] += v * x.count; });
+    n += x.count;
+  }
+  if (emb) { const len = Math.hypot(...emb) || 1; keep.emb = emb.map((v) => +(v / len).toFixed(5)); }
+  keep.count = n;
+  d.people = d.people.filter((x) => !rest.includes(x));
+}
+// 💬 Claude reads numbered transcript lines and answers with line numbers (from..to), so every quote starts and ends
+// exactly where the words do. The transcript goes in on stdin (too long for a command line).
+async function claudeQuotes(exe, lines, n, brief) {
+  const mmss = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+  let body = '', prev = null;
+  for (const [i, l] of lines.entries()) {
+    if (l.id !== prev) { body += `\n## clip ${l.id}\n`; prev = l.id; }
+    body += `L${i} [${mmss(l.start)}] ${l.text}\n`;
+    if (body.length > 150000) break; // (very long footage: the start is enough to find good lines)
+  }
+  const ask = `You pick soundbites for a video edit (Indian government / documentary / event films, Hindi or English).
+${brief ? `The edit is about: ${brief}\n` : ''}Below are transcript lines, numbered L0, L1, ... grouped by clip. Pick the ${n} best quotes: complete thoughts that make sense on their own,
+5-30 seconds, strong, emotional or informative, no filler or half sentences, and from different clips / speakers where possible.
+A quote is one line or several consecutive lines of the same clip. Answer with JSON only, best first:
+{"quotes":[{"from":<first line number>,"to":<last line number>,"why":"<a few words, in the quote's language>"}]}
+${body}`;
+  const out = await new Promise((ok, bad) => {
+    const p = spawn(exe, ['-p', 'Do what the input asks. Reply with the JSON only.', '--output-format', 'json', '--model', 'sonnet', '--max-turns', '1'], { cwd: os.tmpdir(), windowsHide: true });
+    let so = '', se = '';
+    const timer = setTimeout(() => { p.kill(); bad(new Error('no answer in 4 minutes')); }, 240000);
+    p.stdout.on('data', (d) => { so += d; }); p.stderr.on('data', (d) => { se += d; });
+    p.on('error', (e) => { clearTimeout(timer); bad(e); });
+    p.on('close', (code) => { clearTimeout(timer); code === 0 ? ok(so) : bad(new Error(String(se || so).trim().slice(0, 200) || `stopped (${code})`)); });
+    p.stdin.end(ask);
+  });
+  const res = JSON.parse(out);
+  if (res.is_error) throw new Error(String(res.result || 'error').slice(0, 200));
+  const picks = JSON.parse(/\{[\s\S]*\}/.exec(String(res.result || ''))?.[0] || '{}').quotes || [];
+  const quotes = [];
+  for (const q0 of picks) {
+    let a = Math.round(+q0.from), z = Math.round(+q0.to);
+    if (!(a >= 0 && a < lines.length)) continue;
+    if (!(z >= a && z < lines.length)) z = a;
+    while (z > a && lines[z].id !== lines[a].id) z--;
+    const part = lines.slice(a, z + 1);
+    quotes.push({ mediaId: lines[a].id, start: +part[0].start.toFixed(2), end: +part.at(-1).end.toFixed(2), text: part.map((l) => l.text).join(' '), why: String(q0.why || '').slice(0, 120) });
+  }
+  if (!quotes.length) throw new Error('it picked no lines');
+  return quotes.slice(0, n);
+}
+// 💬 without Claude: runs of lines of one clip, 5-30 s, that end a sentence, with enough words and few filler words
+function ruleQuotes(lines, n) {
+  const FILL = /^(and|so|but|um+|uh+|aur|to|toh|ki|ki ye|matlab|haan|ha|ji|ok|okay)\b/i;
+  const c = [];
+  for (let i = 0; i < lines.length; i++) {
+    let text = '';
+    for (let k = i; k < lines.length && lines[k].id === lines[i].id; k++) {
+      text += `${text ? ' ' : ''}${lines[k].text}`;
+      const dur = lines[k].end - lines[i].start, words = text.split(/\s+/).length;
+      if (dur > 30) break;
+      if (dur < 5) continue;
+      let s = Math.min(words, 60) / 60 + (/[.!?।]$/.test(lines[k].text) ? 0.5 : 0) - (FILL.test(lines[i].text) ? 0.4 : 0) + (/\d/.test(text) ? 0.1 : 0) - Math.abs(dur - 14) / 40;
+      c.push({ mediaId: lines[i].id, start: +lines[i].start.toFixed(2), end: +lines[k].end.toFixed(2), text, why: '', s });
+    }
+  }
+  const out = [];
+  for (const q0 of c.sort((a, b) => b.s - a.s)) {
+    if (out.some((o) => o.mediaId === q0.mediaId && q0.start < o.end && q0.end > o.start)) continue;
+    const { s, ...rest } = q0; out.push(rest);
+    if (out.length >= n) break;
+  }
+  return out;
 }
 // camera of a clip: same codec, frame size, frame rate and bit depth = same camera (for colour matching)
 const cameraKey = (m) => `${(m.vcodec || '?').toUpperCase()} ${m.width}×${m.height} ${Math.round(m.fps || 0)}p${/10|12/.test(m.pixfmt || '') ? ' 10-bit' : ''}`;
@@ -1279,7 +1538,7 @@ async function pumpPublish() {
   savePub();
   try {
     const P2 = await import(`./engine/publish.mjs?v=${Math.round(fs.statSync(path.join(ROOT, 'engine', 'publish.mjs')).mtimeMs)}`);
-    const file = P(it.project, 'renders', path.basename(it.render)), thumb = it.thumbnail ? P(it.project, 'exports', 'thumbnails', path.basename(it.thumbnail)) : null;
+    const file = P(it.project, 'renders', path.basename(it.render)), thumb = it.thumbnail ? P(it.project, 'output', 'thumbnails', path.basename(it.thumbnail)) : null;
     if (!fs.existsSync(file)) throw new Error(`The video ${it.render} is no longer in Renders`);
     const prog = (k) => { it.progress = Math.round(k * 100); };
     const cfg = pubCfg(), page = (cfg.meta?.pages || []).find((p) => p.id === it.pageId);
@@ -1341,7 +1600,7 @@ async function runBatchItem(it) {
       const base = path.parse(m.name).name, srt = listDir(P(name, 'subs'), (f) => f.startsWith(base) && f.endsWith('.srt'))[0];
       if (srt) pj.subtitles = { file: srt.name, style: {} };
     }
-    const { jobFile, out } = prepareRender(name, { project: pj, preset: o.preset || 'whatsapp', filename: path.parse(m.name).name, aspect }, { write: false, jobFile: P(name, 'cache', 'queue', `batch-${it.id}.json`) });
+    const { jobFile, out } = prepareRender(name, { project: pj, preset: o.preset || 'whatsapp', filename: path.parse(m.name).name, aspect, whole: true }, { write: false, jobFile: P(name, 'cache', 'queue', `batch-${it.id}.json`) });
     const r = await run(process.execPath, [path.join(ROOT, 'engine', 'render2.mjs'), jobFile], { onLine: (l) => { const x = /\[(\d+)\/(\d+)\]/.exec(l); if (x) { it.progress = Math.round((+x[1] / +x[2]) * 100); it.stage = l.trim(); } } });
     fs.rmSync(jobFile, { force: true });
     if (r.code !== 0) throw new Error(r.stderr.trim().split(/\r?\n/).pop());
@@ -1380,8 +1639,8 @@ function addBatch(name, ids, actions, opts = {}, runAt = null) {
 // 👁 watch folders: every minute, new files in a project's watched folder are imported (bin "Watched/…") and queued
 const autoFile = (name) => P(name, 'automation.json');
 async function watchTick() {
-  for (const name of fs.readdirSync(PROJECTS)) {
-    const f = path.join(PROJECTS, name, 'automation.json');
+  for (const name of allProjects()) {
+    const f = autoFile(name);
     if (!fs.existsSync(f)) continue;
     const a = readJSON(f, {});
     if (!a.watch?.on || !a.watch.folder || !fs.existsSync(a.watch.folder)) continue;
@@ -1853,8 +2112,20 @@ const routes = {
     send(res, 200, { ok: true }); console.log('A newer version of the editor is starting - closing this one.'); setTimeout(() => process.exit(0), 300); },
 
   // projects
-  'GET /api/projects': () => { const pf = projectFolders(); return fs.readdirSync(PROJECTS).filter((n) => fs.existsSync(path.join(PROJECTS, n, 'project.json')))
-    .map(projectSummary).filter(Boolean).map((p) => ({ ...p, group: pf.map[p.name] || null })).sort((a, b) => b.modified - a.modified); },
+  'GET /api/projects': () => { const pf = projectFolders(), pl = projectPlaces(); return allProjects()
+    .map(projectSummary).filter(Boolean).map((p) => ({ ...p, group: pf.map[p.name] || null, place: pl[p.name] || null })).sort((a, b) => b.modified - a.modified); },
+  // 📂 a project folder saved anywhere (another drive, the NAS, a shared PC folder) taken into the list. Body { dir }
+  'POST /api/projects/open-folder': async (req) => {
+    const dir = path.resolve(String((await readJson(req)).dir || ''));
+    folderAllowed(req, dir);
+    if (!fs.existsSync(path.join(dir, 'project.json'))) throw err(400, `No project in ${dir} - pick the folder that has project.json in it`);
+    const name = safeName(path.basename(dir));
+    if (path.resolve(path.join(PROJECTS, name)).toLowerCase() === dir.toLowerCase()) return { name };
+    if (fs.existsSync(P(name, 'project.json')) && path.resolve(projDir(name)).toLowerCase() !== dir.toLowerCase()) throw err(409, `A project called "${name}" is already in the list - rename one of the folders first`);
+    setPlace(name, dir); mediaCache.delete(name);
+    ensureProjectDirs(name);
+    return { name };
+  },
   // 📁 folders on Home to sort projects into (only a grouping: the project folders on disk stay where they are)
   'GET /api/project-folders': () => projectFolders(),
   'POST /api/project-folders': async (req) => {
@@ -1863,9 +2134,116 @@ const routes = {
       const id = String(f?.id || '').replace(/[^\w-]/g, '').slice(0, 40), name = String(f?.name || '').trim().slice(0, 80);
       if (id && name && !ids.has(id)) { ids.add(id); folders.push({ id, name }); }
     }
-    for (const [p, id] of Object.entries(b.map || {})) if (ids.has(id) && fs.existsSync(path.join(PROJECTS, safeName(p), 'project.json')) && safeName(p) === p) map[p] = id;
+    for (const [p, id] of Object.entries(b.map || {})) if (ids.has(id) && safeName(p) === p && fs.existsSync(P(p, 'project.json'))) map[p] = id;
     writeJSON(FOLDERS_FILE, { folders, map });
     return { folders, map };
+  },
+  // 📂 File > Open: a Premiere Pro / Resolve timeline (Final Cut Pro 7 XML) becomes a new project with the same cut -
+  // the footage is used where the XML says it is (the NAS), nothing is copied. Body { xml: the file's text, place? }
+  // -> { name, clips, missing: [files not found], notes: [what did not come across] }
+  'POST /api/projects/open-xml': async (req) => {
+    const b = await readJson(req);
+    folderAllowed(req, b.place);
+    let x; try { x = readXmeml(String(b.xml || '')); } catch (e) { throw err(400, e.message); }
+    if (![...x.video, ...x.audio].some((t) => t.length)) throw err(400, 'This XML has an empty timeline');
+    const base = safeName(x.name);
+    let name = base;
+    for (let k = 2; fs.existsSync(P(name, 'project.json')) || fs.existsSync(path.join(PROJECTS, name, 'project.json')); k++) name = `${base} (${k})`;
+    createProject({ name, aspect: aspectOf(x.width, x.height), fps: Math.round(x.fps), place: b.place || undefined });
+    const missing = new Set(), byPath = new Map();
+    const mediaFor = (p) => {
+      if (!p) return null;
+      const key = path.resolve(p).toLowerCase();
+      if (byPath.has(key)) return byPath.get(key);
+      let it = null;
+      if (!fs.existsSync(p)) missing.add(p);
+      else it = addMediaFile(name, p, { bin: 'From XML' }) || mediaDb(name).items.find((m) => m.path.toLowerCase() === key) || null;
+      byPath.set(key, it);
+      return it;
+    };
+    const pj = readJSON(P(name, 'project.json')), r3 = (v) => +(+v).toFixed(3);
+    const state = () => ({ mute: false, hide: false, lock: false, volume: 1 });
+    let clips = 0;
+    // V1: the main story in order (gaps where the XML has empty space); V2, V3…: each clip at its place
+    x.video.forEach((list, k) => {
+      const id = `V${k + 1}`, out = [];
+      let at = 0;
+      for (const c of list) {
+        const m = mediaFor(c.path);
+        if (!m || m.kind === 'audio') continue;
+        let start = c.start, inS = c.in;
+        const speed = (c.out - c.in) / (c.end - c.start);
+        // (V1 shots that overlap under a transition: the later one starts where the earlier one ends)
+        if (k === 0 && start < at - 0.01) { inS += (at - start) * speed; start = at; if (c.end - start < 0.04) continue; }
+        const clip = m.kind === 'image' ? { id: uid(), type: 'image', mediaId: m.id, dur: r3(c.end - start) }
+          : { id: uid(), type: 'video', mediaId: m.id, in: r3(inS), out: r3(c.out), mute: true, ...(Math.abs(speed - 1) > 0.01 ? { speed: r3(speed) } : {}) };
+        if (!c.enabled) clip.disabled = true;
+        if (k === 0) {
+          if (start > at + 0.02) out.push({ id: uid(), type: 'title', gap: true, text: '', bg: '#000000', dur: r3(start - at) });
+          at = c.end;
+        } else clip.start = r3(start);
+        out.push(clip); clips++;
+      }
+      pj.tracks[id] = out; pj.trackState[id] ||= state();
+    });
+    // the sound: A1, A2, … as in the XML (the pictures above are picture only, so nothing is heard twice)
+    x.audio.forEach((list, k) => {
+      const id = `A${k + 1}`, out = [];
+      for (const c of list) {
+        const m = mediaFor(c.path);
+        if (!m || m.kind === 'image') continue;
+        const speed = (c.out - c.in) / (c.end - c.start);
+        out.push({ id: uid(), type: 'audio', mediaId: m.id, start: r3(c.start), in: r3(c.in), out: r3(c.out), volume: 1, ...(Math.abs(speed - 1) > 0.01 ? { speed: r3(speed) } : {}), ...(c.enabled ? {} : { disabled: true }) });
+        clips++;
+      }
+      pj.tracks[id] = out; pj.trackState[id] ||= state();
+    });
+    writeJSON(P(name, 'project.json'), normalizeProject({ ...pj, modified: Date.now() }));
+    saveMedia(name, true); pump(); // (the footage is read in the background: thumbnails, previews)
+    return { name, clips, missing: [...missing].slice(0, 50), missingCount: missing.size, notes: x.notes };
+  },
+  // 🚚 move a project to another folder (an editor's own folder on the NAS): copied there, the copy checked (same files,
+  // same bytes), then the old folder removed. Files the project keeps inside itself (imports, voice-overs) are pointed
+  // at the new place. Refused while anyone has it open or a render / job of it runs. Body { place } (the parent folder)
+  'POST /api/projects/move': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req), L = live.get(name);
+    if (req.who?.role !== 'owner') throw err(403, 'Only the owner can move projects');
+    folderAllowed(req, b.place);
+    const people = L ? [...new Set([...L.subs.values()].map((x) => x.who.name))] : [];
+    if (people.length) throw err(409, `Open right now by ${people.join(', ')} - ask them to close it first`);
+    if (projectBusy(name) || rq.items.some((x) => x.project === name && ['waiting', 'rendering'].includes(x.state))) throw err(409, 'A render or job of this project is running or waiting - wait for it to finish');
+    const from = path.resolve(projDir(name)), base = path.resolve(String(b.place || '')), to = path.join(base, name);
+    if (!fs.existsSync(base) && fs.existsSync(path.dirname(base))) fs.mkdirSync(base);
+    if (!fs.existsSync(base)) throw err(400, `Folder not found: ${base}`);
+    if (to.toLowerCase() === from.toLowerCase()) return { name, folder: to, moved: false };
+    if (fs.existsSync(to)) throw err(409, `${to} is there already - rename or remove it first`);
+    if (L) { clearTimeout(L.timer); L.timer = null; liveWrite(name, L, true); }
+    live.delete(name); mediaCache.delete(name);
+    return startTask('move', async (job) => {
+      job.stage = 'Counting its files…';
+      const want = await dirSizeAsync(from);
+      job.stage = `Copying ${(want.bytes / 1e9).toFixed(1)} GB to ${base}…`; job.progress = 5;
+      try { await fs.promises.cp(from, to, { recursive: true, errorOnExist: true, force: false, preserveTimestamps: true }); }
+      catch (e) { await fs.promises.rm(to, { recursive: true, force: true }).catch(() => {}); throw new Error(`Copy failed (${e.code || e.message}) - the project stays where it was`); }
+      job.stage = 'Checking the copy…'; job.progress = 90;
+      const got = await dirSizeAsync(to);
+      if (got.bytes !== want.bytes || got.files !== want.files) { await fs.promises.rm(to, { recursive: true, force: true }).catch(() => {}); throw new Error(`The copy did not match (${got.files}/${want.files} files) - the project stays where it was`); }
+      // its own files (imports, voice-overs, packed footage) now live in the new folder
+      const mf = path.join(to, 'media.json'), md = readJSON(mf, null), low = from.toLowerCase() + path.sep;
+      if (md) { for (const m of md.items || []) if (m?.path && m.path.toLowerCase().startsWith(low)) m.path = path.join(to, m.path.slice(low.length)); writeJSON(mf, md); }
+      if (to.toLowerCase() === path.join(PROJECTS, name).toLowerCase()) setPlace(name, null); else setPlace(name, to);
+      mediaCache.delete(name); live.delete(name);
+      job.stage = 'Removing the old copy…'; job.progress = 97;
+      const dir = from.toLowerCase() + path.sep;
+      for (const st of openStreams) if (String(st.file || '').toLowerCase().startsWith(dir)) st.destroy();
+      // (Windows: a file still open for a moment - a thumbnail being made, a player - is tried again for a few seconds)
+      for (let k = 0; ; k++) {
+        try { await fs.promises.rm(from, { recursive: true, force: true }); if (!fs.existsSync(from)) break; } catch (e) { if (k >= 15) { job.log.push(`The old folder could not be removed fully (${e.code}) - delete ${from} by hand`); break; } }
+        if (k >= 15) break;
+        await new Promise((ok) => setTimeout(ok, 500));
+      }
+      return { name, folder: to, moved: true, bytes: got.bytes, files: got.files };
+    }, { project: name });
   },
   // 🗑 delete a project (owner only): its folder moves to the Recycle Bin next to Projects - it can be brought back -
   // or, with ?permanent=1, is deleted for good. The footage it used is never touched (it lives outside the project).
@@ -1887,11 +2265,14 @@ const routes = {
     for (let k = 0; ; k++) {
       try { fs.renameSync(projDir(name), to); break; }
       catch (e) {
+        // a project saved on another drive (Z:, D:) cannot be renamed into the Recycle Bin: copied there, then removed
+        if (e.code === 'EXDEV') { fs.cpSync(projDir(name), to, { recursive: true }); fs.rmSync(projDir(name), { recursive: true, force: true }); break; }
         if (k < 12 && ['EPERM', 'EBUSY', 'EACCES'].includes(e.code)) { await new Promise((ok) => setTimeout(ok, 400)); continue; }
         throw err(409, `Could not move the project folder (${e.code || e.message}) - a program has one of its files open (a player, Explorer window or another app) - close it and try again`);
       }
     }
     live.delete(name); mediaCache.delete(name); offlineChecked.delete(name);
+    if (projectPlaces()[name]) setPlace(name, null); // (brought back from the Recycle Bin it goes into Projects)
     for (const qq of [quickQ, proxyQ]) for (let i = qq.length - 1; i >= 0; i--) if (qq[i].proj === name) qq.splice(i, 1);
     if (activeProject === name) activeProject = null;
     { const pf = projectFolders(); if (pf.map[name]) { delete pf.map[name]; writeJSON(FOLDERS_FILE, pf); } } // (out of its Home folder)
@@ -1937,6 +2318,7 @@ const routes = {
   },
   'POST /api/projects': async (req) => {
     const b = await readJson(req);
+    folderAllowed(req, b.place); folderAllowed(req, b.folder);
     const name = createProject(b);
     let imported = 0;
     // from a template (Library/templates): its settings, look, captions style, logo, titles and adjustment layers
@@ -2024,10 +2406,23 @@ const routes = {
     backup(name); fs.copyFileSync(f, P(name, 'project.json'));
     return readJSON(P(name, 'project.json'));
   },
+  // 📂 Reveal in Explorer (right-click a file in Media or a clip on the timeline): an Explorer window with the file
+  // selected - on the editor's own PC only (from another PC the window would open here, on the editor's computer, so
+  // the path comes back for them to copy). A file that is not there: the folder it was in, or the project's folder.
+  'POST /api/media/reveal': (req, res, u) => {
+    const name = needProject(q(u, 'p')), m = mediaItem(name, String(q(u, 'id') || ''));
+    if (!m) throw err(404, 'media not found');
+    const file = m.path && fs.existsSync(m.path) ? m.path : null;
+    const dir = file ? null : [m.path && path.dirname(m.path)].find((d) => d && fs.existsSync(d)) || projDir(name);
+    const opened = !!req.who?.local && process.platform === 'win32';
+    if (opened) spawn('explorer', [file ? `/select,"${file}"` : `"${dir}"`], { detached: true, stdio: 'ignore', windowsVerbatimArguments: true }).unref();
+    return { path: m.path || '', opened, missing: !file };
+  },
   'POST /api/open-folder': (req, res, u) => {
     const name = needProject(q(u, 'p'));
     const abs = saveToDir(req.who, q(u, 'path')); // (an export folder outside the project, chosen with 📁 Save to)
-    const sub = q(u, 'sub'), dir = abs || (sub ? P(name, ...sub.split('/').map((s) => path.basename(s))) : projDir(name));
+    // ("exports/…" from an editor tab opened before the folder became "output")
+    const sub = String(q(u, 'sub') || '').replace(/^exports(?=\/|$)/, 'output'), dir = abs || (sub ? P(name, ...sub.split('/').map((s) => path.basename(s))) : projDir(name));
     if (!fs.existsSync(dir)) throw err(404, 'folder not found');
     if (process.platform === 'win32') spawn('explorer', [dir], { detached: true, stdio: 'ignore' }).unref();
     return { folder: dir };
@@ -2043,15 +2438,20 @@ const routes = {
       const home = process.env.USERPROFILE || process.env.HOME;
       const quick = ['Desktop', 'Videos', 'Downloads', 'Documents', 'Music', 'Pictures'].map((d) => path.join(home, d)).filter((d) => fs.existsSync(d));
       const libs = (teamCfg().libraries || []).filter((d) => fs.existsSync(d)).map((d) => ({ name: `⭐ ${d}`, path: d }));
+      if (!req.who?.local) { // (another PC: the NAS only)
+        const nas = remoteDrives().filter((d) => { try { fs.readdirSync(d); return true; } catch { return false; } });
+        return { path: '', parent: null, dirs: [...libs.filter((l) => nas.some((d) => underDrive(l.path, d))), ...nas.map((d) => ({ name: `💾 NAS ${d}`, path: d }))], mediaCount: 0 };
+      }
       return { path: '', parent: null, dirs: [...libs, ...[...quick, ...roots].map((d) => ({ name: d, path: d }))], mediaCount: 0 };
     }
+    folderAllowed(req, p);
     if (!fs.existsSync(p)) throw err(404, `Folder not found: ${p}`);
     let ents = [];
     try { ents = fs.readdirSync(p, { withFileTypes: true }); } catch (e) { throw err(403, `Cannot open ${p}`); }
     const dirs = ents.filter((e) => e.isDirectory() && !e.name.startsWith('.') && !e.name.startsWith('$')).map((e) => ({ name: e.name, path: path.join(p, e.name) }))
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
     const files = ents.filter((e) => e.isFile() && EXT_KIND(path.extname(e.name)) !== 'other').map((e) => e.name);
-    const parent = path.dirname(p) === p ? '' : path.dirname(p);
+    const parent = path.dirname(p) === p || (!req.who?.local && remoteDrives().some((d) => d.toLowerCase() === path.resolve(p).toLowerCase())) ? '' : path.dirname(p);
     return { path: p, parent, dirs, files: files.slice(0, 200), mediaCount: files.length };
   },
 
@@ -2083,10 +2483,11 @@ const routes = {
   'POST /api/import': async (req, res, u) => {
     const name = needProject(q(u, 'p'));
     const b = await readJson(req);
-    const added = [], skipped = [];
+    const added = [], skipped = [], other = {};
     for (const src of [].concat(b.folder || [], b.files || [])) {
+      folderAllowed(req, src);
       if (!fs.existsSync(src)) throw err(400, `Not found: ${src}`);
-      const list = fs.statSync(src).isDirectory() ? scanFolder(src) : [{ file: src, bin: '' }];
+      const list = fs.statSync(src).isDirectory() ? scanFolder(src, { other }) : [{ file: src, bin: '' }];
       const binRoot = fs.statSync(src).isDirectory() ? path.basename(src) : '';
       for (const f of list) {
         const it = addMediaFile(name, f.file, { bin: [binRoot, f.bin].filter(Boolean).join('/') });
@@ -2094,27 +2495,42 @@ const routes = {
       }
     }
     saveMedia(name, true);
-    return { added: added.length, skipped: skipped.length };
+    // files the editor cannot use (camera RAW, project files): how many of each, and what to do with them
+    const notUsed = Object.entries(other).map(([ext, n]) => ({ ext, n, what: NOT_MEDIA[ext] }));
+    return { added: added.length, skipped: skipped.length, notUsed };
   },
+  // ⬆ big files in pieces (public/js/api.js uploadFile): each piece is added to imports/.up-<key>.part at its offset, so a
+  // dropped connection carries on from what arrived instead of starting again. The last piece finishes the file like a
+  // plain upload. ?key (the file's own id, from the browser) &off &total &name &bin
+  'GET /api/upload/part': (req, res, u) => {
+    const name = needProject(q(u, 'p')), f = P(name, 'imports', `.up-${String(q(u, 'key') || '').replace(/[^\w-]/g, '').slice(0, 64)}.part`);
+    let have = 0; try { have = fs.statSync(f).size; } catch {}
+    return { have };
+  },
+  'POST /api/upload/part': (req, res, u) => new Promise((ok, bad) => {
+    const name = needProject(q(u, 'p')), key = String(q(u, 'key') || '').replace(/[^\w-]/g, '').slice(0, 64);
+    if (!key) return bad(err(400, 'No upload key'));
+    fs.mkdirSync(P(name, 'imports'), { recursive: true });
+    const part = P(name, 'imports', `.up-${key}.part`), off = +q(u, 'off') || 0, total = +q(u, 'total') || 0;
+    let have = 0; try { have = fs.statSync(part).size; } catch {}
+    if (off !== have) { req.resume(); return ok({ have, again: true }); } // (a piece sent twice, or one missed: the browser goes on from here)
+    const out = fs.createWriteStream(part, { flags: 'a' });
+    req.pipe(out);
+    req.on('error', (e) => { out.destroy(); bad(e); });
+    out.on('error', (e) => bad(err(500, `Could not write into the project folder: ${e.code || e.message}`)));
+    out.on('finish', () => {
+      let now = 0; try { now = fs.statSync(part).size; } catch {}
+      if (!total || now < total) return ok({ have: now });
+      try { ok({ ...finishUpload(name, part, q(u, 'name'), q(u, 'bin')), have: now, done: true }); } catch (e) { bad(e); }
+    });
+  }),
   'POST /api/upload': (req, res, u) => new Promise((ok, bad) => {
     const name = needProject(q(u, 'p'));
-    let fname = safeName(path.basename(q(u, 'name') || 'upload'));
-    const { name: b, ext } = path.parse(fname);
-    for (let i = 1; fs.existsSync(P(name, 'imports', fname)); i++) fname = `${b}_${i}${ext}`;
-    const kind = EXT_KIND(ext);
-    const dest = kind === 'lut' ? P(name, 'luts', fname) : kind === 'subs' ? P(name, 'subs', fname) : P(name, 'imports', fname);
-    const tmp = `${dest}.part`;
+    fs.mkdirSync(P(name, 'imports'), { recursive: true });
+    const tmp = P(name, 'imports', `.up-${crypto.randomBytes(6).toString('hex')}.part`);
     const out = fs.createWriteStream(tmp);
     req.pipe(out);
-    out.on('finish', () => {
-      fs.renameSync(tmp, dest);
-      if (kind === 'lut' || kind === 'subs') return ok({ kind, name: fname });
-      const it = addMediaFile(name, dest, { bin: 'Uploads', imported: true });
-      saveMedia(name, true);
-      // read it now, ahead of any big folder still being read (the agent window waits for this song / voice-over)
-      if (it) { const k = quickQ.findIndex((x) => x.proj === name && x.id === it.id); if (k > 0) quickQ.unshift(...quickQ.splice(k, 1)); pump(); }
-      ok(it ? publicMedia(name, it) : { kind: 'other', name: fname, error: 'Not a video, image or audio file' });
-    });
+    out.on('finish', () => { try { ok(finishUpload(name, tmp, q(u, 'name'), q(u, 'bin'))); } catch (e) { bad(e); } });
     req.on('error', (e) => { fs.rmSync(tmp, { force: true }); bad(e); });
   }),
   'DELETE /api/media': (req, res, u) => {
@@ -2146,8 +2562,7 @@ const routes = {
     return { relinked: relinkApply(name, b.pairs), offline: missingMedia(name).length };
   },
   'GET /api/disk': (req, res, u) => diskOf(needProject(q(u, 'p'))),
-  'GET /api/disk/all': () => fs.readdirSync(PROJECTS, { withFileTypes: true }).filter((e) => e.isDirectory() && fs.existsSync(path.join(PROJECTS, e.name, 'project.json')))
-    .map((e) => ({ project: e.name, ...dirSize(path.join(PROJECTS, e.name)) })).sort((a, b) => b.bytes - a.bytes),
+  'GET /api/disk/all': () => allProjects().map((n) => ({ project: n, ...dirSize(projDir(n)) })).sort((a, b) => b.bytes - a.bytes),
   // body { what: segments | undo | backups | orphans | renders, files: [render file names] }
   'POST /api/disk/clean': async (req, res, u) => { const name = needProject(q(u, 'p')), b = await readJson(req); return { ...diskClean(name, b.what, b.files), disk: diskOf(name) }; },
   // body { dest: folder, all: whole media pool, proxies: also the preview copies } -> a job; result { folder, files, bytes, missing }
@@ -2253,7 +2668,7 @@ const routes = {
     const name = needProject(q(u, 'p')), b = await readJson(req);
     const saved = readJSON(P(name, 'project.json')), view = seqView(saved, b.seq), sname = view.seq?.name || seqOf(saved).name;
     const out = P(name, 'imports', 'sequences', `${safeName(b.seq)}.mp4`), jobFile = P(name, 'cache', `nest-${safeName(b.seq)}.json`);
-    prepareRender(name, { project: saved, seq: b.seq, preset: 'master', quality: { res: 1080, crf: 16 }, filename: 'nest' }, { write: false, jobFile });
+    prepareRender(name, { project: saved, seq: b.seq, preset: 'master', quality: { res: 1080, crf: 16 }, filename: 'nest', whole: true }, { write: false, jobFile });
     const j = readJSON(jobFile);
     fs.mkdirSync(path.dirname(out), { recursive: true });
     Object.assign(j, { output: `${out}.part.mp4` }); j.export = { ...j.export, loudness: 'off' };
@@ -2325,7 +2740,7 @@ const routes = {
     return { ...(beats(m.path) || {}), duration: m.duration };
   },
   // 👥 who is asking, project locks, team settings (owner)
-  'GET /api/me': (req) => ({ name: req.who.name, role: req.who.role, local: !!req.who.local, shared: req.who.role === 'viewer' ? [] : sharedDirs(), anyFolder: req.who.role !== 'viewer' }), // (shared: where an editor may save exports)
+  'GET /api/me': (req) => ({ name: req.who.name, role: req.who.role, local: !!req.who.local, home: userHome(req.who), shared: req.who.role === 'viewer' ? [] : sharedDirs(), anyFolder: req.who.role !== 'viewer' }), // (shared: where an editor may save exports)
   // 📊 an editor tab in use pings this about once a minute (a GET, so viewers count too)
   'GET /api/presence': (req, res, u) => {
     addBeat(presence, { name: whoLabel(req.who), project: (q(u, 'p') || '').slice(0, 120), where: req.who.local ? 'this PC' : ipOf(req) });
@@ -2355,6 +2770,8 @@ const routes = {
       if (t.users.some((x) => x.name.toLowerCase() === n.toLowerCase())) throw err(400, 'That name is taken');
       const salt = crypto.randomBytes(12).toString('hex');
       t.users.push({ name: n, role: ['editor', 'viewer', 'owner'].includes(b.addUser.role) ? b.addUser.role : 'editor', salt, hash: hashPw(b.addUser.password, salt) });
+      // 👤 their own folder for projects on the NAS (Z:\Editor Projects\<Name>), unless one named like them is there already
+      try { const home = userHome({ name: n }); if (home && !fs.existsSync(home)) fs.mkdirSync(home); } catch {}
     }
     if (b.removeUser) { t.users = t.users.filter((x) => x.name !== b.removeUser); for (const [k, s] of sessions) if (s.name === b.removeUser) sessions.delete(k); }
     if (b.setRole) { const x = t.users.find((y) => y.name === b.setRole.name); if (x) x.role = b.setRole.role; for (const s of sessions.values()) if (s.name === b.setRole.name) s.role = b.setRole.role; }
@@ -2502,16 +2919,16 @@ const routes = {
     }, { project: name });
   },
   'GET /api/thumb/cand': (req, res, u) => serveFile(req, res, P(needProject(q(u, 'p')), 'cache', 'thumbcand', path.basename(q(u, 'f') || ''))),
-  // a finished thumbnail (PNG from the designer) -> exports/thumbnails/<name>.png
+  // a finished thumbnail (PNG from the designer) -> output/thumbnails/<name>.png
   'POST /api/thumb/save': (req, res, u) => new Promise((ok, bad) => {
-    const name = needProject(q(u, 'p')), dir = P(name, 'exports', 'thumbnails');
+    const name = needProject(q(u, 'p')), dir = P(name, 'output', 'thumbnails');
     fs.mkdirSync(dir, { recursive: true });
     const base = safeName(q(u, 'name') || 'thumbnail').replace(/\.png$/i, '');
     let f = `${base}.png`; for (let i = 2; fs.existsSync(path.join(dir, f)); i++) f = `${base} ${i}.png`;
     const out = fs.createWriteStream(path.join(dir, f));
     req.pipe(out); out.on('finish', () => ok({ name: f, url: `/pf/${encodeURIComponent(name)}/thumbnails/${encodeURIComponent(f)}` })); req.on('error', bad);
   }),
-  'GET /api/thumb/list': (req, res, u) => listDir(P(needProject(q(u, 'p')), 'exports', 'thumbnails'), (n) => /\.png$/i.test(n)).map((x) => ({ ...x, url: `/pf/${encodeURIComponent(q(u, 'p'))}/thumbnails/${encodeURIComponent(x.name)}` })),
+  'GET /api/thumb/list': (req, res, u) => listDir(P(needProject(q(u, 'p')), 'output', 'thumbnails'), (n) => /\.png$/i.test(n)).map((x) => ({ ...x, url: `/pf/${encodeURIComponent(q(u, 'p'))}/thumbnails/${encodeURIComponent(x.name)}` })),
   // 📊 motion graphics: the editor sends a graphic's frames (transparent PNGs) once, then it becomes cache/graphics/<key>.mov
   'GET /api/gfx/has': (req, res, u) => ({ ok: fs.existsSync(P(needProject(q(u, 'p')), 'cache', 'graphics', `${String(q(u, 'key')).replace(/[^0-9a-f]/g, '')}.mov`)) }),
   'POST /api/gfx/frame': (req, res, u) => new Promise((ok, bad) => {
@@ -2696,6 +3113,16 @@ const routes = {
         if (reasons.length) { m.bad = reasons; bad.push({ id: m.id, reasons }); } else delete m.bad;
       }
       saveMedia(name, true);
+      // 🧑 who is in it and ✍ what is written on it - every scanned clip, not only these (the faces are grouped across
+      // the whole project; clips seen before come from the cache). If this part fails the rest of the scan still counts.
+      let people = null;
+      if (b.people !== false && healthCache?.people) {
+        job.stage = 'Finding faces and reading text…'; job.progress = 95;
+        try {
+          const all = mediaDb(name).items.filter((m) => m.tags && (m.kind === 'video' || m.kind === 'image') && !m.seqOf);
+          people = await lookAtPeople(name, all, (p, msg) => { job.progress = 95 + Math.round(p * 0.04); job.stage = /loading/.test(msg) ? `${msg[0].toUpperCase()}${msg.slice(1)}…` : 'Finding faces and reading text…'; });
+        } catch (e) { job.log.push(`Faces / text: ${e.message}`); }
+      }
       // duplicate groups: clips joined by near-identical pairs
       const parent = {}, find = (x) => (parent[x] === undefined || parent[x] === x ? x : (parent[x] = find(parent[x])));
       for (const [a, c] of r.dups) parent[find(a)] = find(c);
@@ -2703,19 +3130,102 @@ const routes = {
       for (const [a, c] of r.dups) for (const id of [a, c]) (groups[find(id)] ||= new Set()).add(id);
       const dups = Object.values(groups).map((g) => [...g]);
       writeJSON(P(name, 'cache', 'footage.json'), { at: Date.now(), dups });
-      return { tagged: Object.keys(r.media).length, dups, bad };
+      return { tagged: Object.keys(r.media).length, dups, bad, people: people?.people.length ?? null, withText: people ? Object.keys(people.text).length : null };
     }, { project: name });
   },
   'GET /api/footage': (req, res, u) => readJSON(P(needProject(q(u, 'p')), 'cache', 'footage.json'), { dups: [] }),
   // 🔎 "jharna dikhao": clips whose pictures look like the words (Hindi / Hinglish / English). Needs a smart scan first.
+  // A named person ("CM sahab dikhao") finds the clips with their face, and words on a banner or super ("lok seva
+  // guarantee") the clips showing them - those come first ({ why }), then what the pictures look like.
   'POST /api/footage/search': async (req, res, u) => {
     const name = needProject(q(u, 'p')), b = await readJson(req);
+    const d = readJSON(P(name, 'cache', 'people.json'), null), extra = [];
+    if (d) {
+      for (const p of mentioned(b.q, d.people, loadLibrary(ROOT))) for (const [id, ts] of Object.entries(p.media)) extra.push({ id, t: ts[Math.floor(ts.length / 2)], score: 1, why: `🧑 ${peopleLabel(p)}` });
+      for (const h of textHits(b.q, d.text)) if (!extra.some((x) => x.id === h.id)) extra.push({ id: h.id, t: h.t, score: 0.9, why: `✍ "${h.text}"` });
+    }
     const en = toEnglishQuery(b.q);
-    if (!en) throw err(400, 'Type what to look for');
+    if (!en && !extra.length) throw err(400, 'Type what to look for');
     const ids = mediaDb(name).items.filter((m) => m.tags).map((m) => m.id);
-    if (!ids.length) throw err(400, 'Run 🧠 Smart scan once first - it lets the editor understand your footage');
-    const r = await footageWorker().send({ cmd: 'search', cacheDir: P(name, 'cache', 'agent', 'emb'), ids, q: en, top: 40 });
-    return { q: en, results: r.results };
+    if (!ids.length && !extra.length) throw err(400, 'Run 🧠 Smart scan once first - it lets the editor understand your footage');
+    const r = en && ids.length ? await footageWorker().send({ cmd: 'search', cacheDir: P(name, 'cache', 'agent', 'emb'), ids, q: en, top: 40 }) : { results: [] };
+    const seen = new Set(extra.map((x) => x.id));
+    return { q: en || String(b.q), results: [...extra, ...r.results.filter((x) => !seen.has(x.id))] };
+  },
+  // 🧑 the people the Smart scan found in this project's footage. A name given here is kept in Library/people, so the
+  // same face is known by that name in every project (and by the ✨ Agent and the Assistant's Claude).
+  'GET /api/people': (req, res, u) => {
+    const name = needProject(q(u, 'p')), d = readJSON(P(name, 'cache', 'people.json'), { people: [] }), lib = loadLibrary(ROOT);
+    return { at: d.at || 0, ready: !!healthCache?.people, people: d.people.map(({ emb, ...p }) => ({ ...p, label: peopleLabel(p), aliases: lib.find((l) => l.id === p.libId)?.aliases || [],
+      thumb: p.thumb ? `/api/people/thumb?p=${encodeURIComponent(name)}&f=${encodeURIComponent(p.thumb)}&v=${d.at || 0}` : null })) };
+  },
+  'GET /api/people/thumb': (req, res, u) => serveFile(req, res, P(needProject(q(u, 'p')), 'cache', 'people', path.basename(q(u, 'f') || '')), true),
+  // name a person (or clear the name: ''). Body { key, name, aliases?: ['Vishnu Deo Sai', 'मुख्यमंत्री'] }
+  'POST /api/people/name': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req);
+    return editPeople(name, (d) => {
+      const p = d.people.find((x) => x.key === b.key);
+      if (!p) throw err(404, 'That person is not in this project any more - scan again');
+      const nm = String(b.name || '').trim().slice(0, 80);
+      if (!nm) { p.name = null; p.libId = null; return p; }
+      const lib = loadLibrary(ROOT);
+      let lp = lib.find((l) => l.id === p.libId) || lib.find((l) => l.name.toLowerCase() === nm.toLowerCase());
+      if (!lp) { lp = { id: `h${crypto.randomBytes(4).toString('hex')}`, name: nm, aliases: [], embs: [] }; lib.push(lp); }
+      lp.name = nm;
+      if (Array.isArray(b.aliases)) lp.aliases = b.aliases.map((s) => String(s).trim().slice(0, 80)).filter(Boolean).slice(0, 12);
+      if (p.emb && !lp.embs.some((e) => e.every((v, i) => v === p.emb[i]))) lp.embs = [...lp.embs, p.emb].slice(-20);
+      saveLibrary(ROOT, lib);
+      Object.assign(p, { name: nm, libId: lp.id });
+      // (the same name on another group of this project is the same person: they become one)
+      const twin = d.people.find((x) => x !== p && x.libId === lp.id);
+      if (twin) mergeInto(d, p, [twin]);
+      return p;
+    });
+  },
+  // one person found as two (with and without glasses, side face): Body { keys: [keep, ...others] }
+  'POST /api/people/merge': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req);
+    return editPeople(name, (d) => {
+      const [keep, ...rest] = (b.keys || []).map((k) => d.people.find((x) => x.key === k)).filter(Boolean);
+      if (!keep || !rest.length) throw err(400, 'Pick two or more people to join');
+      const named = [keep, ...rest].find((x) => x.libId);
+      if (named && named !== keep) Object.assign(keep, { name: named.name, libId: named.libId });
+      mergeInto(d, keep, rest);
+      if (keep.libId) { const lib = loadLibrary(ROOT), lp = lib.find((l) => l.id === keep.libId); if (lp) { lp.embs = [...lp.embs, ...rest.map((x) => x.emb).filter(Boolean)].slice(-20); saveLibrary(ROOT, lib); } }
+      return keep;
+    });
+  },
+  // 💬 best quotes: the lines of interviews / speeches worth putting in an edit, from the transcripts (Text page or
+  // ⚙ Batch › Transcript). Claude picks them when it is there, else a simple rule. Body { ids?, n?, brief? } -> job;
+  // GET gives the last list ({ at, by, quotes: [{ mediaId, start, end, text, why }] }).
+  'GET /api/quotes': (req, res, u) => readJSON(P(needProject(q(u, 'p')), 'cache', 'quotes.json'), { quotes: [] }),
+  'POST /api/quotes': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req), want = b.ids?.length ? new Set(b.ids) : null;
+    const items = mediaDb(name).items.filter((m) => (!want || want.has(m.id)) && fs.existsSync(P(name, 'cache', 'transcripts', `${m.id}.json`)));
+    if (!items.length) throw err(400, 'No transcripts yet - make one first (Text page, or ⚙ Batch › Transcript)');
+    return startTask('quotes', async (job) => {
+      const n = Math.max(3, Math.min(40, Math.round(+b.n || 12)));
+      const lines = [];
+      for (const m of items) for (const s of readJSON(P(name, 'cache', 'transcripts', `${m.id}.json`), {}).segments || [])
+        if (String(s.text || '').trim() && Number.isFinite(+s.start) && +s.end > +s.start) lines.push({ id: m.id, start: +s.start, end: +s.end, text: String(s.text).trim() });
+      if (!lines.length) throw new Error('The transcripts have no spoken lines (music or silence only)');
+      let quotes = null, by = 'rule';
+      job.stage = 'Asking Claude for the best lines…'; job.progress = 10;
+      const st = await claudeStatus();
+      if (st.available) {
+        try { quotes = await claudeQuotes(st.exe, lines, n, String(b.brief || '').slice(0, 500)); by = 'claude'; }
+        catch (e) { job.log.push(`Claude: ${e.message} - picked by the simple rule instead`); }
+      }
+      quotes ||= ruleQuotes(lines, n);
+      const out = { at: Date.now(), by, quotes };
+      writeJSON(P(name, 'cache', 'quotes.json'), out);
+      return out;
+    }, { project: name });
+  },
+  // not a person worth knowing (a poster, a passer-by): left out of this project's list. Body { key }
+  'POST /api/people/remove': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req);
+    return editPeople(name, (d) => { d.people = d.people.filter((x) => x.key !== b.key); return { removed: b.key }; });
   },
   // move clips to another folder (bin) of the media pool, e.g. "Rejects". Body { ids, bin }
   'POST /api/media/bin': async (req, res, u) => {
@@ -2847,7 +3357,7 @@ const routes = {
     const items = mediaDb(name).items, byId = Object.fromEntries(items.map((m) => [m.id, m]));
     for (const id of new Set([...Object.values(pj.tracks).flat().map((c) => c.mediaId), pj.logo?.mediaId].filter(Boolean)))
       if (!byId[id]) throw err(400, 'A clip on the timeline points to media that was removed - delete that clip first');
-    const base = safeName(b.filename || pj.name || name), into = saveToDir(req.who, b.saveTo) || P(name, 'exports'); // (📁 Save to)
+    const base = safeName(b.filename || pj.name || name), into = saveToDir(req.who, b.saveTo) || P(name, 'output'); // (📁 Save to)
     let v = 1; while (fs.existsSync(path.join(into, `${base} v${v}`))) v++;
     const folder = `${base} v${v}`, outDir = path.join(into, folder);
     const color = ['lut', 'bake'].includes(b.color) ? b.color : 'none', luts = lutMap(name);
@@ -2927,7 +3437,7 @@ const routes = {
     }, { project: name });
   },
   'GET /api/exports': (req, res, u) => {
-    const dir = P(needProject(q(u, 'p')), 'exports');
+    const dir = P(needProject(q(u, 'p')), 'output');
     if (!fs.existsSync(dir)) return [];
     return fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory())
       .map((e) => ({ name: e.name, mtime: fs.statSync(path.join(dir, e.name)).mtimeMs, files: fs.readdirSync(path.join(dir, e.name)).filter((f) => !fs.statSync(path.join(dir, e.name, f)).isDirectory()) }))
@@ -2936,7 +3446,7 @@ const routes = {
   // ⬇ an exported timeline folder as one .zip, streamed to whoever asks - so every PC can keep it on its own disk
   // (Windows' own tar.exe writes the zip; videos are stored, not re-compressed, so it starts at once)
   'GET /api/export/zip': (req, res, u) => {
-    const name = needProject(q(u, 'p')), folder = path.basename(String(q(u, 'name') || '')), dir = P(name, 'exports');
+    const name = needProject(q(u, 'p')), folder = path.basename(String(q(u, 'name') || '')), dir = P(name, 'output');
     if (!folder || !fs.existsSync(path.join(dir, folder)) || !fs.statSync(path.join(dir, folder)).isDirectory()) throw err(404, 'export not found');
     const tar = process.platform === 'win32' && fs.existsSync('C:\\Windows\\System32\\tar.exe') ? 'C:\\Windows\\System32\\tar.exe' : 'tar';
     res.writeHead(200, { 'Content-Type': 'application/zip', 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(folder)}.zip` });
@@ -3503,7 +4013,7 @@ const routes = {
     return startTask('reels-render', async (job) => {
       for (const [k, x] of made.entries()) {
         job.stage = `Rendering ${x.project} (${k + 1}/${made.length})`; job.log.push(job.stage);
-        const { jobFile, out } = prepareRender(x.project, { preset: 'reel', filename: x.project, tag: false });
+        const { jobFile, out } = prepareRender(x.project, { preset: 'reel', filename: x.project, tag: false, whole: true });
         const r = await run(process.execPath, [path.join(ROOT, 'engine', 'render2.mjs'), jobFile],
           { onLine: (l) => { const p = /\[(\d+)\/(\d+)\]/.exec(l); if (p) job.progress = Math.round(((k + +p[1] / +p[2]) / made.length) * 100); } });
         if (r.code !== 0) { x.error = r.stderr.trim().split('\n').pop(); job.log.push(`  failed: ${x.error}`); continue; }
@@ -3535,12 +4045,17 @@ async function handle(req, res, who) {
       if (!res.headersSent) send(res, 200, out);
       return;
     }
-    // project media: /pm/<project>/<id>/<play|orig|thumb|strip|wave>
-    let m = /^\/pm\/([^/]+)\/([0-9a-f]+)\/(play|orig|thumb|strip|wave)$/.exec(u.pathname);
+    // project media: /pm/<project>/<id>/<play|orig|thumb|strip|wave|peaks>
+    let m = /^\/pm\/([^/]+)\/([0-9a-f]+)\/(play|orig|thumb|strip|wave|peaks)$/.exec(u.pathname);
     if (req.method === 'GET' && m) {
       const proj = decodeURIComponent(m[1]), it = mediaItem(needProject(proj), m[2]);
       if (!it) return send(res, 404, { error: 'media not found' });
       const C = (d, f) => P(proj, 'cache', d, f);
+      if (m[3] === 'peaks') {
+        const f = C('waves', `${it.id}.peaks`);
+        if (!fs.existsSync(f) && !(it.hasAudio && fs.existsSync(it.path) && (await makePeaks(it.path, f)))) return send(res, 404, { error: 'no sound' });
+        return serveFile(req, res, f, true);
+      }
       const file = { thumb: C('thumbs', `${it.id}.jpg`), strip: C('strips', `${it.id}.jpg`), wave: C('waves', `${it.id}.png`), orig: it.path,
         play: it.kind === 'video' && it.proxy !== 'none' ? (it.proxy === 'ready' ? C('proxies', `${it.id}.mp4`) : null)
           // over the internet a heavy file plays from its light copy once made (ensureLite); here, the file itself
@@ -3550,7 +4065,7 @@ async function handle(req, res, who) {
     }
     // project files: /pf/<project>/<renders|subs>/<file>
     m = /^\/pf\/([^/]+)\/(renders|subs|thumbnails)\/(.+)$/.exec(u.pathname);
-    if (req.method === 'GET' && m) return serveFile(req, res, P(needProject(decodeURIComponent(m[1])), ...(m[2] === 'thumbnails' ? ['exports', 'thumbnails'] : [m[2]]), path.basename(decodeURIComponent(m[3]))));
+    if (req.method === 'GET' && m) return serveFile(req, res, P(needProject(decodeURIComponent(m[1])), ...(m[2] === 'thumbnails' ? ['output', 'thumbnails'] : [m[2]]), path.basename(decodeURIComponent(m[3]))));
     if (req.method === 'GET') {
       const f = path.join(ROOT, 'public', u.pathname === '/' ? 'index.html' : path.normalize(decodeURIComponent(u.pathname)));
       if (f.startsWith(path.join(ROOT, 'public'))) return serveFile(req, res, f);

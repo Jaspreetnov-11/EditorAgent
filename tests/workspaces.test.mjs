@@ -14,8 +14,9 @@ test('every ready grid layout has the timeline and the program monitor, all in k
   }
 });
 test('Edit layout finds the template of a layout, panels in reading order', () => {
-  same(_test.sameShape(_test.TEMPLATES.resolve, _test.BUILT.limelight.areas), true);
+  // (the default: Media | Source+Program as tabs | Effect Controls, timeline below)
+  same(_test.sameShape(_test.TEMPLATES.three, _test.BUILT.limelight.areas), true);
   same(_test.sameShape(_test.TEMPLATES.quad, [['insp', 'viewer'], ['pool', 'tl']]), true);
-  same(_test.sameShape(_test.TEMPLATES.three, _test.BUILT.limelight.areas), false);
-  same(_test.order(_test.BUILT.limelight.areas), ['pool', 'src', 'viewer', 'insp', 'tl']);
+  same(_test.sameShape(_test.TEMPLATES.resolve, _test.BUILT.limelight.areas), false);
+  same(_test.order(_test.BUILT.limelight.areas), ['pool', 'viewer', 'insp', 'tl']);
 });

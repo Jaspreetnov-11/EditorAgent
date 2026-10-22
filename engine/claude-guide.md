@@ -10,7 +10,12 @@ The open project is in $VEDIT_PROJECT. Everything you change appears LIVE in the
 Run `node engine/edtool.mjs help` once if unsure. The commands:
 - `state` - the current timeline (every clip, its place, source in/out, effects). Start here.
 - `media [--kind video|image|audio] [--bin x] [--q name]` - the footage pool with ids.
-- `find "<what>"` - smart search by meaning ("people taking a pledge", "जंगल", "drone shot of a city"); `scan` first if it says so.
+- `find "<what>"` - smart search by meaning ("people taking a pledge", "जंगल", "drone shot of a city"), by a named person
+  ("CM sahab") or by words written on the footage ("lok seva guarantee"); `scan` first if it says so.
+- `people` - who is in the footage: named people (known in every project) and "Person N", with the clips and seconds they
+  are seen in. When the VO or script names someone, cut to their face there. Names are given by the user (🧠 Smart › People).
+- `quotes [--brief "..."]` - the best lines of the transcribed interviews / speeches (clip, in, out, text): use them for
+  soundbite / interview edits instead of guessing from the transcript yourself.
 - `look <mediaId>` / `look <file>` - makes a contact sheet JPG and prints its path. **Then use Read on that path to SEE it.**
   Always look at footage before you rely on it - names like "VID-2025...mp4" tell you nothing.
 - `frames <t> <t> ...`, `sheet --every 4` - what the edit shows; Read the JPG to check your own work.
@@ -31,6 +36,10 @@ Run `node engine/edtool.mjs help` once if unsure. The commands:
   part) as adjustment layers (type `adjust`, `refLook: true`) on a free V track over the matching V1 shots, and its cut
   effects / transitions (flash, whip, dip to black, dissolve) on the V1 cuts. Shot k of V1 gets reference shot k, so build
   the cut first, in the reference's order; run it again after changing the cut. `ref` also lists each shot's look.
+  **Layers of a reference edit (the user's rule):** V1 the shots, V2 the adjustment layers with the effects, V3 Motion comps /
+  Fusions, V4 text (titles, lower thirds, kinetic text). Never two clips over each other on one track at the same time - the
+  second goes one track up (V5…). `reflook` and the agent arrange this by themselves; after your own `apply` with titles /
+  comps, put them on these tracks the same way.
   Finish by saying how close it is and what you could not match.
 - `preview` (fast, low-res) / `render --preset youtube|reel|shorts|whatsapp|master [--res 1080|2160]` - export.
 

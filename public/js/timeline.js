@@ -10,7 +10,7 @@ import { seqList } from './model.js';
 import { sharedSeqId } from './store.js';
 import { openAudioGain, soundClips } from './audiogain.js';
 import { copyClips, pasteClips, clipboard } from './clipboard.js';
-import { clipDur, uid, fmtTC, fmt, trackList, trackKind, addTrack, syncLinked, linkAudioOf, linkedPartner, freeAudioTrack, RAMPS, setRamp, TRANSITIONS, setTransition, trHandles, propAt } from './model.js';
+import { clipDur, uid, fmtTC, fmt, trackList, trackKind, addTrack, syncLinked, linkAudioOf, linkedPartner, freeAudioTrack, RAMPS, setRamp, rampPts, rampPart, TRANSITIONS, setTransition, trHandles, propAt, keepLength } from './model.js';
 import { $, $$, h, esc, clamp, toast, modal } from './ui.js';
 import { api, enc } from './api.js';
 import { openTemplates } from './titlesui.js';
@@ -129,25 +129,26 @@ export function mountTimeline(el) {
   z.value = S.zoom;
   z.oninput = () => setZoom(+z.value, true);
   scroller.addEventListener('scroll', () => {
-    headsEl.scrollTop = scroller.scrollTop; drawRuler();
+    headsEl.scrollTop = scroller.scrollTop; drawRuler(); drawWaves();
     // big edits draw only the clips near the view: scrolled close to the edge of what is drawn -> draw that part
     if (drawn && (scroller.scrollLeft < drawn.a + scroller.clientWidth * 0.3 || scroller.scrollLeft + scroller.clientWidth > drawn.b - scroller.clientWidth * 0.3) && !drag) {
       clearTimeout(scrollRender); scrollRender = setTimeout(render, 30);
     }
   });
   scroller.addEventListener('wheel', (e) => {
-    if (e.ctrlKey || e.altKey) { e.preventDefault(); setZoom(S.zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15), true, e.clientX); return; }
-    // like Premiere: the wheel moves the timeline left / right; Shift + wheel scrolls the tracks up / down
-    // (a touchpad's own sideways swipe keeps working as it is)
+    // like Premiere: the wheel moves the timeline left / right, Ctrl (or Shift) + wheel scrolls the tracks up / down,
+    // Alt + wheel zooms (a touchpad's own sideways swipe keeps working as it is)
+    if (e.altKey) { e.preventDefault(); setZoom(S.zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15), true, e.clientX); return; }
     if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
     e.preventDefault();
-    const d = (e.deltaMode === 1 ? e.deltaY * 32 : e.deltaY) * (e.shiftKey ? 1 : 1.5);
-    if (e.shiftKey) scroller.scrollTop += d; else scroller.scrollLeft += d;
+    const up = e.ctrlKey || e.shiftKey, d = (e.deltaMode === 1 ? e.deltaY * 32 : e.deltaY) * (up ? 1 : 1.5);
+    if (up) scroller.scrollTop += d; else scroller.scrollLeft += d;
   }, { passive: false });
   new ResizeObserver(() => { if (pendingFit && scroller.clientWidth >= 80) fitZoom(); else drawRuler(); }).observe(scroller);
-  // the track headers scroll the tracks up / down with the wheel (like Premiere's track header area)
+  // the track headers scroll the tracks up / down with the wheel, Ctrl + wheel too (like Premiere's track header area;
+  // Ctrl + wheel was let through and zoomed the whole browser page - the headers piled up on each other)
   headsEl.addEventListener('wheel', (e) => {
-    if (e.ctrlKey || e.altKey) return;
+    if (e.altKey) return;
     e.preventDefault();
     scroller.scrollTop += (e.deltaMode === 1 ? e.deltaY * 32 : e.deltaY);
     headsEl.scrollTop = scroller.scrollTop;
@@ -267,6 +268,57 @@ function renderNow() {
   placePlayhead();
   drawRuler();
   decoratePeers();
+  drawWaves();
+}
+
+// ---------------- 🔊 waveforms ----------------
+// The server sends a file's sound as peaks (one byte every 10 ms, 0 = silence, 255 = full scale: /pm/<p>/<id>/peaks).
+// Each audio clip's canvas covers only the part of the clip on screen (plus some room to scroll), drawn column by
+// column from the peaks under it - so at every zoom the waveform shows the words, pauses and beats where they are
+// heard, mirrored round the middle like Premiere's.
+const PEAKS = new Map(), PPS = 100;
+function peaksOf(m) {
+  let p = PEAKS.get(m.id);
+  if (!p) {
+    p = { data: null };
+    PEAKS.set(m.id, p);
+    fetch(m.urls.peaks).then((r) => (r.ok ? r.arrayBuffer() : null)).then((b) => { if (b?.byteLength) { p.data = new Uint8Array(b); drawWaves(); } }).catch(() => {});
+  }
+  return p.data;
+}
+let waveRaf = 0;
+function drawWaves() { cancelAnimationFrame(waveRaf); waveRaf = requestAnimationFrame(() => guarded(rowsEl, 'Waveforms', drawWavesNow)); }
+function drawWavesNow() {
+  const vw = scroller.clientWidth || 1200, v0 = scroller.scrollLeft, dpr = window.devicePixelRatio || 1, Z = S.zoom;
+  for (const cv of rowsEl.querySelectorAll('canvas.clip-wave')) {
+    const d = cv.dataset, m = S.mediaById[d.wm], data = m && peaksOf(m);
+    if (!data) continue;
+    const box = cv.parentElement, W = box.clientWidth, H = box.clientHeight, vs = +d.vs;
+    // the clip's columns on screen (px from the clip's left edge); drawn with half a screen of room each side
+    const s0 = v0 - vs * Z, s1 = s0 + vw, r = cv.__r, sig = `${d.wm} ${d.t0} ${d.vs} ${d.in} ${d.sp} ${d.loop}`;
+    if (r && r.Z === Z && r.H === H && r.W === W && r.sig === sig && s0 >= r.a && s1 <= r.b) continue;
+    const a = Math.max(0, Math.floor(s0 - vw / 2)), b = Math.min(W, Math.ceil(s1 + vw / 2));
+    if (b <= a || H < 4) { cv.style.width = '0'; continue; }
+    cv.__r = { a, b, Z, H, W, sig };
+    const cw = Math.round((b - a) * dpr), ch = Math.round(H * dpr);
+    Object.assign(cv.style, { left: `${a}px`, width: `${b - a}px` });
+    cv.width = cw; cv.height = ch;
+    const g = cv.getContext('2d');
+    g.fillStyle = getComputedStyle(box.closest('.clip')).backgroundColor || '#23460f';
+    g.fillRect(0, 0, cw, ch);
+    g.fillStyle = '#7fd3a8';
+    const t0 = +d.t0, sp = +d.sp, src0 = +d.in, loop = +d.loop, mid = ch / 2, step = sp / (Z * dpr); // source seconds per column
+    for (let i = 0; i < cw; i++) {
+      let t = (vs + (a + i / dpr) / Z - t0) * sp;
+      if (t < 0) continue;
+      if (loop) t %= loop;
+      const k0 = Math.floor((src0 + t) * PPS), k1 = Math.max(k0 + 1, Math.ceil((src0 + t + step) * PPS));
+      let v = 0;
+      for (let k = k0; k < k1 && k < data.length; k++) if (data[k] > v) v = data[k];
+      const y = (v / 255) * mid * 0.96;
+      if (y > 0.25) g.fillRect(i, mid - y, 1, Math.max(1, 2 * y));
+    }
+  }
 }
 
 // ⚡ Phase 18: only what changed is redrawn. Each row remembers the HTML of its clips; a change replaces just the clips
@@ -373,7 +425,7 @@ function clipHTML(track, x, i) {
   if (track === 'V1') { const L1 = layout().V1, nx = L1[i + 1]; vs = cutOf(x); if (nx?.overlap) ve = cutOf(nx); }
   const w = Math.max(2, (ve - vs) * S.zoom);
   const missing = c.type !== 'title' && c.type !== 'adjust' && c.type !== 'graphic' && !m;
-  let bg = '';
+  let bg = '', wv = '';
   if (c.type === 'video' && m?.urls?.strip && track !== 'A1' && track !== 'A2' && track !== 'A3') {
     const sp = c.speed || 1, full = (m.duration / sp) * S.zoom;
     bg = `background-image:url('${m.urls.strip}');background-size:${full}px 100%;background-position:${-((c.in || 0) / sp + (vs - x.start)) * S.zoom}px 0`;
@@ -381,6 +433,11 @@ function clipHTML(track, x, i) {
   else if (KIND[track] === 'audio' && m?.urls?.wave) {
     const sp = c.speed || 1, seg = ((c.loop ? (c.out ?? m.duration) - (c.in || 0) : m.duration) / sp) * S.zoom;
     bg = `background-image:url('${m.urls.wave}');background-size:${c.loop ? seg : (m.duration / sp) * S.zoom}px 100%;background-position:${c.loop ? 0 : -((c.in || 0) / sp) * S.zoom}px 0;background-repeat:${c.loop ? 'repeat-x' : 'no-repeat'}`;
+  }
+  // 🔊 the real waveform from the sound's peaks, drawn over the picture above once they are in (drawWaves)
+  if (KIND[track] === 'audio' && m?.urls?.peaks) {
+    const sp = c.speed || 1, loop = c.loop ? Math.max(0.05, (c.out ?? m.duration) - (c.in || 0)) : 0;
+    wv = `<canvas class="clip-wave" data-wm="${m.id}" data-t0="${x.start}" data-vs="${vs}" data-in="${c.in || 0}" data-sp="${sp}" data-loop="${loop}"></canvas>`;
   } else if (c.type === 'title') bg = `background:${track === 'V1' ? esc(c.bg || '#0b2545') : ''}`;
   else if (c.type === 'graphic') bg = c.gfx?.tpl === 'comp' || c.gfx?.tpl === 'fusion' ? '' : 'background:linear-gradient(90deg,#0b2545,#1d4e89)';
   // 🎨 kinds you can tell apart at a glance: ⤵ nested sequence (green), 🎬 Motion comp (orange), ✨ Fusion (maroon)
@@ -402,7 +459,7 @@ function clipHTML(track, x, i) {
   const kfs = kt.length ? `<div class="kfs">${kt.map((t) => `<i style="left:${t * S.zoom}px"></i>`).join('')}</div>` : '';
   return `<div class="clip t-${c.type}${kind}${S.sel.has(c.id) ? ' sel' : ''}${missing ? ' missing' : ''}${c.disabled ? ' off' : ''}" data-id="${c.id}" data-track="${track}"
     style="left:${vs * S.zoom}px;width:${w}px" title="${esc(mName(c))} · ${fmt(ve - vs)}${c.color && Object.keys(c.color).length ? ' · colour graded' : ''}${c.speed && c.speed !== 1 ? ` · ${c.speed}×` : ''}${c.ramp ? ' · speed ramp' : ''}${c.mute ? ' · muted' : ''}">
-    <div class="clip-bg" style="${bg}"></div>${ov}${kfs}${bandHTML(c, track, x.end - x.start)}
+    <div class="clip-bg" style="${bg}">${wv}</div>${ov}${kfs}${bandHTML(c, track, x.end - x.start)}
     <div class="clip-lbl"><span class="nm">${missing ? '⚠ ' : ''}${esc(mName(c))}</span><span class="bd">${badges}</span></div>
     <div class="clip-dur">${fmt(ve - vs)}</div>
     <div class="trim l" data-trim="l"></div><div class="trim r" data-trim="r"></div>${trans}
@@ -454,6 +511,15 @@ function drawRuler() {
   g.scale(dpr, dpr);
   g.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg-2') || '#15181e';
   g.fillRect(0, 0, w, 28);
+  // 🎬 In / Out: the part Export and the preview make - a band with brackets at its ends
+  const rg = S.project.settings.range;
+  if (rg && (rg.in !== undefined || rg.out !== undefined)) {
+    const t0r = scroller.scrollLeft / S.zoom, xa = ((rg.in ?? 0) - t0r) * S.zoom, xb = rg.out === undefined ? w : (rg.out - t0r) * S.zoom;
+    g.fillStyle = 'rgba(232,176,74,.22)'; g.fillRect(Math.max(0, xa), 14, Math.max(0, Math.min(w, xb) - Math.max(0, xa)), 14);
+    g.fillStyle = '#e8b04a';
+    if (rg.in !== undefined && xa > -6 && xa < w + 6) { g.fillRect(xa, 12, 2, 16); g.fillRect(xa, 12, 6, 2); g.fillRect(xa, 26, 6, 2); }
+    if (rg.out !== undefined && xb > -6 && xb < w + 6) { g.fillRect(xb - 2, 12, 2, 16); g.fillRect(xb - 6, 12, 6, 2); g.fillRect(xb - 6, 26, 6, 2); }
+  }
   const steps = [1 / 30, 0.1, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
   const major = steps.find((s) => s * S.zoom >= 90) || 600;
   const minor = steps.filter((s) => s < major).reverse().find((s) => s * S.zoom >= 12) || major / 5;
@@ -475,6 +541,20 @@ function drawRuler() {
     if (mk.note && !mk.done) g.fillRect(x - 0.5, 8, 1, 20);
   }
 }
+
+// 🎬 In / Out of the timeline (I / O when the Source monitor does not have the keys; Ctrl+Shift+X clears them)
+export function markRange(kind) {
+  if (!S.project) return;
+  const st = S.project.settings, r = { ...(st.range || {}) }, t = +S.playhead.toFixed(3);
+  if (kind === 'in') { r.in = t; if (r.out !== undefined && r.out <= t + 0.05) delete r.out; } else { r.out = t; if (r.in !== undefined && r.in >= t - 0.05) delete r.in; }
+  st.range = r; commit(kind === 'in' ? 'Mark In' : 'Mark Out'); drawRuler();
+  toast(`${kind === 'in' ? 'In' : 'Out'} at ${fmtTC(t, st.fps)} - Export and the preview make ${r.in !== undefined && r.out !== undefined ? `${fmtTC(r.in, st.fps)} to ${fmtTC(r.out, st.fps)}` : 'only this part'} (Ctrl+Shift+X clears)`);
+}
+export function clearRange() {
+  if (!S.project?.settings.range) return toast('No In / Out on this timeline');
+  delete S.project.settings.range; commit('Clear In / Out'); drawRuler(); toast('In / Out cleared - Export makes the whole timeline');
+}
+export const rangeMark = (kind) => S.project?.settings.range?.[kind];
 
 function placePlayhead() {
   if (!playheadEl) return;
@@ -939,6 +1019,17 @@ function onDragUp(e) {
   snapEl.hidden = true; $('#tlInsert').hidden = true;
   const d = drag; drag = null;
   if (!d || !d.moved) { S.linkLead = null; return; }
+  // 🎬 let go over the Source / Program monitor: the clip opens in the Source monitor at its In, and stays where it was
+  const overMon = e && !d.trim && !d.roll && !d.rate && !d.multi?.length && document.elementFromPoint(e.clientX, e.clientY)?.closest('.srcmon, .mon-dock, .edit-grid.ws-monsrc .viewer');
+  if (overMon) {
+    const f0 = findClip(d.id);
+    if (f0) { for (const k of Object.keys(f0.clip)) delete f0.clip[k]; Object.assign(f0.clip, d.orig); }
+    try { syncLinked(S.project, S.mediaById); } catch {} // (its linked sound goes back with it)
+    S.linkLead = null; render();
+    const m = S.mediaById[d.orig.mediaId];
+    if (m) emit('openSource', { id: m.id, t: +(d.orig.in || 0) }); else toast('Only a clip with a file (video, photo, sound) opens in the Source monitor');
+    return;
+  }
   const f = findClip(d.id);
   const lp = f && !d.trim && f.clip.type === 'audio' ? linkedPartner(S.project, f.clip) : null;
   if (lp?.track === 'V1') toast('This sound is linked to its picture on V1 - move the picture, or right-click › Unlink to move the sound alone');
@@ -989,7 +1080,11 @@ export function splitClip(id, t) {
   const c = f.clip, b = JSON.parse(JSON.stringify(c));
   b.id = uid(); delete b.transitionIn; delete b.fadeIn; delete c.fadeOut;
   const off = t - x.start, sp = c.speed || 1;
-  if (c.type === 'video' || (c.type === 'audio' && !c.loop)) {
+  if (c.type === 'video' && rampPts(c)) {
+    // a ramped shot: each half keeps its own part of the speed curve, so nothing moves
+    const D = clipDur(c, S.mediaById), u = off / D;
+    Object.assign(b, rampPart(c, u, 1, D)); Object.assign(c, rampPart(c, 0, u, D));
+  } else if (c.type === 'video' || (c.type === 'audio' && !c.loop)) {
     const cut = (c.in || 0) + off * sp;
     b.in = +cut.toFixed(3); c.out = +cut.toFixed(3);
   } else { b.dur = +(clipDur(c, S.mediaById) - off).toFixed(3); c.dur = +off.toFixed(3); }
@@ -1020,6 +1115,16 @@ export function trimAtPlayhead(side) {
   let v1Start = null;
   for (const { tr, x } of targets) {
     const c = x.clip, off = t - x.start, sp = c.speed || 1, media = c.type === 'video' || (c.type === 'audio' && !c.loop);
+    if (c.type === 'video' && rampPts(c)) {
+      // a ramped shot: what stays keeps its own part of the speed curve (it plays as before, only shorter)
+      const D = clipDur(c, S.mediaById), u = off / D;
+      Object.assign(c, side === 'start' ? rampPart(c, u, 1, D) : rampPart(c, 0, u, D));
+      if (side === 'start') {
+        if (c.keys) for (const k of Object.values(c.keys)) for (const key of k) key.t = +(key.t - off).toFixed(3);
+        if (tr !== 'V1') c.start = +t.toFixed(3); else v1Start = v1Start ?? x.start;
+      }
+      continue;
+    }
     if (side === 'start') {
       if (media) c.in = +((c.in || 0) + off * sp).toFixed(3); else c.dur = +(clipDur(c, S.mediaById) - off).toFixed(3);
       if (c.keys) for (const k of Object.values(c.keys)) for (const key of k) key.t = +(key.t - off).toFixed(3);
@@ -1272,9 +1377,11 @@ function onContext(e) {
     ['split', 'Split at playhead', 'S'], ['copy', S.sel.size > 1 ? `Copy ${S.sel.size} clips` : 'Copy', 'Ctrl+C'],
     ...(clipboard()?.kind === 'clips' ? [['paste', `Paste ${clipboard().items.length > 1 ? `${clipboard().items.length} clips ` : ''}at playhead`, 'Ctrl+V']] : []),
     ['dup', 'Duplicate', 'Ctrl+D'], ['nest', S.sel.size > 1 ? `⤵ Nest ${S.sel.size} clips…` : '⤵ Nest…'],
+    ...(c.mediaId && S.mediaById[c.mediaId] ? ['-', ['revealP', '📁 Reveal in Project'], ['revealE', '📂 Reveal in Explorer'], '-'] : []),
     ...(c.type === 'video' ? [['comp', '🎬 Make Motion comp (animate it in Motion)'], ['roto', '✂ Roto: cut out the subject (AI)'], ['behind', '✂ Text behind subject (AI roto)'], ['fusion', '✨ Open in Fusion (node effects)']] : []), ['del', 'Delete', 'Del'], ...(f.track === 'V1' && !c.gap ? [['lift', 'Delete and leave a gap', 'Shift+Del']] : []), '-',
     ...(c.type === 'video' ? [['ramp', `⏩ Speed ramp…${c.ramp ? ' (on)' : ''}`]] : []),
     ...(soundClips([id]).length ? [['gain', '🔊 Audio gain…', 'G']] : []),
+    ['spdlg', '⏩ Speed / Duration…', 'Ctrl+R'],
     ...(c.type === 'video' || c.type === 'audio' ? [['sp0.5', 'Speed 0.5× (slow-mo)'], ['sp1', 'Speed 1×'], ['sp2', 'Speed 2×'], ...(linkedPartner(S.project, c) ? [] : [['mute', c.mute ? 'Unmute' : 'Mute']])] : []),
     ...(linkedPartner(S.project, c) ? [['unlink', '⛓ Unlink audio / video']] : c.type === 'video' && S.mediaById[c.mediaId]?.hasAudio && !c.link ? [['linkA', '🔊 Separate audio onto its own track (linked)']] : c.type === 'video' && c.link && S.mediaById[c.mediaId]?.hasAudio ? [['linkA', '🔊 Bring back its sound (linked)']] : []),
     ...(f.track === 'V1' && f.index > 0 ? ['-', ['trans', c.transitionIn && c.transitionIn.type !== 'cut' ? 'Remove transition' : 'Add cross dissolve']] : []),
@@ -1293,6 +1400,8 @@ function onContext(e) {
     close();
     if (a === 'split') { if (splitClip(id, S.playhead)) commit('Split'); else toast('Move the playhead inside this clip first'); }
     if (a === 'nest') nestSelected();
+    if (a === 'revealP') import('./mediapool.js').then((x) => x.revealInProject(c.mediaId));
+    if (a === 'revealE') import('./mediapool.js').then((x) => x.revealInExplorer(c.mediaId));
     if (a === 'comp') makeCompFromClip(id, findClip); // (stays on the timeline: double-click the orange clip to open it)
     if (a === 'behind') textBehindFromClip(id, findClip);
     if (a === 'fusion') fusionFromClip(id, findClip); // (double-click the maroon clip to open it)
@@ -1303,7 +1412,8 @@ function onContext(e) {
     if (a === 'dup') duplicateSelected();
     if (a === 'del' || a === 'closegap') deleteSelected(true);
     if (a === 'lift') deleteSelected(false);
-    if (a.startsWith('sp')) { c.speed = +a.slice(2) === 1 ? undefined : +a.slice(2); commit('Speed'); }
+    if (a === 'spdlg') return import('./speeddlg.js').then((x) => x.openSpeedDuration());
+    if (a.startsWith('sp')) { const D0 = clipDur(c, S.mediaById); c.speed = +a.slice(2) === 1 ? undefined : +a.slice(2); keepLength(S.project, c, D0, S.mediaById); commit('Speed'); }
     if (a === 'mute') { c.mute = !c.mute || undefined; commit('Mute'); }
     if (a === 'gain') openAudioGain();
     if (a === 'fadein' || a === 'fadeout') { const k = a === 'fadein' ? 'fadeIn' : 'fadeOut'; if (c[k]) delete c[k]; else c[k] = transitionLength(); commit(c[k] ? `${a === 'fadein' ? 'Fade in' : 'Fade out'} ${c[k]} s` : `Remove ${a === 'fadein' ? 'fade in' : 'fade out'}`); }

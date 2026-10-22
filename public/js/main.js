@@ -1,6 +1,6 @@
 // App shell: Home (projects) and the editor pages Media · Edit · Color · Audio · Deliver.
 import { reportError } from './errlog.js';
-import { applyLook, icon, mountDock } from './ui2.js';
+import { applyLook, icon, mountDock, mountMonDock } from './ui2.js';
 import { mountWorkspaces, openWorkspaceMenu, current as currentWorkspace } from './workspaces.js';
 import { mountSourceMonitor } from './sourcemon.js';
 import { copyClips, pasteClips, syncClipboard } from './clipboard.js';
@@ -8,9 +8,9 @@ import { S, on, emit, commit, undo, redo, canUndo, canRedo, resetHistory, saveNo
 import { openTeam } from './team.js';
 import { api, enc } from './api.js';
 import { $, $$, h, esc, toast } from './ui.js';
-import { renderHome } from './home.js';
+import { renderHome, openXmlFile } from './home.js';
 import { mountPool, refreshMedia, uploadFiles } from './mediapool.js';
-import { mountTimeline, splitAtPlayhead, trimAtPlayhead, deleteSelected, duplicateSelected, addTitle, setTool, setZoom, fitZoom, unlinkSelected } from './timeline.js';
+import { mountTimeline, splitAtPlayhead, trimAtPlayhead, deleteSelected, duplicateSelected, addTitle, setTool, setZoom, fitZoom, unlinkSelected, markRange, clearRange, rangeMark } from './timeline.js';
 import { mountViewer, toggle, shuttle, seek, isPlaying, isPlayingProgram, viewerMode, pause, setMode, sourceKey, toggleFullscreen, editTextClip } from './player.js';
 import { mountInspector } from './inspector.js';
 import { mountFxPanel } from './fxpanel.js';
@@ -30,7 +30,7 @@ import { layout, duration } from './store.js';
 import { openSequences, seqName, openSequence, nestSelected } from './sequences.js';
 import { keyOf, commandFor, keyState, stepMany } from './keys.js';
 import { openShortcuts } from './keysui.js';
-import { linkedIds, uid, setTransition } from './model.js';
+import { linkedIds, uid, setTransition, arrangeLayers } from './model.js';
 import { mountNotesPanel, addNote, watchPhoneNotes, openVersions, refreshNotes } from './review.js';
 import { loadFootage } from './smart.js';
 import { mountText, showText, hideText } from './textedit.js';
@@ -102,6 +102,7 @@ function shell() {
       <div class="edit-grid">
         <div class="panel pool pool-tabs"><div class="ptabs" role="tablist"><button role="tab" data-ptab="media" aria-selected="true">Media</button><button role="tab" data-ptab="fx" aria-selected="false">✨ Effects</button><button role="tab" data-ptab="cc" aria-selected="false" title="Captions">CC</button><button role="tab" data-ptab="notes" aria-selected="false" title="Notes at moments of the edit (Shift+M), versions and phone review">📝</button></div>
           <div class="ptab-body" id="pool"></div><div class="ptab-body" id="fxPanel" hidden></div><div class="ptab-body" id="ccPanel" hidden></div><div class="ptab-body" id="notesPanel" hidden></div></div>
+        <div class="mon-dock" role="tablist" aria-label="Source / Program"><button role="tab" data-mon="src">Source</button><button role="tab" data-mon="prog">Program</button></div>
         <div class="panel viewer" id="viewer"></div>
         <div class="ui-dock" role="tablist" aria-label="Source / Effect Controls"><button role="tab" data-dock="src">Source</button><button role="tab" data-dock="ec">Effect Controls</button></div>
         <div class="panel srcmon" id="srcMon"></div>
@@ -119,7 +120,7 @@ function shell() {
   <nav class="pagebar" aria-label="Pages">${PAGES.map(([k, l]) => `<button data-page-btn="${k}">${l}</button>`).join('')}</nav>`;
   mountMenuBar(editorEl, runMenu); // ☰ File · Edit · Clip · Sequence · Markers · Graphics and Titles · View · Window · Help
   mountWorkspaces(editorEl.querySelector('.edit-grid')); // 🪟 workspaces: Premiere / Resolve / Limelight / your own layouts
-  mountSourceMonitor($('#srcMon')); mountDock(editorEl.querySelector('.edit-grid')); // 🎬 Premiere's two monitors (Studio look)
+  mountSourceMonitor($('#srcMon')); mountDock(editorEl.querySelector('.edit-grid')); mountMonDock(editorEl.querySelector('.edit-grid')); // 🎬 Premiere's two monitors (Studio look)
   editorEl.addEventListener('click', (e) => {
     const a = e.target.closest('[data-a]')?.dataset.a;
     if (a === 'home') goHome();
@@ -171,6 +172,8 @@ function runMenu(r) {
   if (kind === 'a') return editorEl.querySelector(`header [data-a="${x}"]`)?.click();
   if (kind === 'p') return showPage(x);
   const edit = () => { if (S.page !== 'edit') showPage('edit'); };
+  if (r === 'audioout') return import('./audioout.js').then((x) => x.pickOutput());
+  if (r === 'layers') { const n = arrangeLayers(S.project, S.mediaById); if (n) commit('Arrange layers'); toast(n ? `🧱 ${n} clip${n > 1 ? 's' : ''} moved: V2 looks, V3 comps, V4 text - nothing covers anything (Ctrl+Z takes it back)` : 'The layers are in place already'); return; }
   if (r === 'import') { edit(); selectTab('media'); return $('#pool [data-file]')?.click(); }
   if (r === 'logo') return openLogo();
   if (r === 'backups') return openBackups();
@@ -188,6 +191,7 @@ function selectTab(t) {
   if (t === 'notes') refreshNotes();
 }
 on('notesTab', () => { if (S.page !== 'edit') showPage('edit'); selectTab('notes'); });
+on('mediaTab', () => { if (S.page !== 'edit' && S.page !== 'media') showPage('edit'); if (S.page === 'edit') selectTab('media'); }); // 📁 Reveal in Project
 on('reloadProject', () => openProject(S.proj));
 
 // ---- 👥 who am I (viewers only watch; everyone else edits together - 🔴 live) ----
@@ -387,7 +391,13 @@ const ACTIONS = {
     if (!m || m.kind === 'image') return toast('No video shot under the playhead');
     emit('openSource', { id: m.id, t: +((x.clip.in || 0) + (S.playhead - x.start) * (x.clip.speed || 1)).toFixed(3) });
   },
-  markIn: () => src('i'), markOut: () => src('o'), goIn: () => src('i', true), goOut: () => src('o', true), insert: () => src(','), overwrite: () => src('.'),
+  // I / O: the Source monitor's marks when it has the keys, else the timeline's In / Out (what Export and the preview make)
+  markIn: () => { if (!sourceKey('i')) markRange('in'); }, markOut: () => { if (!sourceKey('o')) markRange('out'); },
+  goIn: () => { if (!sourceKey('i', true)) { const t = rangeMark('in'); if (t === undefined) toast('No In on the timeline (I sets it)'); else emit('seek', t); } },
+  goOut: () => { if (!sourceKey('o', true)) { const t = rangeMark('out'); if (t === undefined) toast('No Out on the timeline (O sets it)'); else emit('seek', t); } },
+  // Ctrl+R is Speed / Duration, never the browser's reload (F5 reloads): with nothing selected it only says so
+  speedDuration: () => { if (S.page !== 'edit' || !S.sel.size) { toast('Select a clip on the timeline, then Ctrl+R for Speed / Duration (F5 reloads the page)'); return; } import('./speeddlg.js').then((x) => x.openSpeedDuration()); },
+  clearInOut: () => clearRange(), openXml: () => { openXmlFile().then((n) => n && emit('openProject', n)); }, insert: () => src(','), overwrite: () => src('.'),
   selectTool: () => setTool('select'), razorTool: () => setTool('blade'), typeTool: () => { setTool('type'); toast('T Type tool: click on the picture and type (Esc when done; V = back to selection)'); },
   rippleTool: () => setTool('ripple'), rollingTool: () => setTool('rolling'), rateTool: () => setTool('rate'), penTool: () => setTool('pen'), remixTool: () => setTool('remix'),
   addEdit: () => splitAtPlayhead(), addEditAll: () => { S.sel = new Set(); splitAtPlayhead(); },
@@ -448,6 +458,7 @@ document.addEventListener('keydown', (e) => {
   const typing = e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable]');
   const combo = keyOf(e); if (!combo) return;
   const id = commandFor(combo); if (!id) return;
+  if (typing && id === 'speedDuration') { e.preventDefault(); return; } // (Ctrl+R in a text box: no reload either)
   if (typing && id !== 'save') return; // (typing a text: only Ctrl+S still saves)
   const r = ACTIONS[id]?.(e);
   if (r !== false) e.preventDefault();

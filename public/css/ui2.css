@@ -415,3 +415,19 @@ html.ui2 #home h1::before { display: none; }
 html.ui2 .brand { flex: none; min-width: 0; }
 @media (max-width: 1500px) { html.ui2 .wordmark small { display: none; } }
 @media (max-width: 1250px) { html.ui2 .wordmark { display: none; } }
+
+/* ---------- 🖥 Source | Program: one monitor window with two tabs (workspace srcWith: 'viewer') ---------- */
+.mon-dock { display: none; }
+html.ui2 .edit-grid.ws-monsrc .mon-dock { display: flex; grid-area: viewer; align-self: start; height: 32px; z-index: 2; gap: 0; background: #151413;
+  border: 1px solid #23221f; border-radius: var(--r) var(--r) 0 0; padding: 0 4px; }
+html.ui2 .mon-dock button { background: none; border: 0; border-radius: 0; color: var(--muted); font-size: 11.5px; font-weight: 600; letter-spacing: .04em; padding: 0 12px; position: relative; }
+html.ui2 .mon-dock button:hover:not(:disabled) { background: none; color: var(--text); }
+html.ui2 .mon-dock button[aria-selected="true"] { color: var(--text); }
+html.ui2 .mon-dock button[aria-selected="true"]::after { content: ''; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; background: var(--accent); border-radius: 2px; }
+html.ui2 .edit-grid.ws-monsrc .viewer, html.ui2 .edit-grid.ws-monsrc .srcmon { grid-area: viewer; margin-top: 31px; border-top-left-radius: 0; border-top-right-radius: 0; }
+html.ui2 .edit-grid.ws-monsrc .srcmon { display: flex !important; flex-direction: column; }
+html.ui2 .edit-grid.ws-monsrc:not(.mon-src) .srcmon, html.ui2 .edit-grid.ws-monsrc.mon-src .viewer { display: none !important; }
+html.ui2 .edit-grid.ws-monsrc .viewer .vw-head::before { content: none; }
+/* Effect Controls: the whole panel, no Source tab above it */
+html.ui2 .edit-grid.ws-monsrc .ui-dock { display: none !important; }
+html.ui2 .edit-grid.ws-monsrc .inspector { display: flex !important; margin-top: 0; border-radius: var(--r); }

@@ -13,7 +13,8 @@ export const COMMANDS = [
   ['stepBack5', 'Step back (many frames)', 'Playback'], ['stepFwd5', 'Step forward (many frames)', 'Playback'],
   ['prevEdit', 'Go to previous edit point', 'Playback'], ['nextEdit', 'Go to next edit point', 'Playback'],
   ['goStart', 'Go to sequence start', 'Playback'], ['goEnd', 'Go to sequence end', 'Playback'], ['matchFrame', 'Match frame (open the shot in Source)', 'Playback'],
-  ['markIn', 'Mark In', 'Source monitor'], ['markOut', 'Mark Out', 'Source monitor'], ['goIn', 'Go to In', 'Source monitor'], ['goOut', 'Go to Out', 'Source monitor'],
+  ['markIn', 'Mark In (Source monitor, else the timeline)', 'Source monitor'], ['markOut', 'Mark Out (Source monitor, else the timeline)', 'Source monitor'], ['goIn', 'Go to In', 'Source monitor'], ['goOut', 'Go to Out', 'Source monitor'],
+  ['clearInOut', 'Clear In and Out (timeline)', 'Timeline'], ['openXml', 'Open a Premiere / Resolve XML as a project', 'Timeline'], ['speedDuration', 'Clip Speed / Duration…', 'Timeline'],
   ['insert', 'Insert', 'Source monitor'], ['overwrite', 'Overwrite (overlay)', 'Source monitor'],
   ['selectTool', 'Selection tool', 'Tools'], ['razorTool', 'Razor tool', 'Tools'], ['typeTool', 'Type tool (write on the monitor)', 'Tools'],
   ['rippleTool', 'Ripple edit tool', 'Tools'], ['rollingTool', 'Rolling edit tool', 'Tools'], ['rateTool', 'Rate stretch tool', 'Tools'], ['penTool', 'Pen tool', 'Tools'], ['remixTool', 'Remix tool', 'Tools'],
@@ -34,7 +35,7 @@ const PREMIERE = {
   selectAll: ['Ctrl+A'], deselectAll: ['Ctrl+Shift+A', 'Esc'], exportMedia: ['Ctrl+M'], shortcuts: ['Ctrl+Alt+K'],
   playStop: ['Space'], shuttleL: ['J'], shuttleStop: ['K'], shuttleR: ['L'], stepBack: ['Left'], stepFwd: ['Right'], stepBack5: ['Shift+Left'], stepFwd5: ['Shift+Right'],
   prevEdit: ['Up', 'PageUp'], nextEdit: ['Down', 'PageDown'], goStart: ['Home'], goEnd: ['End'], matchFrame: ['F'],
-  markIn: ['I'], markOut: ['O'], goIn: ['Shift+I'], goOut: ['Shift+O'], insert: [','], overwrite: ['.'],
+  markIn: ['I'], markOut: ['O'], goIn: ['Shift+I'], goOut: ['Shift+O'], clearInOut: ['Ctrl+Shift+X'], openXml: ['Ctrl+O'], speedDuration: ['Ctrl+R'], insert: [','], overwrite: ['.'],
   selectTool: ['V'], razorTool: ['C'], typeTool: ['T'], rippleTool: ['B'], rollingTool: ['N'], rateTool: ['R'], penTool: ['P'], remixTool: [],
   addEdit: ['Ctrl+K'], addEditAll: ['Ctrl+Shift+K'], rippleTrimPrev: ['Q'], rippleTrimNext: ['W'],
   // Delete closes up (the next clip takes the deleted one's place); Shift+Delete leaves a gap. (The other way round

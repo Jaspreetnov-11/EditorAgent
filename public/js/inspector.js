@@ -1,7 +1,7 @@
 // Inspector: properties of the selected clip, or project settings when nothing is selected.
 import { guarded } from './errlog.js';
 import { S, on, emit, commit, findClip, layout, duration, saveNow } from './store.js';
-import { ASPECTS, TRANSITIONS, clipDur, fmt, parseTime, fmtTC, KEYABLE, propAt, hasKeys, RAMPS, EASES, BLEND_MODES, setTransition } from './model.js';
+import { ASPECTS, TRANSITIONS, clipDur, fmt, parseTime, fmtTC, KEYABLE, propAt, hasKeys, RAMPS, EASES, BLEND_MODES, setTransition, keepLength } from './model.js';
 import { api, enc } from './api.js';
 import { openTemplates } from './titlesui.js';
 import { CUTFX } from './fx.js';
@@ -187,12 +187,14 @@ function renderClip(id) {
       const cl = findClip(id)?.clip; if (!cl) return;
       if (k === 'mcAngle') { delete cl.mcAngle; if (switchAngle(cl, v)) { doCommit('Switch camera angle'); render(); } return; }
       if (k === 'in' || k === 'out') validateTimes(cl);
+      const D0 = k === 'speed' || k === 'ramp' ? clipDur(cl, S.mediaById) : 0; // 📌 the shot keeps its length (keepLength)
       keyValue(id, k, v);
       if (k === 'loop' && v && !cl.dur) cl.dur = +Math.max(5, duration() - (cl.start || 0)).toFixed(2);
       if (k === 'textColor' && v === '#ffffff') delete cl.textColor;
       if (k === 'cutFx.type') { if (!v) delete cl.cutFx; else cl.cutFx.dur = CUTFX[v].dur; }
       if (k === 'ramp') { if (v === 'custom') cl.rampPts ||= [[0, 1], [0.4, 1], [0.6, 0.35], [1, 0.35]]; else delete cl.rampPts; }
       cleanup(cl);
+      if (D0) keepLength(S.project, cl, D0, S.mediaById);
       doCommit(`Change ${k}`, `${id}:${k}`);
       if (['loop', 'in', 'out', 'speed', 'ramp', 'cutFx.type'].includes(k)) render();
     },

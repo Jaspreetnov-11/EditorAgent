@@ -4,7 +4,7 @@
 import { guarded } from './errlog.js';
 import { S, on, emit, commit, findClip } from './store.js';
 import { loadLib, libCached, applyFxPreset, deletePreset } from './library.js';
-import { TRANSITIONS, RAMPS, setRamp, setTransition } from './model.js';
+import { TRANSITIONS, RAMPS, setRamp, setTransition, keepLength, clipDur } from './model.js';
 import { CUTFX } from './fx.js';
 import { VFX, VFX_CATS, newEffect } from './effects.js';
 import { FX_PRESETS, FX_DEFAULT } from './audiofx.js';
@@ -85,7 +85,7 @@ export function applyFx(fx, clipId, side = null) {
     if (!setTransition(S.project, S.mediaById, f.index, fx.type, trDur)) return 'Neither shot has frames to spare beyond its ends for a transition';
     return `${TRANSITIONS.find(([k]) => k === fx.type)?.[1]} on the cut`;
   }
-  if (fx.kind === 'ramp') { if (!setRamp(c, fx.type, S.mediaById)) return null; return `⏩ ${RAMPS[fx.type].label}`; }
+  if (fx.kind === 'ramp') { const D0 = clipDur(c, S.mediaById); if (!setRamp(c, fx.type, S.mediaById)) return null; keepLength(S.project, c, D0, S.mediaById); return `⏩ ${RAMPS[fx.type].label}`; }
   if (fx.kind === 'cutfx') { if (!visual || c.type === 'title') return null; c.cutFx = { type: fx.type, dur: CUTFX[fx.type].dur }; return CUTFX[fx.type].label; }
   if (fx.kind === 'vfx') {
     if (!visual) return null;

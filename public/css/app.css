@@ -122,7 +122,7 @@ video.lyr, img.lyr { object-fit: contain; transform-origin: center; }
 .ihead { display: flex; align-items: baseline; gap: 8px; padding: 9px 10px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .ihead b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .trk { font-size: 10px; font-weight: 700; background: var(--panel-3); padding: 1px 6px; border-radius: 4px; }
-.ibody { overflow: auto; padding: 4px 8px 12px; flex: 1; }
+.ibody { overflow: auto; padding: 8px 14px 18px; flex: 1; }
 .isec { border-bottom: 1px solid var(--line); }
 .isec > summary { cursor: pointer; padding: 9px 2px; font-weight: 600; font-size: 12px; list-style: none; display: flex; gap: 6px; align-items: center; }
 .isec > summary::before { content: "▸"; color: var(--muted); transition: transform .15s; }
@@ -253,19 +253,25 @@ video.lyr, img.lyr { object-fit: contain; transform-origin: center; }
 /* ---------- home ---------- */
 .home { height: 100%; overflow: auto; padding: 32px max(24px, 6vw); }
 .home-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
-.proj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+.proj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+.proj-grid .proj-info { padding: 7px 9px; } .proj-grid .proj-info b { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proj-grid .proj-info small { font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proj-grid .proj .proj-btns .icon-btn { width: 24px; height: 24px; } .proj-grid .proj .proj-btns .icon-btn .ico { width: 13px; height: 13px; }
 .proj { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; cursor: pointer; text-align: left; }
 .proj:hover { border-color: var(--accent); }
 .proj-th { aspect-ratio: 16/9; background: #000 center/cover no-repeat; position: relative; }
 .proj-th .badge { position: absolute; left: 8px; top: 8px; background: #000b; font-size: 11px; padding: 1px 6px; border-radius: 4px; }
 .proj-info { padding: 10px 12px; display: grid; gap: 2px; } .proj-info small { color: var(--muted); }
 .proj .proj-btns { position: absolute; right: 6px; top: 6px; display: flex; gap: 4px; }
-.proj .icon-btn { background: #000a; }
+.proj .proj-btns .icon-btn { width: 28px; height: 28px; padding: 0; display: grid; place-items: center; border-radius: 7px; border: 1px solid #ffffff1f;
+  background: #0b0b0dcc; color: #e8e8ea; backdrop-filter: blur(6px); box-shadow: 0 2px 6px #0006; transition: background .12s, color .12s, border-color .12s; }
+.proj .proj-btns .icon-btn .ico { width: 15px; height: 15px; }
+.proj .proj-btns .icon-btn:hover:not(:disabled) { background: #16161acc; color: var(--accent); border-color: var(--accent); }
 .proj .proj-del { opacity: 0; transition: opacity .12s; }
 .proj:hover .proj-del, .proj:focus-within .proj-del { opacity: 1; }
-.proj .proj-del:hover { background: #ff5d5dcc; }
+.proj .proj-btns .proj-del:hover:not(:disabled) { background: #d94444e6; color: #fff; border-color: #ff7a7a; }
 .home-actions { display: flex; align-items: center; gap: 14px; }
-.proj.new { display: grid; place-content: center; gap: 6px; min-height: 220px; border: 1.5px dashed var(--line-2); background: transparent; padding: 20px; text-align: center; }
+.proj.new { display: grid; place-content: center; gap: 6px; min-height: 150px; border: 1.5px dashed var(--line-2); background: transparent; padding: 20px; text-align: center; }
 .proj.new span { font-size: 36px; color: var(--accent); line-height: 1; } .proj.new small { color: var(--muted); }
 .np { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .fmt-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
@@ -376,7 +382,7 @@ textarea.srt { min-height: 220px; font-family: Consolas, "Nirmala UI", monospace
 .kfc .kfd.has { color: #c9a26b; } .kfc .kfd.on { color: var(--accent); text-shadow: 0 0 6px var(--accent); }
 .kfe { display: inline-flex; gap: 2px; align-items: center; font-size: 10px; color: var(--muted); margin-left: 4px; cursor: pointer; }
 .kfe input { width: 11px; height: 11px; }
-.motion-presets { grid-column: 1/-1; display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+.motion-presets { grid-column: 1/-1; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
 
 /* ---------- audio page (mixer) ---------- */
 .ap { position: absolute; inset: 0; padding: 6px; display: flex; flex-direction: column; gap: 6px; }
@@ -581,18 +587,21 @@ select.kfe { font-size: 10px; padding: 0 2px; height: 18px; width: auto; max-wid
 .kl-k.ease { border-radius: 50%; transform: none; }
 .kl-ph { position: absolute; top: -2px; bottom: -2px; width: 1px; background: #ff4d4d; pointer-events: none; }
 /* 🎬 Motion, like Premiere's Effect Controls: ⏱ | name | blue value | ◂◆▸ | the property's keyframes on the clip */
-.pm { display: grid; gap: 1px; margin-bottom: 6px; }
-.pm-row { display: grid; grid-template-columns: 18px minmax(58px, 76px) 54px 42px minmax(110px, 1fr); align-items: center; gap: 4px; height: 26px; font-size: 11.5px; }
-.pm-sw { padding: 0; width: 18px; height: 18px; background: none; border: 0; color: #6f6a62; font-size: 11px; cursor: pointer; }
+.pm { display: grid; gap: 2px; margin-bottom: 12px; grid-column: 1 / -1; width: 100%; } /* (the whole width of the panel: the keyframe lane grows with it) */
+/* roomy rows: stopwatch, name, value, keyframe arrows, keyframe lane */
+.pm-row { display: grid; grid-template-columns: 22px minmax(82px, 112px) 64px 50px minmax(120px, 1fr); align-items: center; column-gap: 10px; height: 34px;
+  padding: 0 6px; font-size: 12.5px; border-radius: 6px; }
+.pm-row:hover { background: #ffffff08; }
+.pm-sw { padding: 0; width: 22px; height: 22px; background: none; border: 0; color: #6f6a62; font-size: 13px; cursor: pointer; }
 .pm-sw.on { color: #5aa7ff; }
 .pm-n { color: #c9c3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pm-v { color: #5aa7ff; cursor: ew-resize; font-variant-numeric: tabular-nums; user-select: none; white-space: nowrap; }
 .pm-v:hover { text-decoration: underline; text-underline-offset: 2px; }
 .pm-in { width: 56px; padding: 1px 3px; font-size: 11.5px; }
-.pm-k { display: flex; gap: 0; } .pm-k button { padding: 0 2px; background: none; border: 0; font-size: 10px; color: #8a847a; }
+.pm-k { display: flex; gap: 4px; justify-content: center; } .pm-k button { padding: 0 3px; background: none; border: 0; font-size: 11.5px; color: #8a847a; }
 .pm-k .kfd.has { color: #c9a26b; } .pm-k .kfd.on { color: var(--accent); text-shadow: 0 0 6px var(--accent); }
-.pm-row .kl-track { height: 18px; border-radius: 2px; background: #121110; }
-.pm-row .kl-k { top: 4px; width: 8px; height: 8px; margin-left: -4px; }
+.pm-row .kl-track { height: 22px; border-radius: 4px; background: #121110; }
+.pm-row .kl-k { top: 6px; width: 9px; height: 9px; margin-left: -4.5px; }
 .fgrid > .efx-list, .fgrid > .row-in, .fgrid > .kl, .fgrid > .hint { grid-column: 1 / -1; }
 .efx .fgrid { margin-top: 4px; }
 .efx-h b { font-size: 12px; }
@@ -900,12 +909,21 @@ select.kfe { font-size: 10px; padding: 0 2px; height: 18px; width: auto; max-wid
 .lm-hue input[type=range] { background: linear-gradient(90deg, red, #ff0, lime, cyan, blue, #f0f, red); border-radius: 4px; }
 #cpPrim.dis { opacity: .5; pointer-events: none; }
 /* 📁 Home folders (home.js) */
-.pf-bar { display: flex; flex-wrap: wrap; gap: 8px; margin: -8px 0 18px; }
-.pf-chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 5px 12px; font-size: 12.5px; background: var(--panel); border: 1px solid var(--line); }
-.pf-chip i { font-style: normal; color: var(--muted); font-size: 11px; }
-.pf-chip.on { border-color: var(--accent); background: var(--accent-soft, #ff993322); }
-.pf-chip.add { border-style: dashed; color: var(--muted); }
-.pf-chip .pf-x { opacity: 0; padding: 0 2px; } .pf-chip:hover .pf-x { opacity: .8; }
+/* 📁 Home folders: big tiles - a folder picture, the name, how many projects */
+.pf-bar { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin: -6px 0 22px; }
+.pf-chip { position: relative; display: grid; justify-items: start; align-content: start; gap: 2px; min-height: 104px; padding: 14px 14px 12px; border-radius: 12px;
+  background: var(--panel); border: 1px solid var(--line); text-align: left; cursor: pointer; transition: border-color .12s, background .12s, transform .12s; }
+.pf-chip:hover { border-color: var(--line-2, #444); background: var(--panel-2); transform: translateY(-1px); }
+.pf-chip .pf-ic { width: 46px; height: 38px; margin-bottom: 6px; }
+.pf-chip .pf-back { fill: #b8862f; } .pf-chip .pf-front { fill: #e8b04a; }
+.pf-chip.pf-all .pf-back { fill: #8a6a35; } .pf-chip.pf-all .pf-front { fill: var(--accent); }
+.pf-chip.pf-none .pf-back { fill: #3a3a40; } .pf-chip.pf-none .pf-front { fill: #55555d; }
+.pf-chip b { font-size: 14px; font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pf-chip i { font-style: normal; color: var(--muted); font-size: 12px; }
+.pf-chip.on { border-color: var(--accent); background: var(--accent-soft, #ff993322); box-shadow: 0 0 0 1px var(--accent) inset; }
+.pf-chip.add { border-style: dashed; color: var(--muted); align-content: center; justify-items: center; text-align: center; }
+.pf-chip.add .pf-plus { font-size: 30px; line-height: 1; color: var(--accent); margin-bottom: 4px; }
+.pf-chip .pf-x { position: absolute; top: 8px; right: 10px; opacity: 0; padding: 0 4px; font-size: 16px; } .pf-chip:hover .pf-x { opacity: .8; }
 body.pf-dragging .pf-chip[data-drop] { border-style: dashed; border-color: var(--accent); }
 .pf-chip.drop { background: var(--accent); color: #111; }
 .pf-tag { color: var(--accent) !important; }
@@ -1161,3 +1179,33 @@ button.pulse { animation: dvpulse 1.6s ease-out; }
 .ag-tile input:focus-visible + .ag-th { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ag-tn { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ag-tile.on .ag-tn { color: var(--text); }
+
+/* 📁 Media Pool folders: a row of chips (All · folders · New folder); drop clips on one to move them there */
+.bin-chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 2px 0 6px; }
+.bchip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 8px; font-size: 12px; font-weight: 600;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text); cursor: pointer; max-width: 100%; }
+.bchip i { font-style: normal; color: var(--muted); font-weight: 500; font-size: 11px; }
+.bchip:hover { border-color: var(--line-2, #444); background: var(--panel-3); }
+.bchip.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.bchip.add { border-style: dashed; color: var(--muted); }
+.bchip.drop { background: var(--accent); color: #111; border-color: var(--accent); }
+.bchip.drop i { color: #111; }
+/* 🎧 Sound output chooser */
+.ao-list { display: grid; gap: 4px; margin: 8px 0; }
+.ao-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--line); cursor: pointer; }
+.ao-row:has(input:checked) { border-color: var(--accent); }
+.upbar .up-top { display: flex; align-items: center; gap: 10px; justify-content: space-between; }
+/* 🔊 the real waveform (timeline.js drawWaves): a canvas over the part of an audio clip on screen */
+.clip-bg .clip-wave { position: absolute; top: 0; height: 100%; left: 0; width: 0; pointer-events: none; }
+/* 🔲 the box drawn over the Media grid to select many files */
+.pool-box { position: fixed; z-index: 60; border: 1px solid var(--accent); background: rgba(232,176,74,.12); border-radius: 3px; pointer-events: none; }
+/* ⏩ Clip Speed / Duration */
+.spd { display: grid; gap: 10px; }
+.spd-top { display: flex; align-items: center; gap: 12px; }
+.spd-fields { display: grid; gap: 8px; flex: 1; }
+.spd-fields input[data-speed] { width: 110px; }
+.spd-link { font-size: 18px; padding: 6px 10px; border-radius: 8px; opacity: .55; }
+.spd-link.on { opacity: 1; border-color: var(--accent); }
+/* 📁 Reveal in Project: the file found in Media flashes twice */
+.mi.flash { animation: miflash .45s ease-in-out 3; }
+@keyframes miflash { 50% { box-shadow: 0 0 0 3px var(--accent); filter: brightness(1.4); } }

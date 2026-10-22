@@ -8,7 +8,7 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { placed, totalDuration, seqOf, SEQ_FIELDS, placeRefLooks, setTransition } from '../public/js/model.js';
+import { placed, totalDuration, seqOf, SEQ_FIELDS, placeRefLooks, setTransition, arrangeLayers } from '../public/js/model.js';
 import { CUTFX } from '../public/js/fx.js';
 import { viewOf, toShared } from '../public/js/myseq.js';
 import { analyzeReference, describeRef, describeLooks, refAdjustLayers } from './refstyle.mjs';
@@ -90,8 +90,13 @@ const HELP = `edtool - edit the open project "${PROJ}" (every change appears liv
 LOOK
   state                       the timeline: settings, every clip with its place, source in/out, effects
   media [--kind video|image|audio] [--bin x] [--q name] [--limit 80]   the footage (id, name, length, size, folder, tags)
-  find "<what to see>" [--top 20]   smart search over the footage by meaning (Hindi/English); needs "scan" once
-  scan                        let the editor look at all footage once (tags + search; can take minutes)
+  find "<what to see>" [--top 20]   smart search over the footage by meaning (Hindi/English), by a named person ("CM sahab")
+                              or by words written on it (banners, supers: "lok seva guarantee"); needs "scan" once
+  scan                        let the editor look at all footage once (tags, search, faces, text on it; can take minutes)
+  people                      who is in the footage (from "scan"): named people and "Person N", the clips and seconds they
+                              are seen in. A VO line naming someone gets their shot from "agent" by itself
+  quotes [--n 12] [--brief "what the edit is about"] [--again]   the best lines of the transcribed interviews / speeches
+                              (clip, in-out seconds, text) - put them on the timeline with apply
   look <mediaId|file> [--n 12] [--from s] [--to s]   a contact sheet JPG (n frames) - then Read the printed path to SEE it
   ref <file>                  a REFERENCE edit taken apart: frame shape, every shot (start, length, how it cuts in: cut /
                               flash / dip / whip / dissolve, how lively), beat sync, colour + a sheet with one frame per shot
@@ -150,7 +155,27 @@ async function cmdFind(words) {
   const r = await api('POST', `/api/footage/search?p=${enc(PROJ)}`, { q });
   const by = Object.fromEntries((await mediaList()).map((m) => [m.id, m]));
   out(`search: "${r.q}"`);
-  for (const x of r.results.slice(0, top)) out(`${x.id}  at ${r2(x.t)}s  score ${r2(x.score)}  "${by[x.id]?.name}" ${by[x.id]?.kind || ''}`);
+  for (const x of r.results.slice(0, top)) out(`${x.id}  at ${r2(x.t)}s  ${x.why ? x.why : `score ${r2(x.score)}`}  "${by[x.id]?.name}" ${by[x.id]?.kind || ''}`);
+}
+async function cmdPeople() {
+  const r = await api('GET', `/api/people?p=${enc(PROJ)}`), by = Object.fromEntries((await mediaList()).map((m) => [m.id, m]));
+  if (!r.at) return out('no faces looked for yet - run "scan" first');
+  out(`${r.people.length} people (named ones are known in every project; the user names them in 🧠 Smart › People)`);
+  for (const p of r.people) {
+    out(`${p.label}${p.aliases?.length ? ` (also: ${p.aliases.join(', ')})` : ''} - seen ${p.count}x`);
+    for (const [id, ts] of Object.entries(p.media).slice(0, 12)) out(`    ${id} "${by[id]?.name || '?'}" at ${ts.slice(0, 8).map((t) => `${r2(t)}s`).join(' ')}`);
+  }
+}
+async function cmdQuotes() {
+  let r = await api('GET', `/api/quotes?p=${enc(PROJ)}`);
+  if (!r.quotes?.length || argv.includes('--again') || flag('brief')) {
+    const j = await api('POST', `/api/quotes?p=${enc(PROJ)}`, { n: +flag('n', 12), brief: flag('brief', '') });
+    r = await waitJob(j.id, 'quotes');
+  }
+  const by = Object.fromEntries((await mediaList()).map((m) => [m.id, m]));
+  out(`${r.quotes.length} quotes (${r.by === 'claude' ? 'picked by Claude' : 'picked by a simple rule'}):`);
+  for (const x of r.quotes) out(`${x.mediaId} "${by[x.mediaId]?.name || '?'}" in=${r2(x.start)} out=${r2(x.end)} (${r2(x.end - x.start)}s)${x.why ? ` [${x.why}]` : ''}
+    "${x.text}"`);
 }
 async function cmdScan() {
   const j = await api('POST', `/api/footage/scan?p=${enc(PROJ)}`, {});
@@ -283,7 +308,7 @@ async function cmdAgent(f) {
   if (r.captions) pj.captions = r.captions;
   if (r.subtitles) pj.subtitles = { ...pj.subtitles, file: r.subtitles };
   if (r.settings) { if (r.settings.look) pj.settings.look = r.settings.look; if ('kenburns' in r.settings) pj.settings.kenburns = r.settings.kenburns; }
-  if (r.refLooks) placeRefLooks(pj, r.refLooks, Object.fromEntries((await mediaList()).map((m) => [m.id, m])));
+  if (r.refLooks) { const by = Object.fromEntries((await mediaList()).map((m) => [m.id, m])); placeRefLooks(pj, r.refLooks, by); arrangeLayers(pj, by); } // (🧱 V2 looks, V3 comps, V4 text)
   pj.agentReport = { at: Date.now(), ...r.report }; pj.agentOpts = o;
   await saveView(before, pj, 'Claude (agent edit)');
   out(`agent edit applied: ${r.tracks.V1.length} shots, ${r.duration}s. ${r.report.warnings.join(' / ')}`);
@@ -346,7 +371,9 @@ async function cmdRefLook(file) {
   const items = await mediaList(), by = Object.fromEntries(items.map((m) => [m.id, m]));
   const V1 = placed(pj, by).V1.filter((x) => !x.clip.gap);
   if (!V1.length) die('V1 is empty - build the cut first');
-  const layers = refAdjustLayers(ref, V1.map((x) => ({ start: x.start, end: x.end }))), track = placeRefLooks(pj, layers, by);
+  const layers = refAdjustLayers(ref, V1.map((x) => ({ start: x.start, end: x.end })));
+  placeRefLooks(pj, layers, by); arrangeLayers(pj, by); // (🧱 V2 looks, V3 comps, V4 text - nothing covering anything)
+  const track = Object.keys(pj.tracks).find((t) => pj.tracks[t].some((c) => c.refLook)) || 'V2';
   let cuts = 0;
   if (flag('cuts') !== 'no') {
     V1.forEach((x, k) => {
@@ -364,7 +391,7 @@ async function cmdStyles() { const r = await api('GET', '/api/styles'); out(r.st
 const [cmd, ...rest] = argv;
 if (!cmd || cmd === 'help') { out(HELP); process.exit(0); }
 if (!PROJ) die('no project: set VEDIT_PROJECT or pass --p "<project name>"');
-const run = { state: () => cmdState(), media: () => cmdMedia(), find: () => cmdFind(rest), scan: () => cmdScan(), look: () => cmdLook(rest[0]), frames: () => cmdFrames(rest.map(Number)),
+const run = { state: () => cmdState(), media: () => cmdMedia(), find: () => cmdFind(rest), scan: () => cmdScan(), people: () => cmdPeople(), quotes: () => cmdQuotes(), look: () => cmdLook(rest[0]), frames: () => cmdFrames(rest.map(Number)),
   sheet: () => cmdSheet(), song: () => cmdSong(rest[0]), apply: () => cmdApply(rest[0]), ops: () => cmdOps(rest[0]), agent: () => cmdAgent(rest[0]),
   preview: () => cmdRender(true), render: () => cmdRender(false), styles: () => cmdStyles(), ref: () => cmdRef(rest[0]), reflook: () => cmdRefLook(rest[0]) }[cmd];
 if (!run) die(`unknown command "${cmd}" - try: node engine/edtool.mjs help`);

@@ -30,6 +30,8 @@ function Start-Server {
   $si.FileName = $env:ComSpec
   $si.Arguments = "/d /c `"`"$node`" server.mjs >> `"$LOG`" 2>&1`""
   $si.WorkingDirectory = $ROOT
+  # more file workers for Node: slow NAS reads (scans, proxies) must not hold up the editor's own files
+  $si.EnvironmentVariables['UV_THREADPOOL_SIZE'] = '32'
   $si.UseShellExecute = $false
   $si.CreateNoWindow = $true
   $script:proc = [System.Diagnostics.Process]::Start($si)

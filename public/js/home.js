@@ -4,6 +4,10 @@ import { api, enc } from './api.js';
 import { fmt } from './model.js';
 import { $, $$, h, esc, toast, modal } from './ui.js';
 import { pickFolder } from './mediapool.js';
+import { icon } from './ui2.js';
+
+const NAS = 'Z:\\', DEFAULT_PLACE = 'Z:\\Editor Projects'; // 💾 new projects are saved on the NAS
+const FOLDER_SVG = '<svg class="pf-ic" viewBox="0 0 48 40" aria-hidden="true"><path class="pf-back" d="M4 6a3 3 0 0 1 3-3h11l4 4h19a3 3 0 0 1 3 3v24a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3z"/><path class="pf-front" d="M4 14a3 3 0 0 1 3-3h34a3 3 0 0 1 3 3v20a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3z"/></svg>';
 import { openTeam } from './team.js';
 import { openSessions } from './sessionsui.js';
 
@@ -44,12 +48,12 @@ export async function renderHome(el, openProject) {
     S.health = health;
     $('#projRoot', el).textContent = health.projectsFolder;
     const grid = $('#projGrid', el);
-    grid.innerHTML = `<button class="proj new" data-a="new"><span>+</span><b>New project</b><small>Pick your footage folder - the agent can edit it for you</small></button>` +
+    grid.innerHTML = `<button class="proj new" data-a="new"><span>+</span><b>New project</b><small>Save it in any folder - Z:, D: or a shared PC</small></button>` +
       list.map((p) => `<div class="proj" data-open="${esc(p.name)}" draggable="true" tabindex="0" role="button" aria-label="Open ${esc(p.name)}">
         <div class="proj-th" style="${p.thumb ? `background-image:url('${p.thumb}')` : ''}"><span class="badge">${esc(p.aspect || '')}</span></div>
-        <div class="proj-info"><b>${esc(p.name)}</b>${inF(p) && cur === 'all' ? `<small class="pf-tag">📁 ${esc(pf.folders.find((f) => f.id === inF(p))?.name || '')}</small>` : ''}<small>${p.duration ? `${fmt(p.duration)} · ` : ''}${p.clips} clips · ${p.media} media</small>
+        <div class="proj-info"><b>${esc(p.name)}</b>${inF(p) && cur === 'all' ? `<small class="pf-tag">📁 ${esc(pf.folders.find((f) => f.id === inF(p))?.name || '')}</small>` : ''}<small>${p.duration ? `${fmt(p.duration)} · ` : ''}${p.clips} clips · ${p.media} media</small>${p.place ? `<small class="mono" title="Saved in ${esc(p.place)}">📍 ${esc(p.place)}</small>` : ''}
         <small>${new Date(p.modified).toLocaleString()}</small></div>
-        <div class="proj-btns"><button class="icon-btn" data-move="${esc(p.name)}" title="Move to a folder (or drag the card onto a folder above)" aria-label="Move ${esc(p.name)} to a folder">🗂</button><button class="icon-btn" data-folder="${esc(p.name)}" title="Open project folder" aria-label="Open folder of ${esc(p.name)}">📂</button>${owner ? `<button class="icon-btn proj-del" data-del="${esc(p.name)}" title="Delete project (to the Recycle Bin, or for good)" aria-label="Delete ${esc(p.name)}">🗑</button>` : ''}</div></div>`).join('');
+        <div class="proj-btns"><button class="icon-btn" data-move="${esc(p.name)}" title="Move to a folder (or drag the card onto a folder above)" aria-label="Move ${esc(p.name)} to a folder">${icon('folderMove')}</button><button class="icon-btn" data-folder="${esc(p.name)}" title="Open project folder" aria-label="Open folder of ${esc(p.name)}">${icon('folder')}</button>${owner ? `<button class="icon-btn proj-del" data-del="${esc(p.name)}" title="Delete project (to the Recycle Bin, or for good)" aria-label="Delete ${esc(p.name)}">${icon('trash')}</button>` : ''}</div></div>`).join('');
     if (owner) api('GET', '/api/projects/deleted').then((d) => { const b = $('[data-a="deleted"]', el); if (b) { b.hidden = false; b.textContent = `🗑 Recycle Bin${d.length ? ` (${d.length})` : ''}`; } }).catch(() => {});
     $$('.proj[data-open]', grid).forEach((c) => {
       c.addEventListener('keydown', (e) => { if (e.key === 'Enter') openProject(c.dataset.open); });
@@ -69,9 +73,10 @@ async function savePF(next, refresh) {
 const newId = () => `f${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
 function renderBar(el, list, cur, refresh) {
   const bar = $('#pfBar', el), count = (id) => list.filter((p) => (id === 'none' ? !pf.map[p.name] : pf.map[p.name] === id)).length;
-  const chip = (id, label, n, extra = '') => `<button class="pf-chip${cur === id ? ' on' : ''}" data-pf="${id}"${id !== 'all' ? ' data-drop' : ''}>${label} <i>${n}</i>${extra}</button>`;
-  bar.innerHTML = chip('all', 'All projects', list.length) + pf.folders.map((f) => chip(f.id, `📁 ${esc(f.name)}`, count(f.id), `<span class="pf-x" data-pfedit="${f.id}" title="Rename / delete">⋯</span>`)).join('')
-    + (pf.folders.length ? chip('none', 'Not in a folder', count('none')) : '') + '<button class="pf-chip add" data-pfnew>＋ New folder</button>';
+  // big folder tiles (a folder picture, its name, how many projects); drop a project card on one to move it there
+  const chip = (id, label, n, kind = 'folder', extra = '') => `<button class="pf-chip pf-${kind}${cur === id ? ' on' : ''}" data-pf="${id}"${id !== 'all' ? ' data-drop' : ''} title="${label}">${FOLDER_SVG}<b>${label}</b><i>${n} project${n === 1 ? '' : 's'}</i>${extra}</button>`;
+  bar.innerHTML = chip('all', 'All projects', list.length, 'all') + pf.folders.map((f) => chip(f.id, esc(f.name), count(f.id), 'folder', `<span class="pf-x" data-pfedit="${f.id}" title="Rename / delete">⋯</span>`)).join('')
+    + (pf.folders.length ? chip('none', 'Not in a folder', count('none'), 'none') : '') + '<button class="pf-chip add" data-pfnew><span class="pf-plus">+</span><b>New folder</b></button>';
   const pick = (id) => { try { localStorage.setItem('ve-home-folder', id); } catch {} refresh(); };
   bar.onclick = (e) => {
     const ed = e.target.closest('[data-pfedit]');
@@ -122,10 +127,47 @@ function folderMenu(anchor, id, refresh) {
   });
 }
 
+// 👤 the signed-in person's folder in Z:\Editor Projects: the one named like them ("Vishal", or "Venky Visuals" for venky).
+// On the editor computer itself (no sign-in) it is the owner's. The folder is made when it is not there yet.
+async function myFolder() {
+  try {
+    const me = await api('GET', '/api/me');
+    if (me.home) return me.home;
+    const name = String(me.local ? me.owner || '' : me.name || '').trim();
+    if (!name || name === 'Owner') return DEFAULT_PLACE;
+    const r = await api('GET', `/api/fs?path=${enc(DEFAULT_PLACE)}`), n = name.toLowerCase();
+    const hit = r.dirs.find((x) => x.name.toLowerCase() === n) || r.dirs.find((x) => x.name.toLowerCase().startsWith(`${n} `));
+    return hit ? hit.path : `${DEFAULT_PLACE}\\${name[0].toUpperCase()}${name.slice(1)}`;
+  } catch { return DEFAULT_PLACE; }
+}
+
+// 📂 File > Open: a Premiere Pro / Resolve XML (Final Cut Pro 7 XML) becomes a new project with the same cut, saved in
+// your own folder; the footage is used where the XML points (the NAS). Resolves with the new project's name.
+export function openXmlFile() {
+  return new Promise((done) => {
+    const inp = h('<input type="file" accept=".xml,text/xml" hidden>');
+    document.body.append(inp);
+    inp.onchange = async () => {
+      const f = inp.files[0]; inp.remove();
+      if (!f) return done(null);
+      toast(`Opening ${f.name}…`);
+      try {
+        const r = await api('POST', '/api/projects/open-xml', { xml: await f.text(), place: await myFolder() });
+        toast(`${r.name}: ${r.clips} clips from the XML${r.missingCount ? ` - ${r.missingCount} file${r.missingCount > 1 ? 's' : ''} not found (they are left out)` : ''}`, r.missingCount ? 'err' : '');
+        if (r.notes?.length) setTimeout(() => toast(r.notes.join(' '), ''), 4000);
+        done(r.name);
+      } catch (e) { toast(e.message, 'err'); done(null); }
+    };
+    inp.click();
+  });
+}
+
 export function newProjectDialog(openProject) {
   const d = new Date();
   const def = `Project ${d.getDate()} ${d.toLocaleString('en', { month: 'short' })} ${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`;
-  let folder = '';
+  // 📍 where it is saved: the signed-in person's own folder on the NAS (Z:\Editor Projects\Vishal, ...\Venky Visuals),
+  // else Z:\Editor Projects; Browse picks any other folder on the NAS
+  let place = DEFAULT_PLACE, home = DEFAULT_PLACE, touched = false;
   const body = h(`<form class="np" autocomplete="off">
     <label class="fld wide"><span>Project name</span><input name="name" value="${esc(def)}" required></label>
     <div class="fld wide"><span>Format</span><div class="fmt-cards">
@@ -134,20 +176,26 @@ export function newProjectDialog(openProject) {
     </div></div>
     <label class="fld"><span>Start from a template</span><select name="template"><option value="">Blank project</option></select></label>
     <label class="fld"><span>Frame rate</span><select name="fps"><option>24</option><option>25</option><option selected>30</option><option>50</option><option>60</option></select></label>
-    <div class="fld wide"><span>Raw footage folder <i>(optional - you can add more later)</i></span>
-      <div class="row-in"><input name="folder" placeholder="e.g. Z:\\01 vishal\\2026\\October\\02 Chhattisgarh raw" readonly><button type="button" data-browse>Browse…</button></div>
-      <small>Clips are read in place - nothing is copied. Previews are made in the background.</small></div>
+    <div class="fld wide"><span>Save project in</span>
+      <div class="row-in"><input name="place" readonly><button type="button" data-browse>Browse…</button><button type="button" data-def title="Back to your own folder">My folder</button></div>
+      <small>A folder on the NAS (Z:\\) - your own folder unless you pick another. The project gets its own folder inside it. Add footage once it opens (+ Folder).</small></div>
     <div class="np-foot"><button type="button" data-close>Cancel</button><button class="primary" type="submit">Create project</button></div>
   </form>`);
   const dlg = modal('New project', body, { width: 620 });
   api('GET', '/api/library').then((l) => { body.template.insertAdjacentHTML('beforeend', (l.templates || []).map((t) => `<option value="${esc(t.name)}">📁 ${esc(t.name)}${t.aspect ? ` (${esc(t.aspect)})` : ''}</option>`).join('')); }).catch(() => {});
-  $('[data-browse]', body).onclick = async () => { const f = await pickFolder('Raw footage folder'); if (f) { folder = f; body.folder.value = f; } };
+  const showPlace = () => { body.place.value = place; };
+  showPlace();
+  myFolder().then((f) => { home = f; if (!touched) { place = f; showPlace(); } });
+  $('[data-browse]', body).onclick = async () => { const f = await pickFolder('Save project in', '', { only: NAS, start: place }); if (f) { place = f; touched = true; showPlace(); } };
+  $('[data-def]', body).onclick = () => { place = home; touched = true; showPlace(); };
   body.onsubmit = async (e) => {
     e.preventDefault();
     const btn = $('[type=submit]', body); btn.disabled = true; btn.textContent = 'Creating…';
     try {
-      const r = await api('POST', '/api/projects', { name: body.name.value.trim(), aspect: body.aspect.value, fps: +body.fps.value, folder, template: body.template.value });
+      const r = await api('POST', '/api/projects', { name: body.name.value.trim(), aspect: body.aspect.value, fps: +body.fps.value, place, template: body.template.value });
       dlg.close();
+      // (an editor not restarted since this option came saves in Projects - say so instead of quietly ignoring the folder)
+      if (place && !String(r.folder || '').toLowerCase().startsWith(place.toLowerCase())) toast(`Saved in ${r.folder || 'Projects'} - saving in another folder works after the editor is restarted`, 'err');
       toast(r.imported ? `Project created - ${r.imported} clips imported, previews are being prepared` : 'Project created');
       openProject(r.name);
     } catch (err) { toast(err.message, 'err'); btn.disabled = false; btn.textContent = 'Create project'; }

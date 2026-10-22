@@ -3,9 +3,10 @@
 import { S, emit, commit, findClip, layout } from './store.js';
 import { sequenceForAgent } from './sequences.js';
 import { api, enc, watchJob } from './api.js';
-import { fmt, clipDur, placeRefLooks } from './model.js';
+import { fmt, clipDur, placeRefLooks, arrangeLayers } from './model.js';
 import { $, $$, h, esc, toast, modal, progressClock } from './ui.js';
 import { pickFolder, refreshMedia, uploadAudioInto } from './mediapool.js';
+import { defaultFootage } from './footagepick.js';
 import { openReels } from './reels.js';
 import { openMulticam } from './multicam.js';
 import { openVoiceOver } from './voiceover.js';
@@ -25,7 +26,10 @@ const TYPES = [
 ];
 
 export function openAgent(setBusy) {
-  const st = { step: 0, type: 'reel', clips: new Set(S.media.filter((m) => (m.kind === 'video' || m.kind === 'image') && m.status === 'ready').map((m) => m.id)) };
+  // 🎞 the footage to start from: what is selected in Media (or its open folder), else the footage without logos, rejects,
+  // bad clips and copies (footagepick.js) - not every file of the project
+  const pre = defaultFootage();
+  const st = { step: 0, type: 'reel', clips: new Set(pre.ids) };
   const body = h(`<div class="ag">
     <ol class="ag-steps">${['What', 'Footage', 'Sound', 'Finish'].map((s, i) => `<li data-go="${i}">${i + 1}. ${s}</li>`).join('')}</ol>
     <div class="ag-page" data-p="0">
@@ -52,7 +56,8 @@ export function openAgent(setBusy) {
       </div>
       <div class="ag-pickbar2"><button type="button" class="small" data-a="all">Select all shown</button><button type="button" class="small" data-a="none">Clear</button><button type="button" class="small" data-a="openall">Open all folders</button><span class="grow"></span><button type="button" class="small" data-a="addFolder">+ Import a folder</button></div>
       <div class="ag-clips" data-clips></div>
-      <small class="muted">The agent looks at every selected clip, skips blurry / dark / shaky moments and never uses the same moment twice.</small>
+      <small class="ag-why" data-why></small>
+      <small class="muted">The agent uses ONLY the ticked clips, skips blurry / dark / shaky moments and never uses the same moment twice.</small>
     </div>
     <div class="ag-page" data-p="2" hidden>
       <div class="fgrid">
@@ -133,6 +138,9 @@ export function openAgent(setBusy) {
   const shown = () => usable().filter((m) => (!pick.kind || m.kind === pick.kind) && (!pick.q || `${m.name} ${m.bin || ''}`.toLowerCase().includes(pick.q)));
   const shortBin = (b) => { const parts = String(b || 'Other').split(/[\\/]/).filter(Boolean); return parts.length > 2 ? `…/${parts.slice(-2).join('/')}` : parts.join('/') || 'Other'; };
   const countLine = () => { const all = usable().length; body.querySelector('[data-count]').innerHTML = `<b>${st.clips.size}</b> of ${all} selected`; };
+  // why these clips are ticked - and what was left out, with the reason (tick it to use it anyway)
+  body.querySelector('[data-why]').innerHTML = pre.from === 'selection' ? `✔ Ticked: the <b>${pre.ids.length}</b> file${pre.ids.length > 1 ? 's' : ''} selected in Media.`
+    : `${pre.from === 'folder' ? 'Ticked: the open Media folder. ' : ''}${pre.left.length ? `Left out: <b>${pre.left.length}</b> - ${esc([...new Set(pre.left.map((x) => x.why.replace(/^flagged: .*/, 'flagged bad').replace(/^in the .*/, 'Rejects / Duplicates / Brand folders')))].join(', '))} (tick any to use it).` : ''} Tip: select clips in Media first and only those are used.`;
   const renderClips = () => {
     const bins = {};
     shown().forEach((m) => (bins[m.bin || 'Other'] ||= []).push(m));
@@ -314,6 +322,8 @@ async function applyAgentResult(r, o) {
   // 🎚 the reference's effects as adjustment layers above the story (the ones from an earlier reference edit go)
   if (r.refLooks) { const tr = placeRefLooks(S.project, r.refLooks, S.mediaById); if (tr) toast(`🎚 ${r.refLooks.length} adjustment layer${r.refLooks.length > 1 ? 's' : ''} on ${tr} copy the reference's effects - change them in Effect Controls`); }
   for (const [k, v] of Object.entries(r.trackState)) S.project.trackState[k] = { ...S.project.trackState[k], ...v };
+  // 🧱 an edit copying a reference: V2 its looks (adjustment layers), V3 comps, V4 text - nothing covering anything
+  if (r.refLooks || o?.reference) arrangeLayers(S.project, S.mediaById);
   if (r.subtitles) S.project.subtitles = { ...S.project.subtitles, file: r.subtitles };
   if (r.captions) S.project.captions = r.captions; // 🎵 lyrics on screen
   if (o.stabilize) stabilizeAll(S.project, 'medium');

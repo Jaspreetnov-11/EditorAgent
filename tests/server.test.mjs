@@ -99,6 +99,21 @@ test('preview render makes a playable file of the right length', async () => {
   assert(Math.abs(d - 2) < 0.25, `duration ${d}s (want 2s)`);
 });
 
+test('🎬 In / Out on the timeline: the preview and export make only that part, "whole" makes all of it', async () => {
+  if (!ON) return 'skip';
+  const len = (j) => +spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', path.join(tmp, 'Projects', NAME, 'renders', j.result.output)], { encoding: 'utf8' }).stdout;
+  const pj = await api('GET', `/api/project?p=${P}`);
+  delete pj._rev;
+  pj.settings.range = { in: 0.5, out: 1.5 };
+  await api('PUT', `/api/project?p=${P}`, pj);
+  const a = await job((await api('POST', `/api/render?p=${P}`, { preview: true })).id, 180000);
+  assert(Math.abs(len(a) - 1) < 0.2, `In-Out preview is ${len(a)}s (want 1s)`);
+  const b = await job((await api('POST', `/api/render?p=${P}`, { preset: 'master', filename: 'whole', whole: true })).id, 180000);
+  assert(Math.abs(len(b) - 2) < 0.25, `whole timeline is ${len(b)}s (want 2s)`);
+  delete pj.settings.range;
+  await api('PUT', `/api/project?p=${P}`, pj);
+});
+
 test('two renders started together write two different files', async () => {
   if (!ON) return 'skip';
   const [a, b] = await Promise.all([1, 2].map(() => api('POST', `/api/render?p=${P}`, { preset: 'master', filename: 'twice' })));
@@ -209,6 +224,115 @@ test('📁 Home folders: projects grouped, bad ids and unknown projects dropped,
   assert(Object.keys(r.map).length === 1 && r.map[NAME] === 'f1', `only real projects: ${JSON.stringify(r.map)}`);
   const list = await api('GET', '/api/projects');
   assert(list.find((p) => p.name === NAME)?.group === 'f1', 'the project list says which folder');
+});
+
+test('📍 project saved in another folder: listed, opened from its folder, deleted to the Recycle Bin', async () => {
+  if (!ON) return 'skip';
+  const place = path.join(tmp, 'elsewhere');
+  fs.mkdirSync(place, { recursive: true });
+  const r = await api('POST', '/api/projects', { name: 'Placed', place });
+  same(r.folder, path.join(place, 'Placed'));
+  assert(fs.existsSync(path.join(place, 'Placed', 'project.json')), 'project.json is in the chosen folder');
+  assert(!fs.existsSync(path.join(tmp, 'Projects', 'Placed')), 'nothing in Projects');
+  let p = (await api('GET', '/api/projects')).find((x) => x.name === 'Placed');
+  same(p?.place, path.join(place, 'Placed'));
+  same((await api('GET', '/api/project?p=Placed')).name, 'Placed');
+  // a project folder from somewhere else (as if made on another drive) is taken into the list
+  const other = path.join(tmp, 'nas', 'Old Edit');
+  fs.cpSync(path.join(place, 'Placed'), other, { recursive: true });
+  same((await api('POST', '/api/projects/open-folder', { dir: other })).name, 'Old Edit');
+  assert((await api('GET', '/api/projects')).some((x) => x.name === 'Old Edit'), 'opened project is listed');
+  await api('POST', '/api/projects/delete?p=Placed');
+  assert(!fs.existsSync(path.join(place, 'Placed')), 'moved out of its folder');
+  assert(!(await api('GET', '/api/projects')).some((x) => x.name === 'Placed'), 'gone from the list');
+  assert((await api('GET', '/api/projects/deleted')).some((x) => x.name === 'Placed'), 'in the Recycle Bin');
+});
+
+test('⬆ upload in pieces: a piece sent twice is skipped, a break carries on, the file lands in the open folder', async () => {
+  if (!ON) return 'skip';
+  const src = path.join(tmp, 'up-src.mp4');
+  ff(['-f', 'lavfi', '-i', 'testsrc2=s=320x180:r=25:d=2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', src]);
+  const data = fs.readFileSync(src), half = Math.floor(data.length / 2), key = 'testkey123';
+  const qs = `p=${P}&key=${key}&total=${data.length}&name=Pieces.mp4&bin=Interviews`;
+  const put = async (off, buf) => (await fetch(`${B}/api/upload/part?${qs}&off=${off}`, { method: 'POST', body: buf })).json();
+  same((await put(0, data.subarray(0, half))).have, half);
+  same((await put(0, data.subarray(0, half))).again, true); // (the same piece again: nothing added)
+  same((await api('GET', `/api/upload/part?p=${P}&key=${key}`)).have, half);
+  const r = await put(half, data.subarray(half));
+  same(r.done, true);
+  same(r.bin, 'Interviews');
+  const m = (await media()).find((x) => x.id === r.id);
+  same(fs.readFileSync(m.path).length, data.length);
+  assert(!fs.readdirSync(path.join(tmp, 'Projects', NAME, 'imports')).some((f) => f.endsWith('.part')), 'no piece file left');
+});
+
+test('📅 every edited day keeps a backup of its own, listed in Versions', async () => {
+  if (!ON) return 'skip';
+  const pj = await api('GET', `/api/project?p=${P}`); delete pj._rev;
+  pj.markers = [...(pj.markers || []), { id: 'mk-daily', t: 0.5, note: 'daily backup test' }];
+  await api('PUT', `/api/project?p=${P}&backup=1`, pj);
+  const dir = path.join(tmp, 'Projects', NAME, 'backups');
+  for (let i = 0; i < 20 && !fs.readdirSync(dir).some((f) => f.startsWith('daily_')); i++) await sleep(250);
+  assert(fs.readdirSync(dir).some((f) => /^daily_\d{4}-\d\d-\d\d\.json$/.test(f)), 'a daily_<date>.json backup');
+  assert((await api('GET', `/api/versions?p=${P}`)).some((v) => /End of that day/.test(v.label)), 'it is in the Versions list');
+});
+
+test('❗ files that cannot be used say why: an empty video, camera RAW in a folder', async () => {
+  if (!ON) return 'skip';
+  const dir = path.join(tmp, 'mixed');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'Empty.mp4'), '');
+  fs.writeFileSync(path.join(dir, 'A001.braw'), 'x'.repeat(4096));
+  fs.writeFileSync(path.join(dir, 'Edit.prproj'), 'x');
+  const r = await api('POST', `/api/import?p=${P}`, { folder: dir });
+  same(r.added, 1);
+  same(r.notUsed.map((x) => x.ext).sort(), ['.braw', '.prproj']);
+  let m;
+  for (let i = 0; i < 40; i++) { m = (await media()).find((x) => x.name === 'Empty.mp4'); if (m?.status === 'error') break; await sleep(250); }
+  same(m?.status, 'error');
+  assert(/empty/i.test(m.error), `says why: ${m.error}`);
+});
+
+test('📂 File > Open: an exported Premiere XML comes back as a new project with the same cut', async () => {
+  if (!ON) return 'skip';
+  const name = 'XmlSrc', shoot = path.join(tmp, 'xmlshoot');
+  fs.mkdirSync(shoot, { recursive: true });
+  ff(['-f', 'lavfi', '-i', 'testsrc2=s=640x360:r=25:d=4', '-f', 'lavfi', '-i', 'sine=f=300:d=4', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', path.join(shoot, 'X.mp4')]);
+  await api('POST', '/api/projects', { name, folder: shoot });
+  let m;
+  for (let i = 0; i < 60; i++) { m = (await api('GET', `/api/media?p=${name}`)).items[0]; if (m?.status === 'ready') break; await sleep(300); }
+  const pj = await api('GET', `/api/project?p=${name}`); delete pj._rev;
+  pj.tracks.V1 = [{ id: 'a1', type: 'video', mediaId: m.id, in: 0.5, out: 2 }, { id: 'a2', type: 'video', mediaId: m.id, in: 2.5, out: 3.5 }];
+  pj.tracks.V2 = [{ id: 'b1', type: 'video', mediaId: m.id, start: 1, in: 0, out: 1 }];
+  await api('PUT', `/api/project?p=${name}`, pj);
+  const ex = await api('POST', `/api/export/timeline?p=${name}`, { filename: 'roundtrip', color: 'none', collect: 'none' });
+  const xmlFile = fs.readdirSync(ex.path).find((f) => f.endsWith('.xml'));
+  const r = await api('POST', '/api/projects/open-xml', { xml: fs.readFileSync(path.join(ex.path, xmlFile), 'utf8') });
+  same(r.missingCount, 0);
+  const got = await api('GET', `/api/project?p=${encodeURIComponent(r.name)}`);
+  const v1 = got.tracks.V1.filter((c) => !c.gap);
+  same(v1.map((c) => [c.in, c.out]), [[0.5, 2], [2.5, 3.5]]);
+  same(got.tracks.V2.map((c) => [c.start, c.in, c.out]), [[1, 0, 1]]);
+  assert(got.tracks.V1.every((c) => c.gap || c.mute), 'pictures are picture only (their sound is on the A tracks)');
+  assert(Object.entries(got.tracks).some(([t, l]) => t[0] === 'A' && l.length), 'the sound came across on an A track');
+});
+
+test('🚚 move a project to an editor\'s folder: copied, its own files pointed at the new place, old folder gone', async () => {
+  if (!ON) return 'skip';
+  await api('POST', '/api/projects', { name: 'Mover' });
+  const own = path.join(tmp, 'Projects', 'Mover', 'imports', 'own.mp4');
+  ff(['-f', 'lavfi', '-i', 'testsrc2=s=320x180:r=25:d=1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', own]);
+  await api('POST', '/api/import?p=Mover', { files: [own] });
+  const dest = path.join(tmp, 'nas', 'Editor Projects', 'Vishal');
+  fs.mkdirSync(path.dirname(dest), { recursive: true }); // (Vishal's own folder is made by the move)
+  const j = await api('POST', '/api/projects/move?p=Mover', { place: dest });
+  let r = null;
+  for (let i = 0; i < 60 && !r; i++) { const x = await api('GET', `/api/job?id=${j.id}`); if (x.status !== 'running') r = x; else await sleep(300); }
+  same(r?.status, 'done');
+  assert(!fs.existsSync(path.join(tmp, 'Projects', 'Mover')), 'old folder removed');
+  assert(fs.existsSync(path.join(dest, 'Mover', 'project.json')), 'project in the new folder');
+  same((await api('GET', '/api/projects')).find((x) => x.name === 'Mover')?.place, path.join(dest, 'Mover'));
+  same((await api('GET', '/api/media?p=Mover')).items[0]?.path, path.join(dest, 'Mover', 'imports', 'own.mp4'));
 });
 
 test('stop the test editor and remove its folder', async () => {

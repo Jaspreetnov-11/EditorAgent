@@ -2,7 +2,7 @@
 // and subtitles (generate, proof-read, burn in).
 import { S, on, emit, commit, saveNow, duration } from './store.js';
 import { api, enc, watchJob } from './api.js';
-import { fmtTC, ASPECTS } from './model.js';
+import { fmtTC, ASPECTS, rangeOf } from './model.js';
 import { PRESETS, presetById, presetWarnings, REFRAME } from './presets.js';
 import { CAPTION_STYLES } from './templates.js';
 import { seqList, seqOf } from './model.js';
@@ -24,8 +24,9 @@ export function mountDeliver(el) {
     <section class="dv-col">
       <h2>Export</h2>
       <label class="fld"><span>File name</span><input id="dvName"></label>
-      <div class="fld" id="dvSaveF" data-saverow hidden><span>📁 Save to</span><div class="dv-saveto"><input id="dvSaveTo" data-savepath readonly placeholder="This project's folder (renders / exports)" title="Where the finished video and the exported timeline go. Empty = the project's own folder."><button class="small" data-savebrowse title="A folder on the editing computer or the network drive (Z:)">📁 Browse</button><button class="small" data-savelocal title="A folder on the computer you are sitting at - finished renders and exported timelines you start are saved into it">💻 This PC</button><button class="small" data-saveclear title="Back to the project's folder" hidden>✕</button></div></div>
+      <div class="fld" id="dvSaveF" data-saverow hidden><span>📁 Save to</span><div class="dv-saveto"><input id="dvSaveTo" data-savepath readonly placeholder="This project's folder (renders / output)" title="Where the finished video and the exported timeline go. Empty = the project's own folder."><button class="small" data-savebrowse title="A folder on the editing computer or the network drive (Z:)">📁 Browse</button><button class="small" data-savelocal title="A folder on the computer you are sitting at - finished renders and exported timelines you start are saved into it">💻 This PC</button><button class="small" data-saveclear title="Back to the project's folder" hidden>✕</button></div></div>
       <label class="fld" id="dvSeqF"><span>Sequence</span><select id="dvSeq" title="Which timeline of this project to render"></select></label>
+      <label class="fld" id="dvRangeF" hidden><span>🎬 Range</span><select id="dvRange" title="The timeline's In / Out (I / O on the timeline)"><option value="io"></option><option value="whole">Whole timeline</option></select></label>
       <label class="fld"><span>Platform</span><select id="dvPreset">${PRESETS.map((p) => `<option value="${p.id}">${esc(p.label)}</option>`).join('')}</select></label>
       <div class="fgrid dv-frame">
         <label class="fld"><span>Frame</span><select id="dvAspect">${Object.keys(ASPECTS).map((a) => `<option>${a}</option>`).join('')}</select></label>
@@ -142,6 +143,7 @@ export async function showDeliver() {
   const seqs = seqList(S.project);
   $('#dvSeqF', root).hidden = seqs.length < 2;
   $('#dvSeq', root).innerHTML = seqs.map((x) => `<option value="${x.open ? '' : x.id}">${esc(x.name)}${x.open ? ' (open)' : ''} · ${esc(x.data.settings?.aspect || '')}</option>`).join('');
+  syncRange();
   syncSpec(); pollQueue();
   showView($('#dvVideo', root).getAttribute('src') ? view : 'program');
   await Promise.all([loadRenders(), loadSubsList(), loadExports()]);
@@ -179,7 +181,14 @@ const quality = () => {
   const q = { res: $('#qRes', root).value, fps: $('#qFps', root).value, codec: $('#qCodec', root).value, crf: $('#qCrf', root).value, abr: $('#qAbr', root).value, gpu: $('#qGpu', root).checked ? true : $('#qGpu', root).disabled ? '' : 'off' };
   return Object.fromEntries(Object.entries(q).filter(([, v]) => v));
 };
-const current = () => ({ seq: $('#dvSeq', root).value || undefined, preset: $('#dvPreset', root).value, aspect: $('#dvAspect', root).value, fit: $('#dvFit', root).value, filename: $('#dvName', root).value.trim(), quality: quality() });
+// 🎬 In / Out set on the timeline: Export (and the preview) make In to Out, unless "Whole timeline" is picked here
+function syncRange() {
+  const r = rangeOf(S.project, duration()), f = $('#dvRangeF', root), fps = S.project.settings.fps;
+  f.hidden = !r;
+  if (r) $('#dvRange option[value="io"]', root).textContent = `In to Out: ${fmtTC(r.in, fps)} - ${fmtTC(r.out, fps)} (${(r.out - r.in).toFixed(1)}s)`;
+}
+const wholeTimeline = () => !$('#dvRangeF', root).hidden && $('#dvRange', root).value === 'whole';
+const current = () => ({ whole: wholeTimeline() || undefined, seq: $('#dvSeq', root).value || undefined, preset: $('#dvPreset', root).value, aspect: $('#dvAspect', root).value, fit: $('#dvFit', root).value, filename: $('#dvName', root).value.trim(), quality: quality() });
 
 function specOf(job) {
   const p = presetById(job.preset), s = S.project.settings, q = job.quality || {};

@@ -19,7 +19,7 @@ const median = (a) => { const s = [...a].sort((x, y) => x - y); return s.length 
 export async function analyzeReference(file, { cacheFile, width = 0, height = 0, duration = 0 } = {}) {
   const st = fs.statSync(file);
   if (cacheFile && fs.existsSync(cacheFile)) {
-    try { const c = JSON.parse(fs.readFileSync(cacheFile, 'utf8')); if (c.v === 2 && c.size === st.size) return c; } catch {}
+    try { const c = JSON.parse(fs.readFileSync(cacheFile, 'utf8')); if (c.v === 3 && c.size === st.size) return c; } catch {}
   }
   // 10 frames a second: enough to place cuts within 0.1 s and to see a 2-frame flash
   const r = await run('ffmpeg', ['-hide_banner', '-nostats', '-i', file, '-an', '-vf',
@@ -67,7 +67,8 @@ export async function analyzeReference(file, { cacheFile, width = 0, height = 0,
     const a = edges[k], b = edges[k + 1];
     if (b - a < 0.15) continue;
     const inside = fr.filter((f) => f.t > a + 0.1 && f.t < b - 0.1);
-    shots.push({ a, b, len: r3(b - a), cutIn: k === 0 ? null : cuts[k - 1].type, motion: r3(inside.length ? inside.reduce((s, f) => s + f.scene, 0) / inside.length : 0),
+    // (at: the middle of the shot - the agent looks at that frame to pick footage that looks like it)
+    shots.push({ a, b, at: r3((a + b) / 2), len: r3(b - a), cutIn: k === 0 ? null : cuts[k - 1].type, motion: r3(inside.length ? inside.reduce((s, f) => s + f.scene, 0) / inside.length : 0),
       blur: inside.length ? median(inside.map((f) => f.blur)) : 0 });
   }
   // 3b. the look of every shot (small frames across the piece + full-size crops for the grain)
@@ -88,7 +89,7 @@ export async function analyzeReference(file, { cacheFile, width = 0, height = 0,
   } catch {}
   const aspect = width && height ? (height > width * 1.3 ? '9:16' : height > width * 1.1 ? '4:5' : Math.abs(width - height) < width * 0.1 ? '1:1' : '16:9') : null;
   const counts = cuts.reduce((o, c) => ((o[c.type] = (o[c.type] || 0) + 1), o), {});
-  const res = { v: 2, size: st.size, duration: r3(dur), aspect, shots, avgShot: r3(dur / Math.max(1, shots.length)), counts, color: color && { mean: color.mean, std: color.std, sat: color.sat }, bpm, onBeat };
+  const res = { v: 3, size: st.size, duration: r3(dur), aspect, shots, avgShot: r3(dur / Math.max(1, shots.length)), counts, color: color && { mean: color.mean, std: color.std, sat: color.sat }, bpm, onBeat };
   if (cacheFile) fs.writeFileSync(cacheFile, JSON.stringify(res));
   return res;
 }

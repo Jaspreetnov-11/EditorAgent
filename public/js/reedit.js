@@ -7,6 +7,7 @@ import { $, h, esc, toast, modal } from './ui.js';
 import { uploadAudioInto, uploadFiles, refreshMedia, pickFolder } from './mediapool.js';
 import { runAgentWith, editWithClaude } from './agent.js';
 import { scriptPicker } from './scriptedit.js';
+import { defaultFootage, whyLeftOut } from './footagepick.js';
 
 const PACES = [['fast', 'Fast cuts (~1.7 s)'], ['medium', 'Medium (~2.8 s)'], ['slow', 'Slow, cinematic (~4 s)']];
 const ASPECTS = [['9:16', '9:16 Reel / Shorts'], ['16:9', '16:9 YouTube / Film'], ['1:1', '1:1 Square'], ['4:5', '4:5 Feed']];
@@ -33,7 +34,11 @@ export function openReedit(setBusy, { focus = null, changes = {} } = {}) {
   const base = currentEditOpts(), o = { ...base, ...changes };
   const audio = () => S.media.filter((m) => m.kind === 'audio');
   const opt = (list, cur, none) => `${none ? `<option value="">${none}</option>` : ''}${list.map((m) => `<option value="${m.id}"${m.id === cur ? ' selected' : ''}>${esc(m.name)} (${fmt(m.duration)})</option>`).join('')}`;
-  const allFootage = S.media.filter((m) => (m.kind === 'video' || m.kind === 'image') && m.status === 'ready');
+  // "all footage" = the project's footage without logos, rejects, bad clips and copies (footagepick.js); "same" = the
+  // clips this edit was made from, without what is not footage (older edits took every file of the project)
+  const allFootage = defaultFootage().ids.map((id) => S.mediaById[id]).filter(Boolean);
+  const onEdit = new Set(S.project.tracks.V1.map((c) => c.mediaId));
+  base.clips = (base.clips || []).filter((id) => S.mediaById[id] && (onEdit.has(id) || !whyLeftOut(S.mediaById[id])));
   const body = h(`<div class="ag re">
     <p class="muted">The agent rebuilds the edit with your changes. Same footage, and it again picks the best shot for every line. <b>Ctrl+Z</b> (or "undo" in the Assistant) brings the current edit back.</p>
     <div class="fgrid">
@@ -52,7 +57,7 @@ export function openReedit(setBusy, { focus = null, changes = {} } = {}) {
       <label class="fld"><span>Format</span><select name="aspect">${ASPECTS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></label>
       <label class="fld"><span>Length</span><select name="target"><option value="15">15 s</option><option value="20">20 s</option><option value="30">30 s</option><option value="45">45 s</option><option value="60">1 min</option><option value="90">1.5 min</option><option value="120">2 min</option><option value="180">3 min</option><option value="300">5 min</option></select><small data-lennote></small></label>
       <div class="fld wide re-box"><span>Footage</span>
-        <div class="row-in"><select name="footage"><option value="same">Same as this edit (${base.clips.length} clips)</option><option value="all">All footage in the project (${allFootage.length})</option></select>
+        <div class="row-in"><select name="footage"><option value="same">Same as this edit (${base.clips.length} clips)</option><option value="all">All the project's footage (${allFootage.length} - no logos, rejects or bad clips)</option></select>
           <label class="btn small">⬆ Add new clips<input type="file" hidden multiple name="clipFiles" accept="video/*,image/*,.mxf,.mts,.mov"></label><button type="button" class="btn small" data-a="folder">📁 Add a folder</button></div>
         <small data-newclips></small></div>
       <label class="fld"><span>Transitions</span><select name="style"><option value="cuts">Clean cuts</option><option value="cinematic">Dissolves between ideas</option></select></label>

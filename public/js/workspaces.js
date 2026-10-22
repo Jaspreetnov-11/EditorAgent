@@ -14,7 +14,8 @@ const put = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
 
 export const PANELS = { pool: 'Project / Media', viewer: 'Program monitor', insp: 'Effect Controls', src: 'Source monitor', tl: 'Timeline' };
 const BUILT = {
-  limelight: { name: 'Limelight Default', look: 'studio', cols: [21, 29, 29, 21], rows: [55, 45], areas: [['pool', 'src', 'viewer', 'insp'], ['tl', 'tl', 'tl', 'tl']] },
+  // Source and Program share one monitor window (tabs), so Effect Controls gets a wide panel of its own
+  limelight: { name: 'Limelight Default', look: 'studio', cols: [19, 50, 31], rows: [58, 42], areas: [['pool', 'viewer', 'insp'], ['tl', 'tl', 'tl']], srcWith: 'viewer' },
 };
 // layouts offered in "Edit layout…" (the cells are filled in order with the panels you choose)
 export const TEMPLATES = {
@@ -33,9 +34,17 @@ const save = () => put(LIST, JSON.stringify(store()));
 // what a workspace looks like now: your changes to it (stored under its id) over its saved form
 export function all() {
   const u = store(), out = {};
-  for (const [id, w] of Object.entries(BUILT)) out[id] = { ...clone(w), ...(u[id]?.live || {}), id, builtIn: true, changed: !!u[id]?.live };
-  for (const [id, w] of Object.entries(u)) if (!BUILT[id] && w.saved) out[id] = { ...clone(w.saved), ...(w.live || {}), id, changed: !!w.live };
+  for (const [id, w] of Object.entries(BUILT)) out[id] = fit({ ...clone(w), ...(u[id]?.live || {}), id, builtIn: true, changed: !!u[id]?.live }, w);
+  for (const [id, w] of Object.entries(u)) if (!BUILT[id] && w.saved) out[id] = fit({ ...clone(w.saved), ...(w.live || {}), id, changed: !!w.live }, w.saved);
   return out;
+}
+// sizes kept from an older layout of the same workspace (4 columns when it now has 3) would leave an empty strip at the
+// side: they are dropped and the layout's own sizes used
+function fit(w, base) {
+  if (!w.areas) return w;
+  if (w.cols?.length !== w.areas[0].length) w.cols = base.cols?.length === w.areas[0].length ? clone(base.cols) : w.areas[0].map(() => 100 / w.areas[0].length);
+  if (w.rows?.length !== w.areas.length) w.rows = base.rows?.length === w.areas.length ? clone(base.rows) : w.areas.map(() => 100 / w.areas.length);
+  return w;
 }
 export const currentId = () => { const id = get(CUR, 'limelight'); return all()[id] ? id : 'limelight'; };
 export const current = () => { const w = all()[currentId()]; return w.look === 'classic' ? { ...w, look: 'studio', ...(w.areas ? {} : { cols: BUILT.limelight.cols, rows: BUILT.limelight.rows, areas: BUILT.limelight.areas }) } : w; };
@@ -57,16 +66,18 @@ export function apply() {
   grid.querySelectorAll('.ws-split').forEach((x) => x.remove());
   const custom = !!w.areas;
   grid.classList.toggle('ws-custom', custom);
-  if (!custom) { for (const p of ['gridTemplateColumns', 'gridTemplateRows', 'gridTemplateAreas']) grid.style[p] = ''; grid.classList.remove('ws-src'); syncGrips(); document.dispatchEvent(new Event('ve-look')); return; }
+  if (!custom) { for (const p of ['gridTemplateColumns', 'gridTemplateRows', 'gridTemplateAreas']) grid.style[p] = ''; grid.classList.remove('ws-src', 'ws-monsrc'); syncGrips(); document.dispatchEvent(new Event('ve-look')); return; }
   grid.style.gridTemplateColumns = w.cols.map((c) => `minmax(120px, ${c}fr)`).join(' ');
   grid.style.gridTemplateRows = w.rows.map((r) => `minmax(120px, ${r}fr)`).join(' ');
   grid.style.gridTemplateAreas = w.areas.map((r) => `"${r.join(' ')}"`).join(' ');
   const used = new Set(w.areas.flat());
   // panels the layout leaves out are hidden; Source gets its own place when the layout has one
   grid.classList.toggle('ws-src', used.has('src'));
+  // srcWith 'viewer': no Source panel of its own - it is a tab of the Program monitor's window
+  grid.classList.toggle('ws-monsrc', !used.has('src') && w.srcWith === 'viewer');
   for (const [k, sel] of [['pool', '.pool'], ['viewer', '.viewer'], ['insp', '.inspector'], ['tl', '.timeline']]) grid.querySelector(sel)?.classList.toggle('ws-off', !used.has(k));
   grid.querySelector('.ui-dock')?.classList.toggle('ws-off', !used.has('insp'));
-  grid.querySelector('.srcmon')?.classList.toggle('ws-off', !used.has('src') && !used.has('insp'));
+  grid.querySelector('.srcmon')?.classList.toggle('ws-off', !used.has('src') && !used.has('insp') && !(w.srcWith === 'viewer' && used.has('viewer')));
   // the lines between columns / rows: one per boundary, only where two different panels meet
   for (let i = 0; i < w.cols.length - 1; i++) grid.insertAdjacentHTML('beforeend', `<div class="ws-split v" data-i="${i}" title="Drag to resize (double-click: as saved)"></div>`);
   for (let i = 0; i < w.rows.length - 1; i++) grid.insertAdjacentHTML('beforeend', `<div class="ws-split h" data-i="${i}" title="Drag to resize (double-click: as saved)"></div>`);

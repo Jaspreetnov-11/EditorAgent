@@ -54,7 +54,7 @@ document.getElementById('f').onsubmit = async (ev) => {
   if (!r) { e.textContent = 'Cannot reach the editing computer'; return; }
   const j = await r.json().catch(() => ({}));
   if (!r.ok) { e.textContent = j.error || 'Could not sign in'; return; }
-  location.href = '/';
+  location.href = `/${location.hash}`; // (a project link - #/p/<name> - opens that project after signing in)
 };
 </script>
 </body>

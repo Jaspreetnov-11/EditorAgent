@@ -3,7 +3,7 @@
 // arrange; Delete removes the selected node. The viewer shows the output, or the selected node (press 1 / 2).
 // Right-click a video clip on the timeline → "✨ Open in Fusion", or start from a style on the left.
 import { S, on, emit, commit, layout } from './store.js';
-import { ASPECTS, uid, trackList, addTrack, clipDur } from './model.js';
+import { ASPECTS, uid, clipDur, compTrack } from './model.js';
 import { $, $$, esc, toast, clamp } from './ui.js';
 import * as F from './fusion.js';
 import * as CV from './compvideo.js';
@@ -131,11 +131,8 @@ function pick(anchor, items, fn) {
 
 // ---------------- the fusion on the edit ----------------
 function placeOver(f, start, track) {
-  // the video tracks bottom (V1) up, so "after the clip's track" means the tracks above it (trackList is top first:
-  // read as it was, nothing was ever above, and every fusion / roto made a new track even with V2 empty)
-  const ids = trackList(S.project).filter((x) => x.kind === 'video').map((x) => x.id).reverse(), from = Math.max(0, ids.indexOf(track));
-  const free = (id) => !(S.project.tracks[id] || []).some((x) => (x.start || 0) < start + f.dur && (x.start || 0) + clipDur(x, S.mediaById) > start);
-  const tr = ids.slice(from + 1).find(free) || addTrack(S.project, 'video');
+  // V3 or higher, above the clip's track, on a track free for the fusion's whole time (or a new one)
+  const tr = compTrack(S.project, start, f.dur, S.mediaById, track);
   S.project.tracks[tr].push({ id: uid(), type: 'graphic', start: +start.toFixed(3), dur: f.dur, gfx: { tpl: 'fusion', fusionId: f.id, fusion: JSON.parse(JSON.stringify(f)) } });
   return tr;
 }

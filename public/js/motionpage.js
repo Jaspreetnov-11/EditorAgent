@@ -6,7 +6,7 @@
 // Panels: Project (comps + presets) | Composition (viewer, tools) | Properties (the selected layer) / Timeline below
 // (layers, bars, keyframes) with the Graph Editor on a toggle.
 import { S, on, emit, commit, layout } from './store.js';
-import { ASPECTS, uid, trackList, addTrack, clipDur } from './model.js';
+import { ASPECTS, uid, clipDur, compTrack } from './model.js';
 import { $, $$, esc, toast, clamp } from './ui.js';
 import * as M from './motion.js';
 import * as CV from './compvideo.js';
@@ -200,9 +200,7 @@ function shiftAnim(a, t0) { const walk = (o) => { if (!o || typeof o !== 'object
 function toTimeline() {
   const c = comp(); if (!c) return;
   const t = S.playhead || 0, dur = c.dur;
-  const free = (id) => !(S.project.tracks[id] || []).some((x) => (x.start || 0) < t + dur && (x.start || 0) + clipDur(x, S.mediaById) > t);
-  const ov = trackList(S.project).filter((x) => x.kind === 'video' && x.id !== 'V1').map((x) => x.id).reverse();
-  const id = ov.find(free) || addTrack(S.project, 'video');
+  const id = compTrack(S.project, t, dur, S.mediaById);
   const clip = { id: uid(), type: 'graphic', start: +t.toFixed(3), dur, gfx: { tpl: 'comp', compId: c.id, comp: JSON.parse(JSON.stringify(c)) } };
   S.project.tracks[id].push(clip);
   commit(`Add comp "${c.name}" to the timeline`);
@@ -889,10 +887,8 @@ export function makeCompFromClip(clipId, findClip) {
   const cp = M.newComp(name, w, h, dur);
   const L = M.newLayer('video', cp, { mediaId: m.id, name: m.name, srcIn: +(c.in || 0), speed: c.speed || 1, w: Math.round((m.width || w) * k), h: Math.round((m.height || h) * k) });
   cp.layers = [L]; comps()[cp.id] = cp;
-  // the track above the clip that is free for its whole length (or a new one)
-  const ids = trackList(S.project).filter((x) => x.kind === 'video').map((x) => x.id), from = ids.indexOf(f.track);
-  const free = (id) => !(S.project.tracks[id] || []).some((x) => (x.start || 0) < start + dur && (x.start || 0) + clipDur(x, S.mediaById) > start);
-  const tr = ids.slice(from + 1).find(free) || addTrack(S.project, 'video');
+  // V3 or higher, above the clip, on a track free for its whole length (or a new one)
+  const tr = compTrack(S.project, start, dur, S.mediaById, f.track);
   S.project.tracks[tr].push({ id: uid(), type: 'graphic', start: +start.toFixed(3), dur, gfx: { tpl: 'comp', compId: cp.id, comp: JSON.parse(JSON.stringify(cp)) } });
   compId = cp.id; selIds = new Set([L.id]); T = 0;
   commit(`Make Motion comp: ${m.name}`);
@@ -1016,9 +1012,7 @@ export function addColorMatte(color = '#000000', name = 'Color Matte', dur = 5) 
   let n = name, k = 2; while (Object.values(comps()).some((x) => x.name === n)) n = `${name} ${k++}`;
   c.name = n; c.bg = color; comps()[c.id] = c;
   const t = S.playhead || 0;
-  const free = (id) => !(S.project.tracks[id] || []).some((x) => (x.start || 0) < t + dur && (x.start || 0) + clipDur(x, S.mediaById) > t);
-  const ov = trackList(S.project).filter((x) => x.kind === 'video' && x.id !== 'V1').map((x) => x.id).reverse();
-  const id = ov.find(free) || addTrack(S.project, 'video');
+  const id = compTrack(S.project, t, dur, S.mediaById);
   const clip = { id: uid(), type: 'graphic', start: +t.toFixed(3), dur, gfx: { tpl: 'comp', compId: c.id, comp: JSON.parse(JSON.stringify(c)) } };
   S.project.tracks[id].push(clip);
   S.sel = new Set([clip.id]);

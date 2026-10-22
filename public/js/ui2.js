@@ -32,6 +32,9 @@ const P = {
   assistant: '<path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/><path d="M5.5 7h.01M8 7h.01M10.5 7h.01"/>',
   report: '<path d="M4 1.5h5.5l3 3v10H4z"/><path d="M9 1.5V5h3.5M6 8h5M6 10.5h5"/>',
   export: '<path d="M8 10V2M5 5l3-3 3 3"/><path d="M2.5 9.5v4h11v-4"/>',
+  folder: '<path d="M1.75 4.25a1 1 0 0 1 1-1h3.4l1.5 1.5h5.6a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1z"/><path d="M1.75 7h12.5"/>',
+  folderMove: '<path d="M1.75 4.25a1 1 0 0 1 1-1h3.4l1.5 1.5h5.6a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1z"/><path d="M5.5 9.5h5M8.5 7.5l2 2-2 2"/>',
+  trash: '<path d="M2.5 4.5h11M6.5 4.5V3h3v1.5"/><path d="M3.75 4.5l.7 9a1 1 0 0 0 1 .9h5.1a1 1 0 0 0 1-.9l.7-9"/><path d="M6.75 7v4.5M9.25 7v4.5"/>',
   gear: '<circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/>',
 };
 export const icon = (k) => `<svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[k] || ''}</svg>`;
@@ -121,4 +124,20 @@ export function mountDock(g) {
   // double-click, which has just opened the clip in the Source tab
   g.querySelector('.timeline')?.addEventListener('pointerdown', (e) => { if (e.target.closest('.clip')) setTimeout(() => S.sel?.size && Date.now() - srcAt > 400 && show('ec'), 0); }, true);
   show(get(DOCK, 'ec') === 'src' ? 'src' : 'ec');
+}
+
+// ---- 🖥 Source | Program: one monitor window, two tabs (workspaces with srcWith: 'viewer' - Effect Controls then has
+// a whole panel to itself). A clip opened from Media shows Source; playing or clicking the timeline shows Program.
+export function mountMonDock(g) {
+  if (!g) return;
+  const show = (k) => {
+    g.classList.toggle('mon-src', k === 'src');
+    g.querySelectorAll('[data-mon]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mon === k)));
+    if (k === 'prog') window.dispatchEvent(new Event('resize')); // (the Program monitor fits its picture again)
+  };
+  g.querySelector('.mon-dock')?.addEventListener('click', (e) => { const b = e.target.closest('[data-mon]'); if (b) show(b.dataset.mon); });
+  on('sourceShown', () => show('src'));
+  on('programPlays', () => show('prog'));
+  g.querySelector('.timeline')?.addEventListener('pointerdown', (e) => { if (!e.target.closest('.clip') || e.detail < 2) show('prog'); }, true);
+  show('prog');
 }

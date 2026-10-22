@@ -1,13 +1,13 @@
 // ⏩ Speed ramp editor (Effect Controls > Speed ramp): presets as little curves, and a graph to draw your own -
-// across = position in the shot, up = speed (0.1× … 5×, 1× is the dotted line). Click to add a point, drag to move,
+// across = position in the shot, up = speed (0.1× … 10×, 1× is the dotted line). Click to add a point, drag to move,
 // double-click a point to remove it. Drawing makes the clip's ramp 'custom' (model.js rampPts), so the viewer and the
 // render follow it exactly. Ramped shots are silent (the music carries them), as before.
 import { RAMPS, rampPts, clipDur, setRamp } from './model.js';
 import { S } from './store.js';
 import { $, $$, esc } from './ui.js';
 
-const LO = Math.log(0.1), HI = Math.log(5);
-const yOf = (s, h, pad) => pad + (1 - (Math.log(Math.max(0.1, Math.min(5, s))) - LO) / (HI - LO)) * (h - 2 * pad);
+const LO = Math.log(0.1), HI = Math.log(10), MAX = 10;
+const yOf = (s, h, pad) => pad + (1 - (Math.log(Math.max(0.1, Math.min(MAX, s))) - LO) / (HI - LO)) * (h - 2 * pad);
 const sOf = (y, h, pad) => Math.exp(LO + (1 - (y - pad) / (h - 2 * pad)) * (HI - LO));
 const smooth = (u) => u * u * (3 - 2 * u);
 function at(pts, u) {
@@ -44,7 +44,7 @@ export function mountRamp(box, clip, live, done) {
     const w = cv.width, h = cv.height, P = rampPts(c);
     g.clearRect(0, 0, w, h); g.fillStyle = '#0b0c0f'; g.fillRect(0, 0, w, h);
     g.font = '10px Consolas, monospace'; g.fillStyle = '#7d8696';
-    for (const s of [0.25, 0.5, 1, 2, 4]) { const y = yOf(s, h, pad); g.strokeStyle = s === 1 ? '#ffffff40' : '#ffffff12'; g.setLineDash(s === 1 ? [4, 4] : []); g.beginPath(); g.moveTo(pad, y); g.lineTo(w - pad, y); g.stroke(); g.fillText(`${s}×`, 2, y - 2); }
+    for (const s of [0.25, 0.5, 1, 2, 5, 10]) { const y = yOf(s, h, pad); g.strokeStyle = s === 1 ? '#ffffff40' : '#ffffff12'; g.setLineDash(s === 1 ? [4, 4] : []); g.beginPath(); g.moveTo(pad, y); g.lineTo(w - pad, y); g.stroke(); g.fillText(`${s}×`, 2, y - 2); }
     g.setLineDash([]);
     const Q = P || [[0, 1], [1, 1]];
     curve(g, Q, w, h, pad, P ? '#ff9933' : '#ffffff55', 2.5);
@@ -55,7 +55,7 @@ export function mountRamp(box, clip, live, done) {
   }
   const evPt = (e) => { const r = cv.getBoundingClientRect(), x = ((e.clientX - r.left) / r.width) * cv.width, y = ((e.clientY - r.top) / r.height) * cv.height; return [Math.min(1, Math.max(0, (x - pad) / (cv.width - 2 * pad))), +sOf(y, cv.height, pad).toFixed(3), x, y]; };
   const nearest = (P, x, y) => P.findIndex(([u, s]) => Math.hypot(pad + u * (cv.width - 2 * pad) - x, yOf(s, cv.height, pad) - y) < 10);
-  const set = (P) => { const c = clip(); setRamp(c, 'custom', S.mediaById, P.map(([u, s]) => [+u.toFixed(4), +Math.max(0.1, Math.min(5, s)).toFixed(3)]), drag?.D); };
+  const set = (P) => { const c = clip(); setRamp(c, 'custom', S.mediaById, P.map(([u, s]) => [+u.toFixed(4), +Math.max(0.1, Math.min(MAX, s)).toFixed(3)]), drag?.D); };
   cv.addEventListener('pointerdown', (e) => {
     const c = clip(); if (!c || S.readOnly) return;
     const [u, s, x, y] = evPt(e), P = pts();

@@ -141,6 +141,8 @@ export function exportTimeline({ project, media, outDir, base, subtitlesPath, co
   // One video clipitem (+ its audio clipitem when the clip has sound); startF/endF in sequence frames, srcInSec in the file.
   const lutRows = [];
   function clipItems(c, startF, endF, srcInSec, track, opts = {}) {
+    // a clip whose media was removed from the project: left out (a gap there), said in the README
+    if (!media[c.mediaId]) { notes.add('Some clips point to media that was removed from the project - they are left out (gaps in the XML).'); return { v: '', a: '' }; }
     let m = media[c.mediaId], fileKey = c.mediaId, label = m.name;
     const g = graded[c.id];
     if (g) {
@@ -239,6 +241,8 @@ export function exportTimeline({ project, media, outDir, base, subtitlesPath, co
       markers.push({ at: startF, name: `Title: ${c.text || ''}` });
       continue;
     }
+    // motion graphics have no file of their own (the editor draws them) - a note instead of a clip
+    if (!media[c.mediaId]) { notes.add(c.type === 'graphic' ? 'Motion graphics (lower thirds, kinetic text, logo reveals) are not in the XML - render that track alone from the editor and lay the video over.' : `Some ${c.type || ''} clips without a file are not in the XML.`); continue; }
     noteLosses(c);
     const { v, a } = clipItems(c, startF, endF, +c.in || 0, 'video', { opacity: c.opacity ?? 1, withAudio: c.type === 'video' && (c.volume ?? 0) > 0, volume: (c.volume ?? 0) * (ts[tid]?.volume ?? 1) });
     lanes[t].push({ endF, xml: v });

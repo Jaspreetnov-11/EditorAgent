@@ -57,6 +57,54 @@ export function placeRefLooks(project, clips, media = {}) {
   project.tracks[id].push(...clips);
   return id;
 }
+// 🎬 Motion comps and ✨ Fusions on the edit: from V3 up (V1 the story, V2 titles and B-roll) - and above the clip they
+// were made from - on the first video track that is free for their whole time, so they never sit over another clip;
+// a new track on top when every one is busy. Returns the track id (created in project.tracks if it was only shown).
+export function compTrack(project, start, dur, media = {}, over = 'V1') {
+  const low = Math.max(3, trackNum(over) + 1);
+  const ids = trackList(project).filter((t) => t.kind === 'video' && trackNum(t.id) >= low).map((t) => t.id).reverse(); // bottom up
+  const free = (id) => !(project.tracks[id] || []).some((x) => (x.start || 0) < start + dur - 1e-3 && (x.start || 0) + clipDur(x, media) > start + 1e-3);
+  const id = ids.find(free) || addTrack(project, 'video');
+  project.tracks[id] ||= [];
+  project.trackState[id] ||= { mute: false, hide: false, lock: false, volume: 1 };
+  return id;
+}
+// 🧱 The layers of an edit in fixed places (a reference copied, or Sequence › Arrange layers): V1 the story, V2 adjustment
+// layers (their effects reach everything below), V3 Motion comps / Fusions, V4 text (titles, lower thirds, kinetic text).
+// B-roll stays under its adjustment layer. A clip that would cover another one at that time goes one track up (a new
+// track on top when needed) - nothing is ever hidden under something else. Returns how many clips changed track.
+const layerOf = (c) => (c.type === 'adjust' ? 'fx' : c.type === 'graphic' && ['comp', 'fusion'].includes(c.gfx?.tpl) ? 'comp' : c.type === 'title' || c.type === 'graphic' ? 'text' : 'broll');
+export function arrangeLayers(project, media = {}) {
+  const over = Object.keys(project.tracks).filter((id) => trackKind(id) === 'video' && id !== 'V1');
+  const all = over.flatMap((id) => project.tracks[id].map((c) => ({ c, was: id })));
+  if (!all.length) return 0;
+  const lanes = {}; // track number -> [[start, end]]
+  const free = (n, a, b) => !(lanes[n] || []).some(([x, y]) => x < b - 1e-3 && y > a + 1e-3);
+  const out = {};
+  let moved = 0;
+  // b-roll first (on V2, under its look), then the looks, the comps and the text - each from its own track up
+  for (const [kind, base] of [['broll', 2], ['fx', 2], ['comp', 3], ['text', 4]]) {
+    for (const { c, was } of all.filter((x) => layerOf(x.c) === kind).sort((x, y) => (x.c.start || 0) - (y.c.start || 0))) {
+      const a = c.start || 0, b = a + clipDur(c, media);
+      let n = base;
+      // (an adjustment layer always above the b-roll it covers; comps above the looks; text above everything)
+      const floor = kind === 'fx' ? Math.max(base, ...Object.entries(lanes).filter(([, l]) => l.some(([x, y, k]) => k === 'broll' && x < b && y > a)).map(([k]) => +k + 1))
+        : kind === 'comp' || kind === 'text' ? Math.max(base, ...Object.entries(lanes).filter(([, l]) => l.some(([x, y, k]) => k !== kind && x < b && y > a)).map(([k]) => +k + 1)) : base;
+      n = Math.max(n, floor);
+      while (!free(n, a, b)) n++;
+      (lanes[n] ||= []).push([a, b, kind]);
+      const id = `V${n}`;
+      (out[id] ||= []).push(c);
+      if (id !== was) moved++;
+    }
+  }
+  for (const id of over) project.tracks[id] = [];
+  for (const [id, list] of Object.entries(out)) {
+    project.tracks[id] = list;
+    project.trackState[id] ||= { mute: false, hide: false, lock: false, volume: 1 };
+  }
+  return moved;
+}
 export function addTrack(project, kind) {
   const pre = kind === 'audio' ? 'A' : 'V';
   const n = Math.max(2, ...Object.keys(project.tracks).filter((id) => id[0] === pre).map(trackNum)) + 1;
@@ -225,6 +273,15 @@ export function sourceAt(c, rel, D) {
   if (!pts || !(D > 0)) return (c.in || 0) + rel * sp;
   return (c.in || 0) + sp * D * rampCum(pts, rel / D);
 }
+// A part of a ramped shot (u0..u1 of its length, 0..1) as a shot of its own: the bit of the file it plays and its own
+// speed curve (the whole shot's curve over that part, sampled), so a cut or a trim leaves every frame where it was -
+// the parts used to get the WHOLE ramp again each, change length, and move the story after them.
+export function rampPart(c, u0, u1, D) {
+  const pts = rampPts(c), sp = c.speed || 1, a = sourceAt(c, u0 * D, D), b = sourceAt(c, u1 * D, D), len = (u1 - u0) * D, N = 24;
+  const raw = Array.from({ length: N + 1 }, (_, j) => [+(j / N).toFixed(4), profileAt(pts, u0 + ((u1 - u0) * j) / N)]);
+  const k = (b - a) / (sp * len) / rampAvg(raw); // (the samples smooth the curve a little: scaled so the part keeps its length)
+  return { in: +a.toFixed(3), out: +b.toFixed(3), ramp: 'custom', rampPts: raw.map(([u, s]) => [u, +(s * k).toFixed(5)]) };
+}
 export function speedAt(c, rel, D) {
   const pts = rampPts(c);
   return (c.speed || 1) * (pts && D > 0 ? profileAt(pts, rel / D) : 1);
@@ -241,6 +298,23 @@ export function setRamp(c, key, media, pts = null, D = clipDur(c, media)) {
   const P = rampPts(c), need = (c.in || 0) + D * (c.speed || 1) * (P ? rampAvg(P) : 1), max = media?.[c.mediaId]?.duration;
   c.out = +(max ? Math.min(max, need) : need).toFixed(3);
   return true;
+}
+
+// 📌 A clip stays where it was put: after its speed or ramp changes, the shot keeps its length D on the timeline (it
+// plays more or less of the file), so nothing after it moves. When the file runs out first, a gap after it on V1 (the
+// magnetic track) holds the rest of the story at the same timestamps. Changing the speed used to make the shot
+// shorter / longer and slid every later shot on V1 - the edit drifted off the voice-over and the beats.
+export function keepLength(project, c, D, media) {
+  if (!c || !(D > 0) || c.gap || (c.loop && c.dur > 0)) return;
+  if (c.type === 'video' || c.type === 'audio') {
+    const pts = rampPts(c), need = (c.in || 0) + D * (c.speed || 1) * (pts ? rampAvg(pts) : 1), max = media?.[c.mediaId]?.duration;
+    c.out = +(max ? Math.min(max, need) : need).toFixed(3);
+  }
+  const V1 = project?.tracks?.V1 || [], i = V1.indexOf(c), left = D - clipDur(c, media);
+  if (i < 0 || i === V1.length - 1 || left < 0.01) return;
+  const nx = V1[i + 1];
+  if (nx.gap) nx.dur = +(clipDur(nx, media) + left).toFixed(3);
+  else V1.splice(i + 1, 0, { id: uid(), type: 'title', gap: true, text: '', bg: '#000000', dur: +left.toFixed(3) });
 }
 
 // Seconds a clip occupies on the timeline.
@@ -262,6 +336,7 @@ export function transIn(c) {
 
 // V1 is magnetic: each clip starts where the previous ends, minus its transition overlap.
 export function layoutV1(project, media) {
+  if (!Array.isArray(project?.tracks?.V1)) return []; // (no project open - e.g. a seek arriving as the editor goes back Home)
   let t = 0, prev = 0;
   return project.tracks.V1.map((clip, i) => {
     const d = clipDur(clip, media), tr = i > 0 ? transIn(clip) : null;
@@ -311,6 +386,9 @@ export function setTransition(project, media, i, type, dur, sides = null) {
     if (hA < dur / 2) hB = lendable(B, 'head', dur - hA, media);
     if (hB < dur / 2) hA = lendable(A, 'tail', dur - hB, media);
   }
+  // 📌 a transition longer than a shot cannot overlap fully (layoutV1 keeps 0.1 s of each) - the shots after it then
+  // moved by the difference; each side lends at most what the other shot can cover, so every cut stays put
+  hA = Math.min(hA, Math.max(0, clipDur(B, media) - 0.1)); hB = Math.min(hB, Math.max(0, clipDur(A, media) - 0.1));
   if (hA + hB < 0.05) { delete B.transitionIn; return null; } // (neither shot has frames to spare)
   lend(A, hA, 'tail', media); lend(B, hB, 'head', media);
   B.transitionIn = { type, dur: +(hA + hB).toFixed(3), hA: +hA.toFixed(3), hB: +hB.toFixed(3) };
@@ -319,11 +397,19 @@ export function setTransition(project, media, i, type, dur, sides = null) {
 
 export function placed(project, media) {
   const out = { V1: layoutV1(project, media) };
-  for (const id of Object.keys(project.tracks)) if (id !== 'V1')
+  for (const id of Object.keys(project?.tracks || {})) if (id !== 'V1')
     out[id] = (project.tracks[id] || []).map((clip) => ({ clip, start: clip.start || 0, end: (clip.start || 0) + clipDur(clip, media), overlap: 0 }));
   return out;
 }
 
+// 🎬 the timeline's In / Out (settings.range, set with I / O): the part Export and the preview make. null = all of it.
+// Only one of them set: from In to the end, or from the start to Out.
+export function rangeOf(project, D) {
+  const r = project?.settings?.range;
+  if (!r || (r.in === undefined && r.out === undefined)) return null;
+  const a = Math.max(0, Math.min(D, +r.in || 0)), b = Math.max(0, Math.min(D, r.out === undefined ? D : +r.out));
+  return b - a >= 0.1 && (a > 0.001 || b < D - 0.001) ? { in: +a.toFixed(3), out: +b.toFixed(3) } : null;
+}
 export function totalDuration(project, media) {
   const p = placed(project, media);
   return Math.max(0, ...Object.values(p).flat().map((x) => x.end));

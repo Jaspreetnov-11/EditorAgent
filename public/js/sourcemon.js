@@ -8,6 +8,7 @@ import { api, enc } from './api.js';
 import { fmtTC, fmt, clipDur } from './model.js';
 import { $, esc, toast } from './ui.js';
 import { placeMedia } from './timeline.js';
+import { uploadFiles, refreshMedia } from './mediapool.js';
 
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 let root = null, id = null, active = false, virt = 0, recent = [], raf = 0;
@@ -96,10 +97,12 @@ export function mountSourceMonitor(host) {
     const o = takeOnly(); if (o) e.dataTransfer.setData('text/x-media-only', o);
   });
   // a clip dragged here from Media opens in the Source monitor (like Premiere)
-  root.addEventListener('dragover', (e) => { if ([...e.dataTransfer.types].includes('text/x-media-id')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; root.classList.add('sm-drop'); } });
+  // ...and so does a file dragged here from Explorer / the desktop: it is added to the project first (Uploads)
+  root.addEventListener('dragover', (e) => { if ([...e.dataTransfer.types].some((t) => t === 'text/x-media-id' || t === 'Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; root.classList.add('sm-drop'); } });
   root.addEventListener('dragleave', (e) => { if (!root.contains(e.relatedTarget)) root.classList.remove('sm-drop'); });
   root.addEventListener('drop', (e) => {
     root.classList.remove('sm-drop');
+    if (e.dataTransfer.files?.length && !e.dataTransfer.getData('text/x-media-id')) { e.preventDefault(); e.stopPropagation(); fromOutside([...e.dataTransfer.files]); return; }
     const mid = (e.dataTransfer.getData('text/x-media-id') || '').split(',').filter(Boolean)[0];
     if (!mid || mid === id) return;
     e.preventDefault(); open(mid);
@@ -124,6 +127,15 @@ export function mountSourceMonitor(host) {
   on('openSource', (x) => { if (!srcMonOn()) return; typeof x === 'object' && x ? open(x.id, x.t) : open(x); });
   on('media', () => { if (id && !media()) close(); else if (id) { load(false); } });
   new ResizeObserver(fit).observe(root.querySelector('.sm-stage'));
+}
+
+// files from outside: uploaded into the project, then the first one opens here once the editor has read it
+async function fromOutside(files) {
+  const added = await uploadFiles(files);
+  const first = added.find((x) => x.kind === 'video' || x.kind === 'image' || x.kind === 'audio');
+  if (!first) return;
+  for (let i = 0; i < 60 && S.mediaById[first.id]?.status !== 'ready'; i++) { await new Promise((r) => setTimeout(r, 1000)); await refreshMedia(); }
+  if (S.mediaById[first.id]) open(first.id);
 }
 
 export function open(mid, at = null) {

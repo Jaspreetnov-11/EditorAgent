@@ -1,6 +1,6 @@
 // 🖼 Thumbnail maker: the best frames of the video (sharp, a big clear face, colourful - engine/thumbpick.py), then a
 // designer: headline (*word* = highlighted), small line, style, size, face zoom, colour pop and logo. Saved as PNG in
-// <project>/exports/thumbnails and offered to 🚀 Publish.
+// <project>/output/thumbnails and offered to 🚀 Publish.
 import { S } from './store.js';
 import { api, enc, watchJob } from './api.js';
 import { $, $$, esc, toast, modal } from './ui.js';

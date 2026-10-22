@@ -3,6 +3,7 @@
 // Live playback is a close preview; "Accurate preview" renders the exact result with FFmpeg.
 import { reportError } from './errlog.js';
 import * as SM from './sourcemon.js';
+import { useContext as audioOut } from './audioout.js';
 import { S, on, emit, layout, duration, commit } from './store.js';
 import { ASPECTS, fmtTC, fmt, clipDur, propAt, sourceAt, speedAt, rampPts, setAnimated, overlayTracks, audioTracks, evalKeys } from './model.js';
 import { lookCss } from './looks.js';
@@ -414,14 +415,19 @@ function syncVideo(v, m, c, start, t, play, vol, track = 'V1') {
   if (v.dataset.src !== url) { v.src = url; v.dataset.src = url; }
   v.dataset.cid = c.id;
   // speed ramps: the source position and playback rate follow the ramp curve (tighter resync while ramping)
-  const D = clipDur(c, S.mediaById), sp = speedAt(c, t - start, D), target = sourceAt(c, t - start, D);
+  const D = clipDur(c, S.mediaById), sp = speedAt(c, t - start, D);
+  let target = sourceAt(c, t - start, D);
+  // ⏪ Reverse speed: the frame mirrored inside In..Out (a browser cannot play backwards: it is shown frame by frame)
+  if (c.reverse) target = (c.in || 0) + (c.out ?? m.duration ?? 0) - target;
+  v.preservesPitch = c.keepPitch !== false; // ("Maintain audio pitch" off: faster = higher, like the render)
   // (browsers play 1/16x - 16x; it used to stop at 0.25x - 4x, so bullet time / time-lapse looked wrong and kept jumping)
   // Playing, a small drift is caught up by playing a little faster / slower for a moment - a jump (seek) makes the
   // browser find a frame again and stutters; slow motion and ramps used to jump many times a second (DaVinci doesn't).
   // Only a real gap (over half a second, or the shot just came on) is a jump.
   const drift = target - v.currentTime;
-  setVol(v, rampPts(c) ? 0 : vol, track); // ramped shots are silent, like the render
+  setVol(v, rampPts(c) || c.reverse ? 0 : vol, track); // ramped shots are silent, like the render (and reversed ones here)
   if (v.readyState >= 1) {
+    if (c.reverse) { if (!v.paused) v.pause(); if (Math.abs(v.currentTime - target) > 0.03) v.currentTime = target; return; }
     if (play) {
       if (Math.abs(drift) > 0.5 || v.paused) { v.currentTime = target; v.playbackRate = clamp(sp, 0.07, 8); }
       else v.playbackRate = clamp(sp * (1 + clamp(drift * 2, -0.35, 0.35)), 0.07, 8);
@@ -557,7 +563,9 @@ function startTyping(c, isNew = false) {
   box.focus(); box.select();
   box.addEventListener('input', () => { const cl = findClipAny(c.id); if (!cl) return; cl.gfx.text = box.value; placeTyping(); emit('live'); });
   box.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape') { e.preventDefault(); endTyping(true); } });
-  box.addEventListener('pointerdown', (e) => e.stopPropagation());
+  // selecting inside the text (drag, double-click a word, triple-click a line) stays in the box: the monitor used to take
+  // the double-click as "start typing" again, made a new box and selected ALL the text
+  for (const ev of ['pointerdown', 'mousedown', 'click', 'dblclick']) box.addEventListener(ev, (e) => e.stopPropagation());
   box.addEventListener('blur', () => setTimeout(() => { if (typing?.box === box) endTyping(true); }, 0));
 }
 function endTyping(keep) {
@@ -591,7 +599,7 @@ function bindTypeTool() {
     const up = () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); if (moved) commit('Move text', `move-text:${c.id}`); };
     window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
   }, true);
-  frame.addEventListener('dblclick', (e) => { const hit = textHit(e); if (hit.c) { e.preventDefault(); startTyping(hit.c); } });
+  frame.addEventListener('dblclick', (e) => { if (e.target.closest('.type-box')) return; const hit = textHit(e); if (hit.c) { e.preventDefault(); startTyping(hit.c); } });
   frame.addEventListener('pointermove', (e) => { if (e.buttons) return; frame.classList.toggle('type-cursor', S.tool === 'type'); frame.classList.toggle('over-text', S.tool !== 'type' && !!textHit(e).c); });
   new ResizeObserver(() => placeTyping()).observe(frame);
 }
@@ -979,6 +987,7 @@ const chains = {}, fxSig = {};
 function ensureAudio() {
   if (actx) { if (actx.state === 'suspended') actx.resume(); return actx; }
   try { actx = new AudioContext(); } catch { return null; }
+  audioOut(actx); // 🎧 on the speakers / headphones chosen in View › Sound output
   master = actx.createGain(); masterAn = actx.createAnalyser(); masterAn.fftSize = 2048;
   master.connect(masterAn); masterAn.connect(actx.destination);
   for (const id of ['V1', 'V2', 'A1', 'A2', 'A3']) {
