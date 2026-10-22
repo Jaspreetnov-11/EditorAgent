@@ -37,21 +37,21 @@ export function openAgent(setBusy) {
       <div class="fgrid">
         <label class="fld"><span>Format</span><select name="aspect"><option value="ref" data-refonly>Same as the reference</option><option value="9:16">9:16 Reel / Shorts</option><option value="16:9">16:9 YouTube / Film</option><option value="1:1">1:1 Square</option><option value="4:5">4:5 Feed</option></select></label>
         <label class="fld"><span>Clip speed</span><select name="clipSpeed"><option value="0.5">0.5x slow motion</option><option value="0.75">0.75x gentle slow-mo</option><option value="1" selected>1x normal</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x fast</option></select></label>
-        <div class="fld wide"><span>🎨 Cut like (a style learnt from an edit you liked)</span>
+        <div class="fld wide"><span>Cut like (a style learnt from an edit you liked)</span>
           <div class="row-in"><select name="styleName"><option value="none">The agent's own way</option></select>
-            <button type="button" class="btn small" data-a="learnStyle" title="Learn how the edit on this timeline is cut (shot length, moves, colour, cuts, lyric titles) and cut new edits the same way">🎨 Learn from this timeline…</button>
+            <button type="button" class="btn small" data-a="learnStyle" title="Learn how the edit on this timeline is cut (shot length, moves, colour, cuts, lyric titles) and cut new edits the same way">Learn from this timeline…</button>
             <label class="chk"><input type="checkbox" name="styleDefault"> Default for every edit</label></div>
           <small class="muted" data-stylesum></small></div>
-        <label class="fld"><span>Edit style</span><select name="editStyle"><option value="standard">Standard</option><option value="teaser">🎬 Cinematic teaser (trailer: slow open, build, fast climax)</option><option value="montage">⚡ Fast montage (cut on every beat)</option><option value="song">🎵 Song / music video (beat + lyrics)</option></select></label>
+        <label class="fld"><span>Edit style</span><select name="editStyle"><option value="standard">Standard</option><option value="teaser">Cinematic teaser (trailer: slow open, build, fast climax)</option><option value="montage">Fast montage (cut on every beat)</option><option value="song">Song / music video (beat + lyrics)</option></select></label>
         <label class="fld"><span>Pace</span><select name="pace"><option value="fast">Fast cuts (~1.7 s)</option><option value="medium">Medium (~2.8 s)</option><option value="slow">Slow, cinematic (~4 s)</option></select></label>
         <label class="fld" data-novo><span>Length (when there is no voice-over)</span><select name="target">${[15, 30, 45, 60, 90, 120, 180, 300].map((s) => `<option value="${s}">${s < 60 ? `${s} s` : `${s / 60} min`}</option>`).join('')}</select></label>
-        <div class="fld" data-ref hidden><span>Reference video (the edit to copy - its shots are never used)</span><div class="row-in"><select name="reference"><option value="">Choose…</option>${S.media.filter((m) => m.kind === 'video').map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join('')}</select><label class="btn small" title="A reel / video you downloaded: it is added to the project and picked here">⬆ Upload<input type="file" accept="video/*,.mxf,.mts" hidden name="refFile"></label></div></div>
+        <div class="fld" data-ref hidden><span>Reference video (the edit to copy - its shots are never used)</span><div class="row-in"><select name="reference"><option value="">Choose…</option>${S.media.filter((m) => m.kind === 'video').map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join('')}</select><label class="btn small" title="A reel / video you downloaded: it is added to the project and picked here">Upload<input type="file" accept="video/*,.mxf,.mts" hidden name="refFile"></label></div></div>
       </div>
     </div>
     <div class="ag-page" data-p="1" hidden>
       <div class="ag-pickbar">
         <input type="search" data-q placeholder="Search clips…" aria-label="Search clips">
-        <div class="ag-kinds" role="group" aria-label="Show"><button type="button" class="chip on" data-kind="">All</button><button type="button" class="chip" data-kind="video">🎞 Video</button><button type="button" class="chip" data-kind="image">🖼 Photos</button></div>
+        <div class="ag-kinds" role="group" aria-label="Show"><button type="button" class="chip on" data-kind="">All</button><button type="button" class="chip" data-kind="video">Video</button><button type="button" class="chip" data-kind="image">Photos</button></div>
         <span class="grow"></span><span class="ag-count" data-count></span>
       </div>
       <div class="ag-pickbar2"><button type="button" class="small" data-a="all">Select all shown</button><button type="button" class="small" data-a="none">Clear</button><button type="button" class="small" data-a="openall">Open all folders</button><span class="grow"></span><button type="button" class="small" data-a="addFolder">+ Import a folder</button></div>
@@ -62,15 +62,15 @@ export function openAgent(setBusy) {
     <div class="ag-page" data-p="2" hidden>
       <div class="fgrid">
         <div class="fld wide"><span>Voice-over (shots will follow what is said)</span>
-          <div class="row-in"><select name="vo"></select><label class="btn small re-up">⬆ Upload VO<input type="file" accept="audio/*,video/*" hidden name="voFile"></label><button type="button" class="btn small" data-a="aivo">🎙 AI voice-over…</button></div></div>
+          <div class="row-in"><select name="vo"></select><label class="btn small re-up">Upload VO<input type="file" accept="audio/*,video/*" hidden name="voFile"></label><button type="button" class="btn small" data-a="aivo">AI voice-over…</button></div></div>
         <label class="fld"><span>VO language</span><select name="voLang"><option value="hi">Hindi</option><option value="en">English</option><option value="auto">Auto-detect</option></select></label>
         <label class="fld"><span>Listening accuracy</span><select name="whisperModel"><option value="small">Fast</option><option value="medium" selected>Good</option><option value="large-v3">Best (slow)</option></select></label>
         <div class="fld wide"><span>Music</span>
-          <div class="row-in"><select name="music"></select><label class="btn small re-up">⬆ Upload music<input type="file" accept="audio/*" hidden name="musicFile"></label></div></div>
+          <div class="row-in"><select name="music"></select><label class="btn small re-up">Upload music<input type="file" accept="audio/*" hidden name="musicFile"></label></div></div>
         <label class="chk"><input type="checkbox" name="musicBest" checked> Use the best part of the music, cut on the beat</label>
         <label class="chk"><input type="checkbox" name="keepSound"> Keep some of the clips' own sound (ambience)</label>
         <div class="fld wide ag-song" data-song hidden>
-          <span>🎵 Song: the music above is the song. The agent hears its beat, bars, verses / chorus and the sung words.</span>
+          <span>Song: the music above is the song. The agent hears its beat, bars, verses / chorus and the sung words.</span>
           <div class="row-in"><label class="fld"><span>Use</span><select name="songPart"><option value="full">The whole song</option><option value="best">Its best part (length from step 1)</option></select></label>
             <label class="chk"><input type="checkbox" name="lyricsOnScreen"> Show the lyrics on screen (word by word)</label></div>
           <label class="fld wide"><span>Lyrics (optional - paste them for exact spellings; the timing comes from the song)</span>
@@ -85,10 +85,10 @@ export function openAgent(setBusy) {
       <div class="fgrid">
         <label class="chk"><input type="checkbox" name="autoColor" checked> Auto colour every shot</label>
         <label class="fld"><span>Film look (colour of the whole edit)</span><select name="look"><option value="">None (just balanced)</option><option selected>Teal & Orange</option><option>Warm Film</option><option>Golden Hour</option><option>Moody Dark</option><option>Travel Vivid</option><option>Indian Heritage</option><option>Bleach Bypass</option><option>Clean Natural</option></select></label>
-        <label class="chk"><input type="checkbox" name="stabilize"> 🎥 Stabilize shaky shots (slower render)</label>
-        <label class="chk"><input type="checkbox" name="cinematic"> 🎬 Cinematic finish (film grade, bars, vignette, grain)</label>
-        <label class="chk"><input type="checkbox" name="fx" checked> ✨ Teaser effects (light leaks, whip, flash, shake on the cuts - teaser / montage styles)</label>
-        <label class="chk"><input type="checkbox" name="sfx" checked> 🔊 Sound design (whooshes, hits, a riser into the drop - teaser / montage styles)</label>
+        <label class="chk"><input type="checkbox" name="stabilize"> Stabilize shaky shots (slower render)</label>
+        <label class="chk"><input type="checkbox" name="cinematic"> Cinematic finish (film grade, bars, vignette, grain)</label>
+        <label class="chk"><input type="checkbox" name="fx" checked> Teaser effects (light leaks, whip, flash, shake on the cuts - teaser / montage styles)</label>
+        <label class="chk"><input type="checkbox" name="sfx" checked> Sound design (whooshes, hits, a riser into the drop - teaser / montage styles)</label>
         <label class="chk"><input type="checkbox" name="detectLog" checked> Detect LOG footage and add a LUT</label>
         <label class="chk"><input type="checkbox" name="subtitles"> Subtitles from the voice-over</label>
         <label class="fld"><span>Transitions</span><select name="style"><option value="cuts">Clean cuts</option><option value="cinematic">Dissolves between ideas</option></select></label>
@@ -98,9 +98,9 @@ export function openAgent(setBusy) {
       </div>
       <p class="muted small">The agent replaces V1 (main story), V2 titles, A1 voice-over and A2 music. Your logo and A3 sound effects stay. Ctrl+Z undoes it.</p>
     </div>
-    <div class="ag-foot"><button type="button" data-a="back">Back</button><span class="grow"></span><button type="button" data-a="quick" title="The fast built-in agent (no Claude): a quick first draft in seconds">⚡ Quick draft</button><button type="button" data-close>Cancel</button><button type="button" class="primary" data-a="next">Next</button></div>
+    <div class="ag-foot"><button type="button" data-a="back">Back</button><span class="grow"></span><button type="button" data-a="quick" title="The fast built-in agent (no Claude): a quick first draft in seconds">Quick draft</button><button type="button" data-close>Cancel</button><button type="button" class="primary" data-a="next">Next</button></div>
   </div>`);
-  const dlg = modal('✨ Agent - make the edit for me', body, { width: 760 });
+  const dlg = modal('Agent - make the edit for me', body, { width: 760 });
   const f = (n) => body.querySelector(`[name="${n}"]`);
   const audio = S.media.filter((m) => m.kind === 'audio' || (m.kind === 'video' && m.hasAudio && !st.clips.has(m.id)));
   f('vo').innerHTML = `<option value="">No voice-over</option>${S.media.filter((m) => m.kind === 'audio').map((m) => `<option value="${m.id}">${esc(m.name)} (${fmt(m.duration)})</option>`).join('')}`;
@@ -139,7 +139,7 @@ export function openAgent(setBusy) {
   const shortBin = (b) => { const parts = String(b || 'Other').split(/[\\/]/).filter(Boolean); return parts.length > 2 ? `…/${parts.slice(-2).join('/')}` : parts.join('/') || 'Other'; };
   const countLine = () => { const all = usable().length; body.querySelector('[data-count]').innerHTML = `<b>${st.clips.size}</b> of ${all} selected`; };
   // why these clips are ticked - and what was left out, with the reason (tick it to use it anyway)
-  body.querySelector('[data-why]').innerHTML = pre.from === 'selection' ? `✔ Ticked: the <b>${pre.ids.length}</b> file${pre.ids.length > 1 ? 's' : ''} selected in Media.`
+  body.querySelector('[data-why]').innerHTML = pre.from === 'selection' ? `Ticked: the <b>${pre.ids.length}</b> file${pre.ids.length > 1 ? 's' : ''} selected in Media.`
     : `${pre.from === 'folder' ? 'Ticked: the open Media folder. ' : ''}${pre.left.length ? `Left out: <b>${pre.left.length}</b> - ${esc([...new Set(pre.left.map((x) => x.why.replace(/^flagged: .*/, 'flagged bad').replace(/^in the .*/, 'Rejects / Duplicates / Brand folders')))].join(', '))} (tick any to use it).` : ''} Tip: select clips in Media first and only those are used.`;
   const renderClips = () => {
     const bins = {};
@@ -152,7 +152,7 @@ export function openAgent(setBusy) {
       const list = bins[b], sel = list.filter((m) => st.clips.has(m.id)).length;
       return `<details class="ag-bin"${isOpen(b) ? ' open' : ''} data-binrow="${esc(b)}"><summary title="${esc(b)}">
           <input type="checkbox" data-bin="${esc(b)}"${sel === list.length ? ' checked' : ''}${sel && sel < list.length ? ' data-mixed' : ''} aria-label="Select the whole folder">
-          <span class="ag-bname">📁 ${esc(shortBin(b))}</span><span class="ag-bmeta">${list.length} clip${list.length > 1 ? 's' : ''}${sel ? ` · <b>${sel} selected</b>` : ''}</span></summary>
+          <span class="ag-bname">${esc(shortBin(b))}</span><span class="ag-bmeta">${list.length} clip${list.length > 1 ? 's' : ''}${sel ? ` · <b>${sel} selected</b>` : ''}</span></summary>
         <div class="ag-tiles">${list.map((m) => `<label class="ag-tile${st.clips.has(m.id) ? ' on' : ''}" title="${esc(m.name)}"><input type="checkbox" value="${m.id}"${st.clips.has(m.id) ? ' checked' : ''}>
           <span class="ag-th">${m.urls.thumb ? `<img src="${m.urls.thumb}" alt="" loading="lazy">` : `<i>${m.kind === 'image' ? '🖼' : '🎞'}</i>`}${m.kind === 'video' && m.duration ? `<em>${fmt(m.duration)}</em>` : ''}<b class="ag-tick">✓</b></span>
           <span class="ag-tn">${esc(m.name)}</span></label>`).join('')}</div></details>`;
@@ -169,7 +169,7 @@ export function openAgent(setBusy) {
     $$('.ag-page', body).forEach((p) => (p.hidden = +p.dataset.p !== st.step));
     $$('[data-go]', body).forEach((li) => li.classList.toggle('on', +li.dataset.go === st.step));
     $('[data-a="back"]', body).disabled = st.step === 0;
-    $('[data-a="next"]', body).textContent = st.type === 'autoreels' ? 'Next: pick the long video' : st.type === 'script' ? 'Next: open the script' : st.type === 'multicam' ? 'Next: choose the cameras' : st.step === 3 ? '🧠 Make the edit (Claude)' : 'Next';
+    $('[data-a="next"]', body).textContent = st.type === 'autoreels' ? 'Next: pick the long video' : st.type === 'script' ? 'Next: open the script' : st.type === 'multicam' ? 'Next: choose the cameras' : st.step === 3 ? 'Make the edit (Claude)' : 'Next';
     body.querySelector('[data-refonly]').hidden = st.type !== 'reference';
     const novo = !f('vo').value;
     const song = f('editStyle').value === 'song';
@@ -301,9 +301,9 @@ export async function followAgentJob(jobId, o, setBusy) {
   if (following.has(jobId)) return;
   following.add(jobId);
   const pg = progressDialog(jobId);
-  setBusy?.(true, '✨ Agent working…');
+  setBusy?.(true, 'Agent working…');
   try {
-    const j = await watchJob(jobId, (x) => { pg.update(x.progress, x.stage || x.log.slice(-1)[0], x.started); const c = pg.clock.tick(x.progress); setBusy?.(true, `✨ Agent ${x.progress}%${c.left ? ` · ~${c.left} left` : ''}`); });
+    const j = await watchJob(jobId, (x) => { pg.update(x.progress, x.stage || x.log.slice(-1)[0], x.started); const c = pg.clock.tick(x.progress); setBusy?.(true, `Agent ${x.progress}%${c.left ? ` · ~${c.left} left` : ''}`); });
     pg.close();
     await applyAgentResult(j.result, o);
   } catch (err) { pg.close(); toast(err.job ? `Agent stopped: ${err.job.log.slice(-1)[0]}` : err.message, 'err'); }
@@ -320,7 +320,7 @@ async function applyAgentResult(r, o) {
   // sound design: the agent's effects replace its earlier ones; your own A3 sounds stay
   if (r.tracks.A3?.length) { await refreshMedia(); S.project.tracks.A3 = [...(S.project.tracks.A3 || []).filter((c) => !c.sfx), ...r.tracks.A3]; }
   // 🎚 the reference's effects as adjustment layers above the story (the ones from an earlier reference edit go)
-  if (r.refLooks) { const tr = placeRefLooks(S.project, r.refLooks, S.mediaById); if (tr) toast(`🎚 ${r.refLooks.length} adjustment layer${r.refLooks.length > 1 ? 's' : ''} on ${tr} copy the reference's effects - change them in Effect Controls`); }
+  if (r.refLooks) { const tr = placeRefLooks(S.project, r.refLooks, S.mediaById); if (tr) toast(`${r.refLooks.length} adjustment layer${r.refLooks.length > 1 ? 's' : ''} on ${tr} copy the reference's effects - change them in Effect Controls`); }
   for (const [k, v] of Object.entries(r.trackState)) S.project.trackState[k] = { ...S.project.trackState[k], ...v };
   // 🧱 an edit copying a reference: V2 its looks (adjustment layers), V3 comps, V4 text - nothing covering anything
   if (r.refLooks || o?.reference) arrangeLayers(S.project, S.mediaById);
@@ -362,10 +362,10 @@ Put it on the timeline now? Ctrl+Z brings your current edit back.`)) await apply
 
 function progressDialog(jobId = null) {
   const steps = ['Analysing clips', 'Listening to the voice-over', 'Looking at the footage', 'Choosing the best moments', 'Colour-correcting'];
-  const SKIP = '⏭ Skip - edit with the clips looked at so far';
+  const SKIP = 'Skip - edit with the clips looked at so far';
   const body = h(`<div class="ag-prog"><div class="ag-pct"><b data-pct>0%</b><span class="muted" data-eta>starting…</span></div><div class="bar"><div></div></div><ol>${steps.map((s) => `<li>${s}</li>`).join('')}</ol><p class="muted small" data-msg></p>
     ${jobId ? `<div class="row-in" data-skiprow hidden><button type="button" class="small accent" data-skip>${SKIP}</button></div><small class="muted" data-skiprow hidden>Clips already looked at are remembered, so the next run starts from them.</small>` : ''}</div>`);
-  const d = modal('✨ Agent is editing', body, { width: 460 });
+  const d = modal('Agent is editing', body, { width: 460 });
   const sk = body.querySelector('[data-skip]');
   if (sk) sk.onclick = async () => {
     sk.disabled = true; sk.textContent = 'Skipping…';
@@ -403,7 +403,7 @@ export function showReport() {
   const r = S.project.agentReport;
   if (!r) return toast('Run the agent first');
   const body = h(`<div class="ag-rep">${r.warnings?.length ? `<ul class="warns">${r.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
-    <p class="muted small">🔄 swaps in the agent's next-best shot for that line, ▾ shows all options to pick from, 🗑 removes the shot (the rest moves up). Click the text to jump to a shot. Everything can be undone (Ctrl+Z).</p>
+    <p class="muted small">swaps in the agent's next-best shot for that line, ▾ shows all options to pick from, removes the shot (the rest moves up). Click the text to jump to a shot. Everything can be undone (Ctrl+Z).</p>
     <table><thead><tr><th>#</th><th></th><th>At</th><th>Voice-over / idea</th><th>Shot</th><th>Match</th><th></th></tr></thead><tbody></tbody></table></div>`);
   const d = modal('Agent report', body, { width: 980 });
   let open = null; // slot index whose chooser is open
@@ -422,7 +422,7 @@ export function showReport() {
         <td data-jump>${s.text ? `${esc(s.text)}${s.en && s.en !== s.text ? `<br><small class="muted">${esc(s.en)}</small>` : ''}` : '<span class="muted">(music / no speech)</span>'}</td>
         <td>${f ? `${esc(m?.name || s.media)}<br><small class="muted">at ${fmt(c.in || 0)}</small>` : '<span class="muted">deleted</span>'}</td>
         <td>${pct === null ? '<span class="muted">-</span>' : `<span class="meterbar"><i style="width:${pct}%"></i></span>${s.weak ? '<b class="warn">check</b>' : ''}`}</td>
-        <td class="rep-act">${f ? `<button class="small" data-change="${i}" title="Next-best shot for this line">🔄 Change</button><button class="small" data-choose="${i}" title="See all options">▾</button><button class="small" data-del="${i}" title="Delete this shot">🗑</button>` : ''}</td></tr>`;
+        <td class="rep-act">${f ? `<button class="small" data-change="${i}" title="Next-best shot for this line">Change</button><button class="small" data-choose="${i}" title="See all options">▾</button><button class="small" data-del="${i}" title="Delete this shot"></button>` : ''}</td></tr>`;
       if (open !== i || !f) return row;
       const alts = (s.alts || []).filter((a) => S.mediaById[a.mediaId]);
       const tile = (mid, at, label, k) => `<button class="rep-tile" data-pick="${i}" data-m="${mid}" data-in="${at}" title="${esc(S.mediaById[mid].name)}"><span class="th" style="${thumbAt(S.mediaById[mid], at)}"></span><small>${label}</small></button>`;

@@ -17,10 +17,10 @@ export async function saveFxPreset(clipId) {
   const c = findClip(clipId)?.clip; if (!c) return;
   const data = Object.fromEntries(LOOK_KEYS.filter((k) => c[k] && (!Array.isArray(c[k]) || c[k].length)).map((k) => [k, JSON.parse(JSON.stringify(c[k]))]));
   if (!Object.keys(data).length) return toast('This clip has no effects, colour, cut effect or blend to save', 'err');
-  const name = prompt('Name for this look (it will be in ✨ Effects > ⭐ My presets):', 'My look');
+  const name = prompt('Name for this look (it will be in Effects > My presets):', 'My look');
   if (!name?.trim()) return;
   lib = await api('PUT', '/api/library/presets', { kind: 'fx', item: { id: uid(), name: name.trim(), data } }).then((p) => ({ ...(lib || {}), presets: p }));
-  emit('library'); toast(`⭐ "${name.trim()}" saved - drag it onto any clip from ✨ Effects`);
+  emit('library'); toast(`"${name.trim()}" saved - drag it onto any clip from Effects`);
 }
 // adds the preset's effects (copies) to the clip's own, and sets its colour / cut effect / blend
 export function applyFxPreset(item, c) {
@@ -40,7 +40,7 @@ export async function saveCaptionStyle(st = S.project.captions?.style) { // (�
   const name = prompt('Name for this caption style:', 'My captions');
   if (!name?.trim()) return;
   lib = await api('PUT', '/api/library/presets', { kind: 'captions', item: { id: uid(), name: name.trim(), data: { ...st } } }).then((p) => ({ ...(lib || {}), presets: p }));
-  emit('library'); toast(`⭐ Caption style "${name.trim()}" saved - it is in the style list of every project`);
+  emit('library'); toast(`Caption style "${name.trim()}" saved - it is in the style list of every project`);
 }
 
 // ---------------- brand kit ----------------
@@ -91,11 +91,11 @@ export async function openBrandKit(setBusy) {
       <label class="fld wide"><span>End card text (used when there is no outro clip)</span><input name="endText" value="${esc(b.endText || '')}" placeholder="e.g. mybharat.gov.in"></label>
     </div>
     <div class="row-in"><label class="chk"><input type="checkbox" name="doIntro" checked> Add intro</label><label class="chk"><input type="checkbox" name="doOutro" checked> Add outro / end card</label></div>
-    <div class="bk-h">📁 Project templates</div>
+    <div class="bk-h">Project templates</div>
     <div class="bk-tpl">${(L.templates || []).map((t) => `<span class="chip">${esc(t.name)} <small class="muted">${esc(t.aspect || '')}</small> <button class="link small" data-deltpl="${esc(t.name)}" title="Delete template">✕</button></span>`).join('') || '<span class="muted small">None yet.</span>'}
-      <button class="small" data-a="savetpl">💾 Save this project as a template</button></div>
-    <div class="ag-foot"><button type="button" data-a="save">Save brand</button><span class="grow"></span><button type="button" data-close>Close</button><button type="button" class="primary" data-a="apply">🏷 Save & apply to this project</button></div></div>`);
-  const dlg = modal('🏷 Brand kit & templates', body, { width: 700 });
+      <button class="small" data-a="savetpl">Save this project as a template</button></div>
+    <div class="ag-foot"><button type="button" data-a="save">Save brand</button><span class="grow"></span><button type="button" data-close>Close</button><button type="button" class="primary" data-a="apply">Save & apply to this project</button></div></div>`);
+  const dlg = modal('Brand kit & templates', body, { width: 700 });
   const f = (n) => body.querySelector(`[name="${n}"]`);
   const read = () => Object.fromEntries(['logo', 'logoPos', 'primary', 'accent', 'text', 'font', 'capPreset', 'intro', 'outro', 'endText'].map((k) => [k, f(k).value]));
   body.addEventListener('click', async (e) => {
@@ -104,15 +104,15 @@ export async function openBrandKit(setBusy) {
     if (a === 'save' || a === 'apply') {
       const nb = read();
       await api('PUT', '/api/library/brand', nb); lib = null;
-      if (a === 'save') return toast('🏷 Brand kit saved');
-      dlg.close(); setBusy?.(true, '🏷 Applying the brand…');
-      try { await applyBrand(nb, { intro: f('doIntro').checked, outro: f('doOutro').checked }); toast('🏷 Brand applied: logo, title and caption colours, intro / outro'); }
+      if (a === 'save') return toast('Brand kit saved');
+      dlg.close(); setBusy?.(true, 'Applying the brand…');
+      try { await applyBrand(nb, { intro: f('doIntro').checked, outro: f('doOutro').checked }); toast('Brand applied: logo, title and caption colours, intro / outro'); }
       catch (err) { toast(err.message, 'err'); } finally { setBusy?.(false); }
     }
     if (a === 'savetpl') {
       const name = prompt('Template name:', `${S.proj} template`); if (!name?.trim()) return;
       const r = await api('POST', `/api/library/template?p=${enc(S.proj)}`, { name: name.trim() }); lib = null;
-      toast(`📁 Template "${r.name}" saved - choose it in New project`);
+      toast(`Template "${r.name}" saved - choose it in New project`);
       e.target.insertAdjacentHTML('beforebegin', `<span class="chip">${esc(r.name)}</span>`);
     }
   });

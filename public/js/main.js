@@ -61,7 +61,7 @@ function shell() {
   <header class="top">
     <div class="tb-left">
       <button class="brand" data-a="home" title="All projects"><img class="logo-mark" src="/img/limelight-icon.png" alt=""><span class="wordmark">LIME<em>LIGHT</em><small>EDITOR</small></span></button>
-      <span class="pname" id="pName"></span><button class="seqbtn" data-a="seq" title="Sequences: several timelines in this project (film, teaser, reel…), nesting, versions">🎞 <span id="seqName"></span> ▾</button><span class="save" id="saveState"></span>
+      <span class="pname" id="pName"></span><button class="seqbtn" data-a="seq" title="Sequences: several timelines in this project (film, teaser, reel…), nesting, versions"><span id="seqName"></span> ▾</button><span class="save" id="saveState"></span>
     </div>
     <div class="tb-right">
       <span class="jobchip" id="jobChip" hidden></span>
@@ -90,7 +90,7 @@ function shell() {
         <button data-a="assistant" title="Type what to change, e.g. &quot;music dheema karo&quot;, &quot;make the colour warm&quot;, &quot;remove the 3rd shot&quot;…">${icon('assistant')}Assistant</button>
       </div>
       <button class="ws-btn" data-a="workspace" title="Workspaces: Premiere Pro, DaVinci Resolve, Limelight or your own - resize, swap and save panel layouts">${icon('zones')}<span class="ws-name">${esc(currentWorkspace().name)}</span> ▾</button>
-      <button data-a="shortcuts" title="Keyboard shortcuts: see every key and set your own (Ctrl+Alt+K)">⌨ Shortcuts</button>
+      <button data-a="shortcuts" title="Keyboard shortcuts: see every key and set your own (Ctrl+Alt+K)">Shortcuts</button>
       <button class="primary" data-a="deliver">${icon('export')}Export</button>
     </div>
   </header>
@@ -107,7 +107,7 @@ function shell() {
     </section>
     <section class="page p-edit" data-page="edit">
       <div class="edit-grid">
-        <div class="panel pool pool-tabs"><div class="ptabs" role="tablist"><button role="tab" data-ptab="media" aria-selected="true">Media</button><button role="tab" data-ptab="fx" aria-selected="false">✨ Effects</button><button role="tab" data-ptab="cc" aria-selected="false" title="Captions">CC</button><button role="tab" data-ptab="notes" aria-selected="false" title="Notes at moments of the edit (Shift+M), versions and phone review">📝</button></div>
+        <div class="panel pool pool-tabs"><div class="ptabs" role="tablist"><button role="tab" data-ptab="media" aria-selected="true">Media</button><button role="tab" data-ptab="fx" aria-selected="false">Effects</button><button role="tab" data-ptab="cc" aria-selected="false" title="Captions">CC</button><button role="tab" data-ptab="notes" aria-selected="false" title="Notes at moments of the edit (Shift+M), versions and phone review"></button></div>
           <div class="ptab-body" id="pool"></div><div class="ptab-body" id="fxPanel" hidden></div><div class="ptab-body" id="ccPanel" hidden></div><div class="ptab-body" id="notesPanel" hidden></div></div>
         <div class="mon-dock" role="tablist" aria-label="Source / Program"><button role="tab" data-mon="src">Source</button><button role="tab" data-mon="prog">Program</button></div>
         <div class="panel viewer" id="viewer"></div>
@@ -184,7 +184,7 @@ function runMenu(r) {
   if (kind === 'p') return showPage(x);
   const edit = () => { if (S.page !== 'edit') showPage('edit'); };
   if (r === 'audioout') return import('./audioout.js').then((x) => x.pickOutput());
-  if (r === 'layers') { const n = arrangeLayers(S.project, S.mediaById); if (n) commit('Arrange layers'); toast(n ? `🧱 ${n} clip${n > 1 ? 's' : ''} moved: V2 looks, V3 comps, V4 text - nothing covers anything (Ctrl+Z takes it back)` : 'The layers are in place already'); return; }
+  if (r === 'layers') { const n = arrangeLayers(S.project, S.mediaById); if (n) commit('Arrange layers'); toast(n ? `${n} clip${n > 1 ? 's' : ''} moved: V2 looks, V3 comps, V4 text - nothing covers anything (Ctrl+Z takes it back)` : 'The layers are in place already'); return; }
   if (r === 'import') { edit(); selectTab('media'); return $('#pool [data-file]')?.click(); }
   if (r === 'logo') return openLogo();
   if (r === 'backups') return openBackups();
@@ -216,20 +216,28 @@ async function whoAmI() {
   const sf = $('[data-a="safety"]');
   if (sf && S.me.local && S.me.role === 'owner' && sf.hidden) { sf.hidden = false; import('./safety.js').then((x) => x.watchSafety(sf)); }
   // 🖥 this is a standby PC's editor (the main one is down): say so, once per page
-  if (S.me.standby && !$('#sbBanner')) $('.top').after(h(`<div id="sbBanner" class="ro-banner sb" role="status">🖥 Standby editor on ${esc(S.me.standby)} - the main editor is down. Work as usual: everything saved here goes back to it when it is up again.</div>`));
+  if (S.me.standby && !$('#sbBanner')) $('.top').after(h(`<div id="sbBanner" class="ro-banner sb" role="status">Standby editor on ${esc(S.me.standby)} - the main editor is down. Work as usual: everything saved here goes back to it when it is up again.</div>`));
 }
 on('readonly', (x) => {
   let b = $('#roBanner');
   if (!S.readOnly) { b?.remove(); return; }
   if (!b) { b = h('<div id="roBanner" class="ro-banner" role="status"></div>'); $('.top').after(b); }
-  b.textContent = S.me?.hold ? `🖥 The standby PC ${S.me.hold.host} is running the editor (since ${new Date(S.me.hold.since).toLocaleTimeString()}) - edit there. This editor takes over again about 2 minutes after it is back; reload then.`
-    : S.me?.role === 'viewer' ? '👁 View only - you can watch and play, not change this project.'
-    : S.lockHolder && S.lockHolder === S.me?.name ? '🔒 Read only - this project is open in another tab or computer of yours. Close it there (editing opens up here within a minute).'
-    : `🔒 Read only - ${S.lockHolder || 'someone'} is editing this project. You can watch; editing opens up when they close it.`;
+  b.textContent = S.me?.hold ? `The standby PC ${S.me.hold.host} is running the editor (since ${new Date(S.me.hold.since).toLocaleTimeString()}) - edit there. This editor takes over again about 2 minutes after it is back; reload then.`
+    : S.me?.role === 'viewer' ? 'View only - you can watch and play, not change this project.'
+    : S.lockHolder && S.lockHolder === S.me?.name ? 'Read only - this project is open in another tab or computer of yours. Close it there (editing opens up here within a minute).'
+    : `Read only - ${S.lockHolder || 'someone'} is editing this project. You can watch; editing opens up when they close it.`;
   if (x?.tried) toast(`Not changed - ${S.me?.role === 'viewer' ? 'you are a viewer' : `${S.lockHolder} is editing`}`, 'err');
 });
 
-function setBusy(b, label) { const c = $('#jobChip'); c.hidden = !b; c.textContent = label || ''; }
+// the header's job chip: one line - a live dot, the label (cut short; all of it on hover), the percent, a thin progress line
+function setBusy(b, label) {
+  const c = $('#jobChip'); c.hidden = !b;
+  if (!b) return;
+  const s = String(label || 'Working…'), m = /(\d{1,3})\s*%/.exec(s), pct = m ? Math.min(100, +m[1]) : null;
+  const text = s.replace(/[·\s]*\d{1,3}\s*%.*$/, '').replace(/…$/, '').trim() || 'Working';
+  c.title = s;
+  c.innerHTML = `<i class="jc-dot"></i><span class="jc-t">${esc(text)}</span>${pct !== null ? `<span class="jc-p">${pct}%</span>` : ''}<b class="jc-bar${pct === null ? ' run' : ''}" style="--p:${pct ?? 30}%"></b>`;
+}
 on('job', (j) => setBusy(j.running, j.label));
 on('queue', (q) => { const c = $('#queueChip'); if (!c) return; c.hidden = !q.count; c.textContent = q.label; });
 // 🔴 live: who else has this project open (their colour = their selection / playhead on the timeline)
@@ -426,7 +434,7 @@ const ACTIONS = {
   group: () => groupSelected(), ungroup: () => ungroupSelected(), trimMode: () => toggleTrimMode(), replaceEdit: () => replaceEdit(),
   timecode: () => { if (S.page !== 'edit') showPage('edit'); const tc = $('#tlTC'); if (tc) typeTimecode(tc); },
   exportFrame: () => exportFrame(), closeGaps: () => closeAllGaps(), nextGap: () => goGap(1), prevGap: () => goGap(-1), clipMarker: () => addClipMarker(),
-  rippleMarkers: () => { const s = S.project.settings; s.rippleMarkers = !s.rippleMarkers || undefined; commit(s.rippleMarkers ? 'Ripple markers on' : 'Ripple markers off'); toast(s.rippleMarkers ? '📍 Ripple Sequence Markers on: markers move with the story when it ripples' : '📍 Ripple Sequence Markers off: markers stay where they are'); },
+  rippleMarkers: () => { const s = S.project.settings; s.rippleMarkers = !s.rippleMarkers || undefined; commit(s.rippleMarkers ? 'Ripple markers on' : 'Ripple markers off'); toast(s.rippleMarkers ? 'Ripple Sequence Markers on: markers move with the story when it ripples' : 'Ripple Sequence Markers off: markers stay where they are'); },
   history: () => import('./history.js').then((x) => x.openHistory()), autoReframe: () => import('./aiui.js').then((x) => x.autoReframeSequence()), seqSettings: () => import('./seqsettings.js').then((x) => x.openSequenceSettings()),
   addEdit: () => splitAtPlayhead(), addEditAll: () => { S.sel = new Set(); splitAtPlayhead(); },
   rippleTrimPrev: () => trimAtPlayhead('start'), rippleTrimNext: () => trimAtPlayhead('end'),

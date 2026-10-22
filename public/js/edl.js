@@ -40,5 +40,5 @@ export async function exportEDL() {
   a.href = URL.createObjectURL(new Blob([r.text], { type: 'text/plain' }));
   a.download = `${(S.project.seq?.name || S.project.name || 'sequence').replace(/[\\/:*?"<>|]+/g, '_')}.edl`;
   a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-  toast(`📄 EDL with ${r.events} events saved${r.skipped ? ` (${r.skipped} overlay / title clips listed as comments - CMX 3600 has one picture track)` : ''}`);
+  toast(`EDL with ${r.events} events saved${r.skipped ? ` (${r.skipped} overlay / title clips listed as comments - CMX 3600 has one picture track)` : ''}`);
 }

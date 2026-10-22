@@ -15,7 +15,7 @@ export function openScriptEdit(setBusy) {
   let scenes = [];
   const body = h(`<div class="ag se">
     <section><h3>1. Script</h3>
-      <div class="row-in"><label class="btn">📄 Open script file (.docx / .pdf / .txt)<input type="file" hidden name="file" accept=".docx,.pdf,.txt,.srt"></label><span class="muted small" data-fname></span></div>
+      <div class="row-in"><label class="btn">Open script file (.docx / .pdf / .txt)<input type="file" hidden name="file" accept=".docx,.pdf,.txt,.srt"></label><span class="muted small" data-fname></span></div>
       <details><summary class="muted small">…or paste the script text (a table copied from Word works too)</summary>
         <textarea name="paste" rows="6" placeholder="VISUAL: Drone shot of the waterfall at sunrise&#10;VO: छत्तीसगढ़ - जहाँ प्रकृति खुद कहानी कहती है।&#10;SUPER: Chitrakote Falls&#10;&#10;VISUAL: Tribal dancers&#10;VO: यहाँ की संस्कृति, यहाँ के लोग।"></textarea>
         <button type="button" class="small" data-a="paste">Read pasted script</button></details>
@@ -24,16 +24,16 @@ export function openScriptEdit(setBusy) {
     </section>
     <section><h3>2. Footage</h3>
       <div class="se-bins">${Object.entries(bins).map(([b, l]) => `<label class="chk"><input type="checkbox" data-bin="${esc(b)}" checked> ${esc(b)} <span class="muted">(${l.length})</span></label>`).join('') || '<span class="muted">Import footage first (Media page) - or let the archive find it (below).</span>'}</div>
-      <label class="chk" title="For every scene's VISUAL line the best shots from all the old footage (📦 Archive: NAS / drives, every project) are brought into this project first"><input type="checkbox" name="archive"${footage.length ? '' : ' checked'}> 📦 Also find shots in the archive (NAS / old projects) for every scene</label>
+      <label class="chk" title="For every scene's VISUAL line the best shots from all the old footage (Archive: NAS / drives, every project) are brought into this project first"><input type="checkbox" name="archive"${footage.length ? '' : ' checked'}> Also find shots in the archive (NAS / old projects) for every scene</label>
     </section>
     <section><h3>3. Sound</h3>
       <div class="fgrid">
         <div class="fld wide"><span>Recorded voice-over (optional - without it the script's timing is used)</span>
-          <div class="row-in"><select name="vo"><option value="">No recording yet</option>${audio.map((m) => `<option value="${m.id}">${esc(m.name)} (${fmt(m.duration)})</option>`).join('')}</select><label class="btn small">⬆ Upload VO<input type="file" hidden name="voFile" accept="audio/*,video/*"></label></div></div>
+          <div class="row-in"><select name="vo"><option value="">No recording yet</option>${audio.map((m) => `<option value="${m.id}">${esc(m.name)} (${fmt(m.duration)})</option>`).join('')}</select><label class="btn small">Upload VO<input type="file" hidden name="voFile" accept="audio/*,video/*"></label></div></div>
         <label class="fld"><span>VO language</span><select name="voLang"><option value="hi">Hindi</option><option value="en">English</option><option value="auto">Auto-detect</option></select></label>
         <label class="fld"><span>Listening accuracy</span><select name="whisperModel"><option value="small">Fast</option><option value="medium" selected>Good</option><option value="large-v3">Best (slow)</option></select></label>
         <div class="fld wide"><span>Music</span>
-          <div class="row-in"><select name="music"><option value="">No music</option>${audio.map((m) => `<option value="${m.id}">${esc(m.name)} (${fmt(m.duration)})</option>`).join('')}</select><label class="btn small">⬆ Upload music<input type="file" hidden name="musicFile" accept="audio/*"></label></div></div>
+          <div class="row-in"><select name="music"><option value="">No music</option>${audio.map((m) => `<option value="${m.id}">${esc(m.name)} (${fmt(m.duration)})</option>`).join('')}</select><label class="btn small">Upload music<input type="file" hidden name="musicFile" accept="audio/*"></label></div></div>
       </div>
     </section>
     <section><h3>4. Finish</h3>
@@ -46,9 +46,9 @@ export function openScriptEdit(setBusy) {
         <label class="fld"><span>End card</span><input name="endText" placeholder="e.g. mybharat.gov.in"></label>
       </div>
     </section>
-    <div class="ag-foot"><span class="muted small" data-sum></span><span class="grow"></span><button type="button" data-close>Cancel</button><button type="button" class="primary" data-a="go">📜 Create edit from script</button></div>
+    <div class="ag-foot"><span class="muted small" data-sum></span><span class="grow"></span><button type="button" data-close>Cancel</button><button type="button" class="primary" data-a="go">Create edit from script</button></div>
   </div>`);
-  const dlg = modal('📜 Script se edit', body, { width: 900 });
+  const dlg = modal('Script se edit', body, { width: 900 });
   const f = (n) => body.querySelector(`[name="${n}"]`);
 
   const est = (s) => +(s.dur ?? (s.vo ? Math.min(30, Math.max(2, s.vo.split(/\s+/).length / 2.4 + 0.8)) : 3)).toFixed(1);
@@ -63,7 +63,7 @@ export function openScriptEdit(setBusy) {
         <td><textarea data-k="vo" rows="2">${esc(s.vo)}</textarea></td>
         <td><input data-k="super" value="${esc(s.super)}"></td>
         <td><input data-k="dur" type="number" min="0.5" step="0.5" value="${s.dur ?? ''}" placeholder="${est(s)}" title="Seconds (only used without a VO recording)"></td>
-        <td><button type="button" class="small" data-del="${i}" title="Remove scene">🗑</button></td></tr>`).join('')}</tbody></table>
+        <td><button type="button" class="small" data-del="${i}" title="Remove scene"></button></td></tr>`).join('')}</tbody></table>
       <button type="button" class="small" data-a="add">+ Add scene</button>` : '<p class="muted small">No scenes yet.</p>';
     summary();
   };
@@ -109,7 +109,7 @@ export function openScriptEdit(setBusy) {
         go.disabled = true;
         try { clips.push(...(await fromArchive(sc, (msg) => (go.textContent = msg)))); }
         catch (x) { toast(x.message, 'err'); }
-        finally { go.disabled = false; go.textContent = '📜 Create edit from script'; }
+        finally { go.disabled = false; go.textContent = 'Create edit from script'; }
       }
       if (!clips.length) return toast('Tick some footage', 'err');
       const vo = f('vo').value || null;
@@ -133,19 +133,19 @@ async function fromArchive(scenes, say) {
   for (const [i, s] of scenes.entries()) {
     const q = (s.visual || s.vo).slice(0, 200);
     if (!q) continue;
-    say(`📦 Archive: scene ${i + 1} of ${scenes.length}…`);
+    say(`Archive: scene ${i + 1} of ${scenes.length}…`);
     const r = await findInArchive(q, 6);
     for (const x of r.results.filter((y) => y.score >= 0.2).slice(0, 2)) files.set(x.path, [...(files.get(x.path) || []), i + 1]);
   }
   const ids = [];
   let k = 0;
   for (const p of files.keys()) {
-    say(`📦 Bringing in ${++k} of ${files.size}…`);
+    say(`Bringing in ${++k} of ${files.size}…`);
     try { const m = await addFromArchive(p, 'Archive - script'); if (m?.id && m.status === 'ready') ids.push(m.id); } catch {}
   }
   const { refreshMedia } = await import('./mediapool.js');
   await refreshMedia();
-  toast(ids.length ? `📦 ${ids.length} shots from the archive added (bin "Archive - script")` : '📦 Nothing in the archive matched these scenes well');
+  toast(ids.length ? `${ids.length} shots from the archive added (bin "Archive - script")` : 'Nothing in the archive matched these scenes well');
   return ids;
 }
 
@@ -153,7 +153,7 @@ async function fromArchive(scenes, say) {
 // With a script the captions use its exact spellings and its visual notes guide the shot choice.
 export function scriptPicker(state, onChange = () => {}) {
   const el = h(`<div class="fld wide sp-box"><span>Script (optional - better captions and shot choice)</span>
-    <div class="row-in"><label class="btn small">📜 Add script (.docx / .pdf / .txt)<input type="file" hidden accept=".docx,.pdf,.txt"></label>
+    <div class="row-in"><label class="btn small">Add script (.docx / .pdf / .txt)<input type="file" hidden accept=".docx,.pdf,.txt"></label>
     <button type="button" class="btn small" data-paste>Paste</button><span class="muted small grow" data-st></span><button type="button" class="btn small" data-clear hidden>✕</button></div>
     <textarea rows="4" hidden placeholder="Paste the script: VISUAL: … / VO: … / SUPER: …, or a table copied from Word"></textarea></div>`);
   const st = $('[data-st]', el), ta = $('textarea', el);

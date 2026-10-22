@@ -431,3 +431,100 @@ html.ui2 .edit-grid.ws-monsrc .viewer .vw-head::before { content: none; }
 /* Effect Controls: the whole panel, no Source tab above it */
 html.ui2 .edit-grid.ws-monsrc .ui-dock { display: none !important; }
 html.ui2 .edit-grid.ws-monsrc .inspector { display: flex !important; margin-top: 0; border-radius: var(--r); }
+
+/* ======================================================================================================================
+   Premium minimal (Phase 22): quieter and cleaner - neutral graphite instead of warm brown, hairline borders, no glows or
+   gradients, one gold accent used sparingly, calm type (no spaced caps), softer radii, more air. Scoped like the rest of
+   this file: the Color page and the bottom page bar keep their own look (their tokens are set again above).
+   ====================================================================================================================== */
+html.ui2 {
+  --bg: #09090b; --bg-2: #0d0d10; --panel: #111114; --panel-2: #17171b; --panel-3: #1f1f24; --line: #1f1f24; --line-2: #2a2a30;
+  --text: #ececef; --muted: #8b8b95; --faint: #5d5d66;
+  --accent: #d9ad5b; --accent-2: #ecc77e; --accent-ink: #141006; --accent-soft: #d9ad5b14; --accent-line: #d9ad5b55;
+  --gold-grad: linear-gradient(180deg, #e9c172, #d4a24c);
+  --tc: #e3c07a; --r: 8px; --hdr: 48px;
+  --shadow-lg: 0 24px 64px -16px rgba(0,0,0,.75), 0 0 0 1px rgba(255,255,255,.04);
+}
+html.ui2 body { font-size: 12.5px; letter-spacing: 0; }
+
+/* header: flat, one hairline, no beam */
+html.ui2 .top { background: var(--bg-2) !important; border-bottom: 1px solid var(--line); }
+html.ui2 .top::after { display: none; }
+html.ui2 .logo-mark { filter: none; }
+html.ui2 .wordmark em { background: none; color: var(--accent); }
+
+/* panels: soft graphite cards with a hairline, no glow when focused */
+html.ui2 .panel { background: var(--panel); border-color: var(--line); border-radius: var(--r); }
+html.ui2 .panel:focus-within { border-color: var(--line-2); box-shadow: none; }
+html.ui2 :is(.vw-head, .tl-bar, .ptabs, .ihead, .mon-dock):not(#colorPage *, .pagebar *) { background: var(--panel); border-color: var(--line); }
+
+/* tabs and panel titles: calm sentence case, a thin accent line under the open one */
+html.ui2 :is(.ptabs button, .ui-dock button, .mon-dock button, .panel h3, .panel h4, .ihead h3, .dlg-head h3):not(#colorPage *, .pagebar *) { font-family: var(--ui-font); letter-spacing: .01em; text-transform: none; }
+html.ui2 :is(.ptabs, .ui-dock, .mon-dock) button { font-weight: 550; color: var(--muted); }
+html.ui2 .ptabs button[aria-selected="true"], html.ui2 .ui-dock button.on, html.ui2 .ui-dock button[aria-selected="true"], html.ui2 .mon-dock button[aria-selected="true"] { color: var(--text); }
+html.ui2 .ptabs button[aria-selected="true"]::after, html.ui2 .vw-head .segbtns button.on::after, html.ui2 .mon-dock button[aria-selected="true"]::after { background: var(--accent); box-shadow: none; height: 1.5px; }
+
+/* controls: 6 px radius, quiet surfaces; the one primary action is a flat gold */
+:where(html.ui2) button:where(:not(#colorPage *, .pagebar *)) { border-radius: 6px; background: var(--panel-2); border-color: var(--line-2); }
+:where(html.ui2) button:hover:not(:disabled):where(:not(#colorPage *, .pagebar *)) { background: var(--panel-3); border-color: #3a3a42; }
+:where(html.ui2) button.primary:where(:not(#colorPage *, .pagebar *)) { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); box-shadow: none; font-weight: 600; }
+:where(html.ui2) button.primary:hover:not(:disabled):where(:not(#colorPage *, .pagebar *)) { background: var(--accent-2); border-color: var(--accent-2); }
+:where(html.ui2) button.accent:where(:not(#colorPage *, .pagebar *)) { background: transparent; border-color: var(--accent-line); color: var(--accent-2); }
+:where(html.ui2) :is(input, select, textarea):where(:not(#colorPage *, .pagebar *)) { border-radius: 6px; background: var(--bg-2); border-color: var(--line-2); transition: border-color .12s, box-shadow .12s; }
+:where(html.ui2) :is(input, select, textarea):focus:where(:not(#colorPage *, .pagebar *)) { outline: none; border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+:where(html.ui2) button:focus-visible:where(:not(#colorPage *, .pagebar *)) { outline: none; box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent-line); }
+html.ui2 .chip:not(#colorPage *, .pagebar *), html.ui2 .bchip { border-radius: 99px; }
+
+/* timecodes and playhead: crisp, no glow */
+html.ui2 #vwTC, html.ui2 .tl-tc, html.ui2 .sm-tc { color: var(--tc); text-shadow: none; }
+html.ui2 .tl-playhead { background: var(--accent-2) !important; box-shadow: none; }
+html.ui2 .tl-playhead::before { border-top-color: var(--accent-2) !important; }
+
+/* dialogs: one clean surface, soft shadow, roomy header */
+html.ui2 dialog { border-top: 1px solid var(--line-2) !important; }
+html.ui2 .dlg { background: var(--panel); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: var(--shadow-lg); }
+html.ui2 .dlg::backdrop { background: rgba(4,4,6,.62); backdrop-filter: blur(6px); }
+html.ui2 .dlg-head { background: transparent; border-bottom: 1px solid var(--line); padding: 14px 18px; border-radius: 12px 12px 0 0; }
+html.ui2 .dlg-head h3 { font-size: 14px; font-weight: 600; }
+html.ui2 .dlg-body { padding: 16px 18px; }
+
+/* menus (right-click, header menus, menubar drops): rounded glass, airy rows */
+html.ui2 :is(.ctx, .mb-drop, .menu, .pop):not(#colorPage *, .pagebar *) { background: #151519f2; border: 1px solid var(--line-2); border-radius: 10px; box-shadow: var(--shadow-lg); padding: 5px; backdrop-filter: blur(10px); }
+html.ui2 :is(.ctx, .mb-drop) button { border: 0; background: transparent; border-radius: 6px; padding: 6px 10px; }
+html.ui2 :is(.ctx, .mb-drop) button:hover:not(:disabled) { background: var(--panel-3); }
+html.ui2 :is(.ctx, .mb-drop) hr { border: 0; border-top: 1px solid var(--line); margin: 4px 6px; }
+html.ui2 :is(.ctx, .mb-drop) kbd { color: var(--faint); background: none; border: 0; font-family: var(--mono); font-size: 10.5px; }
+
+/* toasts: small dark pills */
+html.ui2 .toast { background: #18181cf2; border: 1px solid var(--line-2); border-left: 1px solid var(--line-2); border-radius: 10px; box-shadow: var(--shadow-lg); backdrop-filter: blur(8px); }
+html.ui2 .toast.err { border-color: #ff5a6455; }
+
+/* home: plain dark, no gold haze */
+html.ui2 #home { background: var(--bg); }
+html.ui2 #home h1 { letter-spacing: .02em; }
+html.ui2 .hb-word b em { background: none; color: var(--accent); filter: none; }
+
+/* scrollbars: barely there until used */
+html.ui2 :not(#colorPage, #colorPage *)::-webkit-scrollbar-thumb { background: #2c2c33; }
+html.ui2 :not(#colorPage, #colorPage *)::-webkit-scrollbar-thumb:hover { background-color: #3d3d46; }
+
+/* header job chip: one techy line - pulsing dot, mono label, percent, a thin progress line along the bottom */
+html.ui2 .jobchip:not(.qchip) { position: relative; display: inline-flex !important; flex: none; min-width: 120px; align-items: center; gap: 7px; max-width: 280px; height: 26px; padding: 0 10px 0 9px;
+  white-space: nowrap; overflow: hidden; background: #0f0f12; border: 1px solid var(--line-2); border-radius: 7px; color: var(--text);
+  font: 500 11px/1 var(--mono); letter-spacing: .02em; }
+html.ui2 .jobchip:not(.qchip)[hidden] { display: none; }
+html.ui2 .jc-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); animation: jcpulse 1.2s ease-in-out infinite; }
+html.ui2 .jc-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: #cfcfd6; }
+html.ui2 .jc-p { flex: none; color: var(--accent-2); font-variant-numeric: tabular-nums; }
+html.ui2 .jc-bar { position: absolute; left: 0; bottom: 0; height: 2px; width: var(--p); background: var(--accent); transition: width .4s ease; }
+html.ui2 .jc-bar.run { width: 30%; animation: jcrun 1.4s ease-in-out infinite; }
+@keyframes jcpulse { 50% { opacity: .35; } }
+@keyframes jcrun { 0% { transform: translateX(-100%); } 100% { transform: translateX(340%); } }
+
+/* header and Media panel buttons: ghost - no box until hovered; Export stays the one gold action */
+html.ui2 .top :is(button, .btn):not(.primary):not(.jobchip):not(#colorPage *) { background: transparent; border-color: transparent; color: #c9c9d1; }
+html.ui2 .top :is(button, .btn):not(.primary):not(.jobchip):hover:not(:disabled) { background: var(--panel-3); border-color: var(--line-2); color: var(--text); }
+html.ui2 .top button.accent { color: var(--accent-2); border-color: var(--accent-line) !important; }
+html.ui2 .top .ico { opacity: .85; }
+html.ui2 .pool-bar :is(button, .btn) { background: transparent; border-color: var(--line); padding: 3px 9px; font-size: 11.5px; }
+html.ui2 .pool-bar :is(button, .btn):hover:not(:disabled) { background: var(--panel-3); }

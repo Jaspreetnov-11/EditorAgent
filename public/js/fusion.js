@@ -257,12 +257,12 @@ const chain = (src, specs, x0 = 220) => {
 };
 export const STYLES = {
   plain: { name: 'Plain (MediaIn → MediaOut)', make: (src) => chain(src, []) },
-  bloom: { name: '✨ Glow Bloom', make: (src) => chain(src, [['glow', { radius: 40, intensity: 140, threshold: 55 }], ['color', { contrast: 108, saturation: 112 }]]) },
-  film: { name: '🎞 Film Look (grain + vignette + leak)', make: (src) => chain(src, [['color', { contrast: 112, saturation: 85, tint: '#ffb15c', tintAmt: 12 }], ['lightLeak', { amount: 35, speed: 0.6 }], ['vignette', { amount: 55 }], ['grain', { amount: 16 }], ['letterbox', {}]]) },
-  glitch: { name: '⚡ Chroma Split / Glitch', make: (src) => chain(src, [['split', { offset: 10, pulse: 'yes' }], ['glitch', { amount: 45, slices: 14, speed: 10 }]]) },
-  leak: { name: '🌅 Light Leak', make: (src) => chain(src, [['lightLeak', { amount: 70, speed: 1.2, side: 'corner' }], ['color', { brightness: 104, saturation: 110 }]]) },
-  duotone: { name: '🎨 Duotone (navy + saffron)', make: (src) => chain(src, [['duotone', { dark: '#0b2545', light: '#ffb15c' }], ['grain', { amount: 10 }]]) },
-  neon: { name: '💡 Neon Text over the clip', make: (src) => {
+  bloom: { name: 'Glow Bloom', make: (src) => chain(src, [['glow', { radius: 40, intensity: 140, threshold: 55 }], ['color', { contrast: 108, saturation: 112 }]]) },
+  film: { name: 'Film Look (grain + vignette + leak)', make: (src) => chain(src, [['color', { contrast: 112, saturation: 85, tint: '#ffb15c', tintAmt: 12 }], ['lightLeak', { amount: 35, speed: 0.6 }], ['vignette', { amount: 55 }], ['grain', { amount: 16 }], ['letterbox', {}]]) },
+  glitch: { name: 'Chroma Split / Glitch', make: (src) => chain(src, [['split', { offset: 10, pulse: 'yes' }], ['glitch', { amount: 45, slices: 14, speed: 10 }]]) },
+  leak: { name: 'Light Leak', make: (src) => chain(src, [['lightLeak', { amount: 70, speed: 1.2, side: 'corner' }], ['color', { brightness: 104, saturation: 110 }]]) },
+  duotone: { name: 'Duotone (navy + saffron)', make: (src) => chain(src, [['duotone', { dark: '#0b2545', light: '#ffb15c' }], ['grain', { amount: 10 }]]) },
+  neon: { name: 'Neon Text over the clip', make: (src) => {
     const dim = newNode('color', 220, src.y, { brightness: 55, saturation: 70 }); dim.in.input = src.id;
     const tx = newNode('text', 220, src.y + 140, { text: 'NASHA MUKT BHARAT', color: '#ffd166', size: 150, weight: '900' });
     const gl = newNode('glow', 390, src.y + 140, { radius: 28, intensity: 220, threshold: 0, tinted: 'yes', color: '#ff7a1a' }); gl.in.input = tx.id;
@@ -270,7 +270,7 @@ export const STYLES = {
     const out = newNode('mediaOut', 730, src.y); out.in.input = mg.id;
     return { nodes: [src, dim, tx, gl, mg, out], out: out.id };
   } },
-  pip: { name: '🖼 Picture-in-Picture with shadow', make: (src) => {
+  pip: { name: 'Picture-in-Picture with shadow', make: (src) => {
     const bg = newNode('background', 220, src.y - 140, { type: 'radial', c1: '#16365f', c2: '#060b14' });
     const msk = newNode('rectMask', 220, src.y + 140, { w: 100, h: 100, round: 60, soft: 0 });
     const mg = newNode('merge', 420, src.y, { scale: 62, x: 260, y: -40, shadow: 60 }); mg.in.background = bg.id; mg.in.foreground = src.id; mg.in.mask = msk.id;
@@ -279,22 +279,22 @@ export const STYLES = {
     const out = newNode('mediaOut', 780, src.y); out.in.input = mg2.id;
     return { nodes: [src, bg, msk, mg, tx, mg2, out], out: out.id };
   } },
-  greenscreen: { name: '🟩 Green-screen composite', make: (src) => {
+  greenscreen: { name: 'Green-screen composite', make: (src) => {
     const bg = newNode('background', 220, src.y - 140, { type: 'vertical', c1: '#ffb15c', c2: '#0b2545' });
     const key = newNode('chromaKey', 220, src.y, {}); key.in.input = src.id;
     const mg = newNode('merge', 420, src.y, {}); mg.in.background = bg.id; mg.in.foreground = key.id;
     const out = newNode('mediaOut', 600, src.y); out.in.input = mg.id;
     return { nodes: [src, bg, key, mg, out], out: out.id };
   } },
-  roto: { name: '✂ Roto: the subject only (AI)', make: (src) => chain(src, [['subject', { mode: 'cutout' }]]) },
-  behind: { name: '✂ Text behind the subject (AI roto)', make: (src) => {
+  roto: { name: 'Roto: the subject only (AI)', make: (src) => chain(src, [['subject', { mode: 'cutout' }]]) },
+  behind: { name: 'Text behind the subject (AI roto)', make: (src) => {
     const tx = newNode('text', 220, src.y - 120, { text: 'LIMELIGHT', size: 260, weight: '900', y: 42 }); tx.in.input = src.id;
     const sb = newNode('subject', 220, src.y + 120, { mode: 'cutout' }); sb.in.input = src.id;
     const mg = newNode('merge', 420, src.y, {}); mg.in.background = tx.id; mg.in.foreground = sb.id;
     const out = newNode('mediaOut', 600, src.y); out.in.input = mg.id;
     return { nodes: [src, tx, sb, mg, out], out: out.id };
   } },
-  spotlight: { name: '🔦 Spotlight (ellipse mask + blur outside)', make: (src) => {
+  spotlight: { name: 'Spotlight (ellipse mask + blur outside)', make: (src) => {
     const bl = newNode('blur', 220, src.y - 140, { radius: 22 }); bl.in.input = src.id;
     const dim = newNode('color', 390, src.y - 140, { brightness: 55 }); dim.in.input = bl.id;
     const msk = newNode('ellipseMask', 220, src.y + 140, { w: 45, h: 70, soft: 120 });

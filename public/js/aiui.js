@@ -25,7 +25,7 @@ async function follow(c) {
   const m = S.mediaById[c.mediaId], [W, H] = frame(), { axis } = fillWindow(m, W, H);
   if (!axis) return { skip: 'already the shape of the frame' };
   if (c.ramp) return { skip: 'has a speed ramp' };
-  const r = await look(c, '🎯 Finding faces…');
+  const r = await look(c, 'Finding faces…');
   const k = followKeys(r.samples, c, m, W, H);
   if (!k) return { skip: 'nothing to follow' };
   c.fit = 'fill';
@@ -38,7 +38,7 @@ async function follow(c) {
 // moving). The original sequence stays as it is.
 export function autoReframeSequence() {
   const cur = S.project.settings.aspect, shapes = Object.keys(ASPECTS).filter((a) => a !== cur);
-  const d = modal('🎯 Auto Reframe Sequence', `<p>A copy of <b>${esc(seqOf(S.project).name)}</b> (${cur}) is made in the new shape and opens; every video shot then follows the faces. The original stays as it is.</p>
+  const d = modal('Auto Reframe Sequence', `<p>A copy of <b>${esc(seqOf(S.project).name)}</b> (${cur}) is made in the new shape and opens; every video shot then follows the faces. The original stays as it is.</p>
     <div class="segbtns" role="radiogroup">${shapes.map((a, i) => `<button data-shape="${a}" aria-pressed="${i === 0}">${a}${a === '9:16' ? ' (reel)' : a === '1:1' ? ' (square)' : a === '4:5' ? ' (feed)' : ''}</button>`).join('')}</div>
     <p class="muted small">Reading the faces takes a few seconds per shot. Shots already of the new shape, speed-ramped or without anyone in them are left centred.</p>
     <div class="dlg-actions"><button class="accent" data-action="go">Make the reframed sequence</button><button data-close>Cancel</button></div>`, {
@@ -56,12 +56,12 @@ export function autoReframeSequence() {
       let done = 0, skipped = 0;
       try {
         for (const [i, x] of list.entries()) {
-          emit('job', { running: true, label: `🎯 Reframing shot ${i + 1}/${list.length}…` });
+          emit('job', { running: true, label: `Reframing shot ${i + 1}/${list.length}…` });
           try { const r = await follow(x); if (r.skip) { x.fit = 'fill'; skipped++; } else done++; } catch { skipped++; }
         }
       } finally { emit('job', { running: false }); }
       commit(`Auto Reframe ${shape}`);
-      toast(`🎯 ${seqOf(S.project).name}: ${done} shot${done === 1 ? '' : 's'} follow the faces${skipped ? `, ${skipped} filled and centred` : ''}${lb ? ` - the ${lb} letterbox is off in this copy` : ''}`);
+      toast(`${seqOf(S.project).name}: ${done} shot${done === 1 ? '' : 's'} follow the faces${skipped ? `, ${skipped} filled and centred` : ''}${lb ? ` - the ${lb} letterbox is off in this copy` : ''}`);
     },
   });
   d.el.addEventListener('click', (e) => { const b = e.target.closest('[data-shape]'); if (b) d.el.querySelectorAll('[data-shape]').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); });
@@ -122,13 +122,13 @@ export function bindAi(root, id, render) {
       if (a === 'follow') {
         const r = await follow(c);
         if (r.skip) toast(`Nothing to do: this shot ${r.skip}`);
-        else { commit('Follow faces'); render(); toast(r.faces > 0.2 ? `🎯 The frame now follows the faces (${r.moves} move${r.moves === 1 ? '' : 's'}) - press Space to watch` : `🎯 Few faces in this shot - the frame follows the action instead (${r.moves} moves)`); }
+        else { commit('Follow faces'); render(); toast(r.faces > 0.2 ? `The frame now follows the faces (${r.moves} move${r.moves === 1 ? '' : 's'}) - press Space to watch` : `Few faces in this shot - the frame follows the action instead (${r.moves} moves)`); }
       }
       if (a === 'unfollow') { delete c.keys.cropX; delete c.keys.cropY; if (!Object.keys(c.keys).length) delete c.keys; commit('Stop following faces'); render(); }
       if (a === 'blurfaces') {
-        const r = await look(c, '🙈 Finding faces…'), masks = faceMasks(r.samples);
+        const r = await look(c, 'Finding faces…'), masks = faceMasks(r.samples);
         if (!masks.length) toast('No faces found in this shot');
-        else { c.masks = [...(c.masks || []).filter((x) => x.auto !== 'faces'), ...masks]; commit('Blur faces'); render(); toast(`🙈 ${masks.length} face${masks.length === 1 ? '' : 's'} blurred through the shot${r.yunet ? '' : ' (basic face finder - side faces may be missed)'}`); }
+        else { c.masks = [...(c.masks || []).filter((x) => x.auto !== 'faces'), ...masks]; commit('Blur faces'); render(); toast(`${masks.length} face${masks.length === 1 ? '' : 's'} blurred through the shot${r.yunet ? '' : ' (basic face finder - side faces may be missed)'}`); }
       }
       if (a === 'hidearea') {
         // the playhead goes onto this shot so the box is drawn over its picture
@@ -147,21 +147,21 @@ export function bindAi(root, id, render) {
         const m = S.mediaById[c.mediaId], areas = (c.masks || []).filter((x) => x.area);
         if (!m || !areas.length) return toast('Draw a box over the logo / text first (▭ Hide logo / text)', 'err');
         const a0 = c.in || 0, a1 = c.out ?? m.duration;
-        emit('job', { running: true, label: '✨ AI fill…' });
+        emit('job', { running: true, label: 'AI fill…' });
         // (it takes a while - ~10 s a second of video: the button itself says how far it is, so it never looks dead)
-        b.textContent = '✨ Filling… starting'; toast(`✨ AI fill started - about ${Math.max(10, Math.round((a1 - a0) * 10))} s for this ${(a1 - a0).toFixed(1)} s shot`);
+        b.textContent = 'Filling… starting'; toast(`AI fill started - about ${Math.max(10, Math.round((a1 - a0) * 10))} s for this ${(a1 - a0).toFixed(1)} s shot`);
         const job = await api('POST', `/api/inpaint?p=${enc(S.proj)}`, { mediaId: c.mediaId, in: a0, out: a1, boxes: areas.map((x) => { const { t, ...b } = x.path[0]; return b; }) });
-        const j = await watchJob(job.id, (x) => { const l = x.stage?.startsWith('Waiting') ? `✨ ${x.stage}` : `✨ Filling… ${x.progress || 0}%`; b.textContent = l; emit('job', { running: true, label: l }); });
-        if (await swapIn(clip, j.result, a0, a1, 'fill', areas)) { commit('AI fill'); render(); toast('✨ Filled - the shot now plays the AI-filled copy (↶ Original shot brings it back)'); }
+        const j = await watchJob(job.id, (x) => { const l = x.stage?.startsWith('Waiting') ? `${x.stage}` : `Filling… ${x.progress || 0}%`; b.textContent = l; emit('job', { running: true, label: l }); });
+        if (await swapIn(clip, j.result, a0, a1, 'fill', areas)) { commit('AI fill'); render(); toast('Filled - the shot now plays the AI-filled copy (↶ Original shot brings it back)'); }
       }
       if (a === 'enhance') {
         const m = S.mediaById[c.mediaId]; if (!m) return;
         const a0 = c.in || 0, a1 = c.out ?? m.duration, q = (s) => root.querySelector(s).value;
-        emit('job', { running: true, label: '✨ Enhancing…' });
-        b.textContent = '✨ Enhancing… starting'; toast(`✨ AI enhance started - about ${Math.max(15, Math.round((a1 - a0) * (q('[data-enh-model]') === 'detail' ? 80 : 28)))} s for this ${(a1 - a0).toFixed(1)} s shot`);
+        emit('job', { running: true, label: 'Enhancing…' });
+        b.textContent = 'Enhancing… starting'; toast(`AI enhance started - about ${Math.max(15, Math.round((a1 - a0) * (q('[data-enh-model]') === 'detail' ? 80 : 28)))} s for this ${(a1 - a0).toFixed(1)} s shot`);
         const job = await api('POST', `/api/enhance?p=${enc(S.proj)}`, { mediaId: c.mediaId, in: a0, out: a1, model: q('[data-enh-model]'), height: +q('[data-enh-h]'), denoise: +q('[data-enh-dn]') });
-        const j = await watchJob(job.id, (x) => { const l = x.stage?.startsWith('Waiting') ? `✨ ${x.stage}` : `✨ Enhancing… ${x.progress || 0}%`; b.textContent = l; emit('job', { running: true, label: l }); });
-        if (await swapIn(clip, j.result, a0, a1, 'enhance', [])) { commit('AI enhance'); render(); toast('✨ Enhanced - the shot now plays the enhanced copy (↶ Original shot brings it back)'); }
+        const j = await watchJob(job.id, (x) => { const l = x.stage?.startsWith('Waiting') ? `${x.stage}` : `Enhancing… ${x.progress || 0}%`; b.textContent = l; emit('job', { running: true, label: l }); });
+        if (await swapIn(clip, j.result, a0, a1, 'enhance', [])) { commit('AI enhance'); render(); toast('Enhanced - the shot now plays the enhanced copy (↶ Original shot brings it back)'); }
       }
       if (a === 'unfill') {
         const f = c.filled; if (!f) return;
@@ -174,11 +174,11 @@ export function bindAi(root, id, render) {
         const list = S.project.tracks.V1.filter((x) => x.type === 'video');
         let done = 0, skipped = 0;
         for (const [i, x] of list.entries()) {
-          emit('job', { running: true, label: `🎯 Shot ${i + 1}/${list.length}…` });
+          emit('job', { running: true, label: `Shot ${i + 1}/${list.length}…` });
           try { const r = await follow(x); if (r.skip) skipped++; else done++; } catch { skipped++; }
         }
         commit('Follow faces on all shots'); render();
-        toast(`🎯 ${done} shot${done === 1 ? '' : 's'} now follow the faces${skipped ? ` (${skipped} skipped: already the right shape, ramped or unreadable)` : ''}`);
+        toast(`${done} shot${done === 1 ? '' : 's'} now follow the faces${skipped ? ` (${skipped} skipped: already the right shape, ramped or unreadable)` : ''}`);
       }
     } catch (e) { toast(e.job ? `Failed: ${e.job.log.slice(-1).join(' ')}` : e.message, 'err'); }
     finally { b.disabled = false; emit('job', { running: false }); }

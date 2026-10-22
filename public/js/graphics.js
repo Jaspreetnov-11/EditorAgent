@@ -42,25 +42,25 @@ export async function gfxReady(g) {
 const POS = [['center', 'Centre'], ['left', 'Left half'], ['right', 'Right half'], ['lower', 'Lower third'], ['top', 'Top'], ['full', 'Full screen (own background)']];
 const COMMON = [
   { k: 'title', label: 'Heading', type: 'text', ph: 'e.g. Houses built under PMAY' },
-  { k: 'theme', label: 'Look', type: 'select', options: [['brand', '🏷 Brand kit (colours + font)'], ['mygov', 'MyGov navy + saffron'], ['tricolour', 'Tricolour on white'], ['light', 'Light card'], ['dark', 'Dark glass']] },
+  { k: 'theme', label: 'Look', type: 'select', options: [['brand', 'Brand kit (colours + font)'], ['mygov', 'MyGov navy + saffron'], ['tricolour', 'Tricolour on white'], ['light', 'Light card'], ['dark', 'Dark glass']] },
   { k: 'pos', label: 'Place', type: 'select', options: POS },
   { k: 'scale', label: 'Size', type: 'range', min: 0.5, max: 1.6, step: 0.05, def: 1 },
 ];
 const DATA = { k: 'data', label: 'Data - one per line: Label, value', type: 'area', rows: 5, wide: true };
 
 export const GFX = {
-  counter: { label: '🔢 Counter (number counts up)', dur: 4, def: { title: 'Houses built', value: 300000, prefix: '', suffix: '+', decimals: 0, pos: 'center', theme: 'mygov' },
+  counter: { label: 'Counter (number counts up)', dur: 4, def: { title: 'Houses built', value: 300000, prefix: '', suffix: '+', decimals: 0, pos: 'center', theme: 'mygov' },
     fields: [{ k: 'value', label: 'Number', type: 'num' }, { k: 'from', label: 'Start from', type: 'num', ph: '0' }, { k: 'prefix', label: 'Before (₹)', type: 'text' }, { k: 'suffix', label: 'After (+, %, crore)', type: 'text' }, { k: 'decimals', label: 'Decimals', type: 'num', min: 0, max: 3 }, { k: 'sub', label: 'Small line', type: 'text' }] },
-  stats: { label: '🧮 Stat cards (2-4 numbers)', dur: 5, def: { title: 'Viksit Bharat in numbers', data: 'Toilets built, 11.5 crore\nBank accounts, 53 crore\nVillages lit, 100%', pos: 'center', theme: 'mygov' }, fields: [DATA] },
-  bars: { label: '📊 Bar chart (sideways)', dur: 6, def: { title: 'Top states', data: 'Uttar Pradesh, 92\nMaharashtra, 78\nGujarat, 71\nChhattisgarh, 64', suffix: '%', pos: 'center', theme: 'mygov' }, fields: [DATA, { k: 'suffix', label: 'After each value', type: 'text' }] },
-  columns: { label: '📶 Column chart (growth)', dur: 6, def: { title: 'Growth over the years', data: '2014, 25\n2017, 41\n2020, 58\n2023, 83\n2025, 97', suffix: '', pos: 'center', theme: 'mygov' }, fields: [DATA, { k: 'suffix', label: 'After each value', type: 'text' }] },
-  line: { label: '📈 Line chart', dur: 6, def: { title: 'Rising every year', data: '2019, 12\n2020, 18\n2021, 27\n2022, 35\n2023, 52\n2024, 70', suffix: '', pos: 'center', theme: 'mygov' }, fields: [DATA, { k: 'suffix', label: 'After each value', type: 'text' }] },
-  donut: { label: '🍩 Donut / share', dur: 5, def: { title: 'Who benefits', data: 'Women, 54\nMen, 38\nOthers, 8', suffix: '%', pos: 'center', theme: 'mygov' }, fields: [DATA, { k: 'suffix', label: 'After each value', type: 'text' }] },
-  progress: { label: '⭕ Progress ring (percent)', dur: 4, def: { title: 'Households with tap water', value: 78, pos: 'center', theme: 'mygov' }, fields: [{ k: 'value', label: 'Percent', type: 'num', min: 0, max: 100 }, { k: 'sub', label: 'Small line', type: 'text' }] },
-  list: { label: '✅ Points one by one', dur: 6, def: { title: 'What you get', data: 'Free LPG connection\n₹6,000 a year for farmers\n5 lakh health cover', pos: 'left', theme: 'mygov' }, fields: [{ ...DATA, label: 'Points - one per line' }] },
-  callout: { label: '📍 Callout (point at something)', dur: 4, def: { title: 'New bridge', sub: '2.3 km · opened 2025', x: 40, y: 45, pos: 'center', theme: 'mygov' },
-    fields: [{ k: 'sub', label: 'Small line', type: 'text' }, { k: 'x', label: 'Point at ↔ (% of frame)', type: 'range', min: 0, max: 100, step: 0.5, def: 50 }, { k: 'y', label: 'Point at ↕ (% of frame)', type: 'range', min: 0, max: 100, step: 0.5, def: 50 }] },
-  route: { label: '🧭 Route line (journey on a map / shot)', dur: 5, def: { title: '', data: 'Raipur, 30, 60\nBilaspur, 45, 35\nAmbikapur, 62, 18', pos: 'center', theme: 'mygov' },
+  stats: { label: 'Stat cards (2-4 numbers)', dur: 5, def: { title: 'Viksit Bharat in numbers', data: 'Toilets built, 11.5 crore\nBank accounts, 53 crore\nVillages lit, 100%', pos: 'center', theme: 'mygov' }, fields: [DATA] },
+  bars: { label: 'Bar chart (sideways)', dur: 6, def: { title: 'Top states', data: 'Uttar Pradesh, 92\nMaharashtra, 78\nGujarat, 71\nChhattisgarh, 64', suffix: '%', pos: 'center', theme: 'mygov' }, fields: [DATA, { k: 'suffix', label: 'After each value', type: 'text' }] },
+  columns: { label: 'Column chart (growth)', dur: 6, def: { title: 'Growth over the years', data: '2014, 25\n2017, 41\n2020, 58\n2023, 83\n2025, 97', suffix: '', pos: 'center', theme: 'mygov' }, fields: [DATA, { k: 'suffix', label: 'After each value', type: 'text' }] },
+  line: { label: 'Line chart', dur: 6, def: { title: 'Rising every year', data: '2019, 12\n2020, 18\n2021, 27\n2022, 35\n2023, 52\n2024, 70', suffix: '', pos: 'center', theme: 'mygov' }, fields: [DATA, { k: 'suffix', label: 'After each value', type: 'text' }] },
+  donut: { label: 'Donut / share', dur: 5, def: { title: 'Who benefits', data: 'Women, 54\nMen, 38\nOthers, 8', suffix: '%', pos: 'center', theme: 'mygov' }, fields: [DATA, { k: 'suffix', label: 'After each value', type: 'text' }] },
+  progress: { label: 'Progress ring (percent)', dur: 4, def: { title: 'Households with tap water', value: 78, pos: 'center', theme: 'mygov' }, fields: [{ k: 'value', label: 'Percent', type: 'num', min: 0, max: 100 }, { k: 'sub', label: 'Small line', type: 'text' }] },
+  list: { label: 'Points one by one', dur: 6, def: { title: 'What you get', data: 'Free LPG connection\n₹6,000 a year for farmers\n5 lakh health cover', pos: 'left', theme: 'mygov' }, fields: [{ ...DATA, label: 'Points - one per line' }] },
+  callout: { label: 'Callout (point at something)', dur: 4, def: { title: 'New bridge', sub: '2.3 km · opened 2025', x: 40, y: 45, pos: 'center', theme: 'mygov' },
+    fields: [{ k: 'sub', label: 'Small line', type: 'text' }, { k: 'x', label: 'Point at (% of frame)', type: 'range', min: 0, max: 100, step: 0.5, def: 50 }, { k: 'y', label: 'Point at (% of frame)', type: 'range', min: 0, max: 100, step: 0.5, def: 50 }] },
+  route: { label: 'Route line (journey on a map / shot)', dur: 5, def: { title: '', data: 'Raipur, 30, 60\nBilaspur, 45, 35\nAmbikapur, 62, 18', pos: 'center', theme: 'mygov' },
     fields: [{ k: 'data', label: 'Stops - one per line: Name, x %, y %', type: 'area', rows: 4, wide: true }] },
 
   // T text written with the Type tool (Premiere's Type tool / Essential Graphics text): placed where it was clicked on
@@ -80,43 +80,43 @@ export const GFX = {
       { k: 'shadow', label: 'Shadow', type: 'check' },
       { k: 'bg', label: 'Background', type: 'check' }, { k: 'bgColor', label: 'Background colour', type: 'color', def: '#000000' },
       { k: 'bgOpacity', label: 'Background opacity', type: 'range', min: 0, max: 1, step: 0.05, def: 0.6 },
-      { k: 'x', label: 'Position ↔ (% of frame)', type: 'range', min: -20, max: 120, step: 0.5, def: 50 },
-      { k: 'y', label: 'Position ↕ (% of frame)', type: 'range', min: -20, max: 120, step: 0.5, def: 50 }] },
+      { k: 'x', label: 'Position (% of frame)', type: 'range', min: -20, max: 120, step: 0.5, def: 50 },
+      { k: 'y', label: 'Position (% of frame)', type: 'range', min: -20, max: 120, step: 0.5, def: 50 }] },
 
   // 🎬 motion templates (Phase 19): lower thirds, kinetic text, logo reveal, end card, news strip
-  lower3: { label: '🪪 Lower third (name + title)', dur: 5, motion: true, common: ['theme', 'scale'],
+  lower3: { label: 'Lower third (name + title)', dur: 5, motion: true, common: ['theme', 'scale'],
     def: { name: 'Shri Vishnu Deo Sai', role: 'Chief Minister, Chhattisgarh', style: 'bar', side: 'left', pos: 'lower', theme: 'mygov' },
     fields: [{ k: 'name', label: 'Name', type: 'text' }, { k: 'role', label: 'Title / second line', type: 'text' },
       { k: 'style', label: 'Style', type: 'select', options: [['bar', 'Bar - card with a strip'], ['split', 'Split - two-colour blocks'], ['line', 'Line - text + underline only'], ['pill', 'Pill - rounded tag']] },
       { k: 'side', label: 'Side', type: 'select', options: [['left', 'Left'], ['right', 'Right'], ['center', 'Centre']] },
       { k: 'pos', label: 'Top / bottom', type: 'select', options: [['lower', 'Bottom'], ['top', 'Top']] }] },
-  kinetic: { label: '✨ Kinetic text (word by word)', dur: 4, motion: true, common: ['theme', 'scale'],
+  kinetic: { label: 'Kinetic text (word by word)', dur: 4, motion: true, common: ['theme', 'scale'],
     def: { text: 'हर घर *जल*\nहर गाँव *विकास*', style: 'pop', align: 'center', pos: 'center', theme: 'mygov' },
     fields: [{ k: 'text', label: 'Text - one line each; *word* = highlight', type: 'area', rows: 3, wide: true },
       { k: 'style', label: 'Style', type: 'select', options: [['pop', 'Pop - words bounce in'], ['rise', 'Rise - from below'], ['type', 'Type - letter by letter'], ['stack', 'Stack - big words, highlight block']] },
       { k: 'align', label: 'Align', type: 'select', options: [['center', 'Centre'], ['left', 'Left']] },
       { k: 'pos', label: 'Position', type: 'select', options: [['center', 'Centre'], ['top', 'Top'], ['lower', 'Bottom'], ['full', 'Full screen (own background)']] }] },
-  logoreveal: { label: '🌟 Logo reveal', dur: 4, motion: true, common: ['theme', 'scale'],
+  logoreveal: { label: 'Logo reveal', dur: 4, motion: true, common: ['theme', 'scale'],
     def: { logo: '', tagline: 'Viksit Chhattisgarh', style: 'zoom', pos: 'full', theme: 'mygov' },
     fields: [{ k: 'logo', label: 'Logo (image from the media pool)', type: 'select', options: [] }, { k: 'tagline', label: 'Tagline', type: 'text' },
       { k: 'style', label: 'Style', type: 'select', options: [['zoom', 'Zoom + shine'], ['circle', 'Circle reveal'], ['lines', 'Lines meet']] },
       { k: 'pos', label: 'Background', type: 'select', options: [['full', 'Own background (brand colour)'], ['center', 'Over the video']] }] },
-  endcard: { label: '🔚 End card (thank you + links)', dur: 5, motion: true, common: ['theme', 'scale'],
+  endcard: { label: 'End card (thank you + links)', dur: 5, motion: true, common: ['theme', 'scale'],
     def: { logo: '', title: 'धन्यवाद', lines: 'www.cgstate.gov.in\n@ChhattisgarhCMO\nHelpline 1800-233-0000', pos: 'full', theme: 'mygov' },
     fields: [{ k: 'logo', label: 'Logo (image from the media pool)', type: 'select', options: [] }, { k: 'title', label: 'Main line', type: 'text' },
       { k: 'lines', label: 'Lines below (website, handle, helpline)', type: 'area', rows: 3, wide: true }] },
-  ticker: { label: '📰 Breaking / news strip', dur: 8, motion: true, common: ['theme', 'scale'],
+  ticker: { label: 'Breaking / news strip', dur: 8, motion: true, common: ['theme', 'scale'],
     def: { label: 'BREAKING', text: 'Chief Minister Rural Bus Scheme: bus service now reaches 850 villages\n100 new buses start today', speed: 1, pos: 'lower', theme: 'mygov' },
     fields: [{ k: 'label', label: 'Label', type: 'text' }, { k: 'text', label: 'News - one line each', type: 'area', rows: 3, wide: true },
       { k: 'speed', label: 'Speed', type: 'range', min: 0.4, max: 2.5, step: 0.1, def: 1 },
       { k: 'pos', label: 'Position', type: 'select', options: [['lower', 'Bottom'], ['top', 'Top']] }] },
   // 🎞 Roll (credits) and Crawl, like Premiere's Roll / Crawl titles: the text moves the whole length of the clip -
   // credits rise from below the frame until the last line has gone out the top; a crawl runs right to left once
-  credits: { label: '🎞 Rolling credits (roll)', dur: 12, motion: true, common: ['theme', 'scale'],
+  credits: { label: 'Rolling credits (roll)', dur: 12, motion: true, common: ['theme', 'scale'],
     def: { head: 'Thank you', text: 'Concept & Direction | Limelight\nCamera | Team Limelight\nEdit | Limelight Editor\n\nWith thanks to\nDepartment of Public Relations', bg: 'dark', theme: 'mygov' },
     fields: [{ k: 'head', label: 'Heading (first line, bigger)', type: 'text' }, { k: 'text', label: 'Lines - "Role | Name" puts them in two columns', type: 'area', rows: 6, wide: true },
       { k: 'bg', label: 'Background', type: 'select', options: [['dark', 'Dark'], ['none', 'None (over the picture)']] }] },
-  crawl: { label: '➡ Crawl (one line across)', dur: 10, motion: true, common: ['theme', 'scale'],
+  crawl: { label: 'Crawl (one line across)', dur: 10, motion: true, common: ['theme', 'scale'],
     def: { text: 'Registrations open till 31 October - visit mygov.in', pos: 'lower', theme: 'mygov' },
     fields: [{ k: 'text', label: 'Text', type: 'area', rows: 2, wide: true }, { k: 'pos', label: 'Position', type: 'select', options: [['lower', 'Bottom'], ['middle', 'Middle'], ['top', 'Top']] }] },
 };
@@ -196,7 +196,7 @@ export function drawGraphic(ctx, W, H, g, t, dur, extra = {}) {
 // pinW = also grow / shrink with the frame's width (against pinRef, the frame it was pinned on). A pinned graphic keeps its
 // place against that edge whatever the sequence / export shape is, and never runs off the frame.
 export const PIN_TPL = ['text', 'lower3', 'kinetic', 'logoreveal', 'ticker', 'counter', 'stats', 'bars', 'columns', 'line', 'donut', 'progress', 'list'];
-export const PINS = [['', 'Not pinned'], ['tl', '↖ Top left'], ['t', '↑ Top'], ['tr', '↗ Top right'], ['l', '← Left'], ['c', '● Centre'], ['r', '→ Right'], ['bl', '↙ Bottom left'], ['b', '↓ Bottom'], ['br', '↘ Bottom right']];
+export const PINS = [['', 'Not pinned'], ['tl', 'Top left'], ['t', '↑ Top'], ['tr', 'Top right'], ['l', '← Left'], ['c', '● Centre'], ['r', '→ Right'], ['bl', 'Bottom left'], ['b', '↓ Bottom'], ['br', 'Bottom right']];
 export const SAFE = 0.1; // title safe: 10% in from every edge (the monitor's Guides)
 export const pinOk = (g) => PIN_TPL.includes(g?.tpl) && g.pos !== 'full';
 export const pinOn = (g) => !!g?.pin && pinOk(g);

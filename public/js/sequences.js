@@ -30,7 +30,7 @@ function switchTo(id) {
   emit('seq'); emit('fit'); emit('select'); emit('change', {}); sendPresence();
   toast(id === sharedSeqId() ? `Opened the team's main timeline "${s.name}"` : `Opened "${s.name}" - just for you. Everyone else stays on their own timeline.`);
 }
-on('seqBlocked', () => toast("This change can't be made from here: open the team's 👥 main sequence first, then change it.", 'err'));
+on('seqBlocked', () => toast("This change can't be made from here: open the team's main sequence first, then change it.", 'err'));
 on('seqGone', () => { toast("Someone deleted the sequence you had open - showing the team's main timeline.", 'err'); emit('seq'); emit('fit'); });
 
 const freeName = (base) => { const names = new Set(seqList(S.project).map((x) => x.name)); let n = base, k = 2; while (names.has(n)) n = `${base} (${k++})`; return n; };
@@ -68,7 +68,7 @@ export function newSequenceFromClip(ids) {
   switchTo(id);
   for (const x of ms) placeMedia(x.id, 'V1', 1e9, {});
   commit(`${ms.length} clip${ms.length > 1 ? 's' : ''} into ${name}`);
-  toast(`🎞 New sequence "${name}" (${aspect}, ${fps} fps) from ${ms.length > 1 ? `${ms.length} clips` : m.name}`);
+  toast(`New sequence "${name}" (${aspect}, ${fps} fps) from ${ms.length > 1 ? `${ms.length} clips` : m.name}`);
 }
 
 // a new sequence holding these main-story clips (📝 Text page: rough cut from chosen sentences); it opens
@@ -111,7 +111,7 @@ async function nest(id) {
   emit('job', { running: true, label: `Nesting ${s.name}…` });
   try {
     const r = await renderNested(id, (j) => emit('job', { running: true, label: `Nesting ${s.name} ${j.progress}%` }));
-    if (placeMedia(r.mediaId, 'V1', S.playhead)) { commit(`Nest ${s.name}`); toast(`"${s.name}" is now one clip on V1 at the playhead. It updates when you change that sequence (🎞 > Update nested).`); }
+    if (placeMedia(r.mediaId, 'V1', S.playhead)) { commit(`Nest ${s.name}`); toast(`"${s.name}" is now one clip on V1 at the playhead. It updates when you change that sequence (> Update nested).`); }
   } catch (e) { toast(e.job ? `Nesting failed: ${e.job.log.slice(-1).join(' ')}` : e.message, 'err'); }
   finally { emit('job', { running: false }); }
 }
@@ -129,17 +129,17 @@ export async function updateNested(list = usedHere(staleNested())) {
 }
 
 export function openSequences() {
-  const dlg = modal('🎞 Sequences', '<div data-seqbody></div>', { width: 640 });
+  const dlg = modal('Sequences', '<div data-seqbody></div>', { width: 640 });
   const draw = () => {
     const list = seqList(S.project), stale = staleNested(), staleHere = usedHere(stale);
     const dur = (x) => { try { return fmt(totalDuration({ ...S.project, ...x.data }, S.mediaById)); } catch { return ''; } };
-    $('[data-seqbody]', dlg.el).innerHTML = `<p class="muted">One project, many timelines: the full film, a 30-second teaser, a 9:16 reel… Each has its own clips, frame shape, captions and look. Media is shared.<br>Opening one changes only your timeline; everyone else stays on their own sequence. Claude and edtool work on the <b>👥 Team</b> sequence.</p>
+    $('[data-seqbody]', dlg.el).innerHTML = `<p class="muted">One project, many timelines: the full film, a 30-second teaser, a 9:16 reel… Each has its own clips, frame shape, captions and look. Media is shared.<br>Opening one changes only your timeline; everyone else stays on their own sequence. Claude and edtool work on the <b>Team</b> sequence.</p>
       <div class="seq-list">${list.map((x) => `<div class="seq-row${x.open ? ' open' : ''}">
-        <span class="grow"><b>${esc(x.name)}</b>${x.open ? ' <span class="tag">open</span>' : ''}${x.id === sharedSeqId() ? ' <span class="tag" title="The team&#39;s main sequence: Claude, the server&#39;s Agent jobs and edtool work on this one">👥 Team</span>' : ''}${(S.people || []).filter((p) => (p.seq || sharedSeqId()) === x.id).map((p) => ` <span class="tag" style="background:${esc(p.color)};color:#111">${esc(p.name)}</span>`).join('')}<br><span class="muted small">${esc(x.data.settings?.aspect || '')} · ${dur(x)} · ${Object.values(x.data.tracks || {}).flat().length} clips</span></span>
-        ${x.open ? '' : `<button class="small" data-open="${x.id}">Open</button><button class="small" data-nest="${x.id}" title="Put this whole sequence into the open timeline as one clip, at the playhead">⤵ Nest here</button>`}
-        ${x.id === sharedSeqId() ? '' : `<button class="small" data-team="${x.id}" title="Make this the team's main sequence: edtool and the server's Agent jobs work on it (the Assistant's Claude always works on the sequence you have open). Everyone on the team sequence switches to it too.">👥 Make team sequence</button>`}
+        <span class="grow"><b>${esc(x.name)}</b>${x.open ? ' <span class="tag">open</span>' : ''}${x.id === sharedSeqId() ? ' <span class="tag" title="The team&#39;s main sequence: Claude, the server&#39;s Agent jobs and edtool work on this one">Team</span>' : ''}${(S.people || []).filter((p) => (p.seq || sharedSeqId()) === x.id).map((p) => ` <span class="tag" style="background:${esc(p.color)};color:#111">${esc(p.name)}</span>`).join('')}<br><span class="muted small">${esc(x.data.settings?.aspect || '')} · ${dur(x)} · ${Object.values(x.data.tracks || {}).flat().length} clips</span></span>
+        ${x.open ? '' : `<button class="small" data-open="${x.id}">Open</button><button class="small" data-nest="${x.id}" title="Put this whole sequence into the open timeline as one clip, at the playhead">Nest here</button>`}
+        ${x.id === sharedSeqId() ? '' : `<button class="small" data-team="${x.id}" title="Make this the team's main sequence: edtool and the server's Agent jobs work on it (the Assistant's Claude always works on the sequence you have open). Everyone on the team sequence switches to it too.">Make team sequence</button>`}
         <button class="icon-btn small" data-ren="${x.id}" title="Rename" aria-label="Rename ${esc(x.name)}">✎</button>
-        ${list.length > 1 ? `<button class="icon-btn small" data-del="${x.id}" title="Delete this sequence" aria-label="Delete ${esc(x.name)}">🗑</button>` : ''}</div>`).join('')}</div>
+        ${list.length > 1 ? `<button class="icon-btn small" data-del="${x.id}" title="Delete this sequence" aria-label="Delete ${esc(x.name)}"></button>` : ''}</div>`).join('')}</div>
       ${staleHere.length ? `<div class="warns">Changed since nested: ${staleHere.map((m) => esc(m.name)).join(', ')} <button class="small" data-upd>⟳ Update nested</button></div>` : ''}
       <h4>New sequence</h4>
       <div class="fgrid"><label class="fld"><span>Name</span><input data-nname value="${esc(freeName('Teaser 30s'))}"></label>
@@ -159,14 +159,14 @@ export function openSequences() {
       openSeq(S.project, d.team);
       S.sel.clear(); commit(`Team sequence: ${s.name}`);
       emit('seq'); emit('fit'); emit('change', {}); sendPresence(); draw();
-      toast(`"${s.name}" is now the team's 👥 main sequence - Claude will work on it too`);
+      toast(`"${s.name}" is now the team's main sequence - Claude will work on it too`);
     }
     if (d.upd !== undefined) { dlg.close(); updateNested(); }
     if (d.ren) { if (renameSequence(d.ren)) draw(); }
     if (d.del) {
       const s = seqList(S.project).find((x) => x.id === d.del);
       if (!confirm(`Delete the sequence "${s.name}"? Its clips and settings go (Undo brings it back). Media stays in the project.`)) return;
-      if (!s.open && s.id === sharedSeqId()) return toast("This is the team's 👥 main sequence - open it first to delete it.", 'err');
+      if (!s.open && s.id === sharedSeqId()) return toast("This is the team's main sequence - open it first to delete it.", 'err');
       if (s.open && S.seqMap) { switchTo(sharedSeqId()); }          // my own one: back to the team's, then it goes
       else if (s.open) {
         // the team's shared one: everyone on it moves to another sequence
@@ -212,9 +212,9 @@ export function seqMenu(anchor) {
     <hr><button data-sq-ren>✎ Rename this sequence <span class="muted small">(or double-click its tab)</span></button>
     <button data-sq-new="empty">+ New empty sequence</button>
     <button data-sq-new="copy">⧉ Copy of this edit (version)</button>
-    <hr><button data-sq-clip="copy">📋 Copy this timeline <span class="muted small">(paste it in another project)</span></button>
-    ${pasteOffer() ? `<button data-sq-clip="paste">📋 Paste timeline: ${esc(pasteOffer())}</button>` : ''}
-    <button data-sq-manage>🎞 Manage sequences… <span class="muted small">(rename, nest, delete)</span></button>`;
+    <hr><button data-sq-clip="copy">Copy this timeline <span class="muted small">(paste it in another project)</span></button>
+    ${pasteOffer() ? `<button data-sq-clip="paste">Paste timeline: ${esc(pasteOffer())}</button>` : ''}
+    <button data-sq-manage>Manage sequences… <span class="muted small">(rename, nest, delete)</span></button>`;
   document.body.append(m);
   const r = anchor.getBoundingClientRect();
   m.style.left = `${Math.max(8, Math.min(innerWidth - m.offsetWidth - 8, r.left))}px`;
@@ -253,7 +253,7 @@ export const openSequence = (id) => switchTo(id);
 export function sequenceForAgent(label = 'Agent edit', aspect = null) {
   if (!S.project || !Object.values(S.project.tracks).flat().length) return true;
   const n = (S.people || []).filter((p) => (p.seq || sharedSeqId()) === sharedSeqId()).length;
-  if (n && !confirm(`${n} ${n > 1 ? 'people are' : 'person is'} on the team sequence - the new agent edit becomes the team's main sequence, so their timeline switches to it too (the old edit stays in 🎞 Sequences). Continue?`)) return false;
+  if (n && !confirm(`${n} ${n > 1 ? 'people are' : 'person is'} on the team sequence - the new agent edit becomes the team's main sequence, so their timeline switches to it too (the old edit stays in Sequences). Continue?`)) return false;
   adoptShared();
   const old = seqOf(S.project).name, name = freeName(label), id = uid(), a = aspect || S.project.settings.aspect;
   const blank = newProject(name, { aspect: a, fps: S.project.settings.fps });
@@ -262,7 +262,7 @@ export function sequenceForAgent(label = 'Agent edit', aspect = null) {
   S.sel.clear(); S.playhead = 0;
   commit(`New sequence for the agent: ${name}`);
   emit('seq'); emit('fit'); emit('select'); emit('change', {}); sendPresence();
-  toast(`🎞 New sequence "${name}" for this edit - "${old}" stays as it was (🎞 Sequences)`);
+  toast(`New sequence "${name}" for this edit - "${old}" stays as it was (Sequences)`);
   return true;
 }
 
@@ -298,9 +298,9 @@ export async function nestSelected() {
   const trackState = Object.fromEntries(Object.keys(tracks).map((t) => [t, { ...(S.project.trackState?.[t] || {}) }]));
   (S.project.sequences ||= {})[id] = { name, data: { tracks, trackState, markers: [], settings: { ...S.project.settings } }, modified: Date.now() };
   commit(`New sequence ${name}`);
-  emit('job', { running: true, label: `⤵ Nesting ${picked.length} clips…` });
+  emit('job', { running: true, label: `Nesting ${picked.length} clips…` });
   let r;
-  try { r = await renderNested(id, (j) => emit('job', { running: true, label: `⤵ Nesting ${j.progress}%` })); }
+  try { r = await renderNested(id, (j) => emit('job', { running: true, label: `Nesting ${j.progress}%` })); }
   catch (e) { emit('job', { running: false }); return toast(e.job ? `Nesting failed: ${e.job.log.slice(-1).join(' ')}` : e.message, 'err'); }
   emit('job', { running: false });
   // the selected clips leave; the nested clip takes their place
@@ -321,7 +321,7 @@ export async function nestSelected() {
   S.sel = new Set([nc.id]);
   commit(`Nest ${picked.length} clips`);
   emit('select');
-  toast(`⤵ ${picked.length} clips nested into "${name}" - double-click it to open its sequence`);
+  toast(`${picked.length} clips nested into "${name}" - double-click it to open its sequence`);
 }
 // ＋ New ▾ > Sequence (Media panel): an empty one in the edit's frame (or another), opened at once
 export function newEmptySequence(name, aspect) { addSeq(freeName(name || 'Sequence'), aspect || S.project.settings.aspect, false); }

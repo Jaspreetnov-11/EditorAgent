@@ -24,8 +24,8 @@ export function mountAudio(el) {
   root = el;
   el.innerHTML = `<div class="ap">
     <div class="panel ap-top">
-      <button class="icon-btn" data-au="start" title="Start (Home)">⏮</button>
-      <button class="icon-btn play" data-au="play" title="Play / pause (Space)">▶</button>
+      <button class="icon-btn" data-au="start" title="Start (Home)"></button>
+      <button class="icon-btn play" data-au="play" title="Play / pause (Space)"></button>
       <span class="tc big" id="apTC">00:00:00:00</span>
       <span class="grow"></span>
       <span class="ap-live" id="apLive" title="Rough live level of the master output">Live ≈ -- LUFS</span>
@@ -36,7 +36,7 @@ export function mountAudio(el) {
     </div>
     ${STUDIO_HTML}
     <div class="ap-mixer" id="apMixer"></div>
-    <div class="panel ap-clipmix"><div class="sh"><b>🎛 Clip mixer</b> <small>the clip under the playhead on each track</small></div><div id="apClips"></div></div>
+    <div class="panel ap-clipmix"><div class="sh"><b>Clip mixer</b> <small>the clip under the playhead on each track</small></div><div id="apClips"></div></div>
     <p class="muted ap-note">Live preview plays EQ, compressor, gain and limiter. Noise reduction, de-essing and music ducking are applied in renders and in <b>Measure final loudness</b>. Start playback once (Space) to light up the meters.</p>
   </div>`;
   el.addEventListener('click', onClick);
@@ -93,7 +93,7 @@ function editSlot(id, i) {
     return p.type === 'select' ? `<label class="fld"><span>${esc(p.label)}</span><select data-sp="${k}">${p.options.map(([o, l]) => `<option value="${esc(o)}"${o === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`
       : `<label class="fld"><span>${esc(p.label)} <b data-sv="${k}">${v}${p.unit || ''}</b></span><input type="range" data-sp="${k}" min="${p.min}" max="${p.max}" step="${p.step}" value="${v}"></label>`;
   }).join('') || '<p class="muted">Nothing to set.</p>'}</div>${def.live ? '' : '<small class="hint">Heard in Accurate preview and renders.</small>'}`);
-  modal(`🎛 ${STRIPS.find((s) => s.id === id)?.name || id} · ${def.label}`, body, { width: 460 });
+  modal(`${STRIPS.find((s) => s.id === id)?.name || id} · ${def.label}`, body, { width: 460 });
   body.querySelectorAll('[data-sp]').forEach((inp) => {
     const k = inp.dataset.sp;
     inp.addEventListener('input', () => { e.p = { ...(e.p || {}), [k]: inp.tagName === 'SELECT' ? inp.value : +inp.value }; const b = body.querySelector(`[data-sv="${k}"]`); if (b) b.textContent = `${inp.value}${def.params[k].unit || ''}`; emit('mix'); });

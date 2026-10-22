@@ -8,18 +8,18 @@ import { openThumbs } from './thumbs.js';
 
 let timer = null;
 const STATE = { waiting: 'waiting', scheduled: 'scheduled', uploading: 'uploading', done: '✓ done', failed: 'failed', cancelled: 'cancelled' };
-const ICON = { youtube: '▶ YouTube', facebook: 'f Facebook', instagram: '◎ Instagram' };
+const ICON = { youtube: 'YouTube', facebook: 'f Facebook', instagram: '◎ Instagram' };
 
 export async function openPublish() {
-  const dlg = modal('🚀 Publish', '<div data-pub><div class="muted pad">Loading…</div></div>', { width: 820, onClose: () => clearTimeout(timer) });
+  const dlg = modal('Publish', '<div data-pub><div class="muted pad">Loading…</div></div>', { width: 820, onClose: () => clearTimeout(timer) });
   const body = $('[data-pub]', dlg.el);
   const [acc, renders, thumbs] = await Promise.all([api('GET', '/api/publish/accounts'), api('GET', `/api/renders?p=${enc(S.proj)}`), api('GET', `/api/thumb/list?p=${enc(S.proj)}`).catch(() => [])]);
   const vertical = S.project.settings.aspect === '9:16';
   const pages = acc.meta.pages, igPages = pages.filter((p) => p.ig);
   body.innerHTML = `
-    <details class="pub-acc"${acc.youtube.connected || acc.meta.connected ? '' : ' open'}><summary>Accounts: ${acc.youtube.connected ? `▶ ${esc(acc.youtube.channel || 'YouTube')}` : '▶ YouTube not connected'} · ${acc.meta.connected ? `f ${pages.length} Page${pages.length > 1 ? 's' : ''}${igPages.length ? ` · ◎ ${igPages.map((p) => `@${esc(p.ig.username)}`).join(', ')}` : ''}` : 'f / ◎ not connected'}</summary>
+    <details class="pub-acc"${acc.youtube.connected || acc.meta.connected ? '' : ' open'}><summary>Accounts: ${acc.youtube.connected ? `${esc(acc.youtube.channel || 'YouTube')}` : 'YouTube not connected'} · ${acc.meta.connected ? `f ${pages.length} Page${pages.length > 1 ? 's' : ''}${igPages.length ? ` · ◎ ${igPages.map((p) => `@${esc(p.ig.username)}`).join(', ')}` : ''}` : 'f / ◎ not connected'}</summary>
       <div class="pub-grid">
-        <div><h4>▶ YouTube</h4>${acc.youtube.connected ? `<p class="good">Connected: ${esc(acc.youtube.channel || 'channel')}</p><button class="small" data-disc="youtube">Disconnect</button>` : `
+        <div><h4>YouTube</h4>${acc.youtube.connected ? `<p class="good">Connected: ${esc(acc.youtube.channel || 'channel')}</p><button class="small" data-disc="youtube">Disconnect</button>` : `
           <ol class="muted small"><li>console.cloud.google.com → new project → enable <b>YouTube Data API v3</b>.</li><li>OAuth consent screen (External, add yourself as test user), then Credentials → <b>OAuth client ID</b> → type <b>Desktop app</b>.</li><li>Paste its Client ID and secret here, press Connect and sign in.</li></ol>
           <label class="fld"><span>Client ID</span><input data-ycid placeholder="…apps.googleusercontent.com"></label><label class="fld"><span>Client secret</span><input data-ycs type="password"></label>
           <button class="small primary" data-ycon>Connect YouTube</button>`}</div>
@@ -33,12 +33,12 @@ export async function openPublish() {
         <label class="fld"><span>Title</span><input data-title maxlength="100" value="${esc(S.project.name)}"></label>
         <label class="fld"><span>Description / caption</span><textarea data-desc rows="5" placeholder="What is it about, links, credits…"></textarea></label>
         <label class="fld"><span>Hashtags</span><input data-tags placeholder="#ViksitBharat #MyBharat"></label>
-        <div class="row-in"><label class="fld grow"><span>Thumbnail (YouTube, Facebook)</span><select data-thumb><option value="">None</option>${thumbs.map((t) => `<option>${esc(t.name)}</option>`).join('')}</select></label><button class="small" data-mkthumb>🖼 Make</button></div>
+        <div class="row-in"><label class="fld grow"><span>Thumbnail (YouTube, Facebook)</span><select data-thumb><option value="">None</option>${thumbs.map((t) => `<option>${esc(t.name)}</option>`).join('')}</select></label><button class="small" data-mkthumb>Make</button></div>
         <label class="fld"><span>Instagram cover frame at (seconds)</span><input data-cover type="number" min="0" step="0.5" placeholder="0"></label>
       </div>
       <div>
         <h4>Where</h4>
-        <label class="chk"><input type="checkbox" data-t="youtube"${acc.youtube.connected ? ' checked' : ' disabled'}> ▶ YouTube${vertical ? ' (as a Short)' : ''}</label>
+        <label class="chk"><input type="checkbox" data-t="youtube"${acc.youtube.connected ? ' checked' : ' disabled'}> YouTube${vertical ? ' (as a Short)' : ''}</label>
         <label class="fld"><span>YouTube visibility</span><select data-priv><option value="public">Public</option><option value="unlisted">Unlisted</option><option value="private">Private</option></select></label>
         <label class="chk"><input type="checkbox" data-t="facebook"${pages.length ? '' : ' disabled'}> f Facebook Page</label>
         <select data-fbpage>${pages.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>
@@ -48,7 +48,7 @@ export async function openPublish() {
         <label class="chk"><input type="radio" name="when" value="now" checked> Now</label>
         <label class="chk"><input type="radio" name="when" value="later"> Later: <input type="datetime-local" data-at></label>
         <p class="muted small">YouTube and Facebook upload now and go live at that time on their own. Instagram is posted by this editor at that time - keep it running.</p>
-        <button class="primary big wide" data-go>🚀 Publish</button>
+        <button class="primary big wide" data-go>Publish</button>
       </div>
     </div>
     <h4>Uploads</h4><div class="dv-list" data-hist></div>`;
@@ -56,7 +56,7 @@ export async function openPublish() {
     const list = await api('GET', `/api/publish/list?p=${enc(S.proj)}`).catch(() => []);
     $('[data-hist]', body).innerHTML = list.map((x) => `<div class="dv-q-item ${x.state === 'done' ? 'done' : x.state === 'failed' ? 'failed' : x.state === 'uploading' ? 'rendering' : ''}">
       <div class="dv-q-top"><span class="grow"><b>${ICON[x.platform]}</b> · ${esc(x.title)} <span class="muted small">${esc(x.render)}</span></span><span class="muted small">${STATE[x.state]}${x.publishAt ? ` · goes live ${new Date(x.publishAt).toLocaleString()}` : ''}</span>
-      ${x.state === 'done' && x.result?.url ? `<a href="${esc(x.result.url)}" target="_blank" rel="noopener">Open ↗</a>` : ''}${['waiting', 'scheduled'].includes(x.state) ? `<button class="link small" data-pc="${x.id}">✕</button>` : ''}${x.state === 'failed' ? `<button class="link small" data-pr="${x.id}" title="Try again">⟳</button>` : ''}</div>
+      ${x.state === 'done' && x.result?.url ? `<a href="${esc(x.result.url)}" target="_blank" rel="noopener">Open </a>` : ''}${['waiting', 'scheduled'].includes(x.state) ? `<button class="link small" data-pc="${x.id}">✕</button>` : ''}${x.state === 'failed' ? `<button class="link small" data-pr="${x.id}" title="Try again">⟳</button>` : ''}</div>
       ${x.state === 'uploading' ? `<div class="bar"><div style="width:${Math.max(3, x.progress)}%"></div></div>` : ''}${x.error ? `<div class="warn small">${esc(x.error)}</div>` : ''}${x.result?.note ? `<div class="muted small">${esc(x.result.note)}</div>` : ''}</div>`).join('') || '<div class="muted">Nothing published from this project yet.</div>';
     clearTimeout(timer);
     if (list.some((x) => ['waiting', 'uploading', 'scheduled'].includes(x.state)) && dlg.el.isConnected) timer = setTimeout(draw, 2000);

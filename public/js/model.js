@@ -636,8 +636,8 @@ export const KEYABLE = {
   opacity: { label: 'Opacity', def: 1 },
   volume: { label: 'Volume', def: 1 },
   // where a Fill-framed picture is cut (0 = left / top edge, 1 = right / bottom): keyed by 🎯 Follow faces
-  cropX: { label: 'Crop position ↔', def: 0.5 },
-  cropY: { label: 'Crop position ↕', def: 0.5 },
+  cropX: { label: 'Crop position ', def: 0.5 },
+  cropY: { label: 'Crop position ', def: 0.5 },
 };
 export const EASES = [['', 'Linear'], ['io', 'Smooth (ease in + out)'], ['in', 'Ease in (starts slow)'], ['out', 'Ease out (ends slow)'], ['hold', 'Hold (jump)']];
 const easeFn = (e, u) => (e === true || e === 'io' ? u * u * (3 - 2 * u) : e === 'in' ? u * u : e === 'out' ? 1 - (1 - u) * (1 - u) : e === 'hold' ? 0 : u);

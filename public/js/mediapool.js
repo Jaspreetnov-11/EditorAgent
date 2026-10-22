@@ -27,15 +27,15 @@ export function mountPool(el, { big = false } = {}) {
     <button class="accent small" data-a="folder" title="Import every clip in a folder (files are not copied)">+ Folder</button>
     <button class="small" data-a="upload" title="Upload files (music, logo, VO...)">Upload</button>
     <button class="small" data-a="newitem" title="New item: Sequence, Adjustment Layer, Color Matte, Black Video, Title">＋ New ▾</button>
-    <button class="small" data-a="batch" title="Batch: subtitles, transcripts, scans or renders for many clips at once - now or overnight; watch a folder for new footage">⚙ Batch</button>
-    <button class="small" data-a="smart" title="Smart footage: shot tags, find a shot by what it shows (jharna dikhao), near-copies and bad clips, match cameras">🧠 Smart</button>
-    <button class="small" data-a="archive" title="Search all the old footage on the NAS / drives (every project) by what it shows, and bring a shot in">📦 Archive</button>
+    <button class="small" data-a="batch" title="Batch: subtitles, transcripts, scans or renders for many clips at once - now or overnight; watch a folder for new footage">Batch</button>
+    <button class="small" data-a="smart" title="Smart footage: shot tags, find a shot by what it shows (jharna dikhao), near-copies and bad clips, match cameras">Smart</button>
+    <button class="small" data-a="archive" title="Search all the old footage on the NAS / drives (every project) by what it shows, and bring a shot in">Archive</button>
     <input type="file" multiple hidden data-file accept="video/*,audio/*,image/*,.mxf,.mts,.m2ts,.mpeg,.cube,.srt">
     <span class="grow"></span>
     <span class="pool-q" data-q></span>
   </div>
   <div class="pool-filters">
-    <div class="row-in"><input type="search" placeholder="Search names / tags - Enter: by picture" data-search aria-label="Search media"><button class="icon-btn small" data-a="find" title="Find by what the picture shows (jharna dikhao, crowd at night…)" aria-label="Find by picture">🔎</button></div>
+    <div class="row-in"><input type="search" placeholder="Search names / tags - Enter: by picture" data-search aria-label="Search media"><button class="icon-btn small" data-a="find" title="Find by what the picture shows (jharna dikhao, crowd at night…)" aria-label="Find by picture"></button></div>
     <div class="bin-chips" data-bins role="tablist" aria-label="Folders"></div>
     <div class="chips tagchips" data-tags hidden></div>
     <div class="chips">${['all', 'video', 'audio', 'image'].map((f) => `<button class="chip" data-f="${f}">${{ all: 'All', video: 'Video', audio: 'Audio', image: 'Photos' }[f]}</button>`).join('')}</div>
@@ -44,7 +44,7 @@ export function mountPool(el, { big = false } = {}) {
   <div class="pool-foot" data-foot hidden>
     <span data-selinfo></span><span class="grow"></span>
     <button class="small accent" data-a="append">Add to timeline</button>
-    <button class="small danger" data-a="remove" title="Delete the selected files from this project (Delete key) - files on the disk stay">🗑 Delete</button>
+    <button class="small danger" data-a="remove" title="Delete the selected files from this project (Delete key) - files on the disk stay">Delete</button>
   </div>`;
   const fileIn = $('[data-file]', el);
   el.addEventListener('click', async (e) => {
@@ -144,8 +144,8 @@ export function mountPool(el, { big = false } = {}) {
     const menu = h(`<div class="ctx" role="menu">
       <button data-c="src">Open in source viewer</button><button data-c="append">Add to end of timeline</button>
       <button data-c="logo"${m.kind !== 'image' ? ' hidden' : ''}>Use as logo</button><hr>
-      <button data-c="newseq"${m.kind === 'audio' ? ' hidden' : ''}>🎞 New sequence from clip${poolSel.size > 1 ? `s (${poolSel.size})` : ''}</button><button data-c="subclip"${m.kind === 'video' || m.kind === 'audio' ? '' : ' hidden'}>Make subclip (Source In - Out)</button><button data-c="label">Label colour…</button><button data-c="interpret"${m.kind === 'video' ? '' : ' hidden'}>Interpret footage (frame rate)…</button><hr><button data-c="tobin">Move to folder…</button><button data-c="copydir">📋 Copy folder path</button>${IS_EDITOR_PC ? '<button data-c="reveal">📂 Reveal in Explorer</button>' : ''}<button data-c="path">Show file location</button><button data-c="redo">Re-read file</button><hr>
-      <button data-c="remove">🗑 Delete from project <kbd>Del</kbd></button></div>`);
+      <button data-c="newseq"${m.kind === 'audio' ? ' hidden' : ''}>New sequence from clip${poolSel.size > 1 ? `s (${poolSel.size})` : ''}</button><button data-c="subclip"${m.kind === 'video' || m.kind === 'audio' ? '' : ' hidden'}>Make subclip (Source In - Out)</button><button data-c="label">Label colour…</button><button data-c="interpret"${m.kind === 'video' ? '' : ' hidden'}>Interpret footage (frame rate)…</button><hr><button data-c="tobin">Move to folder…</button><button data-c="copydir">Copy folder path</button>${IS_EDITOR_PC ? '<button data-c="reveal">Reveal in Explorer</button>' : ''}<button data-c="path">Show file location</button><button data-c="redo">Re-read file</button><hr>
+      <button data-c="remove">Delete from project <kbd>Del</kbd></button></div>`);
     document.body.append(menu);
     menu.style.left = `${Math.min(e.clientX, innerWidth - 220)}px`; menu.style.top = `${Math.min(e.clientY, innerHeight - 240)}px`;
     const close = () => { menu.remove(); window.removeEventListener('pointerdown', out, true); };
@@ -157,7 +157,7 @@ export function mountPool(el, { big = false } = {}) {
       if (c === 'append') appendSelected();
       if (c === 'logo') { S.project.logo = { ...S.project.logo, mediaId: m.id }; commit('Logo'); toast('Logo set'); }
       if (c === 'tobin') {
-        const d = modal('Move to folder', `<div class="sm-list">${allBins().map((b) => `<button class="bchip" data-to="${esc(b)}">📁 ${esc(b)}</button>`).join('')}<button class="bchip" data-to="">(no folder)</button></div>
+        const d = modal('Move to folder', `<div class="sm-list">${allBins().map((b) => `<button class="bchip" data-to="${esc(b)}">${esc(b)}</button>`).join('')}<button class="bchip" data-to="">(no folder)</button></div>
           <div class="row-in" style="margin-top:10px"><input data-nb placeholder="or a new folder name"><button class="primary" data-mk>Move</button></div>`, { width: 420 });
         d.el.onclick = (ev2) => {
           const t = ev2.target.closest('[data-to]');
@@ -172,7 +172,7 @@ export function mountPool(el, { big = false } = {}) {
       if (c === 'label') pickLabel([...poolSel]);
       if (c === 'interpret') interpretFootage([...poolSel]);
       if (c === 'copydir') copyFolderPath(m.id);
-      if (c === 'path') modal('File location', `<p class="mono">${esc(m.path)}</p>${m.error ? `<p class="warn">⚠ ${esc(m.error)}</p>` : ''}`);
+      if (c === 'path') modal('File location', `<p class="mono">${esc(m.path)}</p>${m.error ? `<p class="warn">${esc(m.error)}</p>` : ''}`);
       if (c === 'redo') { await api('POST', `/api/media/reprocess?p=${enc(S.proj)}&id=${m.id}`); refreshMedia(); }
       if (c === 'remove') removeSelected();
     };
@@ -187,7 +187,7 @@ function renderAll() { pools.forEach(render); }
 function mName(m) {
   if (!m.seqOf || !S.project) return m.name;
   const s = seqList(S.project).find((x) => x.id === m.seqOf);
-  return s ? `🎞 ${s.name}` : m.name;
+  return s ? `${s.name}` : m.name;
 }
 
 const tagOk = (m, dups) => !tag || (tag === '!bad' ? !!m.bad?.length : tag === '!dup' ? dups.has(m.id) : m.tags?.includes(tag));
@@ -204,7 +204,7 @@ function renderNow(p) {
   if (bin && !bins.includes(bin)) bin = '';
   const inBin = (b) => S.media.filter((m) => (m.bin || '') === b || (m.bin || '').startsWith(`${b}/`)).length;
   $('[data-bins]', el).innerHTML = `<button class="bchip${bin ? '' : ' on'}" data-binc="" title="Every file of the project">All <i>${S.media.length}</i></button>`
-    + bins.map((b) => `<button class="bchip${b === bin ? ' on' : ''}" data-binc="${esc(b)}" data-drop title="${esc(b)} - click: open · double-click: rename · Delete key / right-click: delete · drop clips here to move them">📁 ${esc(b)} <i>${inBin(b)}</i></button>`).join('')
+    + bins.map((b) => `<button class="bchip${b === bin ? ' on' : ''}" data-binc="${esc(b)}" data-drop title="${esc(b)} - click: open · double-click: rename · Delete key / right-click: delete · drop clips here to move them">${esc(b)} <i>${inBin(b)}</i></button>`).join('')
     + '<button class="bchip add" data-binnew title="A new folder in this project (files stay where they are on the disk)">＋ New folder</button>';
   const q = S.queue, busy = q.quick + q.proxy;
   $('[data-q]', el).textContent = busy ? `Preparing ${q.quick ? `${q.quick} file${q.quick > 1 ? 's' : ''}` : ''}${q.quick && q.proxy ? ' · ' : ''}${q.proxy ? `${q.proxy} preview cop${q.proxy > 1 ? 'ies' : 'y'}` : ''}…` : `${S.media.length} items`;
@@ -215,7 +215,7 @@ function renderNow(p) {
   if (tagged.length) {
     const count = (t) => tagged.filter((m) => m.tags.includes(t)).length, nb = S.media.filter((m) => m.bad?.length).length, nd = S.media.filter((m) => dups.has(m.id)).length;
     tc.innerHTML = TAGS.filter(([t]) => count(t)).map(([t, l]) => `<button class="chip${tag === t ? ' on' : ''}" data-tag="${t}">${l} ${count(t)}</button>`).join('')
-      + (nb ? `<button class="chip warnchip${tag === '!bad' ? ' on' : ''}" data-tag="!bad" title="Too dark, soft, shaky or very short">⚠ ${nb}</button>` : '')
+      + (nb ? `<button class="chip warnchip${tag === '!bad' ? ' on' : ''}" data-tag="!bad" title="Too dark, soft, shaky or very short">${nb}</button>` : '')
       + (nd ? `<button class="chip${tag === '!dup' ? ' on' : ''}" data-tag="!dup" title="Near-identical clips">⧉ ${nd}</button>` : '');
   }
   // ⚡ Phase 18: a few hundred tiles at a time - 6000 files drawn in two pools made every timeline change ~95 ms slower
@@ -230,20 +230,20 @@ function renderNow(p) {
     const usedSet = usedIds(); // ⚡ once per draw (it was built again for every tile: 6000 files × 2000 clips)
     grid.innerHTML = list.map((m) => {
       const used = usedSet.has(m.id);
-      const st = m.status !== 'ready' ? `<span class="mi-st"${m.status === 'error' && m.error ? ` title="${esc(m.error)}"` : ''}>${m.status === 'offline' ? 'Offline' : m.status === 'error' ? '⚠ Cannot read' : 'Reading…'}</span>`
+      const st = m.status !== 'ready' ? `<span class="mi-st"${m.status === 'error' && m.error ? ` title="${esc(m.error)}"` : ''}>${m.status === 'offline' ? 'Offline' : m.status === 'error' ? 'Cannot read' : 'Reading…'}</span>`
         : m.kind === 'video' && m.proxy !== 'ready' && m.proxy !== 'none' ? `<span class="mi-st">${m.proxy === 'error' ? 'No preview' : `Preview ${m.proxyPct || 0}%`}</span>` : '';
       const res = m.width >= 3800 ? '4K' : m.width >= 2500 ? '2.7K' : m.height >= 1080 || m.width >= 1920 ? 'HD' : '';
-      return `<div class="mi${poolSel.has(m.id) ? ' sel' : ''}${m.status === 'offline' ? ' off' : ''}${m.label ? ' lab' : ''}" data-id="${m.id}" draggable="true"${m.label ? ` style="--lab:${m.label}"` : ''} title="${esc(mName(m))}${m.bin ? `\n${esc(m.bin)}` : ''}${m.tags ? `\n${esc(m.tags.join(' · '))}` : ''}${m.bad ? `\n⚠ ${esc(m.bad.join(', '))}` : ''}">
+      return `<div class="mi${poolSel.has(m.id) ? ' sel' : ''}${m.status === 'offline' ? ' off' : ''}${m.label ? ' lab' : ''}" data-id="${m.id}" draggable="true"${m.label ? ` style="--lab:${m.label}"` : ''} title="${esc(mName(m))}${m.bin ? `\n${esc(m.bin)}` : ''}${m.tags ? `\n${esc(m.tags.join(' · '))}` : ''}${m.bad ? `\n${esc(m.bad.join(', '))}` : ''}">
         <div class="mi-th k-${m.kind}" ${m.urls.thumb ? `style="background-image:url('${m.urls.thumb}')" data-thumb="${m.urls.thumb}"` : m.urls.wave ? `style="background-image:url('${m.urls.wave}');background-size:100% 70%"` : ''} ${m.urls.strip ? `data-strip="${m.urls.strip}"` : ''}>
           ${!m.urls.thumb && !m.urls.wave ? `<span class="mi-ic">${m.kind === 'audio' ? '♪' : '▣'}</span>` : ''}
-          ${m.subOf ? `<span class="mi-d" title="Subclip ${fmt(m.subIn)} - ${fmt(m.subOut)} of its file">✂ ${fmt(m.subOut - m.subIn)}</span>` : m.duration && m.kind !== 'image' ? `<span class="mi-d">${fmt(m.duration)}</span>` : ''}${res ? `<span class="mi-r">${res}</span>` : ''}${used ? '<span class="mi-u" title="Used in the timeline">●</span>' : ''}${st}
+          ${m.subOf ? `<span class="mi-d" title="Subclip ${fmt(m.subIn)} - ${fmt(m.subOut)} of its file">${fmt(m.subOut - m.subIn)}</span>` : m.duration && m.kind !== 'image' ? `<span class="mi-d">${fmt(m.duration)}</span>` : ''}${res ? `<span class="mi-r">${res}</span>` : ''}${used ? '<span class="mi-u" title="Used in the timeline">●</span>' : ''}${st}
         </div>
         <div class="mi-n">${m.bad ? '<b class="warn">⚠</b> ' : ''}${dups.has(m.id) ? '<b class="muted">⧉</b> ' : ''}${esc(mName(m))}</div></div>`;
     }).join('') || '<div class="pool-empty">Nothing matches</div>';
     if (all.length > list.length) grid.insertAdjacentHTML('beforeend', `<button class="pool-more" data-more>Show ${Math.min(POOL_STEP, all.length - list.length)} more <span class="muted">(${all.length - list.length} left - or search above)</span></button>`);
     // 🗂 files gone from their place (moved, drive unplugged): one click to find and link them again
     const off = S.media.filter((m) => m.status === 'offline'), offUsed = off.filter((m) => usedSet.has(m.id)).length;
-    if (off.length) grid.insertAdjacentHTML('afterbegin', `<button class="pool-off" data-relink>⚠ ${off.length} file${off.length > 1 ? 's' : ''} offline${offUsed ? ` (${offUsed} on the timeline)` : ''} - 🔗 Relink</button>`);
+    if (off.length) grid.insertAdjacentHTML('afterbegin', `<button class="pool-off" data-relink>${off.length} file${off.length > 1 ? 's' : ''} offline${offUsed ? ` (${offUsed} on the timeline)` : ''} - Relink</button>`);
   }
   const foot = $('[data-foot]', el);
   foot.hidden = !poolSel.size;
@@ -292,7 +292,7 @@ async function moveToBin(ids, b) {
   if (!ids.length) return;
   await api('POST', `/api/media/bin?p=${enc(S.proj)}`, { ids, bin: b });
   await refreshMedia();
-  toast(b ? `${ids.length} file${ids.length > 1 ? 's' : ''} moved to 📁 ${b}` : `${ids.length} file${ids.length > 1 ? 's' : ''} taken out of their folder`);
+  toast(b ? `${ids.length} file${ids.length > 1 ? 's' : ''} moved to ${b}` : `${ids.length} file${ids.length > 1 ? 's' : ''} taken out of their folder`);
 }
 function newBin() {
   const n = cleanName(prompt('New folder name (e.g. Interviews, Drone, B-roll)'));
@@ -316,7 +316,7 @@ async function renameBin(b) {
 function binMenu(b, x, y) {
   const menu = h(`<div class="ctx" role="menu"><button data-c="open">Open</button><button data-c="rename">Rename…</button>
     <button data-c="move"${poolSel.size ? '' : ' hidden'}>Move the ${poolSel.size} selected file${poolSel.size === 1 ? '' : 's'} here</button><hr>
-    <button data-c="remove">🗑 Delete folder…</button></div>`);
+    <button data-c="remove">Delete folder…</button></div>`);
   document.body.append(menu);
   menu.style.left = `${Math.min(x, innerWidth - 220)}px`; menu.style.top = `${Math.min(y, innerHeight - 180)}px`;
   const close = () => { menu.remove(); window.removeEventListener('pointerdown', out, true); };
@@ -387,7 +387,7 @@ export async function makeSubclip(id) {
   if (a === undefined || b === undefined || b - a < 0.05) return toast('Mark an In ( I ) and an Out ( O ) in the Source monitor first, then make the subclip', 'err');
   const name = prompt('Subclip name', `${(m.name || '').replace(/\.[^.]+$/, '')} - Subclip`);
   if (name === null) return;
-  try { const it = await api('POST', `/api/media/subclip?p=${enc(S.proj)}`, { mediaId: id, in: a, out: b, name }); await refreshMedia(); poolSel = new Set([it.id]); renderAll(); toast(`✂ Subclip "${it.name}" in Media (${fmt(b - a)})`); }
+  try { const it = await api('POST', `/api/media/subclip?p=${enc(S.proj)}`, { mediaId: id, in: a, out: b, name }); await refreshMedia(); poolSel = new Set([it.id]); renderAll(); toast(`Subclip "${it.name}" in Media (${fmt(b - a)})`); }
   catch (e) { toast(e.message, 'err'); }
 }
 // 🎞 Interpret Footage (like Premiere): the selected files play as if shot at another frame rate - 50 fps footage
@@ -611,7 +611,7 @@ export function pickFolder(title = 'Choose a folder', note = '', { only = '', st
       try {
         const r = await api('GET', `/api/fs?path=${enc(p || '')}`);
         cur = r.path; $('[data-path]', body).value = r.path;
-        $('[data-list]', body).innerHTML = r.dirs.map((d) => `<button class="fp-dir" data-dir="${esc(d.path)}">📁 ${esc(d.name)}</button>`).join('') || '<div class="muted pad">No sub-folders</div>';
+        $('[data-list]', body).innerHTML = r.dirs.map((d) => `<button class="fp-dir" data-dir="${esc(d.path)}">${esc(d.name)}</button>`).join('') || '<div class="muted pad">No sub-folders</div>';
         $('[data-info]', body).textContent = r.path ? `${only ? `On the NAS (${only}) · ` : ''}${r.mediaCount} media file${r.mediaCount === 1 ? '' : 's'} here (sub-folders are included too)` : 'Pick a drive or folder';
         $('[data-use]', body).disabled = !r.path;
         $('[data-up]', body).disabled = !r.path || (only && r.path.toLowerCase() === only.toLowerCase());

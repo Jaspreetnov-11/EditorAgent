@@ -7,7 +7,7 @@ import { $, esc, toast, modal } from './ui.js';
 let dlg = null;
 export function openHistory() {
   if (dlg?.el.isConnected) return;
-  dlg = modal('🕘 History', '<div class="hs-list" data-hs></div><p class="muted small">Click a step to go back to just after it. A new change clears the greyed steps.</p>', { width: 420, onClose: () => { dlg = null; } });
+  dlg = modal('History', '<div class="hs-list" data-hs></div><p class="muted small">Click a step to go back to just after it. A new change clears the greyed steps.</p>', { width: 420, onClose: () => { dlg = null; } });
   draw();
   dlg.el.addEventListener('click', (e) => {
     const b = e.target.closest('[data-hs-go]'); if (!b) return;

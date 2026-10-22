@@ -28,7 +28,7 @@ export function guarded(el, label, fn) {
   catch (e) {
     reportError(label, e);
     if (el && el.isConnected !== false) {
-      el.innerHTML = `<div class="panel-err"><b>⚠ ${label} could not be shown</b><span>The problem was written to the editor's log. The rest of the editor works.</span><button class="small" data-panel-retry>↻ Reload panel</button></div>`;
+      el.innerHTML = `<div class="panel-err"><b>${label} could not be shown</b><span>The problem was written to the editor's log. The rest of the editor works.</span><button class="small" data-panel-retry>↻ Reload panel</button></div>`;
       el.querySelector('[data-panel-retry]').onclick = () => guarded(el, label, fn);
     }
     return undefined;

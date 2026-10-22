@@ -1298,7 +1298,7 @@ function createProject({ name, aspect, fps, place }) {
     const base = path.resolve(String(place)), dir = path.join(base, n);
     if (!fs.existsSync(base) && fs.existsSync(path.dirname(base))) try { fs.mkdirSync(base); } catch {} // (a new person's own folder)
     if (!fs.existsSync(base)) throw err(400, `Folder not found: ${base}`);
-    if (fs.existsSync(path.join(dir, 'project.json'))) throw err(409, `${dir} already has a project - use 📂 Open project folder on Home to add it`);
+    if (fs.existsSync(path.join(dir, 'project.json'))) throw err(409, `${dir} already has a project - use Open project folder on Home to add it`);
     try { fs.mkdirSync(dir, { recursive: true }); fs.accessSync(dir, fs.constants.W_OK); } catch (e) { throw err(400, `Cannot save in ${base} (${e.code || e.message}) - pick a folder you can write to`); }
     if (dir.toLowerCase() !== path.join(PROJECTS, n).toLowerCase()) setPlace(n, dir);
   }
@@ -1761,7 +1761,7 @@ function peopleToMedia(name, d, ids) {
 // change cache/people.json (name / join / remove) and keep media.json in step
 function editPeople(name, fn) {
   const f = P(name, 'cache', 'people.json'), d = readJSON(f, null);
-  if (!d) throw err(400, 'Run 🧠 Smart scan first - it finds the people in the footage');
+  if (!d) throw err(400, 'Run Smart scan first - it finds the people in the footage');
   const out = fn(d);
   writeJSON(f, d);
   peopleToMedia(name, d, new Set(mediaDb(name).items.filter((m) => m.people || d.text[m.id] || d.people.some((p) => p.media[m.id])).map((m) => m.id)));
@@ -3807,7 +3807,7 @@ const routes = {
     const en = toEnglishQuery(b.q);
     if (!en && !extra.length) throw err(400, 'Type what to look for');
     const ids = mediaDb(name).items.filter((m) => m.tags).map((m) => m.id);
-    if (!ids.length && !extra.length) throw err(400, 'Run 🧠 Smart scan once first - it lets the editor understand your footage');
+    if (!ids.length && !extra.length) throw err(400, 'Run Smart scan once first - it lets the editor understand your footage');
     const r = en && ids.length ? await footageWorker().send({ cmd: 'search', cacheDir: P(name, 'cache', 'agent', 'emb'), ids, q: en, top: 40 }) : { results: [] };
     const seen = new Set(extra.map((x) => x.id));
     return { q: en || String(b.q), results: [...extra, ...r.results.filter((x) => !seen.has(x.id))] };
@@ -3862,7 +3862,7 @@ const routes = {
   'POST /api/quotes': async (req, res, u) => {
     const name = needProject(q(u, 'p')), b = await readJson(req), want = b.ids?.length ? new Set(b.ids) : null;
     const items = mediaDb(name).items.filter((m) => (!want || want.has(m.id)) && fs.existsSync(P(name, 'cache', 'transcripts', `${m.id}.json`)));
-    if (!items.length) throw err(400, 'No transcripts yet - make one first (Text page, or ⚙ Batch › Transcript)');
+    if (!items.length) throw err(400, 'No transcripts yet - make one first (Text page, or Batch › Transcript)');
     return startTask('quotes', async (job) => {
       const n = Math.max(3, Math.min(40, Math.round(+b.n || 12)));
       const lines = [];
@@ -4296,7 +4296,7 @@ const routes = {
         const exe = claudeExe();
         const ans = exe ? await claudeAsk(exe, QC.spellPrompt(titles), CLAUDE_BACKUP(), job) : { ok: false };
         rep = QC.addSpelling(rep, titles, ans.ok ? ans.text : '');
-      } else if (b.spell) rep.items.push({ level: 'ok', kind: 'spell', text: '✍ No titles to check' });
+      } else if (b.spell) rep.items.push({ level: 'ok', kind: 'spell', text: 'No titles to check' });
       rep = { ...rep, file: path.basename(file), preview: !b.file, dur: a.info.dur, size: `${a.info.w}×${a.info.h}`, at: Date.now() };
       if (b.file) try { writeJSON(`${file}.qc.json`, rep); } catch {}
       return rep;

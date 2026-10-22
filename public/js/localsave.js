@@ -5,7 +5,7 @@ const DB = 've-local', STORE = 'h';
 export const localSaveAvailable = () => typeof window.showDirectoryPicker === 'function';
 export const whyNoLocal = () => (window.isSecureContext
   ? 'This browser cannot save into a folder (use Chrome or Edge).'
-  : 'Saving straight into a folder of this PC needs the secure link https://editor.limelightcorp.in (being set up) - or, once, in Chrome on this PC: chrome://flags → "Insecure origins treated as secure" → add this editor\'s address → Relaunch. Until then use ⬇ Download.');
+  : 'Saving straight into a folder of this PC needs the secure link https://editor.limelightcorp.in (being set up) - or, once, in Chrome on this PC: chrome://flags → "Insecure origins treated as secure" → add this editor\'s address → Relaunch. Until then use Download.');
 
 const idb = () => new Promise((ok, bad) => { const r = indexedDB.open(DB, 1); r.onupgradeneeded = () => r.result.createObjectStore(STORE); r.onsuccess = () => ok(r.result); r.onerror = () => bad(r.error); });
 async function put(k, v) { const d = await idb(); return new Promise((ok, bad) => { const t = d.transaction(STORE, 'readwrite'); t.objectStore(STORE).put(v, k); t.oncomplete = ok; t.onerror = () => bad(t.error); }); }

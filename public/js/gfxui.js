@@ -30,14 +30,14 @@ function made(tpl) {
 function respFields(g) {
   const out = [];
   if (pinOk(g)) {
-    out.push({ type: 'section', label: '📌 Responsive - position' }, { k: 'pin', label: 'Pin to', type: 'select', options: PINS });
-    if (g.pin) out.push({ k: 'pinMX', label: 'Margin ↔ (% of width)', type: 'range', min: -20, max: 40, step: 0.5, def: 0 },
-      { k: 'pinMY', label: 'Margin ↕ (% of height)', type: 'range', min: -20, max: 40, step: 0.5, def: 0 },
+    out.push({ type: 'section', label: 'Responsive - position' }, { k: 'pin', label: 'Pin to', type: 'select', options: PINS });
+    if (g.pin) out.push({ k: 'pinMX', label: 'Margin (% of width)', type: 'range', min: -20, max: 40, step: 0.5, def: 0 },
+      { k: 'pinMY', label: 'Margin (% of height)', type: 'range', min: -20, max: 40, step: 0.5, def: 0 },
       { k: 'pinSafe', label: 'Keep inside title safe', type: 'check', def: true }, { k: 'pinW', label: 'Scale with frame width', type: 'check' });
   }
   if (rtimeOk(g)) {
     const [i, o] = rtimeOf({ ...g, intro: undefined, outro: undefined });
-    out.push({ type: 'section', label: '⏱ Responsive - time' }, { k: 'rtime', label: 'Keep intro / outro when stretched', type: 'check' });
+    out.push({ type: 'section', label: 'Responsive - time' }, { k: 'rtime', label: 'Keep intro / outro when stretched', type: 'check' });
     if (g.rtime) out.push({ k: 'intro', label: 'Intro', type: 'num', min: 0, step: 0.1, unit: 'sec', ph: String(i) }, { k: 'outro', label: 'Outro', type: 'num', min: 0, step: 0.1, unit: 'sec', ph: String(o) });
   }
   return out;
@@ -50,9 +50,9 @@ export function openGraphics() {
   const [W, H] = frameSize(), pw = 220, ph = Math.round((pw * H) / W);
   const tile = ([k, x]) => `<button class="gfx-pick" data-tpl="${k}"><canvas width="${W}" height="${H}" style="width:${pw}px;height:${ph}px"></canvas><span>${esc(x.label)}</span></button>`;
   const all = Object.entries(GFX), b = brandOf(S.project);
-  const dlg = modal('🎬 Motion graphics', `<h4>🎬 Motion templates <span class="muted small">${b ? "- 🏷 the brand kit's colours, font and logo are applied automatically" : "- set a brand kit (🏷) and its colours and logo are applied automatically"}</span></h4>
+  const dlg = modal('Motion graphics', `<h4>Motion templates <span class="muted small">${b ? "- the brand kit's colours, font and logo are applied automatically" : "- set a brand kit () and its colours and logo are applied automatically"}</span></h4>
     <div class="gfx-grid">${all.filter(([, x]) => x.motion).map(tile).join('')}</div>
-    <h4>📊 Data graphics <span class="muted small">- numbers, charts, callouts</span></h4>
+    <h4>Data graphics <span class="muted small">- numbers, charts, callouts</span></h4>
     <div class="gfx-grid">${all.filter(([, x]) => !x.motion).map(tile).join('')}</div>
     <p class="muted small">Placed at the playhead on a free overlay track. Change words, colours and style in Effect Controls. What you see in the viewer is what renders.</p>`, { width: 1000 });
   const preview = () => $$('[data-tpl]', dlg.el).forEach((el) => { const g = made(el.dataset.tpl), d = GFX[el.dataset.tpl].dur; drawGraphic(el.querySelector('canvas').getContext('2d'), W, H, g, Math.max(0.1, d * 0.62), d); });
@@ -92,7 +92,7 @@ export function addTextAt(x, y) {
 export function gfxInspector(c) {
   const g = c.gfx || {};
   // 🎬 a Motion comp: edited on the Motion page
-  if (g.tpl === 'comp' || g.tpl === 'fusion') return `<div class="isec"><p><b>${g.tpl === 'fusion' ? `✨ ${esc(g.fusion?.name || 'Fusion')}</b> <span class="muted small">- ${g.fusion?.nodes?.length || 0} nodes</span>` : `🎬 ${esc(g.comp?.name || 'Composition')}</b> <span class="muted small">- ${g.comp?.layers?.length || 0} layers</span>`}</p>
+  if (g.tpl === 'comp' || g.tpl === 'fusion') return `<div class="isec"><p><b>${g.tpl === 'fusion' ? `${esc(g.fusion?.name || 'Fusion')}</b> <span class="muted small">- ${g.fusion?.nodes?.length || 0} nodes</span>` : `${esc(g.comp?.name || 'Composition')}</b> <span class="muted small">- ${g.comp?.layers?.length || 0} layers</span>`}</p>
     <button class="accent" data-open-comp>${g.tpl === 'fusion' ? 'Open in Fusion' : 'Open in Motion'}</button><div class="fgrid">${fieldsHTML([{ k: 'start', label: 'Starts at', type: 'time', fmt, ph: '0:00.0' }], c)}</div>
     <small class="hint">Changes made to the comp on the Motion page update this clip. Double-click the clip to open it there.</small></div>`;
   return `<div class="isec"><div class="fgrid">${fieldsHTML([
@@ -121,7 +121,7 @@ export function bindGfxInspector(root, id, render) {
       // 📌 pinned on this frame shape (what "scale with frame width" measures against); the panel shows the pin's settings
       if (k === 'pin') { if (v && !c.gfx.pinRef) c.gfx.pinRef = frameSize().slice(); commit('Pin graphic', `gfx-${id}-${k}`); render(); return; }
       if (k === 'rtime' || k === 'pos') { commit('Edit graphic', `gfx-${id}-${k}`); render(); return; }
-      if (k === 'theme' && v === 'brand') { c.gfx.brand = brandOf(S.project) || { primary: '#0b2545', accent: '#ff9933', text: '#ffffff' }; if (!c.gfx.font && S.project.brand?.font) c.gfx.font = S.project.brand.font; if (!brandOf(S.project)) toast('No brand kit set - choose colours in 🏷 Brand kit; MyGov colours are used for now'); render(); }
+      if (k === 'theme' && v === 'brand') { c.gfx.brand = brandOf(S.project) || { primary: '#0b2545', accent: '#ff9933', text: '#ffffff' }; if (!c.gfx.font && S.project.brand?.font) c.gfx.font = S.project.brand.font; if (!brandOf(S.project)) toast('No brand kit set - choose colours in Brand kit; MyGov colours are used for now'); render(); }
       commit('Edit graphic', `gfx-${id}-${k}`);
     },
   });

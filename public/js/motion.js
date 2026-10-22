@@ -304,14 +304,14 @@ function drawText(ctx, L, t) {
 }
 // ready-made text animators (AE's Animation Presets > Text)
 export const TEXT_ANIMS = {
-  typewriter: { name: '⌨ Typewriter', make: (d) => ({ name: 'Typewriter', props: { opacity: 0 }, range: { by: 'char', shape: 'square', start: { k: [{ t: 0, v: 0, e: [...EASE.linear] }, { t: d, v: 100, e: [...EASE.linear] }] }, end: 100 } }) },
-  fadeUp: { name: '⬆ Fade up by letter', make: (d) => ({ name: 'Fade up', props: { opacity: 0, position: [0, 60] }, range: { by: 'char', shape: 'rampUp', start: { k: [{ t: 0, v: 0, e: [...EASE.easyOut] }, { t: d, v: 100, e: [...EASE.linear] }] }, end: 100, offset: 0 } }) },
-  popWords: { name: '💥 Pop in words', make: (d) => ({ name: 'Pop words', props: { scale: 0, opacity: 0 }, range: { by: 'word', shape: 'rampUp', start: { k: [{ t: 0, v: 0, e: [...EASE.overshoot] }, { t: d, v: 100, e: [...EASE.linear] }] }, end: 100 } }) },
-  slideLines: { name: '➡ Slide in lines', make: (d) => ({ name: 'Slide lines', props: { position: [-300, 0], opacity: 0 }, range: { by: 'line', shape: 'rampUp', start: { k: [{ t: 0, v: 0, e: [...EASE.easyOut] }, { t: d, v: 100, e: [...EASE.linear] }] }, end: 100 } }) },
-  blurIn: { name: '🌫 Blur in', make: (d) => ({ name: 'Blur in', props: { blur: 30, opacity: 0, scale: 160 }, range: { by: 'char', shape: 'rampUp', start: { k: [{ t: 0, v: 0, e: [...EASE.easyOut] }, { t: d, v: 100, e: [...EASE.linear] }] }, end: 100 } }) },
-  wave: { name: '〰 Wave', make: (d) => ({ name: 'Wave', props: { position: [0, -50] }, range: { by: 'char', shape: 'smooth', start: 0, end: 30, offset: { k: [{ t: 0, v: -30, e: [...EASE.linear] }, { t: d, v: 100, e: [...EASE.linear] }] } } }) },
-  colorSweep: { name: '🎨 Colour sweep', make: (d) => ({ name: 'Colour sweep', props: { fill: '#ff9933' }, range: { by: 'char', shape: 'smooth', start: 0, end: 25, offset: { k: [{ t: 0, v: -25, e: [...EASE.linear] }, { t: d, v: 100, e: [...EASE.linear] }] } } }) },
-  tracking: { name: '↔ Tracking in', make: (d) => ({ name: 'Tracking', props: { opacity: 0, position: [0, 0], scale: 100 }, range: { by: 'char', shape: 'square', start: 0, end: 100 }, trackIn: true, d }) },
+  typewriter: { name: 'Typewriter', make: (d) => ({ name: 'Typewriter', props: { opacity: 0 }, range: { by: 'char', shape: 'square', start: { k: [{ t: 0, v: 0, e: [...EASE.linear] }, { t: d, v: 100, e: [...EASE.linear] }] }, end: 100 } }) },
+  fadeUp: { name: 'Fade up by letter', make: (d) => ({ name: 'Fade up', props: { opacity: 0, position: [0, 60] }, range: { by: 'char', shape: 'rampUp', start: { k: [{ t: 0, v: 0, e: [...EASE.easyOut] }, { t: d, v: 100, e: [...EASE.linear] }] }, end: 100, offset: 0 } }) },
+  popWords: { name: 'Pop in words', make: (d) => ({ name: 'Pop words', props: { scale: 0, opacity: 0 }, range: { by: 'word', shape: 'rampUp', start: { k: [{ t: 0, v: 0, e: [...EASE.overshoot] }, { t: d, v: 100, e: [...EASE.linear] }] }, end: 100 } }) },
+  slideLines: { name: 'Slide in lines', make: (d) => ({ name: 'Slide lines', props: { position: [-300, 0], opacity: 0 }, range: { by: 'line', shape: 'rampUp', start: { k: [{ t: 0, v: 0, e: [...EASE.easyOut] }, { t: d, v: 100, e: [...EASE.linear] }] }, end: 100 } }) },
+  blurIn: { name: 'Blur in', make: (d) => ({ name: 'Blur in', props: { blur: 30, opacity: 0, scale: 160 }, range: { by: 'char', shape: 'rampUp', start: { k: [{ t: 0, v: 0, e: [...EASE.easyOut] }, { t: d, v: 100, e: [...EASE.linear] }] }, end: 100 } }) },
+  wave: { name: 'Wave', make: (d) => ({ name: 'Wave', props: { position: [0, -50] }, range: { by: 'char', shape: 'smooth', start: 0, end: 30, offset: { k: [{ t: 0, v: -30, e: [...EASE.linear] }, { t: d, v: 100, e: [...EASE.linear] }] } } }) },
+  colorSweep: { name: 'Colour sweep', make: (d) => ({ name: 'Colour sweep', props: { fill: '#ff9933' }, range: { by: 'char', shape: 'smooth', start: 0, end: 25, offset: { k: [{ t: 0, v: -25, e: [...EASE.linear] }, { t: d, v: 100, e: [...EASE.linear] }] } } }) },
+  tracking: { name: 'Tracking in', make: (d) => ({ name: 'Tracking', props: { opacity: 0, position: [0, 0], scale: 100 }, range: { by: 'char', shape: 'square', start: 0, end: 100 }, trackIn: true, d }) },
 };
 
 // ---------------- masks, mattes, effects ----------------
@@ -447,7 +447,7 @@ export const videoLayers = (comp, t) => (comp?.layers || []).filter((l) => l.typ
 const K = (pairs, e = EASE.easy) => ({ k: pairs.map(([t, v]) => ({ t, v, e: [...e] })) });
 export const COMP_PRESETS = {
   blank: { name: 'Empty composition', make: (w, h) => newComp('Comp', w, h, 5) },
-  title: { name: '🅰 Title reveal (mask wipe + tracking)', make: (w, h) => {
+  title: { name: 'Title reveal (mask wipe + tracking)', make: (w, h) => {
     const c = newComp('Title reveal', w, h, 5);
     const bar = newLayer('shape', c, { name: 'Accent bar' });
     Object.assign(bar.shape, { size: [Math.round(w * 0.5), 10], roundness: 5, fill: '#ff9933' });
@@ -474,7 +474,7 @@ export const COMP_PRESETS = {
     c.layers = [tx, ac, box];
     return c;
   } },
-  logo: { name: '✴ Logo sting (ring draw + pop)', make: (w, h) => {
+  logo: { name: 'Logo sting (ring draw + pop)', make: (w, h) => {
     const c = newComp('Logo sting', w, h, 4);
     const ring = newLayer('shape', c, { name: 'Ring' });
     Object.assign(ring.shape, { kind: 'ellipse', size: [420, 420], fillOn: false, strokeW: 14, stroke: '#ff9933' });
@@ -488,7 +488,7 @@ export const COMP_PRESETS = {
     c.layers = [tx, dot, ring];
     return c;
   } },
-  kinetic: { name: '💬 Kinetic words (pop + wave)', make: (w, h) => {
+  kinetic: { name: 'Kinetic words (pop + wave)', make: (w, h) => {
     const c = newComp('Kinetic words', w, h, 5);
     const tx = newLayer('text', c, { name: 'Words' });
     Object.assign(tx.text, { text: 'नशा मुक्त\nभारत', size: 170 });

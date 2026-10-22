@@ -18,9 +18,9 @@ export function mountNotesPanel(el) {
     <div class="nt-add"><textarea data-ntext rows="2" placeholder="Note at the playhead… (Shift+M)" aria-label="New note"></textarea>
       <div class="nt-row"><span class="muted small" data-nat></span><span class="grow"></span><button class="small primary" data-a="add">Add note</button></div></div>
     <div class="nt-row nt-tools"><label class="chk small"><input type="checkbox" data-done> Show done</label><span class="grow"></span>
-      <button class="small" data-a="versions" title="Earlier versions of this edit - go back, or bring one in as a sequence">🕘 Versions</button>
-      <button class="small" data-a="share" title="Watch the renders on a phone on the same Wi-Fi and send notes from there">📱 Phone</button>
-      <button class="small" data-a="send" title="Send a finished render to a client: a link they open anywhere, comment on and approve">📤 Review</button></div>
+      <button class="small" data-a="versions" title="Earlier versions of this edit - go back, or bring one in as a sequence">Versions</button>
+      <button class="small" data-a="share" title="Watch the renders on a phone on the same Wi-Fi and send notes from there">Phone</button>
+      <button class="small" data-a="send" title="Send a finished render to a client: a link they open anywhere, comment on and approve">Review</button></div>
     <div class="crv-strip" data-crv hidden></div>
     <div class="nt-list" data-list></div></div>`;
   const ta = $('[data-ntext]', el);
@@ -60,9 +60,9 @@ function drawNow() {
       <div class="grow" data-edit="${n.id}" title="Double-click to edit">${esc(n.note)}<div class="muted small">${n.phone ? '📱 ' : n.client ? '💬 ' : ''}${esc(n.by || 'You')}${n.client && n.version ? ` · Version ${n.version}` : ''}${n.render ? ` · on ${esc(n.render)}` : ''}</div></div>
       <button class="icon-btn small" data-tick="${n.id}" title="${n.done ? 'Mark as not done' : 'Done'}" aria-label="Done">${n.done ? '↺' : '✓'}</button>
       <button class="icon-btn small" data-del="${n.id}" title="Delete note" aria-label="Delete note">✕</button></div>`).join('')
-    || `<div class="muted pad">${all.length ? 'All notes are done ✓' : 'No notes yet. Pause where something needs a change and write it here - it shows on the timeline ruler. Notes from a phone (📱) land here too.'}</div>`;
+    || `<div class="muted pad">${all.length ? 'All notes are done ✓' : 'No notes yet. Pause where something needs a change and write it here - it shows on the timeline ruler. Notes from a phone () land here too.'}</div>`;
   const tab = document.querySelector('[data-ptab="notes"]');
-  if (tab) tab.textContent = open ? `📝 ${open}` : '📝';
+  if (tab) tab.textContent = open ? `${open}` : '📝';
 }
 
 export function addNote(text) {
@@ -86,7 +86,7 @@ export function watchPhoneNotes() {
         (S.project.markers ||= []).push(...got.map((n) => ({ ...n, id: n.id || uid() })));
         commit(`${got.length} note${got.length > 1 ? 's' : ''} from phone`);
         const ph = got.filter((n) => !n.client); // (a client's comments get their own toast - watchClientNews)
-        if (ph.length) toast(`📱 ${ph.length} new note${ph.length > 1 ? 's' : ''} from ${[...new Set(ph.map((n) => n.by))].join(', ')} - see 📝 Notes`);
+        if (ph.length) toast(`${ph.length} new note${ph.length > 1 ? 's' : ''} from ${[...new Set(ph.map((n) => n.by))].join(', ')} - see Notes`);
         if (got.length > ph.length) drawReviews();
       }
     } catch {}
@@ -99,7 +99,7 @@ export function watchPhoneNotes() {
 // ---------------- 🕘 versions ----------------
 const ago = (ms) => { const s = (Date.now() - ms) / 1000; return s < 90 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : new Date(ms).toLocaleString(); };
 export async function openVersions() {
-  const dlg = modal('🕘 Versions', `<p class="muted">The editor keeps a backup every few minutes while you work (the last 40). Save a version with a name to keep it for good - e.g. "Sent to client", "Before music change".</p>
+  const dlg = modal('Versions', `<p class="muted">The editor keeps a backup every few minutes while you work (the last 40). Save a version with a name to keep it for good - e.g. "Sent to client", "Before music change".</p>
     <div class="row-in"><input data-vlabel placeholder="Name this version, e.g. Sent to client" aria-label="Version name"><button class="primary" data-vsave>Save version</button></div>
     <div class="ver-list" data-vlist><div class="muted pad">Loading…</div></div>`, { width: 660 });
   const draw = async () => {
@@ -108,7 +108,7 @@ export async function openVersions() {
       <span class="grow">${v.named ? `<b>★ ${esc(v.label)}</b> · ` : ''}${esc(ago(v.mtime))}<br><span class="muted small">${esc(v.seq)}${v.seqs > 1 ? ` (+${v.seqs - 1} more sequence${v.seqs > 2 ? 's' : ''})` : ''} · ${v.clips} clips · ${Math.floor(v.duration / 60)}:${String(Math.round(v.duration % 60)).padStart(2, '0')}</span></span>
       <button class="small" data-vseq="${esc(v.file)}" data-named="${v.named ? 1 : 0}" title="Add that version's timeline to this project as a separate sequence - nothing is replaced">+ As sequence</button>
       <button class="small" data-vrestore="${esc(v.file)}" data-named="${v.named ? 1 : 0}" title="The whole project goes back to this version (the current state is backed up first)">Restore</button>
-      ${v.named ? `<button class="icon-btn small" data-vdel="${esc(v.file)}" title="Delete this saved version" aria-label="Delete version">🗑</button>` : ''}</div>`).join('') || '<div class="muted pad">No versions yet - they appear a few minutes after you start editing.</div>';
+      ${v.named ? `<button class="icon-btn small" data-vdel="${esc(v.file)}" title="Delete this saved version" aria-label="Delete version"></button>` : ''}</div>`).join('') || '<div class="muted pad">No versions yet - they appear a few minutes after you start editing.</div>';
   };
   draw().catch((e) => toast(e.message, 'err'));
   dlg.el.addEventListener('click', async (e) => {
@@ -131,7 +131,7 @@ export async function openVersions() {
         const name = `${seqOf(pj).name} (${new Date(pj.modified || Date.now()).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })})`;
         (S.project.sequences ||= {})[uid()] = { name, data: seqData(pj), modified: Date.now() };
         commit('Version as sequence'); emit('seq');
-        dlg.close(); toast(`Added "${name}" as a sequence - open it from 🎞 next to the project name`);
+        dlg.close(); toast(`Added "${name}" as a sequence - open it from next to the project name`);
       }
       if (d.vdel) { if (!confirm('Delete this saved version?')) return; await api('POST', `/api/versions/delete?p=${enc(S.proj)}&file=${enc(d.vdel)}`); draw(); }
     } catch (err) { toast(err.message, 'err'); }
@@ -142,11 +142,11 @@ export async function openVersions() {
 let qrLib = null;
 const loadQr = () => (qrLib ||= new Promise((ok, bad) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js'; s.onload = () => ok(window.QRCode); s.onerror = bad; document.head.append(s); }));
 export async function openShare() {
-  const dlg = modal('📱 Watch on a phone', '<div data-sh></div>', { width: 560 });
+  const dlg = modal('Watch on a phone', '<div data-sh></div>', { width: 560 });
   const draw = (info) => {
     $('[data-sh]', dlg.el).innerHTML = info.on ? `<p>Phone review is <b class="good">on</b>. On a phone <b>on the same Wi-Fi</b>, open:</p>
       ${info.urls.map((u, i) => `<div class="sh-url"><div class="sh-qr" data-qr="${i}"></div><div class="grow"><div class="mono">${esc(u)}</div><button class="small" data-copy="${esc(u)}">Copy link</button></div></div>`).join('') || '<p class="warn">This computer has no network address right now - connect it to the Wi-Fi.</p>'}
-      <ul class="muted small"><li>The phone sees the finished renders (Export) of every project, and can add notes at any moment of a video - they appear on your timeline as 📱 notes.</li>
+      <ul class="muted small"><li>The phone sees the finished renders (Export) of every project, and can add notes at any moment of a video - they appear on your timeline as notes.</li>
       <li>Only someone with this link can open it, and only on your own network. Nothing goes on the internet.</li>
       <li>If the phone cannot open it: when Windows asked about the firewall, it needed <b>Allow</b> for private networks.</li></ul>
       <div class="dv-actions"><button data-sh-off>Turn off</button><button class="primary" data-close>Done</button></div>`
@@ -181,7 +181,7 @@ async function drawReviews() {
   try { await crvGet(); } catch { return; }
   const live = crvLinks.filter((l) => !l.expired);
   box.hidden = !live.length;
-  box.innerHTML = live.slice(0, 4).map((l) => `<div class="crv-row"><span class="grow" title="${esc(l.title)}">🔗 ${esc(l.client || l.title)}</span>${verChips(l)}
+  box.innerHTML = live.slice(0, 4).map((l) => `<div class="crv-row"><span class="grow" title="${esc(l.title)}">${esc(l.client || l.title)}</span>${verChips(l)}
       <button class="icon-btn small" data-crcopy="${esc(l.url)}" title="Copy the client's link" aria-label="Copy link">⧉</button></div>`).join('')
     + `<button class="link small" data-a="reviews">All client reviews${live.length > 4 ? ` (${live.length})` : ''} · comments · replies</button>`;
 }
@@ -194,7 +194,7 @@ function watchClientNews() {
       if (got.length) {
         newsSince = Math.max(...got.map((x) => x.at));
         const last = got[got.length - 1], dec = got.find((x) => /^(✅|✏️ Changes)/.test(x.note));
-        toast(dec ? `💬 ${dec.by}: ${dec.note}${dec.project !== S.proj ? ` - ${dec.project}` : ''}` : `💬 ${got.length > 1 ? `${got.length} comments` : 'A comment'} from ${last.by} on "${last.title}"${last.project !== S.proj ? ` (${last.project})` : ''}: ${last.note}`);
+        toast(dec ? `${dec.by}: ${dec.note}${dec.project !== S.proj ? ` - ${dec.project}` : ''}` : `${got.length > 1 ? `${got.length} comments` : 'A comment'} from ${last.by} on "${last.title}"${last.project !== S.proj ? ` (${last.project})` : ''}: ${last.note}`);
         if (got.some((x) => x.project === S.proj)) drawReviews();
       }
     } catch {}
@@ -209,8 +209,8 @@ export async function openSendReview(render) {
   const vids = list.filter((r) => /\.(mp4|m4v|webm)$/i.test(r.name));
   if (!vids.length) return toast('Render the video first (Export) - then send it for review', 'err');
   const live = crvLinks.filter((l) => !l.off);
-  const dlg = modal('📤 Send for review', `<p class="muted">The client gets a link to this one video - they watch it anywhere (phone or computer, no sign-in), comment at moments and press <b>Approve</b> or <b>Request changes</b>. Their comments land here as 💬 notes.</p>
-    ${crvDoor ? '' : '<p class="warn small">Team editing is off, so the link only opens on this computer. Turn on 👥 Team (with the office domain) so clients can open it from outside.</p>'}
+  const dlg = modal('Send for review', `<p class="muted">The client gets a link to this one video - they watch it anywhere (phone or computer, no sign-in), comment at moments and press <b>Approve</b> or <b>Request changes</b>. Their comments land here as notes.</p>
+    ${crvDoor ? '' : '<p class="warn small">Team editing is off, so the link only opens on this computer. Turn on Team (with the office domain) so clients can open it from outside.</p>'}
     <label class="fld"><span>Video</span><select data-cr-render>${vids.map((r) => `<option${r.name === render ? ' selected' : ''}>${esc(r.name)}</option>`).join('')}</select></label>
     ${live.length ? `<label class="fld"><span>Send as</span><select data-cr-link><option value="">A new link</option>${live.map((l) => `<option value="${esc(l.id)}">Version ${l.versions.length + 1} on "${esc(l.client || l.title)}" (the same link)</option>`).join('')}</select></label>` : ''}
     <div data-cr-new><label class="fld"><span>Client name</span><input data-cr-client placeholder="Optional, e.g. MY Bharat team" maxlength="60"></label>
@@ -235,7 +235,7 @@ export async function openSendReview(render) {
 }
 
 export async function openReviews() {
-  const dlg = modal('🔗 Client reviews', '<div data-crl><div class="muted pad">Loading…</div></div>', { width: 720 });
+  const dlg = modal('Client reviews', '<div data-crl><div class="muted pad">Loading…</div></div>', { width: 720 });
   const fps = S.project?.settings.fps || 30;
   const draw = async () => {
     await crvGet();
@@ -243,15 +243,15 @@ export async function openReviews() {
       const tops = l.comments.filter((c) => !c.parent).sort((a, b) => b.v - a.v || a.t - b.t);
       return `<div class="crv-card${l.expired ? ' off' : ''}">
         <div class="nt-row"><b class="grow">${esc(l.client || l.title)}</b>${verChips(l)}</div>
-        <div class="muted small">${esc(l.title)} · made ${new Date(l.created).toLocaleDateString()}${l.by ? ` by ${esc(l.by)}` : ''}${l.hasPw ? ' · 🔒 password' : ''}${l.off ? ' · turned off' : l.expired ? ' · expired' : l.expires ? ` · works until ${new Date(l.expires).toLocaleDateString()}` : ''}</div>
+        <div class="muted small">${esc(l.title)} · made ${new Date(l.created).toLocaleDateString()}${l.by ? ` by ${esc(l.by)}` : ''}${l.hasPw ? ' · password' : ''}${l.off ? ' · turned off' : l.expired ? ' · expired' : l.expires ? ` · works until ${new Date(l.expires).toLocaleDateString()}` : ''}</div>
         <div class="nt-row"><span class="mono small grow crv-url">${esc(l.url)}</span><button class="small" data-crcopy="${esc(l.url)}">Copy link</button>
-          <button class="small" data-croff="${esc(l.id)}" data-v="${l.off ? 0 : 1}">${l.off ? 'Turn on' : 'Turn off'}</button><button class="icon-btn small" data-crdel="${esc(l.id)}" title="Delete this link and its comments" aria-label="Delete link">🗑</button></div>
+          <button class="small" data-croff="${esc(l.id)}" data-v="${l.off ? 0 : 1}">${l.off ? 'Turn on' : 'Turn off'}</button><button class="icon-btn small" data-crdel="${esc(l.id)}" title="Delete this link and its comments" aria-label="Delete link"></button></div>
         ${tops.map((c) => `<div class="nt-item"><button class="link mono" data-seek="${+c.t || 0}" title="Go there on the timeline">${fmtTC(c.t, fps).replace(/^00:/, '')}</button>
-          <div class="grow">${esc(c.text)}${c.draw ? ' ✏️' : ''}<div class="muted small">💬 ${esc(c.by)} · Version ${c.v} · ${new Date(c.at).toLocaleString()}</div>
-          ${l.comments.filter((r) => r.parent === c.id).map((r) => `<div class="crv-reply">↪ ${esc(r.text)} <span class="muted small">${esc(r.by)}${r.team ? ' (team)' : ''}</span></div>`).join('')}
+          <div class="grow">${esc(c.text)}${c.draw ? ' ✏️' : ''}<div class="muted small">${esc(c.by)} · Version ${c.v} · ${new Date(c.at).toLocaleString()}</div>
+          ${l.comments.filter((r) => r.parent === c.id).map((r) => `<div class="crv-reply">${esc(r.text)} <span class="muted small">${esc(r.by)}${r.team ? ' (team)' : ''}</span></div>`).join('')}
           <div class="row-in"><input data-crr="${esc(c.id)}" data-link="${esc(l.id)}" placeholder="Reply to the client… (Enter)" aria-label="Reply"></div></div></div>`).join('') || '<div class="muted small pad">No comments yet.</div>'}
       </div>`;
-    }).join('') || '<div class="muted pad">No review links yet. Use 📤 Review (or Send for review on a finished render in Export).</div>';
+    }).join('') || '<div class="muted pad">No review links yet. Use Review (or Send for review on a finished render in Export).</div>';
   };
   draw().catch((e) => toast(e.message, 'err'));
   const edit = (body) => api('POST', `/api/clientreview/edit?proj=${enc(S.proj)}`, body).then(() => { draw(); drawReviews(); }).catch((e) => toast(e.message, 'err'));
@@ -259,7 +259,7 @@ export async function openReviews() {
     const t = e.target.closest('[data-crcopy],[data-croff],[data-crdel],[data-seek]'); if (!t) return;
     if (t.dataset.crcopy) copyLink(t.dataset.crcopy);
     if (t.dataset.croff) edit({ link: t.dataset.croff, off: t.dataset.v === '1' });
-    if (t.dataset.crdel && confirm('Delete this review link? The client can no longer open it, and its comments here go too (the 💬 notes on the timeline stay).')) edit({ link: t.dataset.crdel, remove: true });
+    if (t.dataset.crdel && confirm('Delete this review link? The client can no longer open it, and its comments here go too (the notes on the timeline stay).')) edit({ link: t.dataset.crdel, remove: true });
     if (t.dataset.seek) emit('seek', +t.dataset.seek);
   });
   dlg.el.addEventListener('keydown', async (e) => {

@@ -50,12 +50,12 @@ export function openReplace(id) {
   const bins = [...new Set(pool.map((m) => m.bin || 'Other'))].sort();
   const body = h(`<div class="rp">
     <p class="muted small">Shot ${f.index + 1} on ${f.track} · ${fmt(L)} · now: <b>${esc(S.mediaById[c.mediaId]?.name || '')}</b>. The new clip keeps this place, length, speed, effects and transition.</p>
-    ${alts.length ? `<div class="rp-h">✨ The agent's other choices for this moment</div><div class="rp-grid" data-alts>${alts.map((a, i) => `<button class="rp-tile" data-alt="${i}" title="${esc(S.mediaById[a.mediaId].name)}"><span class="th" style="${thumbAt(S.mediaById[a.mediaId], a.in)}"></span><small>${esc(S.mediaById[a.mediaId].name)}${a.match !== null && a.match !== undefined ? ` · match ${Math.round(a.match * 100)}` : ''}</small></button>`).join('')}</div>` : ''}
+    ${alts.length ? `<div class="rp-h">The agent's other choices for this moment</div><div class="rp-grid" data-alts>${alts.map((a, i) => `<button class="rp-tile" data-alt="${i}" title="${esc(S.mediaById[a.mediaId].name)}"><span class="th" style="${thumbAt(S.mediaById[a.mediaId], a.in)}"></span><small>${esc(S.mediaById[a.mediaId].name)}${a.match !== null && a.match !== undefined ? ` · match ${Math.round(a.match * 100)}` : ''}</small></button>`).join('')}</div>` : ''}
     <div class="row-in"><input type="search" placeholder="Search clips" data-q style="flex:1"><select data-bin><option value="">All folders</option>${bins.map((b) => `<option>${esc(b)}</option>`).join('')}</select>
       <select data-at title="Which part of the new clip"><option value="best">Best moment</option><option value="start">From its start</option><option value="middle">Its middle</option></select></div>
     <div class="rp-grid rp-all" data-all></div>
     <div class="ag-foot"><span class="grow"></span><button type="button" data-close>Cancel</button></div></div>`);
-  const dlg = modal('🔄 Replace clip', body, { width: 760 });
+  const dlg = modal('Replace clip', body, { width: 760 });
   const draw = () => {
     const q = body.querySelector('[data-q]').value.toLowerCase(), b = body.querySelector('[data-bin]').value;
     const list = pool.filter((m) => m.id !== c.mediaId && (!q || m.name.toLowerCase().includes(q)) && (!b || (m.bin || 'Other') === b)).slice(0, 300);
@@ -68,7 +68,7 @@ export function openReplace(id) {
     dlg.close();
     const ok = alt ? await replaceClip(id, alts[+alt.dataset.alt].mediaId, { inPoint: alts[+alt.dataset.alt].in })
       : await replaceClip(id, one.dataset.m, { at: body.querySelector('[data-at]').value });
-    if (ok) toast(`🔄 Replaced with ${S.mediaById[findClip(id).clip.mediaId].name}`);
+    if (ok) toast(`Replaced with ${S.mediaById[findClip(id).clip.mediaId].name}`);
   });
   draw();
 }

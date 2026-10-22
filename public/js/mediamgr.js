@@ -11,9 +11,9 @@ const short = (p, n = 70) => (p.length > n ? `…${p.slice(-n)}` : p);
 
 export function openMediaMgr(tab = 'relink') {
   if (!S.proj) return;
-  const dlg = modal('🗂 Media manager', `
+  const dlg = modal('Media manager', `
     <div class="mm-tabs" role="tablist">
-      <button class="chip" data-tab="relink" role="tab">🔗 Relink</button><button class="chip" data-tab="pack" role="tab">📦 Pack</button><button class="chip" data-tab="disk" role="tab">💾 Disk</button>
+      <button class="chip" data-tab="relink" role="tab">Relink</button><button class="chip" data-tab="pack" role="tab">Pack</button><button class="chip" data-tab="disk" role="tab">Disk</button>
     </div><div data-mm class="mm-body"></div>`, { width: 760 });
   const box = $('[data-mm]', dlg.el);
   const show = (t) => {
@@ -37,7 +37,7 @@ async function relink(box) {
   box.innerHTML = `<p><b class="warn">${off.missing.length} file${off.missing.length > 1 ? 's' : ''} offline</b>${used ? ` - <b>${used}</b> of them on the timeline (rendering needs them)` : ''}.</p>
     <div class="dv-list mm-list">${off.missing.map((m) => `<div class="dv-item"><span class="grow"><b>${esc(m.name)}</b>${m.used ? ' <span class="tag">on timeline</span>' : ''}<br><span class="muted small mono">${esc(short(m.path))}</span></span></div>`).join('')}</div>
     <p class="muted small">The editor searches: what is left of the old folder, the team's shared folders, the folders of the project's other files, Desktop / Videos / Downloads / Documents. Somewhere else (another drive)? Choose the folder.</p>
-    <div class="dv-actions"><button data-folder>📁 Search a folder</button><button class="primary" data-auto>🔍 Search automatically</button></div>
+    <div class="dv-actions"><button data-folder>Search a folder</button><button class="primary" data-auto>Search automatically</button></div>
     <div data-res></div>`;
   const res = $('[data-res]', box);
   const scan = async (dirs, auto = true) => {
@@ -53,8 +53,8 @@ async function relink(box) {
     res.innerHTML = `<h4>${r.found.length} found${r.notFound.length ? `, ${r.notFound.length} not found` : ''}</h4>
       ${r.found.length ? `<div class="dv-list mm-list">${r.found.map((f, i) => `<label class="dv-item"><input type="checkbox" data-pick="${i}"${f.sure ? ' checked' : ''}>
         <span class="grow"><b>${esc(f.name)}</b> <span class="${f.sure ? 'muted' : 'warn'} small">(${esc(f.how)})</span><br><span class="muted small mono">${esc(short(f.to))}</span></span></label>`).join('')}</div>
-        <div class="dv-actions"><button class="primary" data-apply>🔗 Relink selected</button></div>` : ''}
-      ${r.notFound.length ? `<p class="muted small">Not found: ${r.notFound.map((x) => esc(x.name)).slice(0, 12).join(', ')}${r.notFound.length > 12 ? ` and ${r.notFound.length - 12} more…` : ''}. On another drive / folder? Click "📁 Search a folder".</p>` : ''}
+        <div class="dv-actions"><button class="primary" data-apply>Relink selected</button></div>` : ''}
+      ${r.notFound.length ? `<p class="muted small">Not found: ${r.notFound.map((x) => esc(x.name)).slice(0, 12).join(', ')}${r.notFound.length > 12 ? ` and ${r.notFound.length - 12} more…` : ''}. On another drive / folder? Click "Search a folder".</p>` : ''}
       <p class="muted small">Searched:${r.searched.map((d) => esc(short(d, 40))).join(' · ') || '-'}</p>`;
     const apply = res.querySelector('[data-apply]');
     if (apply) apply.onclick = async () => {
@@ -63,7 +63,7 @@ async function relink(box) {
       apply.disabled = true;
       try {
         const out = await api('POST', `/api/media/relink/apply?p=${enc(S.proj)}`, { pairs });
-        toast(`🔗 ${out.relinked} file${out.relinked > 1 ? 's' : ''} relinked${out.offline ? ` - ${out.offline} still offline` : ''}`);
+        toast(`${out.relinked} file${out.relinked > 1 ? 's' : ''} relinked${out.offline ? ` - ${out.offline} still offline` : ''}`);
         await refreshMedia();
         relink(box);
       } catch (e) { toast(e.message, 'err'); apply.disabled = false; }
@@ -82,7 +82,7 @@ function pack(box) {
     <label class="row-in"><input type="checkbox" data-all> Whole media pool (all files, not only those on the timeline)</label>
     <label class="row-in"><input type="checkbox" data-px> Include preview copies (plays right away, bigger folder)</label>
     <p class="muted small">The original footage stays where it is - this only makes a copy. Renders, old backups and the render cache are not copied.</p>
-    <div class="dv-actions"><button class="primary" data-go>📦 Choose folder and pack</button></div><div data-res></div>`;
+    <div class="dv-actions"><button class="primary" data-go>Choose folder and pack</button></div><div data-res></div>`;
   $('[data-go]', box).onclick = async () => {
     const dest = await pickFolder('Where to put the pack?', 'Choose a folder or drive (e.g. an archive hard disk). A new folder named after the project is made inside it.');
     if (!dest) return;
@@ -96,7 +96,7 @@ function pack(box) {
       const r = j.result;
       res.innerHTML = `<p class="good">✓ Packed: <b>${r.files} file${r.files > 1 ? 's' : ''}</b>, ${fmtBytes(r.bytes)}</p>
         <div class="sh-url"><span class="mono grow">${esc(r.folder)}</span><button class="small" data-copy>Copy</button></div>
-        ${r.missing.length ? `<p class="warn small">These files were offline and were not packed: ${r.missing.map(esc).join(', ')}. 🔗 Relink them first.</p>` : ''}
+        ${r.missing.length ? `<p class="warn small">These files were offline and were not packed: ${r.missing.map(esc).join(', ')}. Relink them first.</p>` : ''}
         <p class="muted small">On the other computer: copy this folder into the editor's <span class="mono">Projects</span> folder, then open it in the editor.</p>`;
       res.querySelector('[data-copy]').onclick = async () => { await navigator.clipboard.writeText(r.folder); toast('Path copied'); };
     } catch (e) { res.innerHTML = `<p class="warn">${esc(e.job ? e.job.log.slice(-1).join(' ') : e.message)}</p>`; }
@@ -117,11 +117,11 @@ async function disk(box) {
       ${d.orphans.files ? `<div class="dv-item"><span class="grow">Leftover cache of removed media <span class="muted small">(${d.orphans.files} files)</span></span><b class="mm-size">${fmtBytes(d.orphans.bytes)}</b><button class="small" data-clean="orphans">Clean up</button></div>` : ''}</div>
     ${d.renders.length ? `<h4>Renders <span class="muted small">(finished videos - select to delete)</span></h4>
       <div class="dv-list mm-list">${d.renders.map((r) => `<label class="dv-item"><input type="checkbox" data-r="${esc(r.file)}"><span class="grow mono small">${esc(r.file)}</span><span class="muted small">${new Date(r.mtime).toLocaleDateString()}</span><b class="mm-size">${fmtBytes(r.bytes)}</b></label>`).join('')}</div>
-      <div class="dv-actions"><button data-delr>🗑 Delete selected renders</button></div>` : ''}
+      <div class="dv-actions"><button data-delr>Delete selected renders</button></div>` : ''}
     <p class="muted small">Clearing the render cache makes the next render a bit slower (shots are rebuilt). No cleanup runs during a render.</p>
     <h4>All projects</h4><div data-all><button class="small" data-loadall>Show size of all projects</button></div>`;
   const clean = async (what, files) => {
-    try { const r = await api('POST', `/api/disk/clean?p=${enc(S.proj)}`, { what, files }); toast(`💾 ${fmtBytes(r.freed)} freed`); disk(box); }
+    try { const r = await api('POST', `/api/disk/clean?p=${enc(S.proj)}`, { what, files }); toast(`${fmtBytes(r.freed)} freed`); disk(box); }
     catch (e) { toast(e.message, 'err'); }
   };
   box.querySelectorAll('[data-clean]').forEach((b) => (b.onclick = () => { b.disabled = true; clean(b.dataset.clean); }));

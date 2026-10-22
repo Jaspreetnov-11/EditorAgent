@@ -50,7 +50,7 @@ export function openLookMenu(btn) {
     <button data-look="studio">${studioOn() ? '● ' : '○ '}Studio (Premiere-style)</button>
     <button data-look="classic">${studioOn() ? '○ ' : '● '}Classic (old)</button><hr>
     <button data-look="reset">Reset panel sizes</button><hr>
-    <button data-look="keys">⌨ Keyboard Shortcuts… <span class="muted small">Ctrl+Alt+K</span></button>`;
+    <button data-look="keys">Keyboard Shortcuts… <span class="muted small">Ctrl+Alt+K</span></button>`;
   document.body.append(m);
   const r = btn.getBoundingClientRect();
   m.style.top = `${r.bottom + 6}px`; m.style.left = `${Math.max(8, Math.min(innerWidth - m.offsetWidth - 8, r.right - m.offsetWidth))}px`;

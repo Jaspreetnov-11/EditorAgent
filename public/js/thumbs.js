@@ -106,7 +106,7 @@ const loadImg = (src) => new Promise((ok) => { if (!src) return ok(null); const 
 
 export async function openThumbs(onSaved) {
   const d = { size: S.project.settings.aspect === '9:16' ? 'reel' : 'yt', style: 'news', headline: S.project.name, sub: '', zoom: 1, pop: 0.5, facePos: '', logo: true, face: null };
-  const dlg = modal('🖼 Thumbnail', `<div class="th-wrap">
+  const dlg = modal('Thumbnail', `<div class="th-wrap">
     <div class="th-left"><div class="row-in"><b class="grow">Best frames</b><button class="small" data-th-find>↻ Find</button></div><div class="th-frames" data-frames><div class="muted pad">Looking for the best frames…</div></div></div>
     <div class="th-mid"><canvas data-cv></canvas></div>
     <div class="th-right">
@@ -151,7 +151,7 @@ export async function openThumbs(onSaved) {
   $('[data-th-find]', dlg.el).onclick = find;
   const listSaved = async () => {
     const l = await api('GET', `/api/thumb/list?p=${enc(S.proj)}`).catch(() => []);
-    $('[data-saved]', dlg.el).innerHTML = l.slice(0, 6).map((x) => `<div class="dv-item"><a href="${x.url}" target="_blank" class="link">${esc(x.name)}</a><a href="${x.url}?download" download>⬇</a></div>`).join('');
+    $('[data-saved]', dlg.el).innerHTML = l.slice(0, 6).map((x) => `<div class="dv-item"><a href="${x.url}" target="_blank" class="link">${esc(x.name)}</a><a href="${x.url}?download" download></a></div>`).join('');
   };
   $('[data-th-save]', dlg.el).onclick = async () => {
     draw();

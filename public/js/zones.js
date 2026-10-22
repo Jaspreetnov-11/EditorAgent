@@ -40,14 +40,14 @@ on('ops', ({ ops, before }) => {
     const z = zs.find((x) => (!x.track || x.track === c.track) && c.s < x.end && c.e > x.start);
     if (!z || Date.now() - (warned.get(z.id) || 0) < 20000) continue;
     warned.set(z.id, Date.now());
-    toast(`⚠ This zone belongs to ${z.name} (${fmt(z.start)}–${fmt(z.end)}${z.track ? `, ${z.track}` : ''}). Your change was made - let them know (or press Ctrl+Z).`, 'err');
+    toast(`This zone belongs to ${z.name} (${fmt(z.start)}–${fmt(z.end)}${z.track ? `, ${z.track}` : ''}). Your change was made - let them know (or press Ctrl+Z).`, 'err');
     return;
   }
 });
 
 // the band over the timeline canvas (called by timeline.js after every draw)
 export function zoneBandsHTML(zoom) {
-  return zonesHere().map((z) => `<div class="zone-band" style="left:${z.start * zoom}px;width:${Math.max(2, (z.end - z.start) * zoom)}px;--zone:${esc(zoneColor(z))}" title="${esc(z.name)}: ${fmt(z.start)}–${fmt(z.end)}${z.track ? ` (${esc(z.track)})` : ' (all tracks)'}${z.note ? ` - ${esc(z.note)}` : ''}"><span>🧩 ${esc(z.name)}${z.track ? ` · ${esc(z.track)}` : ''}</span></div>`).join('');
+  return zonesHere().map((z) => `<div class="zone-band" style="left:${z.start * zoom}px;width:${Math.max(2, (z.end - z.start) * zoom)}px;--zone:${esc(zoneColor(z))}" title="${esc(z.name)}: ${fmt(z.start)}–${fmt(z.end)}${z.track ? ` (${esc(z.track)})` : ' (all tracks)'}${z.note ? ` - ${esc(z.note)}` : ''}"><span>${esc(z.name)}${z.track ? ` · ${esc(z.track)}` : ''}</span></div>`).join('');
 }
 
 export function openZones() {
@@ -56,7 +56,7 @@ export function openZones() {
   // a new part starts as the selected clips' span, or 30s from the playhead
   const L = layout(), sel = Object.values(L).flat().filter((x) => S.sel.has(x.clip.id));
   const s0 = sel.length ? Math.min(...sel.map((x) => x.start)) : +S.playhead || 0, e0 = sel.length ? Math.max(...sel.map((x) => x.end)) : s0 + 30;
-  const dlg = modal('🧩 Zones - who owns which part of the timeline', `
+  const dlg = modal('Zones - who owns which part of the timeline', `
     <p class="muted">Assign parts of the timeline to people. If someone else changes a zone, they get a warning (the change is not blocked). Only zones of this sequence ("${esc(seqOf(S.project).name)}") are shown.</p>
     <div class="dv-list" data-zl></div>
     <h4>New zone</h4>
@@ -90,7 +90,7 @@ export function openZones() {
       if (clash && !confirm(`This overlaps ${clash.name}'s zone (${fmt(clash.start)}–${fmt(clash.end)}). Add it anyway?`)) return;
       (S.project.zones ||= []).push({ id: uid(), seq: curSeq(), name, start: +start.toFixed(3), end: +end.toFixed(3), track, ...(note ? { note } : {}) });
       commit(`Zone: ${name} ${fmt(start)}–${fmt(end)}`); draw();
-      toast(`🧩 ${fmt(start)}–${fmt(end)} is now ${name}'s zone`);
+      toast(`${fmt(start)}–${fmt(end)} is now ${name}'s zone`);
     }
   });
 }

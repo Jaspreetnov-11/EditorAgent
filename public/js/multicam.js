@@ -59,8 +59,8 @@ export function openMulticam(setBusy) {
       <label class="fld"><span>Switch angle about every</span><select name="cut"><option value="2.5">2.5 s (lively)</option><option value="4" selected>4 s</option><option value="6">6 s (calm)</option></select></label>
     </div>
     <p class="muted small">Replaces V1 and A1. Then select any shot and change its camera in the Inspector (Angle). Ctrl+Z undoes it.</p>
-    <div class="ag-foot"><span class="grow"></span><button type="button" data-close>Cancel</button><button type="button" class="primary" data-go>🎥 Sync & cut</button></div></div>`);
-  const dlg = modal('🎥 Multicam - sync cameras by sound', body, { width: 680 });
+    <div class="ag-foot"><span class="grow"></span><button type="button" data-close>Cancel</button><button type="button" class="primary" data-go>Sync & cut</button></div></div>`);
+  const dlg = modal('Multicam - sync cameras by sound', body, { width: 680 });
   const chosen = () => [...body.querySelectorAll('.mc-pick input:checked')].map((x) => x.value);
   const master = body.querySelector('[name="master"]');
   body.querySelector('.mc-pick').addEventListener('change', () => {
@@ -70,7 +70,7 @@ export function openMulticam(setBusy) {
   body.querySelector('[data-go]').onclick = async () => {
     const ids = chosen();
     if (ids.length < 2) return toast('Choose at least two recordings', 'err');
-    dlg.close(); setBusy?.(true, '🎥 Syncing cameras…');
+    dlg.close(); setBusy?.(true, 'Syncing cameras…');
     try {
       const job = await api('POST', `/api/multicam/sync?p=${enc(S.proj)}`, { ids, master: master.value || ids[0] });
       const r = (await watchJob(job.id, () => {})).result;
@@ -86,7 +86,7 @@ export function openMulticam(setBusy) {
       S.project.tracks.A1 = A1;
       S.project.trackState.V1 = { ...S.project.trackState.V1, volume: 0 }; // the cameras' own sound is replaced by the master
       commit('Multicam edit'); emit('fit');
-      toast(`🎥 ${vid.angles.length} cameras synced, ${S.project.tracks.V1.length} shots.${weak.length ? ` Check sync of: ${weak.map((a) => S.mediaById[a.mediaId].name).join(', ')} (weak match)` : ''}`, weak.length ? 'err' : undefined);
+      toast(`${vid.angles.length} cameras synced, ${S.project.tracks.V1.length} shots.${weak.length ? ` Check sync of: ${weak.map((a) => S.mediaById[a.mediaId].name).join(', ')} (weak match)` : ''}`, weak.length ? 'err' : undefined);
     } catch (err) { toast(err.message, 'err'); }
     finally { setBusy?.(false); }
   };

@@ -42,7 +42,7 @@ export function openAudioGain() {
     <label class="ag-row"><input type="radio" name="ag" value="norm"> <span>Normalize max peak to</span> <input type="number" data-v="norm" step="0.5" value="-1" max="0"> dB</label>
     <small class="hint">Normalize measures each clip's loudest moment and sets it to that level (each clip on its own). Heard live, exact in renders.</small>
     <div class="iactions"><button data-close>Cancel</button><button class="primary" data-ok>OK</button></div></div>`);
-  const dlg = modal('🔊 Audio Gain', body, { width: 420 });
+  const dlg = modal('Audio Gain', body, { width: 420 });
   body.querySelectorAll('[data-v]').forEach((i) => i.addEventListener('focus', () => { body.querySelector(`input[value="${i.dataset.v}"]`).checked = true; }));
   body.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') body.querySelector('[data-ok]').click(); });
   body.querySelector('[data-ok]').addEventListener('click', async (e) => {
@@ -62,7 +62,7 @@ export function openAudioGain() {
       }
       for (const c of list) if (c.volume === 1 && !(c.type === 'video')) delete c.volume;
       commit(`Audio gain (${mode === 'norm' ? `normalize to ${db} dB` : mode === 'set' ? `set to ${db} dB` : `${db > 0 ? '+' : ''}${db} dB`})`);
-      toast(`🔊 Gain ${list.length === 1 ? `now ${fmtDb(toDb(gainOf(list[0])))}` : `changed on ${list.length} clips`}`);
+      toast(`Gain ${list.length === 1 ? `now ${fmtDb(toDb(gainOf(list[0])))}` : `changed on ${list.length} clips`}`);
       dlg.close();
     } catch (err) { toast(err.message, 'err'); btn.disabled = false; btn.textContent = 'OK'; }
   });

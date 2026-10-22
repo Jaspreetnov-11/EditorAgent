@@ -41,6 +41,6 @@ async function make(st, c, m, a, b) {
 // what the monitor's banner says for a shot being stabilised (null: nothing to say)
 export function stabBanner(st) {
   if (!st || st.status === 'ready') return null;
-  if (st.status === 'error') return `🎥 Stabilizer: ${st.stage || 'could not stabilise'} - Accurate preview and the export still stabilise it`;
-  return `🎥 ${/1 of 2|shake/.test(st.stage) ? 'Analysing in background' : st.stage}${st.progress ? ` ${st.progress}%` : ''}`;
+  if (st.status === 'error') return `Stabilizer: ${st.stage || 'could not stabilise'} - Accurate preview and the export still stabilise it`;
+  return `${/1 of 2|shake/.test(st.stage) ? 'Analysing in background' : st.stage}${st.progress ? ` ${st.progress}%` : ''}`;
 }

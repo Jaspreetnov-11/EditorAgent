@@ -36,9 +36,9 @@ export function mountFusion(el) {
       <div class="mo-head sub"><b>Nodes</b><span class="muted small">click to add</span></div><div class="fu-nodes" id="fuNodes"></div></div>
     <div class="panel fu-view">
       <div class="mo-head"><div class="segbtns"><button data-view="out">Output (1)</button><button data-view="sel">Selected node (2)</button></div><span class="grow"></span>
-        <button class="accent small" data-f="toTimeline" title="Put this fusion on the edit's timeline at the playhead">⤵ Add to timeline</button></div>
-      <div class="mo-stage" id="fuStage"><div class="mo-canvas"><canvas id="fuCanvas"></canvas></div><div class="mo-empty" id="fuEmpty">Right-click a video clip on the Edit timeline → ✨ Open in Fusion, or ＋ New.</div></div>
-      <div class="mo-trans"><button class="icon-btn" data-f="start">⏮</button><button class="icon-btn" data-f="play">▶</button><input type="range" id="fuPos" min="0" max="1" step="0.001" value="0" aria-label="Time"><span class="tc" id="fuTC">0:00:00</span></div>
+        <button class="accent small" data-f="toTimeline" title="Put this fusion on the edit's timeline at the playhead">Add to timeline</button></div>
+      <div class="mo-stage" id="fuStage"><div class="mo-canvas"><canvas id="fuCanvas"></canvas></div><div class="mo-empty" id="fuEmpty">Right-click a video clip on the Edit timeline → Open in Fusion, or ＋ New.</div></div>
+      <div class="mo-trans"><button class="icon-btn" data-f="start"></button><button class="icon-btn" data-f="play"></button><input type="range" id="fuPos" min="0" max="1" step="0.001" value="0" aria-label="Time"><span class="tc" id="fuTC">0:00:00</span></div>
     </div>
     <div class="panel fu-insp" id="fuInsp"></div>
     <div class="panel fu-graph"><div class="mo-head"><b>Nodes</b><span class="muted small">drag ● output → ● input to connect · click a connected input to cut · Delete removes · drag empty space to pan · wheel zooms · double-click empty = fit</span></div>
@@ -57,7 +57,7 @@ function refresh() {
   if (!root || !S.project) return;
   if (fid && !fu()) { fid = Object.keys(fusions())[0] || null; selId = null; }
   if (selId && !node(selId)) selId = null;
-  { const b = root.querySelector('[data-f="toTimeline"]'); if (b && fu()) b.textContent = onTimeline(fu().id).length ? '⤵ Update on timeline' : '⤵ Add to timeline'; } // (already there: updated, not added)
+  { const b = root.querySelector('[data-f="toTimeline"]'); if (b && fu()) b.textContent = onTimeline(fu().id).length ? 'Update on timeline' : 'Add to timeline'; } // (already there: updated, not added)
   T = clamp(T, 0, fu()?.dur || 0);
   renderLib(); renderInsp(); size(); draw(); drawGraph();
   $('#fuEmpty', root).hidden = !!fu();
@@ -67,7 +67,7 @@ function refresh() {
 // ---------------- library ----------------
 function renderLib() {
   const list = Object.values(fusions());
-  $('#fuList', root).innerHTML = list.length ? list.map((f) => `<div class="mo-comp${f.id === fid ? ' on' : ''}" data-fid="${f.id}" title="Double-click to rename"><span>✨</span><span class="grow">${esc(f.name)}</span><span class="muted small">${f.dur}s</span><button class="icon-btn" data-fdel="${f.id}" title="Delete">✕</button></div>`).join('') : '<div class="muted small pad">No fusions yet.</div>';
+  $('#fuList', root).innerHTML = list.length ? list.map((f) => `<div class="mo-comp${f.id === fid ? ' on' : ''}" data-fid="${f.id}" title="Double-click to rename"><span></span><span class="grow">${esc(f.name)}</span><span class="muted small">${f.dur}s</span><button class="icon-btn" data-fdel="${f.id}" title="Delete">✕</button></div>`).join('') : '<div class="muted small pad">No fusions yet.</div>';
   $$('[data-fid]', root).forEach((r) => {
     r.onclick = (e) => { if (e.target.closest('button')) return; fid = r.dataset.fid; selId = null; T = 0; refresh(); };
     r.ondblclick = () => { const f = fusions()[r.dataset.fid], n = prompt('Fusion name', f.name)?.trim(); if (n) { f.name = n; save('Rename fusion'); } };
@@ -146,9 +146,9 @@ function toTimeline(e) {
   if (there.length && !e?.shiftKey) {
     save(`Update fusion "${f.name}" on the timeline`);
     S.sel = new Set(there.map((p) => p.x.id)); emit('select');
-    return toast(`⤵ "${f.name}" updated on ${[...new Set(there.map((p) => p.t))].join(', ')} - no new clip (Shift + click adds another copy)`);
+    return toast(`"${f.name}" updated on ${[...new Set(there.map((p) => p.t))].join(', ')} - no new clip (Shift + click adds another copy)`);
   }
-  const tr = placeOver(f, S.playhead || 0, 'V1'); commit(`Add fusion "${f.name}" to the timeline`); toast(`⤵ "${f.name}" is on ${tr} at the playhead`);
+  const tr = placeOver(f, S.playhead || 0, 'V1'); commit(`Add fusion "${f.name}" to the timeline`); toast(`"${f.name}" is on ${tr} at the playhead`);
 }
 // right-click a video clip → ✨ Open in Fusion: a fusion of that clip, laid exactly over it (the clip keeps its sound)
 export function fusionFromClip(clipId, findClip) {
@@ -158,7 +158,7 @@ export function fusionFromClip(clipId, findClip) {
   const f = newFrom(m.id, +(c.in || 0), c.speed || 1, dur);
   const tr = placeOver(f, start, f0.track);
   commit(`Open in Fusion: ${m.name}`);
-  toast(`✨ "${f.name}" made on ${tr} over the clip (maroon) - double-click it to open it in Fusion`);
+  toast(`"${f.name}" made on ${tr} over the clip (maroon) - double-click it to open it in Fusion`);
   return true;
 }
 // ✂ Roto (Edit page button / right-click): the selected video clip's subject cut out by the AI and laid on the track
@@ -166,12 +166,12 @@ export function fusionFromClip(clipId, findClip) {
 // the clip below to keep only the subject. The matte is made right away (engine/matte.py, on the GPU).
 export function rotoFromClip(clipId, findClip) {
   const f0 = findClip(clipId), c = f0?.clip, m = c && S.mediaById[c.mediaId];
-  if (!c || c.type !== 'video' || !m) { toast('Select a video clip on the timeline first, then press ✂ Roto', 'err'); return false; }
+  if (!c || c.type !== 'video' || !m) { toast('Select a video clip on the timeline first, then press Roto', 'err'); return false; }
   const start = Object.values(layout()).flat().find((x) => x.clip.id === c.id)?.start ?? c.start ?? 0, dur = +clipDur(c, S.mediaById).toFixed(3);
   const f = newFrom(m.id, +(c.in || 0), c.speed || 1, dur, `${m.name.replace(/\.[^.]+$/, '')} roto`, 'roto');
   const tr = placeOver(f, start, f0.track);
   commit(`Roto: ${m.name}`);
-  toast(`✂ Roto on ${tr} over the clip - finding the subject (AI)…`);
+  toast(`Roto on ${tr} over the clip - finding the subject (AI)…`);
   findSubject(f.nodes.find((x) => x.type === 'subject'));
   return true;
 }
@@ -219,7 +219,7 @@ function renderInsp() {
       const inp = kind === 'num' ? `<input type="range" min="${a}" max="${b}" step="${step}" value="${v}" data-pk="${k}"><input type="number" class="mo-num" step="${step}" value="${v}" data-pn="${k}">`
         : kind === 'color' ? `<input type="color" value="${v}" data-pk="${k}">`
         : kind === 'select' ? `<select data-pk="${k}">${a.map((o) => `<option${String(o) === String(v) ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select>`
-        : kind === 'matte' ? `<button class="accent small" data-findsubj>${v ? '↻ Find the subject again' : '✂ Find the subject (AI)'}</button><span class="muted small">${v ? 'Ready ✓ - follows the subject in every frame' : 'Not made yet'}</span>`
+        : kind === 'matte' ? `<button class="accent small" data-findsubj>${v ? '↻ Find the subject again' : 'Find the subject (AI)'}</button><span class="muted small">${v ? 'Ready ✓ - follows the subject in every frame' : 'Not made yet'}</span>`
         : kind === 'media' ? `<select data-pk="${k}">${S.media.filter((m) => m.kind === 'video' || m.kind === 'image').slice(0, 400).map((m) => `<option value="${m.id}"${m.id === v ? ' selected' : ''}>${esc(m.name)}</option>`).join('')}</select>`
         : `<textarea rows="2" data-pk="${k}">${esc(v)}</textarea>`;
       return `<label class="fu-p"><span>${label}</span><span class="fu-pi">${inp}</span></label>`;
@@ -243,12 +243,12 @@ async function findSubject(n) {
   finding = true;
   const sp = +src.p.speed || 1, a = +src.p.srcIn || 0;
   try {
-    emit('job', { running: true, label: '✂ Finding the subject (AI)…' });
+    emit('job', { running: true, label: 'Finding the subject (AI)…' });
     const job = await api('POST', `/api/matte?p=${enc(S.proj)}`, { mediaId: src.p.mediaId, in: a, out: a + f.dur * sp, fps: fps() });
-    const j = await watchJob(job.id, (x) => emit('job', { running: true, label: `✂ Finding the subject (AI)… ${x.progress || 0}%` }));
+    const j = await watchJob(job.id, (x) => emit('job', { running: true, label: `Finding the subject (AI)… ${x.progress || 0}%` }));
     n.p.matte = matteId(S.proj, j.result.file); n.p.mSpeed = sp;
     save('Subject matte (AI)');
-    toast('✂ Subject found in every frame - it now sits in front of what is behind it');
+    toast('Subject found in every frame - it now sits in front of what is behind it');
   } catch (e) { toast(e.job ? `Could not find the subject: ${e.job.log?.slice(-1)[0] || ''}` : e.message, 'err'); }
   finally { finding = false; emit('job', { running: false }); }
 }

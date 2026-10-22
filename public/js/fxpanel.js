@@ -12,13 +12,13 @@ import { AFX, AFX_CATS, ATRANS, newAudioEffect } from './audioeffects.js';
 import { $, esc, toast } from './ui.js';
 
 const ICON = { transition: '⧓', cutfx: '⚡', vfx: '✦', afx: '🎚', preset: '⭐', ramp: '⏩', aeffect: '🔊', atrans: '◢◣' };
-const RAMP_CAT = '⏩ Speed ramp (presets)';
-let root, query = '', open = new Set(['⭐ My presets', 'Transitions', RAMP_CAT]), trDur = 0.5;
+const RAMP_CAT = 'Speed ramp (presets)';
+let root, query = '', open = new Set(['My presets', 'Transitions', RAMP_CAT]), trDur = 0.5;
 
 function items() {
   const out = [];
   const mine = libCached()?.presets?.fx || [];
-  if (mine.length) out.push(['⭐ My presets', mine.map((p) => ({ kind: 'preset', type: p.id, label: p.name }))]);
+  if (mine.length) out.push(['My presets', mine.map((p) => ({ kind: 'preset', type: p.id, label: p.name }))]);
   out.push(['Transitions', TRANSITIONS.filter(([k]) => k !== 'cut').map(([k, l]) => ({ kind: 'transition', type: k, label: l }))]);
   // (speed ramp presets live in Effect Controls › ⏩ Speed ramp, not in the Effects panel)
   out.push(['Cut effects (on the cut, keep the beat)', Object.entries(CUTFX).map(([k, x]) => ({ kind: 'cutfx', type: k, label: x.label }))]);
@@ -89,7 +89,7 @@ export function applyFx(fx, clipId, side = null) {
     if (!setTransition(S.project, S.mediaById, f.index, fx.type, trDur)) return 'Neither shot has frames to spare beyond its ends for a transition';
     return `${TRANSITIONS.find(([k]) => k === fx.type)?.[1]} on the cut`;
   }
-  if (fx.kind === 'ramp') { const D0 = clipDur(c, S.mediaById); if (!setRamp(c, fx.type, S.mediaById)) return null; keepLength(S.project, c, D0, S.mediaById); return `⏩ ${RAMPS[fx.type].label}`; }
+  if (fx.kind === 'ramp') { const D0 = clipDur(c, S.mediaById); if (!setRamp(c, fx.type, S.mediaById)) return null; keepLength(S.project, c, D0, S.mediaById); return `${RAMPS[fx.type].label}`; }
   if (fx.kind === 'cutfx') { if (!visual || c.type === 'title') return null; c.cutFx = { type: fx.type, dur: CUTFX[fx.type].dur }; return CUTFX[fx.type].label; }
   if (fx.kind === 'vfx') {
     if (!visual) return null;
@@ -100,12 +100,12 @@ export function applyFx(fx, clipId, side = null) {
   if (fx.kind === 'preset') {
     const p = libCached()?.presets?.fx?.find((x) => x.id === fx.type);
     if (!p || !visual || c.type === 'title') return null;
-    return `⭐ ${applyFxPreset(p, c)}`;
+    return `${applyFxPreset(p, c)}`;
   }
   if (fx.kind === 'aeffect' || fx.kind === 'atrans') {
     const m = S.mediaById[c.mediaId];
     if (!(c.type === 'audio' || (c.type === 'video' && m?.hasAudio))) return null;
-    if (fx.kind === 'aeffect') { (c.aeffects ||= []).push(newAudioEffect(fx.type)); return `🔊 ${AFX[fx.type].label}`; }
+    if (fx.kind === 'aeffect') { (c.aeffects ||= []).push(newAudioEffect(fx.type)); return `${AFX[fx.type].label}`; }
     return crossfade(f, c, fx.type, side);
   }
   if (fx.kind === 'afx') {
@@ -145,7 +145,7 @@ function applyToSelection(fx) {
   const msgs = ids.map((id) => applyFx(fx, id)).filter(Boolean);
   if (!msgs.length) return toast("That effect does not fit the selected clips", 'err');
   commit(`Apply ${fx.type}`); emit('select'); showInEC(fx);
-  toast(`✨ ${msgs[msgs.length - 1]}${ids.length > 1 ? ` · ${ids.length} clips` : ''}`);
+  toast(`${msgs[msgs.length - 1]}${ids.length > 1 ? ` · ${ids.length} clips` : ''}`);
 }
 // 🎛 an effect just put on a clip opens in Effect Controls, ready to adjust by hand
 const EC_SECTION = { vfx: 'vfx', preset: 'vfx', cutfx: 'cutfx', ramp: 'ramp', transition: 'transition', afx: 'audio', aeffect: 'aeffects', atrans: 'audio' };
@@ -166,5 +166,5 @@ export function dropFx(fx, clipId, relX) {
   if (!msg) return toast('That effect does not fit this clip', 'err');
   S.sel = new Set([id]);
   commit(`Apply ${fx.type}`); emit('select'); showInEC(fx);
-  toast(`✨ ${msg}`);
+  toast(`${msg}`);
 }

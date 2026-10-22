@@ -48,16 +48,16 @@ async function bring(cb, need) {
 export function copyTimeline() {
   if (!S.project) return;
   const data = seqData(S.project);
-  if (store({ kind: 'timeline', name: seqName(), data })) toast(`📋 Timeline "${seqName()}" copied (${clipsOf(data).length} clips) - open another project and choose 🎞 > Paste timeline`);
+  if (store({ kind: 'timeline', name: seqName(), data })) toast(`Timeline "${seqName()}" copied (${clipsOf(data).length} clips) - open another project and choose > Paste timeline`);
 }
 export async function pasteTimeline() {
   const cb = await syncClipboard();
-  if (cb?.kind !== 'timeline') return toast('Copy a timeline first (🎞 > Copy this timeline)', 'err');
-  emit('job', { running: true, label: '📋 Bringing the media over…' });
+  if (cb?.kind !== 'timeline') return toast('Copy a timeline first (> Copy this timeline)', 'err');
+  emit('job', { running: true, label: 'Bringing the media over…' });
   try {
     await bring(cb, needs(clipsOf(cb.data), cb.data));
     const nm = newSequenceFromData(cb.from === S.proj ? `${cb.name} copy` : `${cb.name} (${cb.from})`, cb.data);
-    toast(`📋 Pasted as the sequence "${nm}" - exactly as it was`);
+    toast(`Pasted as the sequence "${nm}" - exactly as it was`);
   } catch (e) { toast(e.message, 'err'); }
   finally { emit('job', { running: false }); }
 }
@@ -69,7 +69,7 @@ export function copyClips() {
   for (const [track, list] of Object.entries(L)) for (const x of list) if (sel.has(x.clip.id)) items.push({ track, start: x.start, clip: x.clip });
   if (!items.length) return false;
   items.sort((a, b) => a.start - b.start);
-  if (store({ kind: 'clips', items })) toast(`📋 ${items.length} clip${items.length > 1 ? 's' : ''} copied - Ctrl+V pastes at the playhead (in this or another project)`);
+  if (store({ kind: 'clips', items })) toast(`${items.length} clip${items.length > 1 ? 's' : ''} copied - Ctrl+V pastes at the playhead (in this or another project)`);
   return true;
 }
 // insert (Ctrl+Shift+V, Paste Insert like Premiere): room as long as the pasted clips is made at the playhead first -
@@ -78,7 +78,7 @@ export function copyClips() {
 export async function pasteClips({ insert = false } = {}) {
   const cb = await syncClipboard();
   if (cb?.kind !== 'clips') {
-    toast(cb?.kind === 'timeline' ? 'A whole timeline is copied - paste it with 🎞 ▾ > Paste timeline' : 'Nothing copied yet - select clips and press Ctrl+C (or right-click > Copy)', 'err');
+    toast(cb?.kind === 'timeline' ? 'A whole timeline is copied - paste it with ▾ > Paste timeline' : 'Nothing copied yet - select clips and press Ctrl+C (or right-click > Copy)', 'err');
     return false;
   }
   if (S.readOnly) return true;
@@ -122,7 +122,7 @@ export async function pasteClips({ insert = false } = {}) {
   S.sel = sel;
   commit(`${insert ? 'Paste insert' : 'Paste'} ${sel.size} clip${sel.size > 1 ? 's' : ''}`);
   emit('select');
-  toast(`📋 ${sel.size} clip${sel.size > 1 ? 's' : ''} ${insert ? 'inserted - everything after the playhead moved along' : 'pasted'}${cb.from !== S.proj ? ` from "${cb.from}"` : ''}`);
+  toast(`${sel.size} clip${sel.size > 1 ? 's' : ''} ${insert ? 'inserted - everything after the playhead moved along' : 'pasted'}${cb.from !== S.proj ? ` from "${cb.from}"` : ''}`);
   return true;
 }
 // what the 🎞 menu can offer to paste

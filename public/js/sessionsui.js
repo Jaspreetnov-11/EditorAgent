@@ -10,7 +10,7 @@ const hm = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: 
 const key = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 export async function openSessions() {
-  const dlg = modal('📊 Sessions - who worked, when, how long', '<div data-ss><div class="muted pad">Loading…</div></div>', { width: 900 });
+  const dlg = modal('Sessions - who worked, when, how long', '<div data-ss><div class="muted pad">Loading…</div></div>', { width: 900 });
   const box = dlg.el.querySelector('[data-ss]');
   let data;
   try { data = await api('GET', '/api/team/sessions'); } catch (e) { box.innerHTML = `<p class="warn">${esc(e.message)}</p>`; return; }
@@ -30,7 +30,7 @@ export async function openSessions() {
       </tbody></table>` : '<p class="muted">No sessions yet - they appear as people work in the editor.</p>'}
       <h4>Sign-ins from other computers</h4>
       <div class="ss-list ss-logins">${data.logins.length ? data.logins.slice(0, 60).map((l) => `<div><span>${day(l.t)}</span><span class="mono">${hm(l.t)}</span><b>${esc(l.name)}</b><span class="muted small grow">${esc(l.ip || '')}</span></div>`).join('') : '<div class="muted">None in the last 30 days.</div>'}</div>
-      <div class="row-in" style="justify-content:flex-end"><button class="small" data-csv>⬇ CSV (30 days)</button><button class="small" data-reload>↻ Refresh</button></div>`;
+      <div class="row-in" style="justify-content:flex-end"><button class="small" data-csv>CSV (30 days)</button><button class="small" data-reload>↻ Refresh</button></div>`;
   };
   box.addEventListener('click', async (e) => {
     const r = e.target.closest('.ss-row');

@@ -22,7 +22,7 @@ export function openReels(setBusy) {
         <label class="fld wide"><span>Topics / keywords to look for (optional) - also improves spelling</span><input name="keywords" placeholder="Viksit Bharat, yuva, startup, Chhattisgarh, speaker names…"></label>
         <label class="chk"><input type="checkbox" name="tighten" checked> Cut out long pauses (tighter, faster reels)</label>
       </div>
-      <div class="ag-foot"><span class="muted small">Long videos take a while: about 1 minute of listening for every 3-5 minutes of video.</span><span class="grow"></span><button type="button" data-close>Cancel</button><button type="button" class="primary" data-a="find">✂️ Find the best moments</button></div>
+      <div class="ag-foot"><span class="muted small">Long videos take a while: about 1 minute of listening for every 3-5 minutes of video.</span><span class="grow"></span><button type="button" data-close>Cancel</button><button type="button" class="primary" data-a="find">Find the best moments</button></div>
     </div>
     <div class="rl-prog" hidden><div class="bar"><div></div></div><p class="muted small" data-msg></p></div>
     <div class="rl-res" hidden>
@@ -40,7 +40,7 @@ export function openReels(setBusy) {
     </div>
     <div class="rl-done" hidden></div>
   </div>`);
-  const dlg = modal('✂️ Auto Reels - best moments from a long video', body, { width: 900 });
+  const dlg = modal('Auto Reels - best moments from a long video', body, { width: 900 });
   const f = (n) => body.querySelector(`[name="${n}"]`);
   const show = (part) => ['form', 'prog', 'res', 'done'].forEach((p) => ($(`.rl-${p}`, body).hidden = p !== part));
   let found = null;
@@ -59,10 +59,10 @@ export function openReels(setBusy) {
     const [minLen, maxLen] = f('len').value.split('-').map(Number);
     const req = { mediaId: f('mediaId').value, lang: f('lang').value, model: f('model').value, count: +f('count').value, minLen, maxLen, keywords: f('keywords').value.trim(), tighten: f('tighten').checked };
     show('prog'); progress(2, 'Starting…');
-    setBusy?.(true, '✂️ Finding reels…');
+    setBusy?.(true, 'Finding reels…');
     try {
       const job = await api('POST', `/api/reels/find?p=${enc(S.proj)}`, req);
-      const j = await watchJob(job.id, (x) => { progress(x.progress, x.stage); setBusy?.(true, `✂️ Reels ${x.progress}%`); });
+      const j = await watchJob(job.id, (x) => { progress(x.progress, x.stage); setBusy?.(true, `Reels ${x.progress}%`); });
       found = { ...j.result, mediaId: req.mediaId };
       drawResults();
       show('res');
@@ -87,7 +87,7 @@ export function openReels(setBusy) {
           <div class="rl-hook">“${esc(c.hook)}”</div>
           <div class="rl-text muted">${esc(c.text.length > 260 ? `${c.text.slice(0, 260)}…` : c.text)}</div>
           <div class="rl-why muted small">${why(c.parts)}</div></div>
-        <button type="button" class="small" data-play="${c.start}" data-end="${c.end}">▶ Watch</button></label>`;
+        <button type="button" class="small" data-play="${c.start}" data-end="${c.end}">Watch</button></label>`;
     }).join('');
   }
   const why = (p) => [p.hook >= 0.6 && 'strong opening line', p.keywords > 0 && 'mentions your topics', p.applause > 0 && 'ends on applause / a reaction',
@@ -99,16 +99,16 @@ export function openReels(setBusy) {
     await saveNow();
     const req = { mediaId: found.mediaId, ids, captions: f('captions').value, hookTitle: f('hookTitle').checked, music: f('music').value || null, render };
     show('prog'); progress(3, render ? 'Building and rendering the reels…' : 'Building the reel projects…');
-    setBusy?.(true, '✂️ Making reels…');
+    setBusy?.(true, 'Making reels…');
     try {
       let r = await api('POST', `/api/reels/make?p=${enc(S.proj)}`, req);
-      if (r.id && r.status) r = (await watchJob(r.id, (x) => { progress(x.progress, x.stage); setBusy?.(true, `✂️ Rendering ${x.progress}%`); })).result;
+      if (r.id && r.status) r = (await watchJob(r.id, (x) => { progress(x.progress, x.stage); setBusy?.(true, `Rendering ${x.progress}%`); })).result;
       const done = $('.rl-done', body);
       done.innerHTML = `<p><b>${r.projects.length} reel${r.projects.length > 1 ? 's' : ''} ready.</b> Each is its own project, so you can open it, adjust it and export it again.</p>
         <div class="rl-made">${r.projects.map((x) => `<div class="rl-made-i">
           ${x.url ? `<video src="${x.url}" controls playsinline preload="metadata"></video>` : '<div class="rl-ph">Not rendered yet</div>'}
           <b>${esc(x.project)}</b><span class="muted small">${Math.round(x.duration)} s${x.error ? ` · <span class="warn">render failed: ${esc(x.error)}</span>` : ''}</span>
-          <div class="row-in">${x.url ? `<a class="btn small" href="${x.url}?download" download>⬇ Download</a>` : ''}<button type="button" class="small" data-open="${esc(x.project)}">Open project</button></div></div>`).join('')}</div>
+          <div class="row-in">${x.url ? `<a class="btn small" href="${x.url}?download" download>Download</a>` : ''}<button type="button" class="small" data-open="${esc(x.project)}">Open project</button></div></div>`).join('')}</div>
         <div class="ag-foot"><button type="button" data-a="back">Back to moments</button><span class="grow"></span><button type="button" class="primary" data-close>Done</button></div>`;
       show('done');
       toast(`${r.projects.length} reel project${r.projects.length > 1 ? 's' : ''} created`);

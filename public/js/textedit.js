@@ -26,12 +26,12 @@ export function mountText(el) {
       <select data-lang title="Spoken language"><option value="auto">Auto language</option><option value="hi">Hindi</option><option value="en">English</option></select>
       <button class="accent small" data-go-tr>Transcribe</button>
       <span class="sep"></span>
-      <button class="small" data-presets title="One-click clean-ups and highlights">✨ Presets ▾</button>
-      <button class="small" data-fill title="Cut every um / aa / hmm">✂ Remove fillers</button>
+      <button class="small" data-presets title="One-click clean-ups and highlights">Presets ▾</button>
+      <button class="small" data-fill title="Cut every um / aa / hmm">Remove fillers</button>
       <span class="sep"></span>
       <button class="small tog" data-mark title="Mark mode: Delete strikes words through instead of cutting; cut them all together with Apply">✎ Mark mode</button>
-      <button class="small" data-apply hidden>✂ Apply marks</button><button class="small" data-clearm hidden>Clear marks</button>
-      <button class="small danger" data-del title="Cut the selected words out of the video (Delete)">✂ Cut selection</button>
+      <button class="small" data-apply hidden>Apply marks</button><button class="small" data-clearm hidden>Clear marks</button>
+      <button class="small danger" data-del title="Cut the selected words out of the video (Delete)">Cut selection</button>
     </div>
     <div class="tx-main">
       <div class="tx-doc" data-doc tabindex="0" aria-label="Transcript of the edit"></div>
@@ -39,7 +39,7 @@ export function mountText(el) {
         <video data-pv playsinline controls></video>
         <div class="muted small" data-pvinfo>Click a word to hear it. Select words and press Delete to cut them. Double-click a word to correct it.</div>
         <h4>Highlights <span class="muted small">(a new sequence - the edit stays)</span></h4>
-        <div class="tx-hl"><button class="small" data-hl="15">15 s</button><button class="small" data-hl="30">30 s</button><button class="small" data-hl="60">60 s</button><button class="small" data-hl="q" title="Only the questions">❓ Questions</button><button class="small" data-hl="k" title="Sentences with the word typed below">🔎 Keyword</button></div>
+        <div class="tx-hl"><button class="small" data-hl="15">15 s</button><button class="small" data-hl="30">30 s</button><button class="small" data-hl="60">60 s</button><button class="small" data-hl="q" title="Only the questions">Questions</button><button class="small" data-hl="k" title="Sentences with the word typed below">Keyword</button></div>
         <h4>Rough cut from sentences</h4>
         <input type="search" data-q placeholder="Find sentences with…" aria-label="Find sentences">
         <div class="tx-sents" data-sents></div>
@@ -89,7 +89,7 @@ export function mountText(el) {
     document.querySelector('.ui-menu')?.remove();
     const m = document.createElement('div'); m.className = 'ui-menu tx-menu';
     const has = !window.getSelection().isCollapsed;
-    m.innerHTML = `<button data-k="fix">✏ Correct this word… (F2)</button>${has ? '<button data-k="cut">✂ Cut the selected words (Delete)</button><button data-k="copy">Copy the text</button>' : ''}`;
+    m.innerHTML = `<button data-k="fix">Correct this word… (F2)</button>${has ? '<button data-k="cut">Cut the selected words (Delete)</button><button data-k="copy">Copy the text</button>' : ''}`;
     document.body.append(m);
     m.style.top = `${Math.min(e.clientY, innerHeight - m.offsetHeight - 8)}px`; m.style.left = `${Math.min(e.clientX, innerWidth - m.offsetWidth - 8)}px`;
     const close = (ev) => { if (!m.contains(ev.target)) { m.remove(); document.removeEventListener('pointerdown', close, true); } };
@@ -148,10 +148,10 @@ function draw() {
   $('[data-st]', root).innerHTML = missing.length ? `<b>${missing.length}</b> clip${missing.length > 1 ? 's' : ''} with speech not transcribed yet` : words.length ? `${words.length} words · ${fmt(layoutV1(S.project, S.mediaById).at(-1)?.end || 0)} edit` : 'Put shots with speech on V1 (the main story)';
   $('[data-go-tr]', root).hidden = !missing.length;
   const nf = words.filter((w) => isFiller(w.w)).length;
-  $('[data-fill]', root).textContent = `✂ Remove fillers${nf ? ` (${nf})` : ''}`;
+  $('[data-fill]', root).textContent = `Remove fillers${nf ? ` (${nf})` : ''}`;
   $('[data-fill]', root).disabled = !nf;
   $('[data-apply]', root).hidden = $('[data-clearm]', root).hidden = !marks.size;
-  $('[data-apply]', root).textContent = `✂ Apply marks (${marks.size})`;
+  $('[data-apply]', root).textContent = `Apply marks (${marks.size})`;
   // paragraphs: one per V1 clip (its name + time), sentences inside
   const L = layoutV1(S.project, S.mediaById);
   let html = '', i = 0;
@@ -202,7 +202,7 @@ function apply(cuts, label, what) {
   if (!cuts.length) return toast('Nothing to cut');
   const sec = cutSource(S.project, S.mediaById, cuts);
   commit(label);
-  toast(`✂ ${what(cuts.length)} cut · ${sec.toFixed(1)} s shorter - Ctrl+Z brings it back`);
+  toast(`${what(cuts.length)} cut · ${sec.toFixed(1)} s shorter - Ctrl+Z brings it back`);
 }
 // the words under the text selection: [a, b] or null
 function selectedWords() {
@@ -243,12 +243,12 @@ function presetMenu(anchor) {
   const n = (cuts) => (words.length ? ` <i class="muted">(${cuts.length})</i>` : '');
   const items = [
     ['h', 'Clean up'],
-    ['fill', `✂ Ums & ahs${n(fillerCuts(words))}`], ['verbal', `✂ Verbal fillers - basically, matlab, you know…${n(verbalCuts(words))}`],
-    ['stutter', `✂ Stutters - "main main", "the the"${n(stutterCuts(words))}`], ['retake', `✂ Retakes - a line said again: keep the last take${n(retakeCuts(words))}`],
-    ['headtail', `✂ Silence at the start / end of each shot${n(headTailCuts(words))}`],
-    ['all', '✨ All of the above (one step)'],
-    ['h', 'Pauses'], ...Object.entries(PAUSE_PRESETS).map(([k, p]) => [`pause:${k}`, `⏸ ${p.label}${n(pauseCuts(words, p.min, p.keep))}`]),
-    ['h', 'Highlights (new sequence)'], ['hl:15', '⭐ 15 s highlight'], ['hl:30', '⭐ 30 s highlight'], ['hl:60', '⭐ 60 s highlight'], ['hl:q', '❓ Only the questions'],
+    ['fill', `Ums & ahs${n(fillerCuts(words))}`], ['verbal', `Verbal fillers - basically, matlab, you know…${n(verbalCuts(words))}`],
+    ['stutter', `Stutters - "main main", "the the"${n(stutterCuts(words))}`], ['retake', `Retakes - a line said again: keep the last take${n(retakeCuts(words))}`],
+    ['headtail', `Silence at the start / end of each shot${n(headTailCuts(words))}`],
+    ['all', 'All of the above (one step)'],
+    ['h', 'Pauses'], ...Object.entries(PAUSE_PRESETS).map(([k, p]) => [`pause:${k}`, `${p.label}${n(pauseCuts(words, p.min, p.keep))}`]),
+    ['h', 'Highlights (new sequence)'], ['hl:15', '15 s highlight'], ['hl:30', '30 s highlight'], ['hl:60', '60 s highlight'], ['hl:q', 'Only the questions'],
   ];
   const m = document.createElement('div'); m.className = 'ui-menu tx-menu';
   m.innerHTML = items.map(([k, l]) => (k === 'h' ? `<div class="muted">${l}</div>` : `<button data-k="${k}">${l}</button>`)).join('');
@@ -281,7 +281,7 @@ function highlight(kind) {
   const base = Object.fromEntries(S.project.tracks.V1.map((c) => [c.id, { fit: c.fit, color: c.color, cropX: c.cropX }]));
   const name = kind === 'q' ? 'Questions' : kind === 'k' ? `"${q}"` : `${kind} s highlight`;
   newSequenceWith(name, roughCut(list, base));
-  toast(`⭐ "${name}" made with ${list.length} sentence${list.length > 1 ? 's' : ''} - a new sequence (🎞), the edit is untouched`);
+  toast(`"${name}" made with ${list.length} sentence${list.length > 1 ? 's' : ''} - a new sequence (), the edit is untouched`);
 }
 
 function buildRough() {
@@ -290,7 +290,7 @@ function buildRough() {
   const base = Object.fromEntries(S.project.tracks.V1.map((c) => [c.id, { fit: c.fit, color: c.color, cropX: c.cropX }]));
   newSequenceWith('Rough cut', roughCut(list, base));
   tick.clear();
-  toast(`Rough cut made with ${list.length} sentences - it is a new sequence (🎞), the original edit is untouched`);
+  toast(`Rough cut made with ${list.length} sentences - it is a new sequence (), the original edit is untouched`);
 }
 
 // ---------------- the timeline strip ----------------

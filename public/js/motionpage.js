@@ -60,16 +60,16 @@ export function mountMotion(el) {
         <button class="small" data-m="addLayer" title="New layer">＋ Layer ▾</button>
         <span class="grow"></span>
         <select id="moZoom" aria-label="Zoom"><option value="fit">Fit</option><option value="0.25">25%</option><option value="0.5">50%</option><option value="1">100%</option></select>
-        <button class="accent small" data-m="toTimeline" title="Put this comp on the edit's timeline at the playhead (it updates when you change it here)">⤵ Add to timeline</button>
+        <button class="accent small" data-m="toTimeline" title="Put this comp on the edit's timeline at the playhead (it updates when you change it here)">Add to timeline</button>
       </div>
       <div class="mo-stage" id="moStage"><div class="mo-canvas"><canvas id="moCanvas"></canvas><canvas id="moOver"></canvas></div><div class="mo-empty" id="moEmpty">Make a composition: ＋ Comp, or pick a preset on the left.</div></div>
-      <div class="mo-trans"><button class="icon-btn" data-m="start" title="Start (Home)">⏮</button><button class="icon-btn" data-m="prevKey" title="Previous keyframe (J)">◀◆</button><button class="icon-btn" data-m="play" title="Play / pause (Space)">▶</button><button class="icon-btn" data-m="nextKey" title="Next keyframe (K)">◆▶</button><button class="icon-btn" data-m="end" title="End (End)">⏭</button>
+      <div class="mo-trans"><button class="icon-btn" data-m="start" title="Start (Home)"></button><button class="icon-btn" data-m="prevKey" title="Previous keyframe (J)">◆</button><button class="icon-btn" data-m="play" title="Play / pause (Space)"></button><button class="icon-btn" data-m="nextKey" title="Next keyframe (K)">◆</button><button class="icon-btn" data-m="end" title="End (End)"></button>
         <span class="tc" id="moTC">0:00:00</span><span class="muted small" id="moHint"></span></div>
     </div>
     <div class="panel mo-props" id="moProps"></div>
     <div class="panel mo-tl">
       <div class="mo-head"><b id="moTlName">Timeline</b><span class="grow"></span>
-        <button class="small tog" data-m="graph" title="Graph Editor: shape the speed of the selected property between keyframes">📈 Graph Editor</button>
+        <button class="small tog" data-m="graph" title="Graph Editor: shape the speed of the selected property between keyframes">Graph Editor</button>
         <span class="muted small">Ease: select a keyframe, then</span>${Object.entries({ linear: 'Linear', easy: 'Easy Ease (F9)', easyIn: 'Ease In', easyOut: 'Ease Out', overshoot: 'Overshoot', hold: 'Hold' }).map(([k, l]) => `<button class="small" data-ease="${k}">${l}</button>`).join('')}
       </div>
       <div class="mo-tlbody"><div class="mo-lhead" id="moLHead"></div><div class="mo-lanes" id="moLanes"><canvas id="moTlCanvas"></canvas></div></div>
@@ -93,7 +93,7 @@ function refresh() {
   if (!root || !S.project) return;
   if (compId && !comp()) { compId = Object.keys(comps())[0] || null; selIds.clear(); }
   for (const id of [...selIds]) if (!layer(id)) selIds.delete(id);
-  { const b = root.querySelector('[data-m="toTimeline"]'); if (b && comp()) b.textContent = onTimeline(comp().id).length ? '⤵ Update on timeline' : '⤵ Add to timeline'; } // (already there: updated, not added)
+  { const b = root.querySelector('[data-m="toTimeline"]'); if (b && comp()) b.textContent = onTimeline(comp().id).length ? 'Update on timeline' : 'Add to timeline'; } // (already there: updated, not added)
   T = clamp(T, 0, comp()?.dur || 0);
   renderList(); renderProps(); renderLHead(); size(); draw(); drawTl();
   $$('[data-tool]', root).forEach((b) => b.classList.toggle('on', b.dataset.tool === tool));
@@ -104,7 +104,7 @@ function refresh() {
 // ---------------- project panel ----------------
 function renderList() {
   const list = Object.values(comps());
-  $('#moList', root).innerHTML = list.length ? list.map((c) => `<div class="mo-comp${c.id === compId ? ' on' : ''}" data-comp="${c.id}" title="Double-click to rename"><span>🎬</span><span class="grow">${esc(c.name)}</span><span class="muted small">${c.dur}s</span>
+  $('#moList', root).innerHTML = list.length ? list.map((c) => `<div class="mo-comp${c.id === compId ? ' on' : ''}" data-comp="${c.id}" title="Double-click to rename"><span></span><span class="grow">${esc(c.name)}</span><span class="muted small">${c.dur}s</span>
     <button class="icon-btn" data-dup="${c.id}" title="Duplicate">⧉</button><button class="icon-btn" data-del="${c.id}" title="Delete">✕</button></div>`).join('') : '<div class="muted small pad">No compositions yet.</div>';
   $$('[data-comp]', root).forEach((r) => {
     r.onclick = (e) => { if (e.target.closest('button')) return; compId = r.dataset.comp; selIds.clear(); T = 0; refresh(); };
@@ -118,14 +118,14 @@ function renderList() {
   const c = comp();
   $('#moCompSet', root).innerHTML = c ? `<div class="mo-set"><label>Duration <input type="number" min="0.5" step="0.5" data-cs="dur" value="${c.dur}"> s</label>
     <label title="Fills the whole frame with this colour - it covers the clip underneath on the edit. Leave it off for a see-through comp.">Background colour (covers the edit below) <input type="checkbox" data-cs="bgOn"${c.bg ? ' checked' : ''}> <input type="color" data-cs="bg" value="${c.bg || '#000000'}"></label>
-    <label title="A camera for parallax: layers with a Depth move with it (Properties, with no layer selected)">🎥 Camera (parallax) <input type="checkbox" data-cs="cam"${c.camera ? ' checked' : ''}></label>
+    <label title="A camera for parallax: layers with a Depth move with it (Properties, with no layer selected)">Camera (parallax) <input type="checkbox" data-cs="cam"${c.camera ? ' checked' : ''}></label>
     <span class="muted small">${c.w}×${c.h} · ${fps()} fps</span></div>` : '';
   $$('[data-cs]', root).forEach((i) => (i.onchange = () => {
     const c2 = comp(); if (!c2) return;
     if (i.dataset.cs === 'dur') { const d = Math.max(0.5, +i.value || 5); for (const l of c2.layers) if ((l.out ?? c2.dur) >= c2.dur - 1e-3) l.out = d; c2.dur = d; }
     if (i.dataset.cs === 'bgOn') c2.bg = i.checked ? $('[data-cs="bg"]', root).value : null;
     if (i.dataset.cs === 'bg' && c2.bg !== null) c2.bg = i.value;
-    if (i.dataset.cs === 'cam') { if (i.checked) c2.camera = { pos: [0, 0], zoom: 1 }; else delete c2.camera; if (i.checked) { selIds.clear(); toast('🎥 Camera on: give layers a Depth (Properties > Layer), then animate the camera (click an empty spot to see it)'); } }
+    if (i.dataset.cs === 'cam') { if (i.checked) c2.camera = { pos: [0, 0], zoom: 1 }; else delete c2.camera; if (i.checked) { selIds.clear(); toast('Camera on: give layers a Depth (Properties > Layer), then animate the camera (click an empty spot to see it)'); } }
     save('Comp settings');
   }));
   // presets as two drop-downs: a new comp from a template, and a text animation for the selected text layer
@@ -142,7 +142,7 @@ function newCompFrom(preset) {
   let n = c.name, k = 2; while (Object.values(comps()).some((x) => x.name === n)) n = `${c.name} ${k++}`;
   c.name = n; comps()[c.id] = c; compId = c.id; selIds = new Set(c.layers[0] ? [c.layers[0].id] : []); T = 0;
   commit(`New comp: ${c.name}`);
-  toast(`🎬 "${c.name}" made - press Space to play`);
+  toast(`"${c.name}" made - press Space to play`);
 }
 
 // ---------------- adding layers ----------------
@@ -156,7 +156,7 @@ function addLayer(type, extra = {}) {
 }
 function layerMenu(btn) {
   const imgs = S.media.filter((m) => m.kind === 'image'), vids = S.media.filter((m) => m.kind === 'video' && m.playable !== false);
-  menu(btn, [['text', 'T  Text'], ['shape', '▭  Shape'], ['solid', '■  Solid'], ['null', '⊹  Null (parent for others)'], ...(vids.length ? [['video', '🎞  Video from Media…']] : []), ...(imgs.length ? [['image', '🖼  Image from Media…']] : [])], (k) => {
+  menu(btn, [['text', 'T  Text'], ['shape', '▭  Shape'], ['solid', '■  Solid'], ['null', '⊹  Null (parent for others)'], ...(vids.length ? [['video', ' Video from Media…']] : []), ...(imgs.length ? [['image', ' Image from Media…']] : [])], (k) => {
     if (k === 'video') return menu(btn, vids.slice(0, 80).map((m) => [m.id, m.name]), (id) => { const m = S.mediaById[id], c = comp() || null, [w, h] = frame(), k2 = Math.max(w / (m.width || w), h / (m.height || h)); addLayer('video', { mediaId: id, name: m.name, w: Math.round((m.width || w) * k2), h: Math.round((m.height || h) * k2) }); });
     if (k !== 'image') return addLayer(k);
     menu(btn, imgs.slice(0, 60).map((m) => [m.id, m.name]), (id) => { const m = S.mediaById[id], [w, h] = frame(), k2 = Math.min(1, (w * 0.6) / (m.width || 800)); addLayer('image', { mediaId: id, name: m.name, w: Math.round((m.width || 800) * k2), h: Math.round((m.height || 600) * k2) }); });
@@ -207,14 +207,14 @@ function toTimeline(e) {
   if (there.length && !e?.shiftKey) {
     save(`Update comp "${c.name}" on the timeline`);
     S.sel = new Set(there.map((p) => p.x.id)); emit('select');
-    return toast(`⤵ "${c.name}" updated on ${[...new Set(there.map((p) => p.t))].join(', ')} - no new clip (Shift + click adds another copy)`);
+    return toast(`"${c.name}" updated on ${[...new Set(there.map((p) => p.t))].join(', ')} - no new clip (Shift + click adds another copy)`);
   }
   const t = S.playhead || 0, dur = c.dur;
   const id = compTrack(S.project, t, dur, S.mediaById);
   const clip = { id: uid(), type: 'graphic', start: +t.toFixed(3), dur, gfx: { tpl: 'comp', compId: c.id, comp: JSON.parse(JSON.stringify(c)) } };
   S.project.tracks[id].push(clip);
   commit(`Add comp "${c.name}" to the timeline`);
-  toast(`⤵ "${c.name}" is on ${id} at the playhead - changes made here update it`);
+  toast(`"${c.name}" is on ${id} at the playhead - changes made here update it`);
 }
 
 // ---------------- viewer ----------------
@@ -408,11 +408,11 @@ const ROW = (L, path, label, kind, opts = {}) => {
   const input = kind === 'color' ? `<input type="color" data-pv="${P}" value="${v || '#ffffff'}">`
     : kind === 'xy' ? (v || [0, 0]).map(num).join('') : num(v, -1);
   return `<div class="mo-row${graphPath === P ? ' gsel' : ''}" data-row="${P}">
-    <button class="mo-sw${on ? ' on' : ''}" data-sw="${P}" title="Stopwatch: animate this property">⏱</button>
+    <button class="mo-sw${on ? ' on' : ''}" data-sw="${P}" title="Stopwatch: animate this property"></button>
     <span class="mo-lab" data-glab="${P}" title="${on ? 'Click: show in the Graph Editor' : ''}">${label}</span>
     <span class="mo-in">${input}</span>
     ${on ? `<button class="mo-key${k ? ' on' : ''}" data-key="${P}" title="${k ? 'Remove the keyframe here' : 'Add a keyframe here'}">◆</button>` : '<span class="mo-key-sp"></span>'}
-    ${kind !== 'color' && opts.wiggle !== false ? `<button class="mo-wig${w ? ' on' : ''}" data-wig="${P}" title="Wiggle (random motion)${w ? `: ${w.freq}/s, ±${w.amp}` : ''}">〰</button>` : ''}
+    ${kind !== 'color' && opts.wiggle !== false ? `<button class="mo-wig${w ? ' on' : ''}" data-wig="${P}" title="Wiggle (random motion)${w ? `: ${w.freq}/s, ±${w.amp}` : ''}"></button>` : ''}
   </div>`;
 };
 const SEL = (path, label, options, cur) => `<label class="mo-f"><span>${label}</span><select data-sv="${path}">${options.map(([k, l]) => `<option value="${esc(k)}"${String(k) === String(cur ?? '') ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
@@ -425,7 +425,7 @@ function renderProps() {
   if (!c) { el.innerHTML = '<div class="mo-head"><b>Properties</b></div><div class="muted pad small">No composition open.</div>'; return; }
   if (!L) {
     // 🎥 no layer selected: the comp's camera (parallax) is edited here
-    el.innerHTML = `<div class="mo-head"><b>Properties</b></div>${c.camera ? `<div class="mo-scroll">${sec('cam', '🎥 Camera (parallax)', ROW(c, ['camera', 'pos'], 'Position', 'xy') + ROW(c, ['camera', 'zoom'], 'Zoom ×', 'n', { step: 0.01 }) + '<div class="muted small">Layers with a Depth move with it - near ones more, far ones less. ⏱ to animate the move.</div>')}</div>` : ''}<div class="muted pad small">Select a layer (click it in the viewer or the timeline).<br><br>Keys: V select · T text · Q rectangle · G pen · Space play · J / K keyframes · F9 easy ease · Delete · Ctrl+D duplicate · [ ] layer in / out at the time</div>`;
+    el.innerHTML = `<div class="mo-head"><b>Properties</b></div>${c.camera ? `<div class="mo-scroll">${sec('cam', 'Camera (parallax)', ROW(c, ['camera', 'pos'], 'Position', 'xy') + ROW(c, ['camera', 'zoom'], 'Zoom ×', 'n', { step: 0.01 }) + '<div class="muted small">Layers with a Depth move with it - near ones more, far ones less. to animate the move.</div>')}</div>` : ''}<div class="muted pad small">Select a layer (click it in the viewer or the timeline).<br><br>Keys: V select · T text · Q rectangle · G pen · Space play · J / K keyframes · F9 easy ease · Delete · Ctrl+D duplicate · [ ] layer in / out at the time</div>`;
     if (c.camera) { openSecs.add('cam'); wireProps(el, c, {}); }
     return;
   }
@@ -464,7 +464,7 @@ function renderProps() {
       ${ROW(L, ['shape', 'trimStart'], 'Start %', 'n')}${ROW(L, ['shape', 'trimEnd'], 'End %', 'n')}${ROW(L, ['shape', 'trimOffset'], 'Offset °', 'n')}`);
   }
   if (L.type === 'solid') h += sec('solid', 'Solid', ROW(L, ['solid', 'color'], 'Colour', 'color') + ROW(L, ['solid', 'size'], 'Size', 'xy'));
-  if (L.type === 'video') h += sec('roto', '✂ Subject (AI roto)', `<div class="btn-grid"><button class="accent small" data-roto>${L.video.matte?.id ? '↻ Find again' : '✂ Cut out subject'}</button><button class="small" data-behind title="Text between the clip and its cut-out subject - in one click">🅣 Text behind subject</button><button class="small" data-parallax title="2.5D: the subject in front, text in the middle, the background behind, and a slow camera move">🌄 Parallax (2.5D)</button></div>
+  if (L.type === 'video') h += sec('roto', 'Subject (AI roto)', `<div class="btn-grid"><button class="accent small" data-roto>${L.video.matte?.id ? '↻ Find again' : 'Cut out subject'}</button><button class="small" data-behind title="Text between the clip and its cut-out subject - in one click">🅣 Text behind subject</button><button class="small" data-parallax title="2.5D: the subject in front, text in the middle, the background behind, and a slow camera move">Parallax (2.5D)</button></div>
     ${L.video.matte?.id ? `<div class="mo-grid">${SEL('video.matte.mode', 'Show', [['cutout', 'Subject only'], ['background', 'Everything but the subject'], ['matte', 'The matte (black & white)']], L.video.matte.mode || 'cutout')}<label class="mo-f"><span>Blur edge px</span><input type="number" class="mo-num" min="0" max="30" step="0.5" data-msoft value="${+L.video.matte.soft || 0}"></label></div>
     <label class="pr"><span>Shrink (+) / grow (−) <i>edge in or out</i></span><input type="range" min="-40" max="40" step="1" data-mref="choke" value="${+L.video.matte.choke || 0}"><input type="number" class="pr-n" data-mrefn="choke" value="${+L.video.matte.choke || 0}"></label>
     <label class="pr"><span>Edge softness % <i>0 = hard</i></span><input type="range" min="0" max="100" step="1" data-mref="edge" value="${L.video.matte.edge ?? 100}"><input type="number" class="pr-n" data-mrefn="edge" value="${L.video.matte.edge ?? 100}"></label>
@@ -628,19 +628,19 @@ function renderLHead() {
   const modes = (L) => Object.keys(M.BLENDS).map((k) => `<option value="${k}"${k === (L.blend || 'normal') ? ' selected' : ''}>${k[0].toUpperCase()}${k.slice(1)}</option>`).join('');
   const mats = (L) => [['', 'None'], ['alpha', 'Alpha'], ['alphaInv', 'Alpha Inv'], ['luma', 'Luma'], ['lumaInv', 'Luma Inv']].map(([k, l]) => `<option value="${k}"${k === (L.matte || '') ? ' selected' : ''}>${l}</option>`).join('');
   el.innerHTML = `<div class="ae-top" style="height:${HEAD}px"><span class="ae-tc">${tc(T)}</span><input type="search" class="ae-search" data-tlsearch placeholder="Search layers" value="${esc(tlSearch)}">${propSolo ? `<span class="tag" title="Esc shows everything">${propSolo.toUpperCase()} only</span>` : ''}</div>`
-    + '<div class="ae-row ae-hdr"><span class="ae-av">👁 ◉ 🔒</span><span class="ae-n">#</span><span class="ae-name">Source Name</span><span class="ae-fx">fx</span><span class="ae-mode">Mode</span><span class="ae-mat">TrkMat</span><span class="ae-par">Parent &amp; Link</span></div>'
+    + '<div class="ae-row ae-hdr"><span class="ae-av">◉ </span><span class="ae-n">#</span><span class="ae-name">Source Name</span><span class="ae-fx">fx</span><span class="ae-mode">Mode</span><span class="ae-mat">TrkMat</span><span class="ae-par">Parent &amp; Link</span></div>'
     + rowsOf().map((r) => {
       const L = r.L, sel = selIds.has(L.id);
       if (r.group !== undefined) return `<div class="ae-row ae-grp" data-gk="${esc(r.gk)}" data-lid="${L.id}"><span class="ae-tw">${r.open ? '▾' : '▸'}</span>${esc(r.group)}</div>`;
       if (r.prop) {
         const P = r.prop.join('.'), p = M.getIn(L, r.prop), on = animated(p), v = val(p, T), k = M.keyAt(p, T) >= 0;
         const input = r.kind === 'color' ? `<input type="color" class="tl-col" data-tv="${P}" value="${v || '#ffffff'}">` : r.kind === 'xy' ? (v || [0, 0]).map((x, i) => vnum(x, P, i)).join('') : vnum(v, P, -1);
-        return `<div class="ae-row ae-prop${graphPath === P && sel ? ' gsel' : ''}" data-lid="${L.id}" data-gprop="${P}"><button class="mo-sw${on ? ' on' : ''}" data-tsw="${P}" title="Stopwatch">⏱</button><span class="ae-pname" title="Click: graph it in the Graph Editor">${esc(r.label)}</span><span class="ae-pv">${input}</span>`
-          + (on ? `<span class="ae-nav"><button data-tnav="-1" data-p="${P}" title="Previous keyframe">◀</button><button class="${k ? 'on' : ''}" data-tkey="${P}" title="Add / remove keyframe">◆</button><button data-tnav="1" data-p="${P}" title="Next keyframe">▶</button></span>` : '<span class="ae-nav"></span>') + '</div>';
+        return `<div class="ae-row ae-prop${graphPath === P && sel ? ' gsel' : ''}" data-lid="${L.id}" data-gprop="${P}"><button class="mo-sw${on ? ' on' : ''}" data-tsw="${P}" title="Stopwatch"></button><span class="ae-pname" title="Click: graph it in the Graph Editor">${esc(r.label)}</span><span class="ae-pv">${input}</span>`
+          + (on ? `<span class="ae-nav"><button data-tnav="-1" data-p="${P}" title="Previous keyframe"></button><button class="${k ? 'on' : ''}" data-tkey="${P}" title="Add / remove keyframe">◆</button><button data-tnav="1" data-p="${P}" title="Next keyframe"></button></span>` : '<span class="ae-nav"></span>') + '</div>';
       }
       const isMatte = c.layers[c.layers.indexOf(L) + 1]?.matte;
       return `<div class="ae-row ae-layer${sel ? ' on' : ''}" data-lid="${L.id}" draggable="true">`
-        + `<span class="ae-av"><button class="mo-ib${L.hidden ? '' : ' on'}" data-vis="${L.id}" title="Video (show / hide)">👁</button><button class="mo-ib${L.solo ? ' on' : ''}" data-solo="${L.id}" title="Solo">◉</button><button class="mo-ib${L.locked ? ' on' : ''}" data-lock="${L.id}" title="Lock">🔒</button></span>`
+        + `<span class="ae-av"><button class="mo-ib${L.hidden ? '' : ' on'}" data-vis="${L.id}" title="Video (show / hide)"></button><button class="mo-ib${L.solo ? ' on' : ''}" data-solo="${L.id}" title="Solo">◉</button><button class="mo-ib${L.locked ? ' on' : ''}" data-lock="${L.id}" title="Lock"></button></span>`
         + `<span class="ae-n"><i class="ae-lab" data-lab="${L.id}" style="background:${labelOf(L)}" title="Label colour (click to change)"></i>${r.n}</span>`
         + `<span class="ae-name"><span class="ae-tw" data-tw="${L.id}">${openLayers.has(L.id) ? '▾' : '▸'}</span>${{ text: 'T', shape: '★', solid: '■', image: '🖼', video: '🎞', null: '⊹' }[L.type]} <span class="ae-ln" data-ren="${L.id}" title="Double-click to rename">${esc(L.name)}</span>${isMatte ? ' <i class="muted">(matte)</i>' : ''}</span>`
         + `<span class="ae-fx"><button class="mo-ib${(L.effects || []).some((f) => !f.off) ? ' on' : ''}" data-fxall="${L.id}" title="Effects on / off">fx</button></span>`
@@ -753,7 +753,7 @@ function graphMap(G, H, p) {
 function drawGraph(g, G, H) {
   const tg = graphTarget();
   g.fillStyle = '#0d0e12'; g.fillRect(0, HEAD, G.W, H - HEAD);
-  if (!tg) { g.fillStyle = '#8a93a3'; g.font = '12px Segoe UI'; g.fillText('Select a layer with keyframes (⏱ on a property) - click a property name to graph it.', 12, HEAD + 24); return; }
+  if (!tg) { g.fillStyle = '#8a93a3'; g.font = '12px Segoe UI'; g.fillText('Select a layer with keyframes (on a property) - click a property name to graph it.', 12, HEAD + 24); return; }
   const { p } = tg, Mp = graphMap(G, H, p), cols = ['#ff6b6b', '#5ad65a', '#5aa0ff', '#ffcc33'];
   g.fillStyle = '#8a93a3'; g.font = '11px Segoe UI'; g.fillText(`${tg.L.name} › ${propName(tg.P)}  (drag keys; yellow handles shape the ease)`, 10, HEAD + 12);
   for (let ci = 0; ci < Mp.n; ci++) {
@@ -902,7 +902,7 @@ export function makeCompFromClip(clipId, findClip) {
   S.project.tracks[tr].push({ id: uid(), type: 'graphic', start: +start.toFixed(3), dur, gfx: { tpl: 'comp', compId: cp.id, comp: JSON.parse(JSON.stringify(cp)) } });
   compId = cp.id; selIds = new Set([L.id]); T = 0;
   commit(`Make Motion comp: ${m.name}`);
-  toast(`🎬 "${name}" made on ${tr} over the clip (orange) - double-click it to open it in Motion`);
+  toast(`"${name}" made on ${tr} over the clip (orange) - double-click it to open it in Motion`);
   return true;
 }
 const layoutStart = (f) => Object.values(layout()).flat().find((x) => x.clip.id === f.clip.id)?.start;
@@ -954,13 +954,13 @@ async function findSubject(L) {
   rotoBusy = true;
   const sp = L.video.speed || 1, a = L.video.in || 0, len = ((L.out ?? c.dur) - (L.in || 0)) * sp;
   try {
-    emit('job', { running: true, label: '✂ Finding the subject (AI)…' });
+    emit('job', { running: true, label: 'Finding the subject (AI)…' });
     const job = await api('POST', `/api/matte?p=${enc(S.proj)}`, { mediaId: L.video.mediaId, in: a, out: a + len, fps: fps() });
-    const j = await watchJob(job.id, (x) => emit('job', { running: true, label: `✂ Finding the subject (AI)… ${x.progress || 0}%` }));
+    const j = await watchJob(job.id, (x) => emit('job', { running: true, label: `Finding the subject (AI)… ${x.progress || 0}%` }));
     const live = layer(L.id) || L;
     live.video.matte = { id: matteId(S.proj, j.result.file), mode: live.video.matte?.mode || 'cutout', soft: live.video.matte?.soft ?? 1 };
     save('Subject (AI roto)');
-    toast('✂ Subject cut out in every frame');
+    toast('Subject cut out in every frame');
   } catch (e) { toast(e.job ? `Could not find the subject: ${e.job.log?.slice(-1)[0] || ''}` : e.message, 'err'); }
   finally { rotoBusy = false; emit('job', { running: false }); }
 }
@@ -1007,9 +1007,9 @@ async function trackBox([x, y, w, h]) {
   const box = { x: Math.min(fx(a), fx(b)), y: Math.min(fy(a), fy(b)), w: Math.abs(fx(b) - fx(a)), h: Math.abs(fy(b) - fy(a)) };
   const from = T, to = V.out ?? c.dur, sp = V.video.speed || 1;
   try {
-    emit('job', { running: true, label: '🎯 Following it through the shot…' });
+    emit('job', { running: true, label: 'Following it through the shot…' });
     const job = await api('POST', `/api/track?p=${enc(S.proj)}`, { mediaId: V.video.mediaId, t0: M.videoTime(V, from), t1: M.videoTime(V, to), box });
-    const j = await watchJob(job.id, (q) => emit('job', { running: true, label: `🎯 Tracking… ${q.progress || 0}%` }));
+    const j = await watchJob(job.id, (q) => emit('job', { running: true, label: `Tracking… ${q.progress || 0}%` }));
     const pts = j.result.points || [];
     if (pts.length < 2) throw new Error('It could not be followed - try a bigger box around something with clear edges');
     // each tracked point → comp time and comp position (through the video layer's own transform at that time)
@@ -1028,7 +1028,7 @@ async function trackBox([x, y, w, h]) {
     live.tr.position = p;
     tool = 'select';
     save(`Track motion → ${live.name}`);
-    toast(`🎯 ${live.name} now follows it - ${p.k.length} position keyframes${j.result.lost?.length ? ` (lost it ${j.result.lost.length}× - check those moments)` : ''}`);
+    toast(`${live.name} now follows it - ${p.k.length} position keyframes${j.result.lost?.length ? ` (lost it ${j.result.lost.length}× - check those moments)` : ''}`);
   } catch (e) { toast(e.job ? `Tracking failed: ${e.job.log?.slice(-1)[0] || ''}` : e.message, 'err'); }
   finally { emit('job', { running: false }); }
 }
@@ -1050,7 +1050,7 @@ function parallax(L) {
   selIds = new Set([t.id]);
   save('Parallax (2.5D)');
   if (!top.video.matte) findSubject(top);
-  toast('🌄 Parallax made: subject near, text in the middle, background far - the camera slides across (Space to play)');
+  toast('Parallax made: subject near, text in the middle, background far - the camera slides across (Space to play)');
 }
 
 // ＋ New ▾ > Color Matte / Black Video (Media panel): a full-frame colour on a free track above, at the playhead.

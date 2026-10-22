@@ -17,7 +17,7 @@ function signedOut() {
   if (document.getElementById('signedOut')) return;
   const b = document.createElement('div');
   b.id = 'signedOut'; b.className = 'ro-banner'; b.setAttribute('role', 'alert');
-  b.innerHTML = '🔑 You are signed out (the editor was restarted or the sign-in ended). <button class="primary small">Sign in</button> <button class="small">🔄 Refresh</button>';
+  b.innerHTML = 'You are signed out (the editor was restarted or the sign-in ended). <button class="primary small">Sign in</button> <button class="small">Refresh</button>';
   const [inBtn, reBtn] = b.querySelectorAll('button');
   inBtn.onclick = () => { location.href = '/team/logout'; }; reBtn.onclick = () => location.reload();
   document.body.prepend(b);

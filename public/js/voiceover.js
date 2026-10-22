@@ -85,8 +85,8 @@ export function openVoiceOver({ text = '', onDone = null, setBusy = null } = {})
     <div data-picker></div>
     <label class="chk"><input type="checkbox" name="subs" checked> Subtitles from this voice-over (exact words, timed to the voice)</label>
     ${onDone ? '' : '<label class="chk"><input type="checkbox" name="place" checked> Put it on A1 (Voice-over) at the playhead</label>'}
-    <div class="ag-foot"><span class="muted small" data-count></span><span class="grow"></span><button type="button" data-close>Cancel</button><button type="button" class="primary" data-go>🎙 Make the voice-over</button></div></div>`);
-  const dlg = modal('🎙 AI voice-over', body, { width: 640 });
+    <div class="ag-foot"><span class="muted small" data-count></span><span class="grow"></span><button type="button" data-close>Cancel</button><button type="button" class="primary" data-go>Make the voice-over</button></div></div>`);
+  const dlg = modal('AI voice-over', body, { width: 640 });
   const ta = body.querySelector('[name="text"]');
   const pick = voicePicker(body.querySelector('[data-picker]'), { text: () => ta.value, clone: true });
   // about how long it will be (Hindi VO ~ 14 characters a second, English ~ 15)
@@ -97,7 +97,7 @@ export function openVoiceOver({ text = '', onDone = null, setBusy = null } = {})
     const v = pick();
     if (v.provider === 'clone' ? !v.refMediaId : !v.voice) return toast(v.provider === 'clone' ? 'Pick the recording whose voice should speak' : 'Choose a voice', 'err');
     const subs = body.querySelector('[name="subs"]').checked, place = body.querySelector('[name="place"]')?.checked;
-    dlg.close(); setBusy?.(true, '🎙 Making the voice-over…');
+    dlg.close(); setBusy?.(true, 'Making the voice-over…');
     try {
       const job = await api('POST', `/api/tts?p=${enc(S.proj)}`, { ...v, text: ta.value, subtitles: subs });
       const r = (await watchJob(job.id, () => {})).result;
@@ -108,7 +108,7 @@ export function openVoiceOver({ text = '', onDone = null, setBusy = null } = {})
         if (r.subs) S.project.subtitles = { ...S.project.subtitles, file: r.subs };
         commit('AI voice-over'); emit('subs');
       }
-      toast(`🎙 Voice-over ready (${fmt(r.duration)})${r.subs ? ' with subtitles' : ''} - it is in the "AI voice-over" bin`);
+      toast(`Voice-over ready (${fmt(r.duration)})${r.subs ? ' with subtitles' : ''} - it is in the "AI voice-over" bin`);
     } catch (err) { toast(err.message, 'err'); }
     finally { setBusy?.(false); }
   };
@@ -130,12 +130,12 @@ export function openDub(clipId, setBusy) {
       <label class="fld"><span>New language</span><select name="task"><option value="translate">English (translate the speech)</option><option value="transcribe">Same language (clean AI re-voice)</option><option value="own">My own lines (paste a translation)</option></select></label>
       <label class="fld"><span>The clip speaks</span><select name="lang"><option value="auto">Auto-detect</option><option value="hi">Hindi</option><option value="en">English</option></select></label>
     </div>
-    <div class="row-in"><button type="button" class="small accent" data-listen>👂 Listen to the clip</button><span class="muted small" data-st>${esc(m.name)} · ${fmt((c.out ?? m.duration) - (c.in || 0))}</span></div>
+    <div class="row-in"><button type="button" class="small accent" data-listen>Listen to the clip</button><span class="muted small" data-st>${esc(m.name)} · ${fmt((c.out ?? m.duration) - (c.in || 0))}</span></div>
     <div class="dub-lines" data-lines><p class="muted small">Press "Listen": its lines appear here, timed. Edit or replace any text (e.g. paste your Hindi translation) before making the voice.</p></div>
     <div data-picker></div>
     <label class="chk"><input type="checkbox" name="duck" checked> Keep the clip's own sound quietly underneath (ambience)</label>
-    <div class="ag-foot"><span class="grow"></span><button type="button" data-close>Cancel</button><button type="button" class="primary" data-go disabled>🌐 Make the dub</button></div></div>`);
-  const dlg = modal('🌐 Dub / re-voice with AI', body, { width: 720 });
+    <div class="ag-foot"><span class="grow"></span><button type="button" data-close>Cancel</button><button type="button" class="primary" data-go disabled>Make the dub</button></div></div>`);
+  const dlg = modal('Dub / re-voice with AI', body, { width: 720 });
   const pick = voicePicker(body.querySelector('[data-picker]'));
   let lines = [];
   const tin = c.in || 0, tout = c.out ?? m.duration;
@@ -156,22 +156,22 @@ export function openDub(clipId, setBusy) {
       body.querySelector('[data-st]').textContent = `${lines.length} lines`;
       draw();
     } catch (err) { toast(err.message, 'err'); }
-    finally { b.disabled = false; b.textContent = '👂 Listen again'; }
+    finally { b.disabled = false; b.textContent = 'Listen again'; }
   };
   body.querySelector('[data-go]').onclick = async () => {
     const v = pick(); if (!v.voice) return toast('Choose a voice', 'err');
     const duck = body.querySelector('[name="duck"]').checked;
-    dlg.close(); setBusy?.(true, '🌐 Making the dub…');
+    dlg.close(); setBusy?.(true, 'Making the dub…');
     try {
       const job = await api('POST', `/api/dub?p=${enc(S.proj)}`, { ...v, lines });
-      const r = (await watchJob(job.id, (x) => setBusy?.(true, `🌐 ${x.stage || 'Making the dub…'}`))).result;
+      const r = (await watchJob(job.id, (x) => setBusy?.(true, `${x.stage || 'Making the dub…'}`))).result;
       await refreshMedia();
       // the dub track runs on the clip's own clock: placed where the clip is, trimmed the same way
       const x = layout()[f0.track].find((p) => p.clip.id === clipId), cl = findClip(clipId)?.clip;
       S.project.tracks.A1.push({ id: uid(), type: 'audio', mediaId: r.mediaId, start: +x.start.toFixed(3), in: tin, out: tout, volume: 1, dubOf: clipId });
       cl.volume = duck ? 0.15 : 0;
       commit('AI dub');
-      toast(`🌐 Dub ready: ${r.lines} lines${r.fitted ? `, ${r.fitted} sped up a little to fit` : ''}. The clip's own sound is ${duck ? 'quiet underneath' : 'off'}.`);
+      toast(`Dub ready: ${r.lines} lines${r.fitted ? `, ${r.fitted} sped up a little to fit` : ''}. The clip's own sound is ${duck ? 'quiet underneath' : 'off'}.`);
     } catch (err) { toast(err.message, 'err'); }
     finally { setBusy?.(false); }
   };

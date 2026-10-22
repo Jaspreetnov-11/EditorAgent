@@ -76,7 +76,7 @@ export function typeTimecode(span) {
 export function applyTimecode(v) {
   const p = parseTC(v, fps());
   if (!p) return toast('Not a timecode - e.g. 1:10:00, 11000, +15 (frames) or -1:00', 'err');
-  if (!p.rel) { emit('seek', p.sec); return toast(`▶ ${fmtTC(p.sec, fps())}`); }
+  if (!p.rel) { emit('seek', p.sec); return toast(`${fmtTC(p.sec, fps())}`); }
   const frames = Math.round(p.sec * fps()) * p.rel;
   if (S.sel.size) return nudgeSelected(frames);
   emit('seek', Math.max(0, S.playhead + frames / fps()));
@@ -89,13 +89,13 @@ export function groupSelected() {
   const g = uid();
   for (const id of ids) findClip(id).clip.grp = g;
   commit(`Group ${ids.length} clips`);
-  toast(`⛓ ${ids.length} clips grouped - a click on one selects them all (Alt + click: just that one)`);
+  toast(`${ids.length} clips grouped - a click on one selects them all (Alt + click: just that one)`);
 }
 export function ungroupSelected() {
   let n = 0;
   for (const id of S.sel) { const c = findClip(id)?.clip; if (c?.grp) { delete c.grp; n++; } }
   if (!n) return toast('The selected clips are not grouped');
-  commit('Ungroup'); toast(`⛓ ${n} clip${n > 1 ? 's' : ''} ungrouped`);
+  commit('Ungroup'); toast(`${n} clip${n > 1 ? 's' : ''} ungrouped`);
 }
 
 // ---- ⇤ Gaps (Sequence › Close Gap, Go to next / previous gap) ----
@@ -134,7 +134,7 @@ export function addClipMarker() {
   const name = prompt('Clip marker name (optional)', '') ?? null;
   if (name === null) return;
   for (const x of hits) (x.clip.markers ||= []).push({ t: r3(S.playhead - x.start), ...(name.trim() ? { name: name.trim().slice(0, 80) } : {}) });
-  commit('Clip marker'); toast(`📍 Clip marker at ${fmtTC(S.playhead, fps())}${hits.length > 1 ? ` on ${hits.length} clips` : ''}`);
+  commit('Clip marker'); toast(`Clip marker at ${fmtTC(S.playhead, fps())}${hits.length > 1 ? ` on ${hits.length} clips` : ''}`);
 }
 export function clearClipMarkers() {
   let n = 0;
@@ -148,16 +148,16 @@ export function clearClipMarkers() {
 export async function exportFrame() {
   if (!S.project) return;
   const t = +S.playhead.toFixed(3);
-  emit('job', { running: true, label: '📷 Making the frame…' });
+  emit('job', { running: true, label: 'Making the frame…' });
   try {
     await saveNow();
     const j = await api('POST', `/api/frame?p=${enc(S.proj)}`, { t, seq: S.seqMap?.mine });
     const r = (await watchJob(j.id)).result;
-    const d = modal('📷 Export Frame', `<img src="${r.url}" alt="" style="width:100%;max-height:60vh;object-fit:contain;background:#000;border-radius:6px">
+    const d = modal('Export Frame', `<img src="${r.url}" alt="" style="width:100%;max-height:60vh;object-fit:contain;background:#000;border-radius:6px">
       <p class="muted small">${fmtTC(t, fps())} · ${r.width}×${r.height} · saved as <b>${r.name}</b> (project › output › frames)</p>
-      <div class="dlg-actions"><a class="btn" href="${r.url}" download="${r.name}">⬇ Download</a><button data-action="import">➕ Add to Media</button><button data-close>Close</button></div>`, {
+      <div class="dlg-actions"><a class="btn" href="${r.url}" download="${r.name}">Download</a><button data-action="import">Add to Media</button><button data-close>Close</button></div>`, {
       width: 720,
-      onAction: async (a) => { if (a !== 'import') return; try { await api('POST', `/api/frame/import?p=${enc(S.proj)}`, { name: r.name }); (await import('./mediapool.js')).refreshMedia(); toast('➕ The frame is in Media'); d.close(); } catch (e) { toast(e.message, 'err'); } } });
+      onAction: async (a) => { if (a !== 'import') return; try { await api('POST', `/api/frame/import?p=${enc(S.proj)}`, { name: r.name }); (await import('./mediapool.js')).refreshMedia(); toast('The frame is in Media'); d.close(); } catch (e) { toast(e.message, 'err'); } } });
   } catch (e) { toast(e.job ? `Export Frame failed: ${e.job.log.slice(-1).join(' ')}` : e.message, 'err'); }
   finally { emit('job', { running: false }); }
 }
@@ -179,5 +179,5 @@ export async function replaceEdit(id = null) {
   if (rampPts(c) && m.kind === 'image') return toast('A speed-ramped shot takes a video', 'err');
   const inPoint = m.kind === 'image' ? null : S.sourceMarks?.[mid]?.in ?? st?.t ?? 0;
   const L = clipDur(c, S.mediaById);
-  if (await replaceClip(id, mid, { inPoint })) toast(`🔄 Replaced with ${m.name}${m.kind === 'image' ? '' : ` from ${fmtTC(inPoint, m.fps || fps())}`} (${L.toFixed(2)} s, same place)`);
+  if (await replaceClip(id, mid, { inPoint })) toast(`Replaced with ${m.name}${m.kind === 'image' ? '' : ` from ${fmtTC(inPoint, m.fps || fps())}`} (${L.toFixed(2)} s, same place)`);
 }

@@ -28,7 +28,7 @@ async function track(c, rel, hint) {
   if (!box) return null;
   const src = toSource(box, c, rel);
   if (!(src.w > 0.005 && src.h > 0.005)) { toast('That box is outside the picture', 'err'); return null; }
-  toast('🎯 Tracking…');
+  toast('Tracking…');
   const job = await api('POST', `/api/track?p=${enc(S.proj)}`, { mediaId: c.mediaId, t0: srcTimeAt(c, rel), t1: c.out ?? m.duration, box: src });
   const r = (await watchJob(job.id, () => {})).result;
   if (r.lost?.length > 10) toast(`Lost it ${r.lost.length} times (turned away or covered) - check the result and redo from there if needed`, 'err');
@@ -44,7 +44,7 @@ export async function addMask(id, type, render) {
     if (!path) return;
     (c.masks ||= []).push({ id: uid(), type, amount: 0.6, path });
     commit(`Tracked ${type}`); render();
-    toast(`🎯 ${type === 'pixelate' ? 'Mosaic' : 'Blur'} follows it from ${fmt(path[0].t - (c.in || 0))} to ${fmt(path[path.length - 1].t - (c.in || 0))} of the shot`);
+    toast(`${type === 'pixelate' ? 'Mosaic' : 'Blur'} follows it from ${fmt(path[0].t - (c.in || 0))} to ${fmt(path[path.length - 1].t - (c.in || 0))} of the shot`);
   } catch (err) { toast(err.message, 'err'); }
 }
 
@@ -63,7 +63,7 @@ export async function addFollow(id, render) {
       ov.keys = { ...(ov.keys || {}), 'transform.x': k.x.map((q) => ({ ...q, v: +(q.v + bx).toFixed(2) })), 'transform.y': k.y.map((q) => ({ ...q, v: +(q.v + by).toFixed(2) })) };
     }
     commit('Follow tracked thing'); render();
-    toast('📌 It now follows the tracked thing - press Space to watch');
+    toast('It now follows the tracked thing - press Space to watch');
   } catch (err) { toast(err.message, 'err'); }
 }
 
@@ -95,12 +95,12 @@ export async function addPin(id, render) {
 
 export function trackingHTML(c, track) {
   const vid = c.type === 'video', ovl = track !== 'V1' && (c.type === 'title' || c.type === 'image' || c.type === 'video');
-  const masks = (c.masks || []).map((mk) => `<div class="efx" data-mask="${mk.id}"><div class="efx-h"><b>${mk.type === 'pixelate' ? '🔲 Mosaic' : '🌫 Blur'}</b><small class="muted">${fmt(mk.path[0].t - (c.in || 0))} → ${fmt(mk.path[mk.path.length - 1].t - (c.in || 0))}</small><span class="grow"></span><button class="icon-btn small" data-mdel title="Remove">✕</button></div>
+  const masks = (c.masks || []).map((mk) => `<div class="efx" data-mask="${mk.id}"><div class="efx-h"><b>${mk.type === 'pixelate' ? 'Mosaic' : 'Blur'}</b><small class="muted">${fmt(mk.path[0].t - (c.in || 0))} → ${fmt(mk.path[mk.path.length - 1].t - (c.in || 0))}</small><span class="grow"></span><button class="icon-btn small" data-mdel title="Remove">✕</button></div>
       <label class="fld"><span>Strength</span><input type="range" min="0" max="1" step="0.05" value="${mk.amount ?? 0.6}" data-mamt></label></div>`).join('');
   const following = c.follow?.x?.length || (c.keys?.['transform.x']?.length > 3);
-  return `${vid ? `<div class="row-in"><button class="small" data-trk="blur" title="Hide a face / number plate that moves: draw a box at the playhead">🌫 Blur a moving thing</button><button class="small" data-trk="pixelate">🔲 Pixelate a moving thing</button></div>${masks}` : ''}
+  return `${vid ? `<div class="row-in"><button class="small" data-trk="blur" title="Hide a face / number plate that moves: draw a box at the playhead">Blur a moving thing</button><button class="small" data-trk="pixelate">Pixelate a moving thing</button></div>${masks}` : ''}
     ${ovl && c.type !== 'title' ? `<div class="row-in"><button class="small" data-trk="pin" title="Stick this ${esc(c.type)} onto a flat surface in the shot below (wall, banner, screen, board) - it bends with the camera, like Mocha">▱ Stick onto a surface…</button>${c.pin ? '<button class="small" data-trk="unpin">✕ Unstick</button>' : ''}</div>` : ''}
-    ${ovl ? `<div class="row-in"><button class="small" data-trk="follow" title="Make this ${esc(c.type)} move with something in the shot below (name tag on a person, logo on a car)">📌 Follow a moving thing…</button>${following ? '<button class="small" data-trk="unfollow">✕ Stop following</button>' : ''}</div>` : ''}
+    ${ovl ? `<div class="row-in"><button class="small" data-trk="follow" title="Make this ${esc(c.type)} move with something in the shot below (name tag on a person, logo on a car)">Follow a moving thing…</button>${following ? '<button class="small" data-trk="unfollow">✕ Stop following</button>' : ''}</div>` : ''}
     <small class="hint">Put the playhead where the thing is clearly visible, press a button, then drag a box around it on the viewer. It is tracked to the end of the shot.</small>`;
 }
 

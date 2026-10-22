@@ -23,19 +23,19 @@ const EXAMPLES = [
   'music dheema karo', 'color warm kar do', 'voice over badlo', '3rd shot hata do', 'video 30 sec ki karo',
   'sab cuts par dissolve lagao', 'title "Viksit Bharat" lagao', 'awaaz saaf karo', 'pace tez karke dobara edit karo', 'undo',
 ];
-const QUICK = [['🎥 Stabilize', 'stabilize karo'], ['🎬 Cinematic', 'cinematic banao'], ['🔊 Sound design', 'sound design karo'], ['✨ Light leaks', 'light leak lagao'], ['🎙 Change VO', 'voice over badlo'], ['🎵 Change music', 'music badlo'], ['🎨 Redo colour', 'auto color karo'], ['🔁 Re-edit all', 'dobara edit karo'], ['⚡ Faster pace', 'pace tez karke dobara edit karo'], ['↶ Undo', 'undo']];
+const QUICK = [['Stabilize', 'stabilize karo'], ['Cinematic', 'cinematic banao'], ['Sound design', 'sound design karo'], ['Light leaks', 'light leak lagao'], ['Change VO', 'voice over badlo'], ['Change music', 'music badlo'], ['Redo colour', 'auto color karo'], ['Re-edit all', 'dobara edit karo'], ['Faster pace', 'pace tez karke dobara edit karo'], ['↶ Undo', 'undo']];
 
 export function mountAssistant(busyFn) {
   setBusy = busyFn;
   root = h(`<aside class="as" hidden aria-label="Assistant">
-    <div class="as-head"><b>💬 Assistant</b>
-      <span class="as-modes" role="tablist"><button class="chip" data-mode="claude" title="Claude: looks at your footage, hears the song, plans and edits the timeline itself (slower, smartest)">🧠 Claude</button><button class="chip" data-mode="quick" title="Quick commands: instant, offline, fixed phrases">⚡ Quick</button></span>
+    <div class="as-head"><b>Assistant</b>
+      <span class="as-modes" role="tablist"><button class="chip" data-mode="claude" title="Claude: looks at your footage, hears the song, plans and edits the timeline itself (slower, smartest)">Claude</button><button class="chip" data-mode="quick" title="Quick commands: instant, offline, fixed phrases">Quick</button></span>
       <span class="grow"></span><select class="as-chats small" data-chats hidden title="Earlier chats with Claude in this project"></select><button class="link small" data-newchat title="Start a new conversation with Claude for this project">New chat</button><button class="icon-btn" data-x aria-label="Close">✕</button></div>
     <div class="as-cl muted small" data-clinfo hidden></div>
     <div class="as-quick">${QUICK.map(([l, c]) => `<button class="chip" data-cmd="${esc(c)}">${l}</button>`).join('')}</div>
     <div class="as-log" aria-live="polite"></div>
     <div class="as-refs" hidden></div>
-    <form class="as-in"><label class="icon-btn as-att" title="📎 Attach a reference video or photo - Claude takes it apart and makes the same edit with your footage">📎<input type="file" hidden accept="video/*,image/*,.mxf,.mts"></label><textarea rows="2" placeholder="e.g. music dheema karo aur color thoda warm kar do"></textarea><button class="primary" type="submit">Send</button></form>
+    <form class="as-in"><label class="icon-btn as-att" title="Attach a reference video or photo - Claude takes it apart and makes the same edit with your footage"><input type="file" hidden accept="video/*,image/*,.mxf,.mts"></label><textarea rows="2" placeholder="e.g. music dheema karo aur color thoda warm kar do"></textarea><button class="primary" type="submit">Send</button></form>
   </aside>`);
   document.body.append(root);
   const ta = $('textarea', root);
@@ -45,7 +45,7 @@ export function mountAssistant(busyFn) {
   $('.as-att input', root).addEventListener('change', async (e) => {
     const files = [...e.target.files]; e.target.value = '';
     if (!files.length || !S.proj) return;
-    if (cl.mode !== 'claude') { setMode('claude'); toast('References work with 🧠 Claude - switched to Claude'); }
+    if (cl.mode !== 'claude') { setMode('claude'); toast('References work with Claude - switched to Claude'); }
     for (const file of files) {
       const r = { name: file.name, pct: 0 }; refs.push(r); drawRefs();
       try { Object.assign(r, await upload(`/api/claude/ref?p=${enc(S.proj)}&name=${enc(file.name)}`, file, (p) => { r.pct = Math.round(p * 100); drawRefs(); }), { ready: true }); }
@@ -72,7 +72,7 @@ export function toggleAssistant(show = root.hidden) {
   if (show) {
     if (S.proj && chatsFor !== S.proj) loadChats(); // (before the greeting, so a kept chat is not replaced by it)
     if (cl.mode === 'claude') checkClaude();
-    if (!log.length && cl.mode === 'claude') say('🧠 Claude is here. Describe the edit you want in your own words - e.g.:\n• "make a 60 sec reel of this song from the chorus, with lyrics"\n• "change the third shot, use a happy face"\n• "the opening is slow, tighten the first 10 sec"\nClaude looks at the footage, plans and edits the timeline - the changes show up here live.');
+    if (!log.length && cl.mode === 'claude') say('Claude is here. Describe the edit you want in your own words - e.g.:\n• "make a 60 sec reel of this song from the chorus, with lyrics"\n• "change the third shot, use a happy face"\n• "the opening is slow, tighten the first 10 sec"\nClaude looks at the footage, plans and edits the timeline - the changes show up here live.');
     else if (!log.length) say(`Hello! I can change this edit. Type things like:\n${EXAMPLES.slice(0, 6).map((x) => `• ${x}`).join('\n')}\n\nType "help" to see all commands.`);
     $('textarea', root).focus();
   }
@@ -108,7 +108,7 @@ function drawChats() {
   const sel = root && $('[data-chats]', root); if (!sel) return;
   const when = (t) => new Date(t).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   sel.hidden = !chats.length || cl.mode !== 'claude';
-  sel.innerHTML = `<option value="">🗂 Chats (${chats.length})</option>${chats.map((c) => `<option value="${c.id}"${c.id === chatId ? ' selected' : ''}>${esc(c.title)} · ${when(c.at)}</option>`).join('')}`;
+  sel.innerHTML = `<option value="">Chats (${chats.length})</option>${chats.map((c) => `<option value="${c.id}"${c.id === chatId ? ' selected' : ''}>${esc(c.title)} · ${when(c.at)}</option>`).join('')}`;
 }
 async function openChat(id) {
   const c = chats.find((x) => x.id === id); if (!c || cl.job) return drawChats();
@@ -131,7 +131,7 @@ function draw() {
   if (!root) return;
   if (S.proj && chatsFor !== S.proj) loadChats();
   const el = $('.as-log', root);
-  el.innerHTML = log.map((m) => `<div class="as-msg ${m.who}">${esc(m.text).replace(/\n/g, '<br>')}</div>`).join('') + (cl.job ? `<div class="as-msg as-prog"><div class="as-prog-top"><b>🧠 ${cl.prog ? `${cl.prog.pct}%` : ''}</b><span class="grow">${esc(cl.prog?.label || 'Working')}…</span><span class="muted small">${cl.model ? `${esc(cl.model)} · ` : ''}${cl.prog ? Math.floor((Date.now() - cl.prog.t0) / 60000) + ' min' : ''}</span><button class="link small" data-clstop>■ Stop</button></div><div class="bar"><div style="width:${cl.prog?.pct || 2}%"></div></div></div>` : '');
+  el.innerHTML = log.map((m) => `<div class="as-msg ${m.who}">${esc(m.text).replace(/\n/g, '<br>')}</div>`).join('') + (cl.job ? `<div class="as-msg as-prog"><div class="as-prog-top"><b>${cl.prog ? `${cl.prog.pct}%` : ''}</b><span class="grow">${esc(cl.prog?.label || 'Working')}…</span><span class="muted small">${cl.model ? `${esc(cl.model)} · ` : ''}${cl.prog ? Math.floor((Date.now() - cl.prog.t0) / 60000) + ' min' : ''}</span><button class="link small" data-clstop>■ Stop</button></div><div class="bar"><div style="width:${cl.prog?.pct || 2}%"></div></div></div>` : '');
   el.scrollTop = el.scrollHeight;
   if (cl.mode === 'claude') saveChats();
 }
@@ -156,7 +156,7 @@ async function checkClaude(force = false) {
   if (cl.status.available) { info.hidden = true; return cl.status; }
   const login = /auth|login|oauth|expired/i.test(cl.status.reason || '');
   info.innerHTML = login
-    ? `Claude needs a one-time login. Run this in a terminal and type <b>/login</b>:<br><span class="mono">"${esc(cl.status.exe || 'claude')}"</span><br>Then <button class="link small" data-clrecheck>check again</button>. Until then, ⚡ Quick commands work.`
+    ? `Claude needs a one-time login. Run this in a terminal and type <b>/login</b>:<br><span class="mono">"${esc(cl.status.exe || 'claude')}"</span><br>Then <button class="link small" data-clrecheck>check again</button>. Until then, Quick commands work.`
     : `Claude is not available right now: ${esc(cl.status.reason || '')} <button class="link small" data-clrecheck>Check again</button>`;
   return cl.status;
 }
@@ -164,7 +164,7 @@ async function newChat() {
   if (!S.proj) return;
   if (cl.job) return say('Claude is still on the previous task - let it finish or press ■ Stop.');
   await api('POST', `/api/claude/new?p=${enc(S.proj)}${S.seqMap ? `&seq=${enc(S.seqMap.mine)}` : ''}`).catch(() => {});
-  chatId = null; log.length = 0; say(`New chat started. The earlier ones are kept in 🗂 Chats (last ${CHATS_KEPT}). What shall we make?`);
+  chatId = null; log.length = 0; say(`New chat started. The earlier ones are kept in Chats (last ${CHATS_KEPT}). What shall we make?`);
 }
 // 📎 the references waiting to go with the next message
 const refs = [];
@@ -187,12 +187,12 @@ export async function askClaude(text, { show = true, display = null } = {}) {
   log.push({ who: 'me', text: display || text }); draw();
   let st = await checkClaude();
   if (!st?.available) st = await checkClaude(true); // (a remembered failure can be a passing network blip: ask again before giving up)
-  if (!st?.available) return say(`Claude cannot run right now${st?.reason ? `: ${st.reason}` : ' (see above for why)'}. Direct commands still work in ⚡ Quick mode.`, 'err');
+  if (!st?.available) return say(`Claude cannot run right now${st?.reason ? `: ${st.reason}` : ' (see above for why)'}. Direct commands still work in Quick mode.`, 'err');
   // 🎞 Claude works on the sequence this browser has open (the team's main one, or the one opened just for you)
   let job;
   try { job = await api('POST', `/api/claude/chat?p=${enc(S.proj)}`, { message: text, seq: S.seqMap?.mine }); } catch (e) { return say(e.message, 'err'); }
   cl.job = job.id; draw();
-  setBusy?.(true, '🧠 Claude working…');
+  setBusy?.(true, 'Claude working…');
   let from = 0, lastText = '', changed = false, steps = 0;
   cl.prog = { pct: 2, label: 'Reading your message', t0: Date.now() }; draw();
   try {
@@ -202,12 +202,12 @@ export async function askClaude(text, { show = true, display = null } = {}) {
       for (const e of r.events) {
         if (e.k === 'text') lastText = e.text; // (Claude's working notes stay hidden; its last words are the answer)
         else if (e.k === 'session') { const c = curChat(); if (c) { c.sid = e.id; saveChats(); } if (e.model) { cl.model = modelName(e.model); draw(); } }
-        else if (e.k === 'wait') { cl.prog = { ...cl.prog, label: e.text.replace(/…$/, '') }; setBusy?.(true, `🧠 ${e.text}`); draw(); } // others' edits are running: in line
+        else if (e.k === 'wait') { cl.prog = { ...cl.prog, label: e.text.replace(/…$/, '') }; setBusy?.(true, `${e.text}`); draw(); } // others' edits are running: in line
         else if (e.k === 'tool') {
           if (/edtool\.mjs\s+(apply|ops|agent)\b/.test(e.text)) changed = true;
           steps++;
           cl.prog = { ...cl.prog, pct: Math.min(95, Math.max(cl.prog.pct, Math.round(100 * (1 - Math.exp(-steps / 14))))), label: friendlyStep(e) };
-          setBusy?.(true, `🧠 ${cl.prog.pct}% · ${cl.prog.label}`); draw();
+          setBusy?.(true, `${cl.prog.pct}% · ${cl.prog.label}`); draw();
         }
         else if (e.k === 'done' && e.text) lastText = e.text;
         else if (e.k === 'error') say(`Claude stopped: ${e.text}`, 'err');
@@ -238,7 +238,7 @@ async function send(text) {
     const msg = text || 'Is reference jaisa same-to-same edit bana do, meri footage se.';
     refs.length = 0; drawRefs();
     return askClaude(msg + refNote(ready), { show: false, display: `${msg}
-📎 ${ready.map((r) => r.name).join(', ')}` });
+${ready.map((r) => r.name).join(', ')}` });
   }
   if (cl.mode === 'claude') return askClaude(text, { show: false });
   if (busy) return say('Something is already running - wait for it to finish.');
@@ -339,11 +339,11 @@ async function run(text) {
     const before = done.length;
     const s = strength(p);
     // ---- AI voice-over / dubbing ----
-    if (/(\bai\b.*(voice|\bvo\b|awaaz|आवाज)|\btts\b|text to speech|robot voice|awaaz bana|आवाज़ बना)/.test(p)) { openVoiceOver(); done.push('🎙 Opened the AI voice-over window - type the text and pick a voice'); continue; }
+    if (/(\bai\b.*(voice|\bvo\b|awaaz|आवाज)|\btts\b|text to speech|robot voice|awaaz bana|आवाज़ बना)/.test(p)) { openVoiceOver(); done.push('Opened the AI voice-over window - type the text and pick a voice'); continue; }
     if (/(\bdub(?!a?ra)|dubbing|डब|re-?voice|translate.*(voice|awaaz)|english mein bol)/.test(p)) {
       const id = [...S.sel][0] || S.project.tracks.V1.find((c) => c.type === 'video')?.id;
       if (!id) { done.push('Select the clip to dub first'); continue; }
-      openDub(id); done.push('🌐 Opened the Dub window - press "Listen", check the lines, pick a voice'); continue;
+      openDub(id); done.push('Opened the Dub window - press "Listen", check the lines, pick a voice'); continue;
     }
     // ---- voice-over ----
     if (R.vo.test(p)) {
@@ -394,7 +394,7 @@ async function run(text) {
     // ---- sound design (A3) ----
     if (/(sfx|sound design|sound effect|whoosh|woosh|riser|साउंड)/.test(p)) {
       if (R.remove.test(p)) { done.push(`Removed sound effects (${removeSoundDesign()})`); continue; }
-      later.push(async () => { const n = await autoSoundDesign({ amount: /(kam|thoda|less|halka)/.test(p) ? 0.5 : 1 }); return n ? `🔊 Added ${n} sound effects on A3 (whoosh, hits, risers)` : 'Add transitions or cut effects first - sound effects go on them'; });
+      later.push(async () => { const n = await autoSoundDesign({ amount: /(kam|thoda|less|halka)/.test(p) ? 0.5 : 1 }); return n ? `Added ${n} sound effects on A3 (whoosh, hits, risers)` : 'Add transitions or cut effects first - sound effects go on them'; });
       continue;
     }
     // ---- cut effects (flash, glitch, light leak...) ----
@@ -652,7 +652,7 @@ async function reEdit(p) {
 async function reEditWith(changes, msg) {
   say(msg);
   const o = { ...currentEditOpts(), ...changes };
-  if (!o.clips?.length) return 'Could not find the footage of this edit - make a new edit with ✨ Agent.';
+  if (!o.clips?.length) return 'Could not find the footage of this edit - make a new edit with Agent.';
   await runAgentWith(o, setBusy, { ask: false });
   return 'The new edit is on the timeline. Not happy with it? Type "undo" to get the old edit back.';
 }
@@ -660,20 +660,20 @@ async function reEditWith(changes, msg) {
 function helpText() {
   return [
     'I can do all of this (Hindi / Hinglish / English - join several things in one message with "aur"):',
-    '🎙 Voice-over: "voice over badlo" (add a new VO, the agent re-edits by itself), "VO ki awaaz badhao", "awaaz saaf karo", "VO hata do"',
-    '🎵 Music: "music badlo", "music Chanakya wala lagao", "music dheema karo / 30%", "music ka best part", "music hata do"',
-    '🔊 Clip sound: "clip ki awaaz band karo / kam karo"',
-    '🎙 AI voice: "ai voice over banao" (Edge free / ElevenLabs), "is clip ko english mein dub karo"',
-    '🔊 Sound design: "sound design karo", "sfx kam karo", "sfx hatao" (whoosh, hits, risers on A3)',
-    '✨ Cut effects: "3rd shot par glitch lagao", "light leak lagao", "whip lagao", "flash lagao", "film burn lagao", "effects hatao"',
-    '🎥 Stabilize & 🎬 look: "stabilize karo", "3rd shot stabilize karo", "cinematic banao", "kaali patti hatao", "grain badhao"',
-    '🎨 Colour: "auto color karo", "thoda warm", "cool", "black and white", "vivid", "cinematic", "zyada roshni", "contrast badhao", "3rd shot ka color theek karo", "color hata do"',
-    '✂️ Shots: "3rd shot hata do", "last shot slow motion", "shot 2 ko 4 sec ka karo", "shot 5 ko shuru mein le jao"',
-    '⏱ Length: "video 30 sec ki karo"',
-    '🔀 Transitions: "sab cuts par dissolve lagao", "dip to black", "transitions hata do", "end mein fade out"',
-    '🔤 Text: title "Viksit Bharat" lagao, "naam lower third mein \'Rahul Sharma\'", end card "mybharat.gov.in" lagao, "title hata do", "subtitles band / on"',
-    '📐 Format & logo: "9:16 banao", "logo upar baayen", "logo chhota karo"',
-    '🔁 Re-edit with AI: "dobara edit karo", "pace tez karke dobara edit karo", "16:9 mein dobara edit", "saari footage se dobara edit"',
-    '▶ "preview dikhao", "export karo", "undo", "redo"',
+    'Voice-over: "voice over badlo" (add a new VO, the agent re-edits by itself), "VO ki awaaz badhao", "awaaz saaf karo", "VO hata do"',
+    'Music: "music badlo", "music Chanakya wala lagao", "music dheema karo / 30%", "music ka best part", "music hata do"',
+    'Clip sound: "clip ki awaaz band karo / kam karo"',
+    'AI voice: "ai voice over banao" (Edge free / ElevenLabs), "is clip ko english mein dub karo"',
+    'Sound design: "sound design karo", "sfx kam karo", "sfx hatao" (whoosh, hits, risers on A3)',
+    'Cut effects: "3rd shot par glitch lagao", "light leak lagao", "whip lagao", "flash lagao", "film burn lagao", "effects hatao"',
+    'Stabilize & look: "stabilize karo", "3rd shot stabilize karo", "cinematic banao", "kaali patti hatao", "grain badhao"',
+    'Colour: "auto color karo", "thoda warm", "cool", "black and white", "vivid", "cinematic", "zyada roshni", "contrast badhao", "3rd shot ka color theek karo", "color hata do"',
+    'Shots: "3rd shot hata do", "last shot slow motion", "shot 2 ko 4 sec ka karo", "shot 5 ko shuru mein le jao"',
+    'Length: "video 30 sec ki karo"',
+    'Transitions: "sab cuts par dissolve lagao", "dip to black", "transitions hata do", "end mein fade out"',
+    'Text: title "Viksit Bharat" lagao, "naam lower third mein \'Rahul Sharma\'", end card "mybharat.gov.in" lagao, "title hata do", "subtitles band / on"',
+    'Format & logo: "9:16 banao", "logo upar baayen", "logo chhota karo"',
+    'Re-edit with AI: "dobara edit karo", "pace tez karke dobara edit karo", "16:9 mein dobara edit", "saari footage se dobara edit"',
+    '"preview dikhao", "export karo", "undo", "redo"',
   ].join('\n');
 }

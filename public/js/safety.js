@@ -25,8 +25,8 @@ function spark(samples, key, starts, unit, limit) {
 }
 
 export async function openSafety(tab = 'health') {
-  const dlg = modal('🩺 Mazbooti', `<div class="mm-tabs" role="tablist">
-      <button class="chip" data-tab="health" role="tab">🩺 Health</button><button class="chip" data-tab="backup" role="tab">🌙 Backup</button><button class="chip" data-tab="standby" role="tab">🖥 Standby PC</button>
+  const dlg = modal('Mazbooti', `<div class="mm-tabs" role="tablist">
+      <button class="chip" data-tab="health" role="tab">Health</button><button class="chip" data-tab="backup" role="tab">Backup</button><button class="chip" data-tab="standby" role="tab">Standby PC</button>
     </div><div class="sf-body" data-sf>Loading…</div>`, { width: 820, onClose: () => clearTimeout(timer) });
   const box = $('[data-sf]', dlg.el);
   let cur = tab, data = null, timer = null, nightsList = null;
@@ -44,10 +44,10 @@ export async function openSafety(tab = 'health') {
   dlg.el.querySelectorAll('[data-tab]').forEach((b) => (b.onclick = () => { cur = b.dataset.tab; show(); if (cur === 'backup' && !nightsList) loadNights(); }));
   const loadNights = async () => { try { nightsList = await api('GET', '/api/safety/nights'); } catch { nightsList = []; } if (cur === 'backup') show(); };
 
-  const warnHTML = (d) => (d.warn.length ? `<ul class="sf-warn">${d.warn.map((w) => `<li class="${w.level}">${w.level === 'bad' ? '⛔' : '⚠'} ${esc(w.text)}</li>`).join('')}</ul>` : '<p class="sf-ok">✅ All good</p>');
+  const warnHTML = (d) => (d.warn.length ? `<ul class="sf-warn">${d.warn.map((w) => `<li class="${w.level}">${w.level === 'bad' ? '⛔' : '⚠'} ${esc(w.text)}</li>`).join('')}</ul>` : '<p class="sf-ok">All good</p>');
   function health(d) {
     const s = d.series, last = s.samples.at(-1) || {}, starts24 = s.starts.filter((t) => t > Date.now() - 864e5);
-    return `${d.standby ? `<p class="sf-standby">🖥 This is the <b>standby editor</b> on ${esc(d.host)} - the main editor is down. Everything saved here goes back to it when it is up again.</p>` : ''}
+    return `${d.standby ? `<p class="sf-standby">This is the <b>standby editor</b> on ${esc(d.host)} - the main editor is down. Everything saved here goes back to it when it is up again.</p>` : ''}
       ${warnHTML(d)}
       <div class="sf-cards">
         <div><b>${up(s.now.up)}</b><small>running (since the last start)</small></div>
@@ -62,7 +62,7 @@ export async function openSafety(tab = 'health') {
         <div><h4>Slowest actions (95% are faster, ms)</h4>${spark(s.samples, 'p95', s.starts, 'ms', 2000)}</div>
       </div>
       <p class="muted small">The dashed line is where it starts to feel slow. A tall bar = the editor started (${starts24.length} in the last 24 h${starts24.length ? `, last ${ago(starts24[0])}` : ''}).</p>
-      <h4>⚙ Project workers</h4>
+      <h4>Project workers</h4>
       <p class="muted small">Each project is kept by one worker process, so one project's heavy moment (a huge timeline, a slow NAS) only slows the projects of its own worker. Takes effect at the next start of the editor.</p>
       <label class="sf-row">Workers <select data-k="workers">${[0, 2, 4, 6, 8].map((n) => `<option value="${n}" ${n === d.cluster.want ? 'selected' : ''}>${n ? n : 'Off (one process)'}</option>`).join('')}</select>
         ${d.cluster.want !== d.cluster.on ? '<span class="sf-busy">restart the editor to apply</span>' : ''}</label>
@@ -85,7 +85,7 @@ export async function openSafety(tab = 'health') {
         <p class="muted small">What goes: every project's timeline, media list, named versions, subtitles and LUTs (a folder per night), its uploaded files (VO, music, logos - one copy, only new ones are added), and the editor's settings. Footage is not copied - it stays where it is. If the editor is off at that hour, the backup runs when it starts.</p>
       </div>
       <div class="sf-now">
-        ${b.busy ? `<span class="sf-busy">⏳ Backing up… ${esc(b.busy.step || '')}</span>` : `<button class="accent" data-act="now" ${b.dest ? '' : 'disabled'}>Back up now</button>`}
+        ${b.busy ? `<span class="sf-busy">Backing up… ${esc(b.busy.step || '')}</span>` : `<button class="accent" data-act="now" ${b.dest ? '' : 'disabled'}>Back up now</button>`}
         <span>${L ? `Last: <b>${L.ok ? '✅' : '⛔'} ${when(L.at)}</b> - ${L.projects ?? 0} projects, ${MB(L.bytes || 0)} copied${L.secs ? `, ${L.secs} s` : ''}${L.errors?.length ? `<br><span class="bad">${esc(L.errors.slice(0, 3).join(' · '))}</span>` : ''}` : 'No backup yet'}</span>
       </div>
       <h4>Bring a project back</h4>
@@ -98,7 +98,7 @@ export async function openSafety(tab = 'health') {
   function standby(d) {
     const b = d.backup, f = b.standbyFile;
     const live = b.dest ? `${b.dest.replace(/[\\/]+$/, '')}\\live` : '';
-    return `${b.hold ? `<ul class="sf-warn"><li class="bad">⛔ ${b.hold.pending ? `Edits from ${esc(b.hold.host)} are coming back${b.hold.error ? `: ${esc(b.hold.error)}` : ''}` : `${esc(b.hold.host)} is running the editor since ${when(b.hold.since)} - this editor only shows`}</li></ul>
+    return `${b.hold ? `<ul class="sf-warn"><li class="bad">${b.hold.pending ? `Edits from ${esc(b.hold.host)} are coming back${b.hold.error ? `: ${esc(b.hold.error)}` : ''}` : `${esc(b.hold.host)} is running the editor since ${when(b.hold.since)} - this editor only shows`}</li></ul>
         ${b.hold.pending || !f || f.state !== 'active' ? '<p><button data-act="pull">Bring the edits back now</button> <button data-act="dismiss">Leave them (keep this editor as it is)</button></p>' : ''}` : ''}
       <p>If this PC (or its editor) goes down, a second office PC carries on: it watches this editor, and after 2 minutes without an answer it starts the editor from a copy of the projects on the NAS. Everyone opens <b>that PC's link</b> and keeps working. When this editor is back, the second PC saves, stops and hands the edits back here.</p>
       <label class="sf-row"><input type="checkbox" data-k="mirror" ${b.mirror ? 'checked' : ''} ${b.dest ? '' : 'disabled'}> Keep a live copy for the standby PC (every 5 minutes, only what changed)</label>
@@ -110,7 +110,7 @@ export async function openSafety(tab = 'health') {
       </ol>
       <pre class="sf-cmd" data-cmd>node engine/standby.mjs --main ${esc(b.mainLink || 'http://<this PC>:3100')} --mirror "${esc(live || 'Z:\\Limelight Backups\\live')}"</pre>
       <button class="small" data-act="copy">Copy the command</button>
-      ${!b.mainLink ? '<p class="muted small">Team editing is off here - the second PC asks this editor through the team link, so turn Team on (👥) first.</p>' : ''}
+      ${!b.mainLink ? '<p class="muted small">Team editing is off here - the second PC asks this editor through the team link, so turn Team on () first.</p>' : ''}
       ${b.pull ? `<p class="small">Last hand-back from ${esc(b.pull.host)}: ${when(b.pull.at)} - ${esc(b.pull.projects.join(', ') || 'no project changed')}${b.pull.added ? `, ${b.pull.added} new files` : ''}.</p>` : ''}
       <p class="muted small">The backup folder holds the team's sign-ins (passwords only as hashes). Keep it in a NAS folder only the office can open.</p>`;
   }
@@ -125,11 +125,11 @@ export async function openSafety(tab = 'health') {
   box.addEventListener('click', async (e) => {
     const a = e.target.closest('[data-act]')?.dataset.act; if (!a) return;
     if (a === 'dest') return set({ dest: box.querySelector('[data-k="dest"]').value });
-    if (a === 'now') { try { await api('POST', '/api/safety/backup'); toast('🌙 Backup started'); setTimeout(load, 800); } catch (err) { toast(err.message, 'err'); } }
+    if (a === 'now') { try { await api('POST', '/api/safety/backup'); toast('Backup started'); setTimeout(load, 800); } catch (err) { toast(err.message, 'err'); } }
     if (a === 'restore') {
       const night = box.querySelector('[data-k="night"]').value, project = box.querySelector('[data-k="rproj"]').value;
       if (!project || !confirm(`Bring back "${project}" as it was on ${night}?\n\nIt opens as a new project - the one there now stays as it is.`)) return;
-      try { const r = await api('POST', '/api/safety/restore', { night, project }); toast(`♻ "${r.name}" is back - it is in Projects (Home)`); } catch (err) { toast(err.message, 'err'); }
+      try { const r = await api('POST', '/api/safety/restore', { night, project }); toast(`"${r.name}" is back - it is in Projects (Home)`); } catch (err) { toast(err.message, 'err'); }
     }
     if (a === 'pull' || a === 'dismiss') {
       if (a === 'dismiss' && !confirm('Leave the edits made on the standby PC where they are (in the live copy) and go on with this editor as it is?')) return;

@@ -29,7 +29,7 @@ export function openSpeedDuration() {
         <label class="fld"><span>Speed</span><span class="row-in"><input data-speed type="number" min="1" max="10000" step="0.1" value="${sp0}"${media ? '' : ' disabled'}> %</span></label>
         <label class="fld"><span>Duration</span><input data-dur value="${one ? fmtTC(D0, fps) : ''}" placeholder="${one ? '' : 'each clip keeps its own'}"${one ? '' : ' disabled'} title="hh:mm:ss:ff, or seconds (4.5)"></label>
       </div>
-      <button type="button" class="spd-link on" data-link title="Speed and duration chained: changing one changes the other (click to unchain)" ${media ? '' : 'disabled'}>🔗</button>
+      <button type="button" class="spd-link on" data-link title="Speed and duration chained: changing one changes the other (click to unchain)" ${media ? '' : 'disabled'}></button>
     </div>
     <label class="chk"><input type="checkbox" data-rev${c0.reverse ? ' checked' : ''}${clips.some((c) => c.type === 'video' || c.type === 'audio') ? '' : ' disabled'}> Reverse speed</label>
     <label class="chk"><input type="checkbox" data-pitch${c0.keepPitch === false ? '' : ' checked'}${media ? '' : ' disabled'}> Maintain audio pitch</label>

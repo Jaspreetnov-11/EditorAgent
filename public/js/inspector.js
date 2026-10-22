@@ -17,8 +17,8 @@ import { FX_PRESETS, FX_DEFAULT } from './audiofx.js';
 import { AFX, AFX_CATS, ATRANS, newAudioEffect, afxDefaults } from './audioeffects.js';
 
 // 🔊 Essential Sound types: [key, label, what it does]
-const ESSENTIAL = [['dialogue', '🗣 Dialogue', 'Speech: voice clean-up (rumble, noise, harsh s, even level)'], ['music', '🎵 Music', 'Music bed: music EQ, at half level, ducks under speech'],
-  ['sfx', '💥 SFX', 'Sound effect: no clean-up, a little under full level'], ['ambience', '🌿 Ambience', 'Room tone / crowd / nature: softened, well under the speech']];
+const ESSENTIAL = [['dialogue', 'Dialogue', 'Speech: voice clean-up (rumble, noise, harsh s, even level)'], ['music', 'Music', 'Music bed: music EQ, at half level, ducks under speech'],
+  ['sfx', 'SFX', 'Sound effect: no clean-up, a little under full level'], ['ambience', 'Ambience', 'Room tone / crowd / nature: softened, well under the speech']];
 function applySoundType(c, k) {
   if (!k) { delete c.soundType; return; }
   c.soundType = k;
@@ -87,7 +87,7 @@ function renderClip(id) {
     return;
   }
   if (c.type === 'graphic') {
-    root.innerHTML = `<div class="ec-title">Effect Controls</div><div class="ihead"><span class="trk">${track}</span><b>📊 Motion graphic</b><span class="muted">${fmtTC(L?.start || 0, S.project.settings.fps)} · ${fmt((L?.end || 0) - (L?.start || 0))}</span></div><div class="ibody">${gfxInspector(c)}<div class="iactions"><button data-a="dup">Duplicate</button><button class="danger" data-a="del">Delete</button></div></div>`;
+    root.innerHTML = `<div class="ec-title">Effect Controls</div><div class="ihead"><span class="trk">${track}</span><b>Motion graphic</b><span class="muted">${fmtTC(L?.start || 0, S.project.settings.fps)} · ${fmt((L?.end || 0) - (L?.start || 0))}</span></div><div class="ibody">${gfxInspector(c)}<div class="iactions"><button data-a="dup">Duplicate</button><button class="danger" data-a="del">Delete</button></div></div>`;
     bindGfxInspector(root, id, render);
     root.onclick = (e) => { const a = e.target.closest('[data-a]')?.dataset.a; if (a === 'del') emit('deleteSelected'); if (a === 'dup') emit('duplicateSelected'); };
     return;
@@ -97,9 +97,9 @@ function renderClip(id) {
   if (track !== 'V1') clipDefs.push(timeDef('start', 'Starts at (timeline)', '0:00.0'));
   if (isVid || isAud) clipDefs.push(timeDef('in', 'Source In', '0:00.0'), timeDef('out', 'Source Out', 'end of file'),
     { k: 'speed', label: 'Speed', type: 'select', options: [['', '1×'], [0.25, '0.25×'], [0.5, '0.5× slow-mo'], [0.75, '0.75×'], [1.25, '1.25×'], [1.5, '1.5×'], [2, '2×'], [3, '3×'], [4, '4×']] });
-  if (isVid) clipDefs.push({ k: 'ramp', label: 'Speed ramp (speed changes inside the shot)', type: 'select', options: [['', 'None'], ...Object.entries(RAMPS).map(([k, r]) => [k, r.label]), ['custom', '✏ Custom (draw it in Speed ramp below)']] });
+  if (isVid) clipDefs.push({ k: 'ramp', label: 'Speed ramp (speed changes inside the shot)', type: 'select', options: [['', 'None'], ...Object.entries(RAMPS).map(([k, r]) => [k, r.label]), ['custom', 'Custom (draw it in Speed ramp below)']] });
   const ang = isVid && anglesFor(c);
-  if (ang) clipDefs.unshift({ k: 'mcAngle', label: '🎥 Camera angle (multicam - stays in sync)', type: 'select', options: ang.map((a) => [a.mediaId, S.mediaById[a.mediaId]?.name || a.mediaId]) });
+  if (ang) clipDefs.unshift({ k: 'mcAngle', label: 'Camera angle (multicam - stays in sync)', type: 'select', options: ang.map((a) => [a.mediaId, S.mediaById[a.mediaId]?.name || a.mediaId]) });
   if (isVid) clipDefs.push({ k: 'stabilize', label: 'Stabilize (shaky footage)', type: 'select', options: STABILIZE });
   if (isImg || isTitle || isAdj) clipDefs.push({ k: 'dur', label: 'Duration', type: 'num', min: 0.2, step: 0.1, unit: 'sec', def: isTitle ? 3 : 4 });
   if (isAdj) clipDefs.push({ k: 'opacity', label: 'Strength (how much of it shows)', type: 'range', min: 0, max: 1, step: 0.01, def: 1 });
@@ -107,20 +107,20 @@ function renderClip(id) {
   if (isVid || isImg) clipDefs.push({ k: 'fit', label: 'Framing', type: 'select', options: [['', 'Project default'], ['fit', 'Fit (letterbox)'], ['fill', 'Fill (crop)'], ['blur', 'Blur background']] },
     ...(track !== 'V1' ? [{ k: 'blend', label: 'Blend mode', type: 'select', options: BLEND_MODES }] : []));
   if (isImg) clipDefs.push({ k: 'kenburns', label: 'Ken Burns', type: 'select', options: [['', 'Project default'], ['in', 'Zoom in'], ['out', 'Zoom out'], [false, 'Static']] });
-  if (isVid) html += `<details class="isec" data-sec="ramp"${openSections.has('ramp') || c.ramp ? ' open' : ''}><summary>⏩ Speed ramp${c.ramp ? ' <span class="tag">on</span>' : ''}</summary><div class="ramp-ed" data-ramp-ed></div></details>`;
+  if (isVid) html += `<details class="isec" data-sec="ramp"${openSections.has('ramp') || c.ramp ? ' open' : ''}><summary>Speed ramp${c.ramp ? ' <span class="tag">on</span>' : ''}</summary><div class="ramp-ed" data-ramp-ed></div></details>`;
   // (the 'Clip' section was removed on request - speed ramp stays in its own section above)
   void clipDefs;
 
   if (!isAud && !isAdj && !(isTitle && track !== 'V1')) {
     // 🎬 like Premiere's Effect Controls: one line per property - ⏱ animate on / off, its name, its value (drag it left /
     // right, or click and type), ◂ ◆ ▸ and its keyframes on a little timeline of the clip, all in the same line
-    html += sec('transform', '🎬 Motion', motionHTML(c, (L?.end || 0) - (L?.start || 0), isVid) + `<div class="motion-presets"><button class="small" data-motion="zin">Zoom in</button><button class="small" data-motion="zout">Zoom out</button>
+    html += sec('transform', 'Motion', motionHTML(c, (L?.end || 0) - (L?.start || 0), isVid) + `<div class="motion-presets"><button class="small" data-motion="zin">Zoom in</button><button class="small" data-motion="zout">Zoom out</button>
       <button class="small" data-motion="pan">Pan →</button><button class="small" data-motion="panl">← Pan</button><button class="small" data-motion="clear">Reset</button></div>`);
   }
   if (isVid) html += sec('ai', 'Generative Fill', aiHTML(c));
-  if (isVid) html += sec('gyro', `🛸 Gyroflow (gyro stabilize)${c.gyroflow ? ' <span class="tag">on</span>' : ''}`, gyroHTML(c));
-  if (isVid || (track !== 'V1' && (isImg || isTitle))) html += sec('trk', '🎯 Tracking', trackingHTML(c, track));
-  if (isVid || isImg) html += sec('cutfx', `⚡ Cut effect${c.cutFx?.type ? ` <span class="tag">${esc(CUTFX[c.cutFx.type]?.label || c.cutFx.type)}</span>` : ''}`, fieldsHTML([
+  if (isVid) html += sec('gyro', `Gyroflow (gyro stabilize)${c.gyroflow ? ' <span class="tag">on</span>' : ''}`, gyroHTML(c));
+  if (isVid || (track !== 'V1' && (isImg || isTitle))) html += sec('trk', 'Tracking', trackingHTML(c, track));
+  if (isVid || isImg) html += sec('cutfx', `Cut effect${c.cutFx?.type ? ` <span class="tag">${esc(CUTFX[c.cutFx.type]?.label || c.cutFx.type)}</span>` : ''}`, fieldsHTML([
     { k: 'cutFx.type', label: 'Effect (plays on the cut into this shot)', type: 'select', options: [['', 'None'], ...Object.entries(CUTFX).map(([k, x]) => [k, x.label])] },
     ...(c.cutFx?.type ? [{ k: 'cutFx.dur', label: 'Effect length', type: 'num', min: 0.1, max: 3, step: 0.05, unit: 'sec', def: CUTFX[c.cutFx.type]?.dur }] : [])], obj));
   if (isVid || isImg) html += sec('omask', `◐ Opacity mask${c.omask?.shape ? ' <span class="tag">on</span>' : ''}`, maskHTML(c.omask, 'clip', id) + `<small class="hint">${track === 'V1' ? 'Only the inside shows - the rest is black.' : 'Only the inside shows - the tracks below show around it.'} Exact in Accurate preview and renders.</small>`);
@@ -138,7 +138,7 @@ function renderClip(id) {
       ...(track === 'V2' ? [{ k: 'strip', label: 'Full-width strip', type: 'select', options: [['', 'None'], ['#0b2545', 'Navy'], ['#b71c1c', 'Red'], ['#e8740c', 'Saffron'], ['#000000', 'Black']] },
         { k: 'anim', label: 'Animation', type: 'select', options: [['', 'Fade'], ['slide', 'Slide in'], ['words', 'Kinetic: one word at a time'], ['build', 'Kinetic: words add up'], ['none', 'None']] }] : []),
       { k: 'tricolour', label: 'Tricolour band', type: 'check' });
-    html += sec('text', isTitle ? 'Title' : 'Text', fieldsHTML(tdefs, obj) + (isTitle ? '<div class="iactions"><button class="small accent" data-a="tplstyle">🎨 Change style (templates)</button></div>' : ''));
+    html += sec('text', isTitle ? 'Title' : 'Text', fieldsHTML(tdefs, obj) + (isTitle ? '<div class="iactions"><button class="small accent" data-a="tplstyle">Change style (templates)</button></div>' : ''));
   }
 
   if (false) { // (colour lives on the Color page)
@@ -160,12 +160,12 @@ function renderClip(id) {
     if (track === 'A2') adefs.push({ k: 'duck', label: 'Duck under speech (clip sound + voice-over)', type: 'check' });
     const afxNow = Object.entries(FX_PRESETS).find(([, p]) => JSON.stringify({ ...FX_DEFAULT, ...p.fx }) === JSON.stringify({ ...FX_DEFAULT, ...(c.afx || {}) }))?.[0] || (c.afx ? 'custom' : 'flat');
     const clean = track === 'A2' || !(isVid ? m?.hasAudio : true) ? '' : `<div class="iactions"><label class="fld"><span>Clean-up (this clip only)</span><select data-afx>${Object.entries(FX_PRESETS).map(([k, p]) => `<option value="${k}"${k === afxNow ? ' selected' : ''}>${esc(p.label)}</option>`).join('')}${afxNow === 'custom' ? '<option value="custom" selected>Custom</option>' : ''}</select></label>
-      <button class="small accent" data-a="autoclean" title="Measures the noise between words and picks a clean-up">✨ Auto clean</button>
-      <button class="small" data-a="dub" title="Speak this clip's lines again with an AI voice: translated to English, re-voiced, or your own lines">🌐 Dub / re-voice</button></div><small class="hint">Clean-up is heard in Accurate preview and renders.</small>`;
+      <button class="small accent" data-a="autoclean" title="Measures the noise between words and picks a clean-up">Auto clean</button>
+      <button class="small" data-a="dub" title="Speak this clip's lines again with an AI voice: translated to English, re-voiced, or your own lines">Dub / re-voice</button></div><small class="hint">Clean-up is heard in Accurate preview and renders.</small>`;
     // 🔊 Essential Sound: what this sound is - the clean-up / level / ducking that suits it goes on with one click
     const ess = `<div class="iactions es-row"><span class="es-l" title="Essential Sound, like Premiere: tag the clip and its settings follow">Audio type</span><div class="segbtns">${ESSENTIAL.map(([k, l, tip]) => `<button data-es="${k}" aria-pressed="${c.soundType === k}" title="${tip}">${l}</button>`).join('')}</div></div>`;
-    html += sec('audio', 'Audio', ess + fieldsHTML(adefs, obj) + clean + (track === 'A2' ? '<button class="accent wide" data-a="best">✨ Use the best part of this music</button>' : ''));
-    if (!isVid || m?.hasAudio) html += sec('aeffects', `🔊 Audio effects${c.aeffects?.length ? ` <span class="muted">${c.aeffects.length}</span>` : ''}`, aeffectsHTML(c));
+    html += sec('audio', 'Audio', ess + fieldsHTML(adefs, obj) + clean + (track === 'A2' ? '<button class="accent wide" data-a="best">Use the best part of this music</button>' : ''));
+    if (!isVid || m?.hasAudio) html += sec('aeffects', `Audio effects${c.aeffects?.length ? ` <span class="muted">${c.aeffects.length}</span>` : ''}`, aeffectsHTML(c));
   }
 
   if (false) { // (a transition is changed by clicking it on the timeline)
@@ -181,7 +181,7 @@ function renderClip(id) {
       { k: 'fadeOut', label: 'Fade out', type: 'num', min: 0, step: 0.25, unit: 'sec' },
     ], obj));
   }
-  html += `<div class="iactions">${c.mediaId ? '<button data-a="replace" title="Swap this clip for another one - same place, length and effects">🔄 Replace…</button>' : ''}<button data-a="split">Split at playhead</button><button data-a="dup">Duplicate</button><button class="danger" data-a="del">Delete</button></div>`;
+  html += `<div class="iactions">${c.mediaId ? '<button data-a="replace" title="Swap this clip for another one - same place, length and effects">Replace…</button>' : ''}<button data-a="split">Split at playhead</button><button data-a="dup">Duplicate</button><button class="danger" data-a="del">Delete</button></div>`;
   // (the same clip drawn again - after adding a mask, an effect… - stays scrolled where it was)
   const keep = lastClip === id ? [root.scrollTop, root.querySelector('.ibody')?.scrollTop || 0] : null; lastClip = id;
   root.innerHTML = head + `<div class="ibody">${html}</div>`;
@@ -226,7 +226,7 @@ function renderClip(id) {
     const off = cl.soundType === k, list = [...new Set([id, ...S.sel])].map((x) => findClip(x)?.clip).filter((x) => x && (x.type === 'audio' || (x.type === 'video' && S.mediaById[x.mediaId]?.hasAudio)));
     for (const x of list) applySoundType(x, off ? null : k);
     doCommit(off ? 'Audio type off' : `Audio type: ${k}`); render();
-    toast(off ? 'Audio type taken off (its settings stay)' : `🔊 ${ESSENTIAL.find((e) => e[0] === k)[1]} on ${list.length} clip${list.length > 1 ? 's' : ''}${k === 'music' ? ' - ducks under speech on the music track (A2)' : ''}`);
+    toast(off ? 'Audio type taken off (its settings stay)' : `${ESSENTIAL.find((e) => e[0] === k)[1]} on ${list.length} clip${list.length > 1 ? 's' : ''}${k === 'music' ? ' - ducks under speech on the music track (A2)' : ''}`);
   }));
   root.querySelector('[data-afx]')?.addEventListener('change', (e) => {
     const cl = findClip(id)?.clip, k = e.target.value; if (!cl || k === 'custom') return;
@@ -263,8 +263,8 @@ function renderClip(id) {
       try {
         const r = await api('GET', `/api/audio/autoclean?p=${enc(S.proj)}&id=${cl.mediaId}&in=${cl.in || 0}&out=${cl.out ?? ''}`);
         cl.afx = r.fx; doCommit('Auto clean audio'); render();
-        toast(`✨ ${r.label} - speech is ${r.snr} dB above the noise`);
-      } catch (err) { toast(err.message, 'err'); b.disabled = false; b.textContent = '✨ Auto clean'; }
+        toast(`${r.label} - speech is ${r.snr} dB above the noise`);
+      } catch (err) { toast(err.message, 'err'); b.disabled = false; b.textContent = 'Auto clean'; }
     }
     if (a === 'best') {
       const b = e.target.closest('button'), cl = findClip(id)?.clip;
@@ -275,7 +275,7 @@ function renderClip(id) {
         Object.assign(cl, { in: best.in, out: best.out, loop: true, dur: len });
         commit('Best part of music');
         toast(`Music now uses ${fmt(best.in)} → ${fmt(best.out)}${best.bpm ? ` (~${best.bpm} BPM)` : ''}`);
-      } catch (err) { toast(err.message, 'err'); b.disabled = false; b.textContent = '✨ Use the best part of this music'; }
+      } catch (err) { toast(err.message, 'err'); b.disabled = false; b.textContent = 'Use the best part of this music'; }
     }
   };
 }
@@ -290,7 +290,7 @@ function aeffectsHTML(c) {
       if (p.type === 'select') return `<label class="fld"><span>${esc(p.label)}</span><select data-aep="${k}">${p.options.map(([o, l]) => `<option value="${esc(o)}"${o === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
       return `<label class="fld"><span>${esc(p.label)} <b data-aev="${k}">${v}${p.unit || ''}</b></span><input type="range" data-aep="${k}" min="${p.min}" max="${p.max}" step="${p.step}" value="${v}"></label>`;
     }).join('');
-    const note = def.meter ? `<div class="row-in"><button class="small accent" data-ameasure>📈 Measure this clip</button><span class="muted small" data-ameter>${e.last ? esc(e.last) : 'Loudness (LUFS), range and true peak - after the effects above it'}</span></div>`
+    const note = def.meter ? `<div class="row-in"><button class="small accent" data-ameasure>Measure this clip</button><span class="muted small" data-ameter>${e.last ? esc(e.last) : 'Loudness (LUFS), range and true peak - after the effects above it'}</span></div>`
       : !def.live ? '<small class="hint">Heard in Accurate preview and renders.</small>' : def.hint ? `<small class="hint">${esc(def.hint)}</small>` : '';
     return `<div class="efx${e.on === false ? ' off' : ''}" data-aefx="${e.id}">
       <div class="efx-h"><button class="icon-btn small" data-aea="toggle" title="${e.on === false ? 'Turn on' : 'Turn off'}" aria-label="On / off">${e.on === false ? '◌' : '●'}</button><b>${esc(def.label)}</b><span class="grow"></span>
@@ -301,7 +301,7 @@ function aeffectsHTML(c) {
   const opts = AFX_CATS.map((cat) => `<optgroup label="${esc(cat)}">${Object.entries(AFX).filter(([, x]) => x.cat === cat).map(([k, x]) => `<option value="${k}">${esc(x.label)}</option>`).join('')}</optgroup>`).join('');
   return `<div class="efx-list">${list || '<p class="muted small">No audio effects yet.</p>'}</div>
     <div class="row-in"><select data-addafx><option value="">+ Add audio effect…</option>${opts}</select></div>
-    <small class="hint">Applied top to bottom after the clean-up, before the volume. Heard while playing (except where it says so). More in the ✨ Effects panel.</small>`;
+    <small class="hint">Applied top to bottom after the clean-up, before the volume. Heard while playing (except where it says so). More in the Effects panel.</small>`;
 }
 function bindAEffects(id) {
   const get = (el) => { const c = findClip(id)?.clip, e = c?.aeffects?.find((x) => x.id === el.closest('[data-aefx]')?.dataset.aefx); return { c, e }; };
@@ -354,7 +354,7 @@ function effectsHTML(c, track) {
       return `<label class="fld"><span>${esc(p.label)} <b data-ev="${k}">${v}${p.unit || ''}</b></span><input type="range" data-ep="${k}" min="${p.min}" max="${p.max}" step="${p.step}" value="${v}"></label>`;
     }).join('');
     const canMask = !def.stab && e.type !== 'chromakey';
-    const warn = def.v2only && track !== 'V2' ? '<small class="hint warn">Works on V2 overlays only (it shows the shot below).</small>' : def.stab ? '<small class="hint">🎥 Analysed and stabilised when rendering (Accurate preview / export) - the render takes longer for this shot. Perspective / Subspace Warp work like Position, Scale, Rotation here.</small>' : !def.css ? '<small class="hint">Seen in Accurate preview and renders.</small>' : '';
+    const warn = def.v2only && track !== 'V2' ? '<small class="hint warn">Works on V2 overlays only (it shows the shot below).</small>' : def.stab ? '<small class="hint">Analysed and stabilised when rendering (Accurate preview / export) - the render takes longer for this shot. Perspective / Subspace Warp work like Position, Scale, Rotation here.</small>' : !def.css ? '<small class="hint">Seen in Accurate preview and renders.</small>' : '';
     return `<div class="efx${e.on === false ? ' off' : ''}" data-efx="${e.id}">
       <div class="efx-h"><button class="icon-btn small" data-ea="toggle" title="${e.on === false ? 'Turn on' : 'Turn off'}" aria-label="On / off">${e.on === false ? '◌' : '●'}</button><b>${esc(def.label)}</b><span class="grow"></span>
         <button class="icon-btn small" data-ea="up" title="Earlier in the order"${i === 0 ? ' disabled' : ''}>▲</button><button class="icon-btn small" data-ea="down" title="Later in the order"${i === c.effects.length - 1 ? ' disabled' : ''}>▼</button>
@@ -364,8 +364,8 @@ function effectsHTML(c, track) {
   const opts = VFX_CATS.map((cat) => `<optgroup label="${esc(cat)}">${Object.entries(VFX).filter(([, x]) => x.cat === cat).map(([k, x]) => `<option value="${k}">${esc(x.label)}</option>`).join('')}</optgroup>`).join('');
   return `<div class="efx-list">${list || '<p class="muted small">No effects yet.</p>'}</div>
     <div class="row-in"><select data-addfx><option value="">+ Add effect…</option>${opts}</select></div>
-    <div class="row-in"><button class="small" data-savelook title="Save this clip's effects, colour, cut effect and blend as a preset for any clip">💾 Save look as preset</button></div>
-    <small class="hint">Applied top to bottom, before Motion. More in the ✨ Effects panel (drag onto a clip).</small>`;
+    <div class="row-in"><button class="small" data-savelook title="Save this clip's effects, colour, cut effect and blend as a preset for any clip">Save look as preset</button></div>
+    <small class="hint">Applied top to bottom, before Motion. More in the Effects panel (drag onto a clip).</small>`;
 }
 function bindEffects(id) {
   const get = (el) => { const c = findClip(id)?.clip, e = c?.effects?.find((x) => x.id === el.closest('[data-efx]')?.dataset.efx); return { c, e }; };
@@ -456,8 +456,8 @@ const MOTION = [
   { p: 'transform.zoom', label: 'Scale', min: 0.1, max: 5, step: 0.01, unit: '', pr: 'scale' },
   { p: 'transform.rotation', label: 'Rotation', min: -720, max: 720, step: 0.5, unit: '°' },
   { p: 'opacity', label: 'Opacity', min: 0, max: 1, step: 0.01, k: 100, unit: '%' },
-  { p: 'cropX', label: 'Reframe ↔', min: 0, max: 1, step: 0.01, k: 100, unit: '%' },
-  { p: 'cropY', label: 'Reframe ↕', min: 0, max: 1, step: 0.01, k: 100, unit: '%' },
+  { p: 'cropX', label: 'Reframe ', min: 0, max: 1, step: 0.01, k: 100, unit: '%' },
+  { p: 'cropY', label: 'Reframe ', min: 0, max: 1, step: 0.01, k: 100, unit: '%' },
   { p: 'volume', label: 'Volume', min: 0, max: 2, step: 0.01, k: 100, unit: '%', vid: true },
 ];
 // Premiere's numbers: Position in sequence pixels (centre = W/2, H/2), Scale in % of the source's own pixels (a 4K shot
@@ -491,7 +491,7 @@ function motionHTML(c, D, isVid) {
   return `<div class="pm" data-kl data-d="${D}">${MOTION.filter((r) => !r.vid || isVid).map((r) => {
     const keys = c.keys?.[r.p] || [];
     return `<div class="pm-row" data-kp="${r.p}" data-kpath="${r.p}">
-      <button class="pm-sw${keys.length ? ' on' : ''}" data-sw="${r.p}" title="${keys.length ? 'Animated - click to stop animating (removes its keyframes)' : 'Animate: a keyframe at the playhead, then change the value elsewhere'}">⏱</button>
+      <button class="pm-sw${keys.length ? ' on' : ''}" data-sw="${r.p}" title="${keys.length ? 'Animated - click to stop animating (removes its keyframes)' : 'Animate: a keyframe at the playhead, then change the value elsewhere'}"></button>
       <span class="pm-n">${kgTwirl(c, r.p)}${r.label}</span>
       <span class="pm-v" data-pv="${r.p}" tabindex="0" title="Drag left / right (Shift: faster) or click to type">${mShow(r, motionVal(c, r.p, rel), c)}</span>
       <span class="pm-k"><button class="kfb" data-kprev="${r.p}" title="Previous keyframe">◂</button><button class="kfd" data-kf="${r.p}" title="Add / remove a keyframe at the playhead">◆</button><button class="kfb" data-knext="${r.p}" title="Next keyframe">▸</button></span>
@@ -628,20 +628,20 @@ function renderProject() {
       { k: 'settings.aspect', label: 'Format', type: 'select', options: [['16:9', '16:9 · YouTube / Film'], ['9:16', '9:16 · Reel / Shorts'], ['1:1', '1:1 · Square'], ['4:5', '4:5 · Feed'],
         ['4:3', '4:3 · Old TV / slides'], ['3:4', '3:4 · Portrait'], ['21:9', '21:9 · Ultrawide'], ['2.39:1', '2.39:1 · Cinema scope'], ['17:9 DCI', '17:9 · DCI (cinema)'],
         ...(ASPECTS[p.settings.aspect] && !['16:9', '9:16', '1:1', '4:5', '4:3', '3:4', '21:9', '2.39:1', '17:9 DCI'].includes(p.settings.aspect) ? [[p.settings.aspect, `${shapeLabel(p.settings.aspect)}`]] : [])] },
-      { type: 'html', html: '<div class="iactions"><button class="small" data-a="seqset" title="All the sequence settings, like Premiere">⚙ Sequence Settings…</button><button class="small" data-a="customsize" title="Any frame size, e.g. 4096 × 2160 (4K DCI), 1280 × 720, 3840 × 1600">📐 Custom size…</button></div>' },
+      { type: 'html', html: '<div class="iactions"><button class="small" data-a="seqset" title="All the sequence settings, like Premiere">Sequence Settings…</button><button class="small" data-a="customsize" title="Any frame size, e.g. 4096 × 2160 (4K DCI), 1280 × 720, 3840 × 1600">Custom size…</button></div>' },
       { k: 'settings.fps', label: 'Frame rate', type: 'select', options: [[24, '24'], [25, '25'], [30, '30'], [50, '50'], [60, '60']] },
       { k: 'settings.fit', label: 'Default framing', type: 'select', options: [['', 'Auto (blur for vertical)'], ['fit', 'Fit'], ['fill', 'Fill'], ['blur', 'Blur background']] },
       { k: 'settings.kenburns', label: 'Slow zoom on photos', type: 'check' },
       { k: 'settings.loudness', label: 'Loudness', type: 'select', options: [[-14, 'Social -14 LUFS'], [-16, 'YouTube / web -16'], [-23, 'Broadcast -23'], ['off', 'Leave as is']] },
       { k: 'settings.crf', label: 'Quality', type: 'select', options: [[16, 'Master (big)'], [18, 'High'], [20, 'Standard'], [24, 'Small (WhatsApp)'], [28, 'Very small']] },
     ], p))}
-    ${sec('look', '🎬 Cinematic finish', fieldsHTML([
+    ${sec('look', 'Cinematic finish', fieldsHTML([
       { k: 'settings.look.lut', label: 'Film look (whole edit)', type: 'select', options: [['', 'None'], ...FILM_LOOKS.map(([n]) => [lookLut(n), n])] },
       { k: 'settings.look.mix', label: 'Look strength', type: 'range', min: 0, max: 1, step: 0.05, def: 0.85 },
       { k: 'settings.look.letterbox', label: 'Letterbox bars', type: 'select', options: LETTERBOX },
       { k: 'settings.look.vignette', label: 'Vignette', type: 'range', min: 0, max: 1, step: 0.05, def: 0 },
       { k: 'settings.look.grain', label: 'Film grain', type: 'range', min: 0, max: 1, step: 0.05, def: 0 },
-    ], p) + `<div class="iactions"><button class="small accent" data-a="cine">🎬 Make it cinematic</button><button class="small" data-a="nocine">Remove</button><button class="small" data-a="stab">🎥 Stabilize all shots</button><button class="small" data-a="nostab">No stabilize</button></div><small class="hint">Stabilize, grain and bars show in Accurate preview and renders (stabilizing makes renders slower).</small>`)}
+    ], p) + `<div class="iactions"><button class="small accent" data-a="cine">Make it cinematic</button><button class="small" data-a="nocine">Remove</button><button class="small" data-a="stab">Stabilize all shots</button><button class="small" data-a="nostab">No stabilize</button></div><small class="hint">Stabilize, grain and bars show in Accurate preview and renders (stabilizing makes renders slower).</small>`)}
     ${'' && sec('logo', 'Logo / watermark', fieldsHTML([
       { k: 'logo.mediaId', label: 'Logo image', type: 'select', options: [['', 'None'], ...images.map((m) => [m.id, m.name])] },
       { k: 'logo.pos', label: 'Position', type: 'select', options: [['tr', 'Top right'], ['tl', 'Top left'], ['br', 'Bottom right'], ['bl', 'Bottom left']] },
@@ -666,7 +666,7 @@ function renderProject() {
       if (v === null) return;
       if (!m) return toast('Write it as width x height, e.g. 1920 x 1080', 'err');
       const key = `${+m[1] & ~1}x${+m[2] & ~1}`;
-      S.project.settings.aspect = key; commit(`Frame size ${key}`); emit('aspect'); toast(`📐 Frame size ${shapeLabel(key)}`);
+      S.project.settings.aspect = key; commit(`Frame size ${key}`); emit('aspect'); toast(`Frame size ${shapeLabel(key)}`);
       return;
     }
     if (a === 'cine') { applyCinematic(S.project); commit('Cinematic look'); toast('Cinematic: film grade, 2.39 bars (16:9), vignette, grain'); }

@@ -41,11 +41,11 @@ export async function pickOutput() {
     return `<label class="ao-row"><input type="radio" name="ao" value=""${cur ? '' : ' checked'}> <span><b>System default</b><br><span class="muted small">whatever Windows plays on (Sound settings)</span></span></label>`
       + ds.filter((d) => d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications').map((d, i) => `<label class="ao-row"><input type="radio" name="ao" value="${esc(d.deviceId)}"${d.deviceId === cur ? ' checked' : ''}> <span>${esc(d.label || `Output ${i + 1}`)}</span></label>`).join('');
   };
-  const dlg = modal('🎧 Sound output', `${can ? '' : '<p class="warn">This browser cannot choose the sound output - use Chrome or Edge, and open the editor on its https address.</p>'}
+  const dlg = modal('Sound output', `${can ? '' : '<p class="warn">This browser cannot choose the sound output - use Chrome or Edge, and open the editor on its https address.</p>'}
     <p class="muted small">Where the timeline, the Source monitor and previews play. Kept on this computer.</p>
     <div class="ao-list" data-list>Looking for speakers and headphones…</div>
     <p class="muted small" data-names>No names? <button class="link small" data-ask>Show the device names</button> (the browser asks once for the microphone - only to read the names; nothing is recorded).</p>
-    <div class="dv-actions"><button data-test>▶ Test sound</button><button class="primary" data-close>Done</button></div>`, { width: 480 });
+    <div class="dv-actions"><button data-test>Test sound</button><button class="primary" data-close>Done</button></div>`, { width: 480 });
   const box = $('[data-list]', dlg.el);
   const draw = async () => { box.innerHTML = await list(); $('[data-names]', dlg.el).hidden = (await outputs()).every((d) => d.label); };
   await draw();

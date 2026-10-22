@@ -22,7 +22,7 @@ export function openTemplates({ target = null } = {}) {
   const list = TEMPLATES.filter((t) => !tc || (tc.type === 'title' && findClip(target).track === 'V1' ? t.track === 'V1' : t.track === 'V2'));
   const body = h(`<div><p class="muted small">${tc ? 'Pick a look - the text stays the same.' : 'Pick one: it is added at the playhead. Double-click it on the timeline later to change the words.'}</p>
     <div class="tpl-grid">${groups.map((g) => { const ts = list.filter((t) => t.group === g); return ts.length ? `<h4>${g}</h4>${ts.map((t) => `<button class="tpl" data-t="${t.id}">${preview(t)}<small>${esc(t.label)}</small></button>`).join('')}` : ''; }).join('')}</div></div>`);
-  const d = modal(tc ? '🎨 Change the title style' : '🔤 Titles & lower thirds', body, { width: 860 });
+  const d = modal(tc ? 'Change the title style' : 'Titles & lower thirds', body, { width: 860 });
   body.addEventListener('click', (e) => {
     const b = e.target.closest('[data-t]'); if (!b) return;
     const t = templateById(b.dataset.t);

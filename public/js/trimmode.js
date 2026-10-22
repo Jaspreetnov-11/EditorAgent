@@ -98,7 +98,7 @@ function build() {
       <button data-tm="1" title="Trim forward 1 frame (→)">+1</button><button data-tm="5" title="Trim forward 5 frames (Shift+→)">+5</button>
       <span class="grow"></span>
       <button data-tm="prev" title="Cut before (↑)">↑</button><button data-tm="next" title="Cut after (↓)">↓</button>
-      <button data-tm="play" title="Play round the cut (Space)">▶</button><button data-tm="close" title="Close Trim mode (Esc / Shift+T)">✕</button>
+      <button data-tm="play" title="Play round the cut (Space)"></button><button data-tm="close" title="Close Trim mode (Esc / Shift+T)">✕</button>
     </div>
     <div class="tm-help">← → trim 1 frame · Shift 5 · Tab Ripple Out / Roll / Ripple In · J K L trim while playing · Space play round the cut · ↑ ↓ other cuts · Esc close</div>
   </div>`);
@@ -191,7 +191,7 @@ export function toggleTrimMode() {
   build();
   window.addEventListener('keydown', onKey, true);
   go(k);
-  toast('✂ Trim mode: ← → trims, Tab changes the type, J K L trims while playing, Esc closes');
+  toast('Trim mode: ← → trims, Tab changes the type, J K L trims while playing, Esc closes');
 }
 function close(why) {
   if (!st) return;

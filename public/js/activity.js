@@ -14,7 +14,7 @@ export async function openActivity() {
   let list = [];
   try { list = await api('GET', `/api/activity?p=${enc(S.proj)}&limit=300`); } catch (e) { return toast(e.message, 'err'); }
   const people = [...new Set(list.map((x) => x.name))];
-  const dlg = modal('📜 Activity - who changed what', `
+  const dlg = modal('Activity - who changed what', `
     <div class="row-in"><label class="fld"><span>Who</span><select data-who><option value="">Everyone</option>${people.map((p) => `<option>${esc(p)}</option>`).join('')}</select></label>
       <span class="grow"></span><button class="link small" data-ai>↶ Undo AI edits (Agent / Claude)…</button></div>
     <div class="dv-list act-list" data-list></div>

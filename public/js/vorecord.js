@@ -16,11 +16,11 @@ export async function toggleRecord(track) {
   if (S.readOnly) return toast('This project is read-only for you', 'err');
   let stream;
   try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }); }
-  catch (e) { return toast(`No microphone: ${e.message}. Allow the mic for this page (the 🔒 in the address bar).`, 'err'); }
+  catch (e) { return toast(`No microphone: ${e.message}. Allow the mic for this page (the in the address bar).`, 'err'); }
   const bar = document.createElement('div'); bar.className = 'vo-rec';
   document.body.append(bar);
   // count-in
-  for (const n of [3, 2, 1]) { bar.innerHTML = `<b>🎙 ${n}</b><span>Recording on ${track}… (headphones keep the edit's sound out of the mic)</span>`; await new Promise((ok) => setTimeout(ok, 700)); }
+  for (const n of [3, 2, 1]) { bar.innerHTML = `<b>${n}</b><span>Recording on ${track}… (headphones keep the edit's sound out of the mic)</span>`; await new Promise((ok) => setTimeout(ok, 700)); }
   const mr = new MediaRecorder(stream);
   rec = { mr, chunks: [], stream, track, start: S.playhead || 0, t0: performance.now(), bar };
   mr.ondataavailable = (e) => e.data.size && rec?.chunks.push(e.data);
@@ -58,7 +58,7 @@ async function stop() {
     S.mediaById[m.id] = m; if (!S.media.some((x) => x.id === m.id)) S.media.push(m); else S.media = S.media.map((x) => (x.id === m.id ? m : x));
     const c = placeMedia(m.id, r.track, r.start);
     if (c) { S.sel = new Set([c.id]); commit(`Voice-over on ${r.track}`); emit('select'); }
-    toast(`🎙 ${m.name} placed on ${r.track} at the playhead - Ctrl+Z takes it off`);
+    toast(`${m.name} placed on ${r.track} at the playhead - Ctrl+Z takes it off`);
   } catch (e) { toast(`Voice-over not saved: ${e.message}`, 'err'); }
   finally { r.bar.remove(); }
 }

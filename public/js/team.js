@@ -8,25 +8,25 @@ import { openSessions } from './sessionsui.js';
 const ROLES = [['editor', 'Editor - edits, renders, imports'], ['viewer', 'Viewer - watches only'], ['owner', 'Owner - also settings, accounts, team']];
 
 export async function openTeam() {
-  const dlg = modal('👥 Team - edit from other computers', '<div data-tm><div class="muted pad">Loading…</div></div><div data-farm></div>', { width: 720 });
+  const dlg = modal('Team - edit from other computers', '<div data-tm><div class="muted pad">Loading…</div></div><div data-farm></div>', { width: 720 });
   const box = $('[data-tm]', dlg.el);
   farmPanel($('[data-farm]', dlg.el), dlg);
   const draw = (t) => {
     box.innerHTML = `${t.on ? `<p>Team editing is <b class="good">on</b>. On another computer in this office (same network), open:</p>
         ${t.urls.map((u, i) => `<div class="sh-url"><span class="mono grow">${esc(u)}${i === 0 && t.short ? ' <span class="good small">← permanent link</span>' : ''}</span><button class="small" data-copy="${esc(u)}">Copy</button></div>`).join('') || '<p class="warn">This computer has no network address - connect it to the office network.</p>'}
-        ${t.tls ? `<p class="small ${t.tls.daysLeft < 15 ? 'warn' : 'muted'}">🔒 HTTPS certificate for <b>${esc(t.tls.domain)}</b> valid until ${new Date(t.tls.validTo).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })} (${t.tls.daysLeft} days left)${t.tls.daysLeft < 15 ? ' - <b>renew it now</b>: ask Claude "SSL renew kar de" (a new TXT record in GoDaddy)' : ''}</p>` : ''}
-        <p class="small">🔗 <b>Same link on every PC:</b> open it on each PC and press <b>🖥 Install on this PC</b> on the sign-in page (Chrome / Edge) - the Limelight Editor icon goes on that PC's Desktop and Start menu.</p>
+        ${t.tls ? `<p class="small ${t.tls.daysLeft < 15 ? 'warn' : 'muted'}">HTTPS certificate for <b>${esc(t.tls.domain)}</b> valid until ${new Date(t.tls.validTo).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })} (${t.tls.daysLeft} days left)${t.tls.daysLeft < 15 ? ' - <b>renew it now</b>: ask Claude "SSL renew kar de" (a new TXT record in GoDaddy)' : ''}</p>` : ''}
+        <p class="small"><b>Same link on every PC:</b> open it on each PC and press <b>Install on this PC</b> on the sign-in page (Chrome / Edge) - the Limelight Editor icon goes on that PC's Desktop and Start menu.</p>
         <p class="muted small">Windows may ask once whether Node.js can use the network: choose <b>Allow</b> for private networks. This computer must stay on with the editor running; the others use its footage, previews and renders.</p>`
-      : '<p>Let editors on other office computers open projects from this computer: each signs in with a name and password you make here. Everyone with edit rights can work on the same timeline at the same time (🔴 live) - each person sees what the others select and where their playheads are, in their colour. Viewers only watch.</p>'}
-      <h4 style="display:flex;align-items:center;gap:8px">People <button class="small" data-sessions style="margin-left:auto">📊 Sessions (30 days)</button></h4>
+      : '<p>Let editors on other office computers open projects from this computer: each signs in with a name and password you make here. Everyone with edit rights can work on the same timeline at the same time (live) - each person sees what the others select and where their playheads are, in their colour. Viewers only watch.</p>'}
+      <h4 style="display:flex;align-items:center;gap:8px">People <button class="small" data-sessions style="margin-left:auto">Sessions (30 days)</button></h4>
       <div class="dv-list">${t.users.map((x) => `<div class="dv-item"><b class="grow">${esc(x.name)}</b>${t.online.includes(x.name) ? '<span class="good small">● online</span>' : ''}
         <select data-role="${esc(x.name)}" style="width:auto">${ROLES.map(([v, l]) => `<option value="${v}"${x.role === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
         <button class="link small" data-reset="${esc(x.name)}">New password</button><button class="link small" data-rm="${esc(x.name)}">Remove</button></div>`).join('') || '<div class="muted">Nobody yet.</div>'}</div>
       <div class="row-in"><input data-un placeholder="Name"><input data-pw type="password" placeholder="Password (6+ characters)"><select data-ur style="width:auto">${ROLES.map(([v, l]) => `<option value="${v}">${l.split(' - ')[0]}</option>`).join('')}</select><button class="small primary" data-add>Add</button></div>
-      <h4>Shared folders <span class="muted small">(shown first, with ⭐, when anyone imports)</span></h4>
+      <h4>Shared folders <span class="muted small">(shown first, with , when anyone imports)</span></h4>
       <div class="dv-list">${t.libraries.map((l) => `<div class="dv-item"><span class="mono grow">${esc(l)}</span><button class="link small" data-lrm="${esc(l)}">Remove</button></div>`).join('') || '<div class="muted">None.</div>'}</div>
       <button class="small" data-ladd>+ Add a folder</button>
-      <label class="chk" style="margin-top:8px"><input type="checkbox" data-anyfolder ${t.editorsAnyFolder ? 'checked' : ''}> Editors may save renders / exported timelines to <b>any folder</b> on this computer (📁 Save to in Deliver). Off = only inside the Shared folders above.</label>
+      <label class="chk" style="margin-top:8px"><input type="checkbox" data-anyfolder ${t.editorsAnyFolder ? 'checked' : ''}> Editors may save renders / exported timelines to <b>any folder</b> on this computer (Save to in Deliver). Off = only inside the Shared folders above.</label>
       ${t.locks.length ? `<h4>Open now</h4><div class="muted small">${t.locks.map((l) => `${esc(l.project)} - ${esc(l.name)}`).join('<br>')}</div>` : ''}
       <div class="dv-actions">${t.on ? '<button data-on="0">Turn off</button>' : '<button class="primary" data-on="1">Turn on team editing</button>'}<button data-close>Close</button></div>`;
   };
@@ -57,7 +57,7 @@ function farmPanel(box, dlg) {
     if (!f) return;
     const u = f.urls[0], cmd = u ? `curl.exe -o worker.mjs ${u}/farm/worker.mjs
 node worker.mjs ${u} ${f.token}` : '';
-    box.innerHTML = `<h4>🖥 Render farm <span class="muted small">(other office computers help with rendering)</span></h4>
+    box.innerHTML = `<h4>Render farm <span class="muted small">(other office computers help with rendering)</span></h4>
       ${f.on ? `<p>Farm is <b class="good">on</b>. On the computer you want to add (needs Node.js and FFmpeg), run this in PowerShell:</p>
         ${u ? `<pre class="mono farm-cmd">${esc(cmd)}</pre><div class="row-in"><button class="small" data-fcopy>Copy command</button><span class="muted small grow">Keep the window open. With more cores, add <span class="mono">--slots 2</span> at the end.</span></div>`
           : '<p class="warn">No network address found for this computer - connect it to the office network.</p>'}

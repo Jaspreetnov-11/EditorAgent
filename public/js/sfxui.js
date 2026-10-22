@@ -16,7 +16,7 @@ export async function autoSoundDesign({ amount = 1 } = {}) {
   S.project.trackState.A3 = { ...S.project.trackState.A3, volume: S.project.trackState.A3?.volume ?? 0.8 };
   commit('Auto sound design');
   const n = sfxCount(S.project);
-  toast(n ? `🔊 ${n} sound effects on A3 - your own A3 sounds stayed. Ctrl+Z to undo.` : 'Nothing to add sounds to: add transitions or cut effects first');
+  toast(n ? `${n} sound effects on A3 - your own A3 sounds stayed. Ctrl+Z to undo.` : 'Nothing to add sounds to: add transitions or cut effects first');
   return n;
 }
 

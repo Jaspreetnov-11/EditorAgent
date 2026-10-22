@@ -20,8 +20,8 @@ const thumb = (m) => (m?.urls?.thumb ? `<span class="sm-th" style="background-im
 const onTimeline = () => new Set(Object.values(S.project.tracks).flat().map((c) => c.mediaId));
 
 export function openSmart(tab = 'scan', query = '') {
-  const dlg = modal('🧠 Smart footage', `<div class="ptabs sm-tabs" role="tablist">
-      <button role="tab" data-st="scan">Scan</button><button role="tab" data-st="find">🔎 Find</button><button role="tab" data-st="check">⚠ Check</button><button role="tab" data-st="cams">🎨 Cameras</button><button role="tab" data-st="people">🧑 People</button><button role="tab" data-st="quotes">💬 Quotes</button></div>
+  const dlg = modal('Smart footage', `<div class="ptabs sm-tabs" role="tablist">
+      <button role="tab" data-st="scan">Scan</button><button role="tab" data-st="find">Find</button><button role="tab" data-st="check">Check</button><button role="tab" data-st="cams">Cameras</button><button role="tab" data-st="people">People</button><button role="tab" data-st="quotes">Quotes</button></div>
     <div class="sm-body" data-body></div>`, { width: 760 });
   const body = $('[data-body]', dlg.el);
   const show = (t) => { $$('[data-st]', dlg.el).forEach((b) => b.setAttribute('aria-selected', String(b.dataset.st === t))); ({ scan, find, check, cams, people, quotes })[t](body, dlg, query); query = ''; };
@@ -35,11 +35,11 @@ function scan(body) {
   const vis = S.media.filter((m) => (m.kind === 'video' || m.kind === 'image') && !m.seqOf), done = vis.filter((m) => m.tags).length;
   body.innerHTML = `<p>The editor looks at every clip once and learns what is in it. Then:</p>
     <ul class="muted"><li><b>Tags</b> in Media: wide / medium / close-up / detail, drone, people, crowd, sunset, night…</li>
-      <li><b>🔎 Find</b> a shot by what it shows - "jharna dikhao", "पहाड़ पर बादल", "crowd at night"</li>
-      <li><b>⚠ Check</b>: near-identical copies and clips that are too dark, soft, shaky or very short</li>
-      <li><b>🧑 People</b>: the faces in the footage - name them once ("CM Sahab") and Find, the ✨ Agent and the Assistant know them in every project</li>
-      <li><b>✍ Text</b> on banners, logos and supers is read (Hindi + English), so 🔎 Find "lok seva guarantee" finds it</li></ul>
-    <p class="muted small">${done}/${vis.length} clips looked at. Runs on this computer (no internet). Big camera files are read once (only their key frames); clips the ✨ Agent has already seen are quick.</p>
+      <li><b>Find</b> a shot by what it shows - "jharna dikhao", "पहाड़ पर बादल", "crowd at night"</li>
+      <li><b>Check</b>: near-identical copies and clips that are too dark, soft, shaky or very short</li>
+      <li><b>People</b>: the faces in the footage - name them once ("CM Sahab") and Find, the Agent and the Assistant know them in every project</li>
+      <li><b>Text</b> on banners, logos and supers is read (Hindi + English), so Find "lok seva guarantee" finds it</li></ul>
+    <p class="muted small">${done}/${vis.length} clips looked at. Runs on this computer (no internet). Big camera files are read once (only their key frames); clips the Agent has already seen are quick.</p>
     <button class="primary" data-go>${done ? 'Look again (new clips too)' : 'Look at all footage'}</button>
     <div class="job" data-job hidden><div class="job-top"><span data-l></span><span data-t></span></div><div class="bar"><div data-b></div></div></div>`;
   $('[data-go]', body).onclick = async (e) => {
@@ -52,7 +52,7 @@ function scan(body) {
       await refreshMedia(); await loadFootage(); emit('media');
       const r = j.result;
       $('[data-l]', body).textContent = `Done: ${r.tagged} clips tagged · ${r.dups.length} group${r.dups.length === 1 ? '' : 's'} of near-copies · ${r.bad.length} clip${r.bad.length === 1 ? '' : 's'} to check${r.people != null ? ` · ${r.people} people · text on ${r.withText} clips` : ''}`;
-      toast('Smart scan done - tags are in Media; try 🔎 Find');
+      toast('Smart scan done - tags are in Media; try Find');
     } catch (err) { toast(err.job ? `Scan failed: ${err.job.log.slice(-1).join(' ')}` : err.message, 'err'); box.hidden = true; }
     finally { e.target.disabled = false; emit('job', { running: false }); }
   };
@@ -61,7 +61,7 @@ function scan(body) {
 // ---- Find ----
 function find(body, dlg, query) {
   body.innerHTML = `<div class="row-in"><input data-q placeholder='e.g. jharna dikhao · पहाड़ पर बादल · CM sahab · lok seva guarantee' aria-label="Find shots by what they show, who is in them or what is written on them"><button class="primary" data-go>Find</button></div>
-    <p class="muted small" data-info>Type what the shot should show, a person named in 🧑 People, or words written on it - in Hindi, Hinglish or English. Click a result to open it in the Source viewer at that moment.</p>
+    <p class="muted small" data-info>Type what the shot should show, a person named in People, or words written on it - in Hindi, Hinglish or English. Click a result to open it in the Source viewer at that moment.</p>
     <div class="sm-res" data-res></div>`;
   const q = $('[data-q]', body);
   const go = async () => {
@@ -168,14 +168,14 @@ async function people(body) {
   const sel = new Set();
   const draw = () => {
     body.innerHTML = !d.at ? `<p>No faces looked for yet.</p><p class="muted small">${d.ready ? 'Run the Scan tab once (Look again) - it finds the people and reads the text on the footage.' : 'Needs OpenCV and the two face models in Models/ on the editor computer.'}</p>`
-      : `<p class="muted small">${d.people.length} people found. Name the ones that matter (e.g. <b>CM Sahab</b>, with other names like <i>Vishnu Deo Sai, मुख्यमंत्री</i>) - Find, the ✨ Agent ("CM sahab ne kaha" in the VO gets a shot of the CM) and the Assistant's Claude then know them, in every project. Tick two that are one person and Join them.</p>
+      : `<p class="muted small">${d.people.length} people found. Name the ones that matter (e.g. <b>CM Sahab</b>, with other names like <i>Vishnu Deo Sai, मुख्यमंत्री</i>) - Find, the Agent ("CM sahab ne kaha" in the VO gets a shot of the CM) and the Assistant's Claude then know them, in every project. Tick two that are one person and Join them.</p>
       <div class="dv-actions"><button class="small" data-join disabled>Join ticked</button></div>
       <div class="sm-list">${d.people.map((p) => { const ids = Object.keys(p.media); return `<div class="sm-hit sm-person" data-k="${esc(p.key)}">
         <input type="checkbox" data-tick aria-label="Tick ${esc(p.label)}"${sel.has(p.key) ? ' checked' : ''}>
         <span class="sm-face" style="${p.thumb ? `background-image:url('${p.thumb}')` : ''}"></span>
         <div class="grow"><div class="row-in"><input data-name value="${esc(p.name || '')}" placeholder="${esc(p.label)} - type a name" aria-label="Name of ${esc(p.label)}"><input data-alias value="${esc((p.aliases || []).join(', '))}" placeholder="other names, comma-separated" aria-label="Other names"${p.name ? '' : ' hidden'}></div>
           <div class="muted small">seen ${p.count}× in ${ids.length} clip${ids.length === 1 ? '' : 's'}: ${ids.slice(0, 4).map((id) => `<a href="#" data-at="${id}" data-t="${p.media[id][0]}">${esc(S.mediaById[id]?.name || id)}</a>`).join(', ')}${ids.length > 4 ? ' …' : ''}</div></div>
-        <button class="small" data-find title="All shots of this person">🔎</button><button class="small" data-rm title="Not someone to know (a poster, a passer-by) - leave out">✕</button></div>`; }).join('') || '<div class="muted pad">No faces in this footage.</div>'}</div>`;
+        <button class="small" data-find title="All shots of this person"></button><button class="small" data-rm title="Not someone to know (a poster, a passer-by) - leave out">✕</button></div>`; }).join('') || '<div class="muted pad">No faces in this footage.</div>'}</div>`;
   };
   const reload = async () => { d = await api('GET', `/api/people?p=${enc(S.proj)}`); await refreshMedia(); draw(); };
   const save = async (row) => {
@@ -208,7 +208,7 @@ async function quotes(body) {
   let d = { quotes: [] };
   try { d = await api('GET', `/api/quotes?p=${enc(S.proj)}`); } catch {}
   const draw = () => {
-    body.innerHTML = `<p class="muted small">Claude reads the transcripts (Text page, or ⚙ Batch › Transcript) and picks the lines worth using: complete thoughts, 5-30 seconds, strong or informative.</p>
+    body.innerHTML = `<p class="muted small">Claude reads the transcripts (Text page, or Batch › Transcript) and picks the lines worth using: complete thoughts, 5-30 seconds, strong or informative.</p>
       <div class="row-in"><input data-brief placeholder="What the edit is about (optional) - e.g. a 90 second film on Atal Utkrisht Shiksha Yojana" aria-label="What the edit is about"><button class="primary" data-go>${d.quotes.length ? 'Pick again' : 'Find the best quotes'}</button></div>
       <div class="muted small" data-st>${d.at ? `${d.quotes.length} quotes · ${d.by === 'claude' ? 'picked by Claude' : 'picked by a simple rule (Claude was not available)'} · ${new Date(d.at).toLocaleString()}` : ''}</div>
       <div class="sm-list">${d.quotes.map((x, i) => { const m = S.mediaById[x.mediaId]; return m ? `<div class="sm-hit" data-i="${i}" title="Open at ${fmt(x.start)}">${thumb(m)}

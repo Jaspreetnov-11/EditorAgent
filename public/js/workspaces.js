@@ -138,7 +138,7 @@ function change(patch, full = true) {
     placeSplits();
   }
 }
-export function switchTo(id) { put(CUR, id); apply(); toast(`🪟 Workspace: ${current().name}`); }
+export function switchTo(id) { put(CUR, id); apply(); toast(`Workspace: ${current().name}`); }
 
 // ---- ⠿ grips: drag one panel onto another to swap them ----
 const PSEL = { pool: '.pool', viewer: '.viewer', insp: '.inspector', src: '.srcmon', tl: '.timeline' };
@@ -199,9 +199,9 @@ export function openWorkspaceMenu(btn) {
   m.className = 'ui-menu ws-menu';
   m.innerHTML = `<div class="muted">Workspaces</div>
     ${Object.values(ws).map((w) => `<button data-ws="${esc(w.id)}">${w.id === id ? '● ' : '○ '}${esc(w.name)}${w.changed ? ' <i class="muted">(changed)</i>' : ''}</button>`).join('')}<hr>
-    <button data-wa="edit">✏ Edit layout…</button>
+    <button data-wa="edit">Edit layout…</button>
     <button data-wa="reset"${cur.changed ? '' : ' disabled'}>↺ Reset to saved layout</button>
-    ${cur.builtIn ? '' : `<button data-wa="update"${cur.changed ? '' : ' disabled'}>💾 Save changes to this workspace</button>`}
+    ${cur.builtIn ? '' : `<button data-wa="update"${cur.changed ? '' : ' disabled'}>Save changes to this workspace</button>`}
     <button data-wa="saveas">＋ Save as new workspace…</button>
     ${cur.builtIn ? '' : '<button data-wa="rename">Rename…</button><button data-wa="delete" class="danger">Delete this workspace</button>'}
     <hr><div class="muted small">Drag the lines to resize · drag ⠿ onto another panel to swap</div>`;
@@ -246,7 +246,7 @@ function editLayout() {
     while (pick.length < n) pick.push(Object.keys(PANELS).find((k) => !pick.includes(k)) || 'tl');
     pick = pick.slice(0, n);
     d.innerHTML = `<form method="dialog" class="ws-form">
-      <h2>✏ Edit layout - ${esc(cur.name)}</h2>
+      <h2>Edit layout - ${esc(cur.name)}</h2>
       <label class="fld"><span>Layout</span><select name="tpl">${Object.entries(TEMPLATES).map(([k, x]) => `<option value="${k}"${k === tplId ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
       <p class="muted small">Choose the panel for each place. A panel left out is hidden; Source monitor on its own gives two viewers side by side (Resolve).</p>
       <div class="ws-prev" style="grid-template-columns:${t.cols.map((c) => `${c}fr`).join(' ')};grid-template-rows:${t.rows.map((r) => `${r}fr`).join(' ')};grid-template-areas:${t.shape.map((r) => `'${r.map((c) => `c${c}`).join(' ')}'`).join(' ')}">

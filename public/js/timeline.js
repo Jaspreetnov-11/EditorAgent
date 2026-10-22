@@ -53,12 +53,12 @@ export function mountTimeline(el) {
         <button data-tool="rolling" title="Rolling Edit (N): drag a cut - one shot gets longer, the other shorter, nothing else moves" aria-label="Rolling edit tool"><b>⇹</b></button>
         <button data-tool="rate" title="Rate Stretch (R): drag a clip's end - its speed changes so the same shot fills the new length" aria-label="Rate stretch tool"><b>⟷</b></button>
         <button data-tool="type" title="Type tool (T): click on the Program monitor and type - text where you click, like Premiere" aria-label="Type tool"><b>T</b></button>
-        <button data-tool="pen" title="Pen (P): click on a clip to put a keyframe on its opacity (video) / volume (audio) line - higher = more" aria-label="Pen tool"><b>✒</b></button>
+        <button data-tool="pen" title="Pen (P): click on a clip to put a keyframe on its opacity (video) / volume (audio) line - higher = more" aria-label="Pen tool"><b></b></button>
         <button data-tool="remix" title="Remix: drag a music clip's end to the length you need - the music is re-cut to fit, from its best part" aria-label="Remix tool"><b>♫</b></button>
-        <button data-tool="slip" title="Slip (Y): drag a clip - it shows an earlier / later part of its file; its place and length stay" aria-label="Slip tool"><b>↔</b></button>
+        <button data-tool="slip" title="Slip (Y): drag a clip - it shows an earlier / later part of its file; its place and length stay" aria-label="Slip tool"><b></b></button>
         <button data-tool="slide" title="Slide (U): drag a main-story clip between its neighbours - the one before gets longer, the one after shorter (or the other way); nothing else moves" aria-label="Slide tool"><b>⇆</b></button>
         <button data-tool="trackfwd" title="Track Select Forward (A) / Backward (Shift+A): click - that clip and everything after (before) it on every track is selected (Shift+click: only that track). Drag an overlay clip to move them all, or Alt+← / → to nudge" aria-label="Track select tool"><b>⇥⇥</b></button>
-        <button data-tool="hand" title="Hand (H): drag to scroll the timeline" aria-label="Hand tool"><b>✋</b></button>
+        <button data-tool="hand" title="Hand (H): drag to scroll the timeline" aria-label="Hand tool"><b></b></button>
         <button data-tool="zoom" title="Zoom (Z): click to zoom in where you click, Alt+click to zoom out" aria-label="Zoom tool"><b>⌕</b></button>
       </div>
       <span class="sep"></span>
@@ -69,17 +69,17 @@ export function mountTimeline(el) {
       <button data-act="dup" title="Duplicate (Ctrl+D)">${ICON.copy}<span>Duplicate</span></button>
       <span class="sep"></span>
       <button data-act="title" title="Titles, lower thirds and cards - pick a template (T adds a plain title)">${ICON.text}<span>Title</span></button>
-      <button data-act="gfx" title="Motion graphics: counters, charts, callouts, route lines"><b>📊</b><span>Graphic</span></button>
+      <button data-act="gfx" title="Motion graphics: counters, charts, callouts, route lines"><b></b><span>Graphic</span></button>
       <button data-act="adjust" title="Adjustment layer: colour / effects for every track below it, at the playhead"><b>◩</b><span>Adjust</span></button>
-      <button data-act="ramp" title="Speed ramp: pick a preset for the selected video clips (slow-mo hit, bullet time, whoosh…)"><b>⏩</b><span>Ramp</span></button>
-      <button data-act="roto" title="Roto (AI): select a video clip - its subject (person / animal / vehicle) is cut out onto the track above. Put text on a track in between to have it behind the person"><b>✂</b><span>Roto</span></button>
-      <button data-act="sfx" title="Auto sound design: whooshes, hits and a riser on A3, lined up with your cuts, transitions and effects"><b>🔊</b><span>SFX</span></button>
+      <button data-act="ramp" title="Speed ramp: pick a preset for the selected video clips (slow-mo hit, bullet time, whoosh…)"><b></b><span>Ramp</span></button>
+      <button data-act="roto" title="Roto (AI): select a video clip - its subject (person / animal / vehicle) is cut out onto the track above. Put text on a track in between to have it behind the person"><b></b><span>Roto</span></button>
+      <button data-act="sfx" title="Auto sound design: whooshes, hits and a riser on A3, lined up with your cuts, transitions and effects"><b></b><span>SFX</span></button>
       <span class="sep"></span>
       <button data-act="snap" class="tog" title="Snapping on/off (N)">${ICON.magnet}<span>Snap</span></button>
     </div>
     <div class="tl-bar">
       <div class="tl-seqtabs" id="tlSeqTabs" role="tablist" aria-label="Sequences"></div>
-      <button data-act="seq" class="tl-seq" title="Sequences: switch, make a new one, copy / paste a timeline, manage" aria-haspopup="menu"><b>🎞</b><span id="tlSeqName"></span><i class="tl-seq-caret">▾</i></button>
+      <button data-act="seq" class="tl-seq" title="Sequences: switch, make a new one, copy / paste a timeline, manage" aria-haspopup="menu"><b></b><span id="tlSeqName"></span><i class="tl-seq-caret">▾</i></button>
       <span class="sep"></span>
       <span class="tl-tc" id="tlTC" title="Click and type a timecode: 1:10:00 or 11000 goes there, +15 / -1:00 moves by that (the selected clips, else the playhead)">00:00:00:00</span><span class="tl-dur" id="tlDur"></span>
       <span class="grow"></span>
@@ -130,7 +130,7 @@ export function mountTimeline(el) {
     if (a === 'ramp') { const r = e.target.closest('[data-act]').getBoundingClientRect(); rampMenu({ clientX: r.right + 4, clientY: r.top }); }
     if (a === 'roto') {
       const id = [...S.sel].find((s) => findClip(s)?.clip.type === 'video');
-      if (!id) toast('Select a video clip on the timeline first, then press ✂ Roto', 'err'); else rotoFromClip(id, findClip);
+      if (!id) toast('Select a video clip on the timeline first, then press Roto', 'err'); else rotoFromClip(id, findClip);
     }
     if (a === 'sfx') autoSoundDesign().catch((err) => toast(err.message, 'err'));
     if (a === 'snap') { S.snap = !S.snap; syncBar(); }
@@ -220,7 +220,7 @@ function syncBar() {
     try { localStorage.setItem(okey, JSON.stringify(order)); } catch {}
     // ✕ closed tabs are hidden here (the sequence itself stays - 🎞 ▾ opens it again, which shows its tab again)
     const closed = closedTabs(); for (const x of list0) if (x.open) closed.delete(x.id);
-    const list = [...list0].filter((x) => !closed.has(x.id)).sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id)), team = sharedSeqId(), html = list.map((x) => `<button role="tab" class="tl-stab" data-stab="${esc(x.id)}" aria-selected="${x.open}" title="${esc(x.name)}${x.id === team ? ' (team main sequence)' : ''} - double-click to rename">${x.id === team ? '<i class="stab-team">👥</i>' : ''}<span>${esc(x.name)}</span>${list0.length - closed.size > 1 ? `<i class="stab-x" data-sclose="${esc(x.id)}" title="Close this tab (the sequence stays - 🎞 ▾ opens it again)">✕</i>` : ''}</button>`).join('');
+    const list = [...list0].filter((x) => !closed.has(x.id)).sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id)), team = sharedSeqId(), html = list.map((x) => `<button role="tab" class="tl-stab" data-stab="${esc(x.id)}" aria-selected="${x.open}" title="${esc(x.name)}${x.id === team ? ' (team main sequence)' : ''} - double-click to rename">${x.id === team ? '<i class="stab-team">👥</i>' : ''}<span>${esc(x.name)}</span>${list0.length - closed.size > 1 ? `<i class="stab-x" data-sclose="${esc(x.id)}" title="Close this tab (the sequence stays - ▾ opens it again)">✕</i>` : ''}</button>`).join('');
     if (tabs.__html !== html) { tabs.innerHTML = html; tabs.__html = html; const cur = tabs.querySelector('[aria-selected="true"]'); if (cur && (cur.offsetLeft < tabs.scrollLeft || cur.offsetLeft + cur.offsetWidth > tabs.scrollLeft + tabs.clientWidth)) tabs.scrollLeft = Math.max(0, cur.offsetLeft - 40); }
   }
   $('[data-act="snap"]', root).classList.toggle('on', S.snap);
@@ -264,9 +264,9 @@ export function fitZoom() {
 }
 
 // ---------------- render ----------------
-const mName = (c) => (c.type === 'title' ? (c.text || 'Title').split('\n')[0] : c.type === 'adjust' ? '◩ Adjustment layer' : c.type === 'graphic' ? (c.gfx?.tpl === 'fusion' ? `✨ ${c.gfx.fusion?.name || 'Fusion'}` : c.gfx?.tpl === 'comp' ? `🎬 ${c.gfx.comp?.name || 'Comp'}` : `📊 ${c.gfx?.title || GFX[c.gfx?.tpl]?.label || 'Graphic'}`) : nestedName(c) || S.mediaById[c.mediaId]?.name || 'Missing media');
+const mName = (c) => (c.type === 'title' ? (c.text || 'Title').split('\n')[0] : c.type === 'adjust' ? '◩ Adjustment layer' : c.type === 'graphic' ? (c.gfx?.tpl === 'fusion' ? `${c.gfx.fusion?.name || 'Fusion'}` : c.gfx?.tpl === 'comp' ? `${c.gfx.comp?.name || 'Comp'}` : `${c.gfx?.title || GFX[c.gfx?.tpl]?.label || 'Graphic'}`) : nestedName(c) || S.mediaById[c.mediaId]?.name || 'Missing media');
 // a nested clip is named after its sequence (renaming the sequence renames the clip)
-const nestedName = (c) => { const sid = S.mediaById[c.mediaId]?.seqOf; const s = sid && seqList(S.project).find((x) => x.id === sid); return s ? `🎞 ${s.name}` : null; };
+const nestedName = (c) => { const sid = S.mediaById[c.mediaId]?.seqOf; const s = sid && seqList(S.project).find((x) => x.id === sid); return s ? `${s.name}` : null; };
 
 // edits with many clips (an agent edit can have hundreds) draw only the clips within a screen of the view (+ selected)
 let drawn = null, scrollRender = 0;
@@ -346,7 +346,7 @@ function drawAuto() {
       const move = (ev) => {
         k[i].t = +clamp(timeAt(ev.clientX), lo, hi).toFixed(3);
         k[i].v = +clamp((1 - (ev.clientY - r.top - 3) / (h - 6)) * AUTO_MAX, 0, AUTO_MAX).toFixed(3);
-        drawAuto(); toast(`🎚 ${id} ${Math.round(k[i].v * 100)}%`); emit('mix');
+        drawAuto(); toast(`${id} ${Math.round(k[i].v * 100)}%`); emit('mix');
       };
       window.addEventListener('pointermove', move);
       window.addEventListener('pointerup', () => { window.removeEventListener('pointermove', move); commit('Track volume keyframe'); }, { once: true });
@@ -464,13 +464,13 @@ function drawHeads(TR, ts) {
       <div class="th-btns">
         ${t.kind === 'video' ? `<button class="tbtn${st.hide ? ' on' : ''}" data-tst="hide" title="Hide track">${st.hide ? ICON.eyeOff : ICON.eye}</button>` : ''}
         <button class="tbtn${st.mute ? ' on' : ''}" data-tst="mute" title="${t.kind === 'video' ? 'Mute clip sound' : 'Mute track'}">M</button>
-        ${t.kind === 'audio' ? `<button class="tbtn solo${st.solo ? ' on' : ''}" data-tst="solo" title="Solo Track: hear only the soloed tracks">S</button><button class="tbtn rec" data-rec="${t.id}" title="Voice-over record: 3-2-1, then the edit plays and your voice goes onto ${t.name} from the playhead (click again or Esc to stop)">🎙</button>` : ''}
+        ${t.kind === 'audio' ? `<button class="tbtn solo${st.solo ? ' on' : ''}" data-tst="solo" title="Solo Track: hear only the soloed tracks">S</button><button class="tbtn rec" data-rec="${t.id}" title="Voice-over record: 3-2-1, then the edit plays and your voice goes onto ${t.name} from the playhead (click again or Esc to stop)"></button>` : ''}
         ${t.kind === 'audio' || t.id === 'V1' ? `<button class="tbtn tkey${st.volKeys?.length ? ' on' : ''}" data-tkey="${t.id}" title="Track volume keyframe at the playhead (${st.volKeys?.length || 0} now) - drag the dots on the track's yellow line, double-click one to remove it">◆</button>` : ''}
         ${t.id !== 'V1' ? `<button class="tbtn sync${st.sync ? ' on' : ''}" data-tst="sync" title="Sync Lock: when the main story ripples (Ripple delete, Q / W, Insert, ripple trim, Paste Insert, Trim mode) the clips on ${t.name} after that point move along with it">⇋</button>` : ''}
         <button class="tbtn${st.lock ? ' on' : ''}" data-tst="lock" title="Lock track">${ICON.lock}</button>
       </div>
       <div class="th-resize" data-rowh="${t.id}" title="Drag to make ${t.name} taller / shorter (double-click: normal)"></div>
-      ${t.kind === 'audio' || t.id === 'V1' ? `<div class="th-volrow" title="${t.id === 'V1' ? "Volume of the clips' own sound" : 'Track volume'}: drag (double-click = 100%)"><span class="th-vlbl">🔊</span><input class="th-vol" type="range" min="0" max="2" step="0.05" value="${st.volume ?? 1}" data-tvol="${t.id}" aria-label="${t.name} volume"><span class="th-vpct">${Math.round((st.volume ?? 1) * 100)}%</span></div>` : ''}
+      ${t.kind === 'audio' || t.id === 'V1' ? `<div class="th-volrow" title="${t.id === 'V1' ? "Volume of the clips' own sound" : 'Track volume'}: drag (double-click = 100%)"><span class="th-vlbl"></span><input class="th-vol" type="range" min="0" max="2" step="0.05" value="${st.volume ?? 1}" data-tvol="${t.id}" aria-label="${t.name} volume"><span class="th-vpct">${Math.round((st.volume ?? 1) * 100)}%</span></div>` : ''}
     </div>`;
   }).join('');
   $$('[data-tst]', headsEl).forEach((b) => (b.onclick = () => {
@@ -567,7 +567,7 @@ function clipHTML(track, x, i) {
     c.locked ? '<i class="lkb" title="Locked clip (right-click › Unlock clip)">🔒</i>' : '',
     c.grp ? '<i class="grpb" title="Grouped - selected, moved and deleted together (Alt + click takes one; Ctrl+Shift+G ungroups)">▣</i>' : '',
     // fx (like Premiere): the clip has effects - video effects, a cut effect, audio clean-up or masks
-    c.effects?.length || c.cutFx?.type || c.afx || c.masks?.length || c.aeffects?.length ? `<i class="fxb" title="Effects: ${esc([...(c.effects || []).map((e) => e.type), c.cutFx?.type, c.afx && 'audio clean-up', ...(c.aeffects || []).map((e) => `🔊 ${e.type}`), c.masks?.length && `${c.masks.length} mask${c.masks.length > 1 ? 's' : ''}`].filter(Boolean).join(', '))} (Effect Controls)">fx</i>` : '', c.sfx ? `<i title="Sound effect (auto)">${esc(c.sfx)}</i>` : '', c.ramp ? '<i title="Speed ramp">⤳</i>' : '', c.transform && (c.transform.zoom !== 1 || c.transform.x || c.transform.y || c.transform.rotation) ? '<i title="Transformed">◰</i>' : ''].join('');
+    c.effects?.length || c.cutFx?.type || c.afx || c.masks?.length || c.aeffects?.length ? `<i class="fxb" title="Effects: ${esc([...(c.effects || []).map((e) => e.type), c.cutFx?.type, c.afx && 'audio clean-up', ...(c.aeffects || []).map((e) => `${e.type}`), c.masks?.length && `${c.masks.length} mask${c.masks.length > 1 ? 's' : ''}`].filter(Boolean).join(', '))} (Effect Controls)">fx</i>` : '', c.sfx ? `<i title="Sound effect (auto)">${esc(c.sfx)}</i>` : '', c.ramp ? '<i title="Speed ramp">⤳</i>' : '', c.transform && (c.transform.zoom !== 1 || c.transform.x || c.transform.y || c.transform.rotation) ? '<i title="Transformed">◰</i>' : ''].join('');
   // (no + on the cut any more: it sat - invisible - over the left trim edge, so taking a shot's start to trim it often
   // added a transition instead. Transitions: Effects panel, Ctrl+D, right-click. A transition's box is drawn on the row.)
   // 🌑 a fade from / to black at an end of the clip (a one-sided Dip to Black): a box like a transition's, click to change it
@@ -581,7 +581,7 @@ function clipHTML(track, x, i) {
   const rp = c.type === 'video' && !c.gap ? rampPts(c) : null;
   const spd = rp ? `<svg class="clip-spd" viewBox="0 0 200 100" preserveAspectRatio="none" aria-hidden="true"><polyline points="${Array.from({ length: 41 }, (_, i) => { const u = i / 40, s = Math.max(0.1, Math.min(10, profileAt(rp, u))); return `${(u * 200).toFixed(1)},${(50 - 45 * (Math.log(s) / Math.log(10))).toFixed(1)}`; }).join(' ')}"/></svg>` : '';
   // 📍 clip markers (inside the clip, from its start)
-  const cmk = (c.markers || []).map((mk) => `<i class="cmk" style="left:${(mk.t - (vs - x.start)) * S.zoom}px" title="📍 ${esc(mk.name || 'Clip marker')} (right-click › Remove clip markers)"></i>`).join('');
+  const cmk = (c.markers || []).map((mk) => `<i class="cmk" style="left:${(mk.t - (vs - x.start)) * S.zoom}px" title="${esc(mk.name || 'Clip marker')} (right-click › Remove clip markers)"></i>`).join('');
   return `<div class="clip t-${c.type}${kind}${S.sel.has(c.id) ? ' sel' : ''}${missing ? ' missing' : ''}${c.disabled ? ' off' : ''}${c.locked ? ' clocked' : ''}${c.label ? ' lab' : ''}" data-id="${c.id}" data-track="${track}"
     style="left:${vs * S.zoom}px;width:${w}px${c.label ? `;--lab:${c.label}` : ''}" title="${esc(mName(c))} · ${fmt(ve - vs)}${c.color && Object.keys(c.color).length ? ' · colour graded' : ''}${c.speed && c.speed !== 1 ? ` · ${c.speed}×` : ''}${c.ramp ? ' · speed ramp' : ''}${c.mute ? ' · muted' : ''}">
     <div class="clip-bg" style="${bg}">${wv}</div>${ov}${(dupMarks?.get(c.id)?.segs || []).map(([a0, a1]) => `<i class="dupf" title="These frames are used in another clip too" style="left:${Math.max(0, (a0 - (vs - x.start)) * S.zoom)}px;width:${Math.max(2, (a1 - a0) * S.zoom)}px;background:${dupMarks.get(c.id).col}"></i>`).join('')}${kfs}${cmk}${spd}${bandHTML(c, track, x.end - x.start)}
@@ -949,7 +949,7 @@ function onRowsDown(e) {
   lastDown = { id, t: Date.now(), x: e.clientX, y: e.clientY };
   if (S.project.trackState[track]?.lock) { toast(`${track} is locked`); return; }
   // 🔒 a locked clip: it can be selected (and looked at), never moved, trimmed or cut
-  if (findClip(id)?.clip.locked) { if (!S.sel.has(id)) select(id, e.shiftKey || e.ctrlKey, e.altKey); toast('🔒 This clip is locked - right-click › Unlock clip'); return; }
+  if (findClip(id)?.clip.locked) { if (!S.sel.has(id)) select(id, e.shiftKey || e.ctrlKey, e.altKey); toast('This clip is locked - right-click › Unlock clip'); return; }
   if (S.tool === 'blade') { splitClip(id, snap(timeAt(e.clientX), snapPoints(new Set([id])))); commit('Blade'); return; }
   if (S.tool === 'pen' && !e.target.closest('[data-trim]')) { penKey(id, track, e, el); return; }
   if (S.tool === 'slip' || S.tool === 'slide') { select(id, false); slipSlide(e, id, track); return; }
@@ -1064,7 +1064,7 @@ async function morphOrExtend(id, kind) {
     if (D < 0.1) return toast('No room after this clip - make a gap after it (trim or move the next clip), then Extend', 'err');
     body = { kind, a: { mediaId: c.mediaId, t: end }, dur: D, from: Math.min(0.5, D / 2 + 0.1) };
   }
-  emit('job', { running: true, label: kind === 'morph' ? '🪄 Making the morph cut…' : '⏩ Extending…' });
+  emit('job', { running: true, label: kind === 'morph' ? 'Making the morph cut…' : 'Extending…' });
   let r;
   try {
     const job = await api('POST', `/api/morph?p=${enc(S.proj)}`, body);
@@ -1085,7 +1085,7 @@ async function morphOrExtend(id, kind) {
   } else { piece.start = +x.end.toFixed(3); S.project.tracks[f.track].push(piece); }
   S.sel = new Set([piece.id]);
   commit(kind === 'morph' ? 'Morph Cut' : 'Extend');
-  toast(kind === 'morph' ? `🪄 Morph Cut: ${D.toFixed(2)} s of in-between frames - the cut is smooth, the length is the same` : `⏩ Extended by ${D.toFixed(2)} s into the space after it`);
+  toast(kind === 'morph' ? `Morph Cut: ${D.toFixed(2)} s of in-between frames - the cut is smooth, the length is the same` : `Extended by ${D.toFixed(2)} s into the space after it`);
 }
 
 // 🎬 Scene Edit Detection (like Premiere): a clip of a finished video is cut wherever its picture cuts - the server
@@ -1094,12 +1094,12 @@ async function sceneEdits(id) {
   const f = findClip(id), c = f?.clip; if (!c || c.type !== 'video') return;
   if (rampPts(c)) return toast('Take the speed ramp off first - its cuts would not land on the picture cuts', 'err');
   const m = S.mediaById[c.mediaId], a = c.in || 0, b = c.out ?? m?.duration ?? 0;
-  emit('job', { running: true, label: '🎬 Looking for the cuts…' });
+  emit('job', { running: true, label: 'Looking for the cuts…' });
   let cuts = [];
   try {
     const job = await api('POST', `/api/media/scenes?p=${enc(S.proj)}`, { mediaId: c.mediaId, in: a, out: b });
     const { watchJob } = await import('./api.js');
-    cuts = (await watchJob(job.id, (j) => emit('job', { running: true, label: `🎬 Looking for the cuts ${j.progress || 0}%` }))).result.cuts || [];
+    cuts = (await watchJob(job.id, (j) => emit('job', { running: true, label: `Looking for the cuts ${j.progress || 0}%` }))).result.cuts || [];
   } catch (e) { emit('job', { running: false }); return toast(e.job ? e.job.log.slice(-1).join(' ') : e.message, 'err'); }
   emit('job', { running: false });
   const now = findClip(id); if (!now) return;
@@ -1109,7 +1109,7 @@ async function sceneEdits(id) {
   let n = 0;
   for (const t of ts) if (splitClip(id, t)) n++;
   if (n) commit(`Scene Edit Detection: ${n} cut${n > 1 ? 's' : ''}`);
-  toast(n ? `🎬 Cut at ${n} scene change${n > 1 ? 's' : ''}` : 'No cuts found in this clip - it is one shot');
+  toast(n ? `Cut at ${n} scene change${n > 1 ? 's' : ''}` : 'No cuts found in this clip - it is one shot');
 }
 
 // 🏷 Label colour on the selected timeline clips: their name bar takes the colour (like Premiere's labels)
@@ -1252,7 +1252,7 @@ function penKey(id, track, e, el) {
   const i = keys.findIndex((k) => Math.abs(k.t - t) < 0.05);
   if (i >= 0) keys[i].v = v; else { keys.push({ t, v }); keys.sort((a, b) => a.t - b.t); }
   S.sel = new Set([id]); commit(`Pen: ${prop} keyframe`);
-  toast(`✒ ${prop === 'volume' ? 'Volume' : 'Opacity'} ${Math.round(v * 100)}% at ${fmt(t)}`);
+  toast(`${prop === 'volume' ? 'Volume' : 'Opacity'} ${Math.round(v * 100)}% at ${fmt(t)}`);
 }
 // the opacity / volume line drawn on a clip (with the Pen, or once it has keyframes), like Premiere's rubber band
 function bandHTML(c, track, D) {
@@ -1739,7 +1739,7 @@ function onDrop(e) {
 const CORE = new Set(['V1', 'V2', 'A1', 'A2', 'A3']);
 function trackMenu(e, id) {
   e.preventDefault();
-  const n = S.project.tracks[id]?.length || 0, items = [['rename', 'Rename…'], ['addv', '+ Video track'], ['adda', '+ Audio track'], ...(S.project.trackState[id]?.volKeys?.length ? [['clrkeys', `🎚 Clear volume keyframes (${S.project.trackState[id].volKeys.length})`]] : []), ...(CORE.has(id) ? [] : ['-', ['del', `Delete ${id}${n ? ` (${n} clips)` : ''}`]])];
+  const n = S.project.tracks[id]?.length || 0, items = [['rename', 'Rename…'], ['addv', '+ Video track'], ['adda', '+ Audio track'], ...(S.project.trackState[id]?.volKeys?.length ? [['clrkeys', `Clear volume keyframes (${S.project.trackState[id].volKeys.length})`]] : []), ...(CORE.has(id) ? [] : ['-', ['del', `Delete ${id}${n ? ` (${n} clips)` : ''}`]])];
   const menu = h(`<div class="ctx" role="menu">${items.map((it) => (it === '-' ? '<hr>' : `<button role="menuitem" data-c="${it[0]}">${it[1]}</button>`)).join('')}</div>`);
   document.body.append(menu);
   menu.style.left = `${e.clientX}px`; menu.style.top = `${Math.min(e.clientY, innerHeight - menu.getBoundingClientRect().height - 8)}px`;
@@ -1802,30 +1802,30 @@ function onContext(e) {
     ...(clipboard()?.kind === 'clips' ? [['paste', `Paste ${clipboard().items.length > 1 ? `${clipboard().items.length} clips ` : ''}at playhead`, 'Ctrl+V']] : []),
     ['dup', 'Duplicate', 'Ctrl+D'],
     ...(c.gap ? [] : [['del', 'Delete (leave a gap)', 'Del'], ...(f.track === 'V1' ? [['ripdel', 'Ripple delete (close the gap)', 'Shift+Del']] : [])]),
-    ...(S.sel.size > 1 ? [['nest', `⤵ Nest ${S.sel.size} clips…`], ['group', '⛓ Group', 'Ctrl+G']] : []), ...(c.grp ? [['ungroup', '⛓ Ungroup', 'Ctrl+Shift+G']] : []),
+    ...(S.sel.size > 1 ? [['nest', `Nest ${S.sel.size} clips…`], ['group', 'Group', 'Ctrl+G']] : []), ...(c.grp ? [['ungroup', 'Ungroup', 'Ctrl+Shift+G']] : []),
     '-',
-    ['spdlg', '⏩ Speed / Duration…', 'Ctrl+R'],
-    ...(soundClips([id]).length ? [['gain', '🔊 Audio gain…', 'G']] : []),
+    ['spdlg', 'Speed / Duration…', 'Ctrl+R'],
+    ...(soundClips([id]).length ? [['gain', 'Audio gain…', 'G']] : []),
     ...((c.type === 'video' || c.type === 'audio') && !linkedPartner(S.project, c) ? [['mute', c.mute ? 'Unmute' : 'Mute']] : []),
-    ...(linkedPartner(S.project, c) ? [['unlink', '⛓ Unlink audio / video']] : c.type === 'video' && S.mediaById[c.mediaId]?.hasAudio && !c.link ? [['linkA', '🔊 Separate audio (linked)']] : c.type === 'video' && c.link && S.mediaById[c.mediaId]?.hasAudio ? [['linkA', '🔊 Bring back its sound (linked)']] : []),
-    ...(c.type === 'video' ? ['-', ['comp', '🎬 Make Motion comp (animate it in Motion)'], ['fusion', '✨ Open in Fusion (node effects)'], ['roto', '✂ Roto: cut out the subject (AI)']] : []),
-    ...(c.mediaId ? ['-', ['replace', '🔄 Replace clip…']] : []),
+    ...(linkedPartner(S.project, c) ? [['unlink', 'Unlink audio / video']] : c.type === 'video' && S.mediaById[c.mediaId]?.hasAudio && !c.link ? [['linkA', 'Separate audio (linked)']] : c.type === 'video' && c.link && S.mediaById[c.mediaId]?.hasAudio ? [['linkA', 'Bring back its sound (linked)']] : []),
+    ...(c.type === 'video' ? ['-', ['comp', 'Make Motion comp (animate it in Motion)'], ['fusion', 'Open in Fusion (node effects)'], ['roto', 'Roto: cut out the subject (AI)']] : []),
+    ...(c.mediaId ? ['-', ['replace', 'Replace clip…']] : []),
     '-', ['more', 'More…'],
   ];
   const more = [
     ...(c.type === 'video' && !c.gap ? [['hold', 'Add Frame Hold (from the playhead)'], ['holdIns', 'Insert Frame Hold Segment (2 s)'], ['scenes', 'Scene Edit Detection (cut at its cuts)'],
-      ...(f.track === 'V1' && f.index > 0 && S.project.tracks.V1[f.index - 1]?.type === 'video' ? [['morph', '🪄 Morph Cut (smooth the jump cut before this clip)']] : []), ['extend', '⏩ Extend the end (+1 s, optical flow)'],
-      ['ramp', `⏩ Speed ramp…${c.ramp ? ' (on)' : ''}`]] : []),
+      ...(f.track === 'V1' && f.index > 0 && S.project.tracks.V1[f.index - 1]?.type === 'video' ? [['morph', 'Morph Cut (smooth the jump cut before this clip)']] : []), ['extend', 'Extend the end (+1 s, optical flow)'],
+      ['ramp', `Speed ramp…${c.ramp ? ' (on)' : ''}`]] : []),
     ...(c.type === 'video' || c.type === 'audio' ? [['sp0.5', 'Speed 0.5× (slow-mo)'], ['sp1', 'Speed 1×'], ['sp2', 'Speed 2×']] : []),
     '-',
-    ...(S.sel.size > 1 ? [] : [['nest', '⤵ Nest…']]),
-    ['clipMarker', '📍 Add clip marker at playhead'], ...(c.markers?.length ? [['clipMarkersOff', `📍 Remove clip markers (${c.markers.length})`]] : []),
+    ...(S.sel.size > 1 ? [] : [['nest', 'Nest…']]),
+    ['clipMarker', 'Add clip marker at playhead'], ...(c.markers?.length ? [['clipMarkersOff', `Remove clip markers (${c.markers.length})`]] : []),
     ['pasteAttr', 'Paste Attributes…', 'Ctrl+Alt+V'], ['removeAttr', 'Remove Attributes…'], ['label', 'Label colour…'],
-    [c.locked ? 'unlockClip' : 'lockClip', c.locked ? '🔓 Unlock clip' : `🔒 Lock clip${S.sel.size > 1 ? `s (${S.sel.size})` : ''}`],
+    [c.locked ? 'unlockClip' : 'lockClip', c.locked ? 'Unlock clip' : `Lock clip${S.sel.size > 1 ? `s (${S.sel.size})` : ''}`],
     ...(S.sel.size === 2 ? [['matte', '◐ Track Matte Key (the upper clip is the matte)']] : []),
-    ...(c.type === 'video' ? ['-', ['behind', '✂ Text behind subject (AI roto)']] : []),
-    ...(c.mediaId && S.mediaById[c.mediaId] ? ['-', ['revealP', '📁 Reveal in Project'], ['copydir', '📋 Copy folder path'], ...(/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? [['revealE', '📂 Reveal in Explorer']] : [])] : []),
-    ...(c.mediaId ? ['-', ['replaceSrc', '🔄 Replace with clip from Source monitor'], ['src', 'Open in source viewer']] : []),
+    ...(c.type === 'video' ? ['-', ['behind', 'Text behind subject (AI roto)']] : []),
+    ...(c.mediaId && S.mediaById[c.mediaId] ? ['-', ['revealP', 'Reveal in Project'], ['copydir', 'Copy folder path'], ...(/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? [['revealE', 'Reveal in Explorer']] : [])] : []),
+    ...(c.mediaId ? ['-', ['replaceSrc', 'Replace with clip from Source monitor'], ['src', 'Open in source viewer']] : []),
   ];
   const menu = h('<div class="ctx" role="menu"></div>');
   const fill = (list) => {
@@ -1875,7 +1875,7 @@ function onContext(e) {
     if (a === 'replace') openReplace(id);
     if (a === 'replaceSrc') replaceEdit(id);
     if (a === 'clipMarker') addClipMarker();
-    if (a === 'lockClip' || a === 'unlockClip') { const lock = a === 'lockClip'; let k = 0; for (const s of S.sel) { const cl = findClip(s)?.clip; if (cl) { if (lock) cl.locked = true; else delete cl.locked; k++; } } commit(lock ? 'Lock clip' : 'Unlock clip'); toast(lock ? `🔒 ${k} clip${k > 1 ? 's' : ''} locked - they stay as they are` : `🔓 ${k} clip${k > 1 ? 's' : ''} unlocked`); }
+    if (a === 'lockClip' || a === 'unlockClip') { const lock = a === 'lockClip'; let k = 0; for (const s of S.sel) { const cl = findClip(s)?.clip; if (cl) { if (lock) cl.locked = true; else delete cl.locked; k++; } } commit(lock ? 'Lock clip' : 'Unlock clip'); toast(lock ? `${k} clip${k > 1 ? 's' : ''} locked - they stay as they are` : `${k} clip${k > 1 ? 's' : ''} unlocked`); }
     if (a === 'clipMarkersOff') clearClipMarkers();
     if (a === 'group') groupSelected();
     if (a === 'ungroup') ungroupSelected();
@@ -1908,11 +1908,11 @@ export function separateAudio() {
 function rampMenu(e) {
   const vids = [...S.sel].map((id) => findClip(id)?.clip).filter((c) => c?.type === 'video');
   if (!vids.length) return toast('Select a video clip first, then pick a speed ramp', 'err');
-  ctxMenu(e, [['', '✕ No speed ramp'], ...Object.entries(RAMPS).map(([k, r]) => [k, `⏩ ${r.label}`]), ['custom', '✏ Draw my own (Effect Controls)']], (k) => {
-    if (k === 'custom') { emit('select'); return toast('Effect Controls › ⏩ Speed ramp: click on the graph to draw your own'); }
+  ctxMenu(e, [['', '✕ No speed ramp'], ...Object.entries(RAMPS).map(([k, r]) => [k, `${r.label}`]), ['custom', 'Draw my own (Effect Controls)']], (k) => {
+    if (k === 'custom') { emit('select'); return toast('Effect Controls › Speed ramp: click on the graph to draw your own'); }
     for (const c of vids) setRamp(c, k, S.mediaById); // (the shot keeps its length; only the speed inside changes)
     commit(k ? `Speed ramp: ${RAMPS[k].label}` : 'No speed ramp'); emit('select');
-    toast(k ? `⏩ ${RAMPS[k].label} - ${vids.length} clip${vids.length > 1 ? 's' : ''} (same length on the timeline; Accurate preview shows it exactly)` : 'Speed ramp removed');
+    toast(k ? `${RAMPS[k].label} - ${vids.length} clip${vids.length > 1 ? 's' : ''} (same length on the timeline; Accurate preview shows it exactly)` : 'Speed ramp removed');
   });
 }
 function ctxMenu(e, items, run) {

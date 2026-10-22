@@ -41,7 +41,7 @@ export function parseCombo(text) {
 }
 
 export function openShortcuts() {
-  const dlg = modal('⌨ Keyboard Shortcuts', '<div class="ks" data-ks></div>', { width: 1180 });
+  const dlg = modal('Keyboard Shortcuts', '<div class="ks" data-ks></div>', { width: 1180 });
   const box = dlg.el.querySelector('[data-ks]');
   let st = keyState(), mod = '', q = '', capture = null, typing = null; // capture = command id waiting for keys; typing = one whose shortcut is being typed
   const map = () => presetMap(st.preset, st);
@@ -84,7 +84,7 @@ export function openShortcuts() {
       <div class="ks-kb"><div class="ks-main">${ROWS.map((r) => `<div class="ks-r">${r.map(keyCap).join('')}</div>`).join('')}</div>
         <div class="ks-nav">${NAV.map((r) => `<div class="ks-r">${r.map(keyCap).join('')}</div>`).join('')}</div></div>
       <p class="muted small">Purple keys have a command (with the modifier chosen above). Click a key to find its command. Click <b>+</b> next to a command and press the keys to give it a shortcut, or <b>✎</b> to type it (e.g. Ctrl+Shift+D); ✕ removes one.</p>
-      <div class="ks-list-head"><input data-q placeholder="🔎 Search commands or keys (e.g. split, Ctrl+K)" value="${esc(q)}"><span class="muted small">Preset: <b>${esc(presetName(st.preset, st))}</b></span></div>
+      <div class="ks-list-head"><input data-q placeholder="Search commands or keys (e.g. split, Ctrl+K)" value="${esc(q)}"><span class="muted small">Preset: <b>${esc(presetName(st.preset, st))}</b></span></div>
       <div class="ks-list">${rows || '<div class="muted pad">No command matches.</div>'}</div>
       <div class="ks-foot"><span class="muted small">Shortcuts are kept in this browser. Text boxes keep their own keys while you type.</span><span class="grow"></span><button class="primary" data-close>Done</button></div>`;
     const qi = box.querySelector('[data-q]');
