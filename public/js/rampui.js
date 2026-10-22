@@ -2,19 +2,14 @@
 // across = position in the shot, up = speed (0.1× … 10×, 1× is the dotted line). Click to add a point, drag to move,
 // double-click a point to remove it. Drawing makes the clip's ramp 'custom' (model.js rampPts), so the viewer and the
 // render follow it exactly. Ramped shots are silent (the music carries them), as before.
-import { RAMPS, rampPts, clipDur, setRamp } from './model.js';
+import { RAMPS, rampPts, clipDur, setRamp, profileAt } from './model.js';
 import { S } from './store.js';
 import { $, $$, esc } from './ui.js';
 
 const LO = Math.log(0.1), HI = Math.log(10), MAX = 10;
 const yOf = (s, h, pad) => pad + (1 - (Math.log(Math.max(0.1, Math.min(MAX, s))) - LO) / (HI - LO)) * (h - 2 * pad);
 const sOf = (y, h, pad) => Math.exp(LO + (1 - (y - pad) / (h - 2 * pad)) * (HI - LO));
-const smooth = (u) => u * u * (3 - 2 * u);
-function at(pts, u) {
-  if (u <= pts[0][0]) return pts[0][1];
-  for (let i = 0; i < pts.length - 1; i++) { const [a, sa] = pts[i], [b, sb] = pts[i + 1]; if (u <= b) return sa + (sb - sa) * smooth((u - a) / Math.max(1e-6, b - a)); }
-  return pts[pts.length - 1][1];
-}
+const at = profileAt; // (the same curve the viewer and the render play - a cut part's eased pieces too)
 function curve(g, pts, w, h, pad, colour, lw = 2) {
   g.strokeStyle = colour; g.lineWidth = lw; g.beginPath();
   for (let i = 0; i <= 100; i++) { const u = i / 100, x = pad + u * (w - 2 * pad), y = yOf(at(pts, u), h, pad); i ? g.lineTo(x, y) : g.moveTo(x, y); }
@@ -55,6 +50,7 @@ export function mountRamp(box, clip, live, done) {
   }
   const evPt = (e) => { const r = cv.getBoundingClientRect(), x = ((e.clientX - r.left) / r.width) * cv.width, y = ((e.clientY - r.top) / r.height) * cv.height; return [Math.min(1, Math.max(0, (x - pad) / (cv.width - 2 * pad))), +sOf(y, cv.height, pad).toFixed(3), x, y]; };
   const nearest = (P, x, y) => P.findIndex(([u, s]) => Math.hypot(pad + u * (cv.width - 2 * pad) - x, yOf(s, cv.height, pad) - y) < 10);
+  // (a point moved by hand: its segment eases fully again, so a cut part's piece of an ease goes)
   const set = (P) => { const c = clip(); setRamp(c, 'custom', S.mediaById, P.map(([u, s]) => [+u.toFixed(4), +Math.max(0.1, Math.min(MAX, s)).toFixed(3)]), drag?.D); };
   cv.addEventListener('pointerdown', (e) => {
     const c = clip(); if (!c || S.readOnly) return;

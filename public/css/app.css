@@ -1209,3 +1209,38 @@ button.pulse { animation: dvpulse 1.6s ease-out; }
 /* 📁 Reveal in Project: the file found in Media flashes twice */
 .mi.flash { animation: miflash .45s ease-in-out 3; }
 @keyframes miflash { 50% { box-shadow: 0 0 0 3px var(--accent); filter: brightness(1.4); } }
+/* 🎥 a stabilised shot being analysed (like Premiere's banner over the monitor) */
+.vw-stab { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); background: #000b; color: #e8eef6; padding: 5px 12px; border-radius: 6px; font-size: 12px; pointer-events: none; white-space: nowrap; max-width: 90%; overflow: hidden; text-overflow: ellipsis; }
+/* Generative Fill (Effect Controls, aiui.js): plain groups with a small heading, buttons in a row, no emoji */
+.gf { display: flex; flex-direction: column; gap: 10px; padding: 2px 0 8px; grid-column: 1 / -1; width: 100%; }
+.gf-g { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); }
+.gf-h { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.gf-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.gf-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.gf-grid .fld { margin: 0; }
+.gf-box { display: grid; grid-template-columns: auto 1fr auto; gap: 6px; align-items: center; font-size: 12px; }
+.gf-wide { width: 100%; justify-content: center; }
+.gf .hint { margin: 0; }
+/* ↔ Slip / ⇆ Slide / ✋ Hand / ⌕ Zoom tools on the timeline */
+.timeline[data-tool="slip"] .clip, .timeline[data-tool="slide"] .clip { cursor: ew-resize; }
+.timeline[data-tool="hand"] .tl-rows, .timeline[data-tool="hand"] .clip { cursor: grab; }
+.timeline.grabbing, .timeline.grabbing * { cursor: grabbing !important; }
+.timeline[data-tool="zoom"] .tl-rows, .timeline[data-tool="zoom"] .clip { cursor: zoom-in; }
+/* 🎯 track target (source patching) button in the track header */
+.th-tg { width: 16px; height: 16px; padding: 0; margin-right: 4px; font-size: 9px; font-weight: 700; line-height: 14px; border: 1px solid var(--line-2); border-radius: 3px; background: transparent; color: var(--muted); cursor: pointer; flex: none; }
+.th-tg.on { background: #2f6fd6; border-color: #4d8af0; color: #fff; }
+/* 📍 markers: edit box and list */
+.mk-colors { display: flex; gap: 6px; margin: 6px 0 4px; }
+.mk-c { width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent; padding: 0; cursor: pointer; }
+.mk-c.on { border-color: #fff; box-shadow: 0 0 0 1px #000; }
+.mk-t { width: 100%; border-collapse: collapse; font-size: 12px; }
+.mk-t th { text-align: left; color: var(--muted); font-weight: 600; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+.mk-t td { padding: 5px 6px; border-bottom: 1px solid var(--line); }
+.mk-t tr[data-i] { cursor: pointer; } .mk-t tr[data-i]:hover { background: var(--panel-3); }
+.mk-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+/* 🏷 label colours: a stripe on Media tiles, the name bar of timeline clips */
+.mi.lab { box-shadow: inset 0 3px 0 var(--lab); }
+.mi.lab .mi-n { border-left: 3px solid var(--lab); padding-left: 4px; }
+html.ui2 .tl-row .clip.lab .clip-lbl, .tl-row .clip.lab .clip-lbl { background: var(--lab); color: #111; }
+/* ⧉ duplicate frame markers: a stripe along the bottom of a clip whose frames are used elsewhere too */
+.clip .dupf { position: absolute; bottom: 0; height: 4px; pointer-events: none; z-index: 2; opacity: .95; }

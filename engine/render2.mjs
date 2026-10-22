@@ -18,7 +18,7 @@ import { ASPECTS, clipDur, placed, totalDuration, keysExpr, rampPts, sourceAt, o
 import { fxFilters } from '../public/js/audiofx.js';
 import { colorFilters, stager } from './color.mjs';
 import { cutFxDur, wordWindows, isKinetic } from '../public/js/fx.js';
-import { VFX, activeEffects } from '../public/js/effects.js';
+import { VFX, activeEffects, stabOf } from '../public/js/effects.js';
 import { buildAss } from '../public/js/captions.js';
 import { maskTrack } from '../public/js/tracking.js';
 import { gfxKey } from '../public/js/graphics.js';
@@ -95,7 +95,8 @@ const short = (f) => (path.dirname(path.resolve(f)) === path.resolve(wd) ? path.
 // (not any more: a 1080p preview needs the camera files - the proxies are small, and made it soft)
 const proxyOf = (id) => {
   if (!job.preview || !job.segCache || !id || !(FAST || job.useProxies === true)) return null;
-  const f = path.resolve(path.dirname(job.segCache), 'proxies', `${id}.mp4`);
+  const sub = job.media?.[id]?.subOf; // (a subclip plays its whole file's preview copy)
+  const f = path.resolve(path.dirname(job.segCache), 'proxies', `${sub || id}.mp4`);
   return fs.existsSync(f) ? f : null;
 };
 function probeDur(f) {
@@ -312,7 +313,7 @@ function maskGraph(c, inL, g, mode) {
 // ---------------- smart cache ----------------
 // A shot is the same when its clip settings, its file, the frame size / rate and the encoder are the same: then the
 // piece rendered last time (job.segCache/<key>.mp4) is used again instead of being rendered from the camera file.
-const SEG_V = 2; // bump when segment() changes what it draws (2: frame-exact shot lengths)
+const SEG_V = 3; // bump when segment() changes what it draws (2: frame-exact shot lengths, 3: square pixels at the end)
 const segKey = (c, label, mode, fixed) => crypto.createHash('sha1').update(JSON.stringify({ SEG_V, c, fixed, v1: label.startsWith('V1'), mode, W, H, F, preview: !!job.preview, SEG_ENC,
   m: c.mediaId ? media[c.mediaId] : null, px: proxyOf(c.mediaId), kb: S.kenburns, luts: job.luts || {} })).digest('hex').slice(0, 24);
 const CACHE_MB = job.segCacheMB || 30000;
@@ -356,20 +357,14 @@ function segment(c, label, fixed = null) {
     dur = exact(ramp ? clipDur({ ...c, in: tin, out: tout }, media) : (tout - tin) / speed);
     inputs.push('-ss', String(tin), '-t', String(tout - tin), '-i', src);
     let stab = '';
-    const ws = activeEffects(c).find((e) => VFX[e.type]?.stab); // 🎥 Warp Stabilizer (effect) - wins over the simple Stabilize
-    if (ws || c.stabilize) {
+    const so = stabOf(c); // 🎥 Warp Stabilizer (effect) or the simple Stabilize - settings shared with the monitor's copy
+    if (so) {
       // Stabilise (vid.stab, two passes) on a 1080p working copy: pass 1 measures the shake of exactly this piece,
       // pass 2 smooths the camera path and frames the picture (zoom / crop / filled edges) as the settings say.
-      const p = ws?.p || {}, st = { light: [5, 12], medium: [7, 20], strong: [10, 35] }[c.stabilize] || [7, 20];
-      const detailed = p.detail === 'on', tripod = ws && p.result === 'nomotion';
-      const shake = ws ? (detailed ? 9 : 6) : st[0], acc = detailed ? 15 : 12;
-      const smoothing = ws ? Math.max(1, Math.round((Math.min(100, Math.max(1, +p.smoothness || 50)) / 100) * 60)) : st[1];
-      const framing = ws ? ({ stabilize: 'optzoom=0:crop=black', crop: 'optzoom=1', synth: 'optzoom=0:crop=keep', cropscale: 'optzoom=2:zoomspeed=0.25' }[p.framing] || 'optzoom=2:zoomspeed=0.25') : 'optzoom=1:zoomspeed=0.2';
-      const extra = ws ? Math.max(0, Math.min(50, (+p.addscale || 100) - 100)) : 0;
       const trf = `stab${segN}.trf`, pre = `scale=-2:'min(ih,1080)'`;
-      console.log(`    stabilising ${label}${ws ? ' (Warp Stabilizer)' : ''}…`);
-      preCmds.push(['-ss', String(tin), '-t', String(tout - tin), '-i', src, '-an', '-vf', `${pre},vidstabdetect=shakiness=${shake}:accuracy=${acc}${tripod ? ':tripod=1' : ''}:result=${trf}`, '-f', 'null', '-']);
-      stab = `${pre},vidstabtransform=input=${trf}:smoothing=${smoothing}:${framing}${extra ? `:zoom=${extra}` : ''}${tripod ? ':tripod=1' : ''}${p.method === 'position' ? ':maxangle=0' : ''}:interpol=bicubic,unsharp=5:5:0.5:3:3:0.2,`;
+      console.log(`    stabilising ${label}${activeEffects(c).some((e) => VFX[e.type]?.stab) ? ' (Warp Stabilizer)' : ''}…`);
+      preCmds.push(['-ss', String(tin), '-t', String(tout - tin), '-i', src, '-an', '-vf', `${pre},${so.detect}:result=${trf}`, '-f', 'null', '-']);
+      stab = `${pre},vidstabtransform=input=${trf}:${so.transform},unsharp=5:5:0.5:3:3:0.2,`;
     }
     // ✨ smooth slow motion: in-between frames are made after framing (at output size - much faster than on 4K)
     const smooth = c.smooth && (ramp || speed < 1), rate = smooth ? '' : `,fps=${F}`;
@@ -432,7 +427,9 @@ function segment(c, label, fixed = null) {
   else if (c.text) vf.push(drawtext(c.text, { style: c.textStyle || 'lower', size: c.size, enable: c.textDuration ? `:enable='lt(t,${c.textDuration})'` : '' }));
   if (c.fadeIn) vf.push(`fade=t=in:st=0:d=${c.fadeIn}`);
   if (c.fadeOut) vf.push(`fade=t=out:st=${Math.max(0, dur - c.fadeOut)}:d=${c.fadeOut}`);
-  vf.push('format=yuv420p');
+  // (square pixels whatever the path - a clip whose effects / interpolation left an odd pixel shape broke the join of
+  // the main story: "parameters do not match" in concat / xfade)
+  vf.push('setsar=1', 'format=yuv420p');
   g.push(`[${cur}]${vf.join(',')}[v]`);
   if (!aSrc) { inputs.push('-f', 'lavfi', '-t', String(dur), '-i', 'anullsrc=r=48000:cl=stereo'); aSrc = `[1:a]${AFMT}[a]`; }
   g.push(aSrc);
@@ -715,6 +712,16 @@ if (!caps && project.subtitles?.file && job.subtitlesPath && fs.existsSync(job.s
     style = `:force_style='${Object.entries(st).map(([k, x]) => `${k}=${x}`).join(',')}'`;
   }
   g.push(`[${v}]subtitles=subs${ext}:fontsdir=fonts${style}[vs]`); v = 'vs';
+}
+// ⏱ Burn-in (Deliver › Burn in timecode / name, for client review copies): the sequence timecode at the bottom (the
+// In of a part made from In / Out counts from there, as Premiere's Timecode effect with the sequence as its source)
+// and, if asked, the sequence's name at the top left
+if (EX.burnTC || EX.burnName) {
+  const sz = Math.max(14, Math.round(H * 0.035)), start = 0; // (the final pass runs from the timeline's start and is cut at In afterwards)
+  const ff = Math.round(F), tc = [Math.floor(start / 3600), Math.floor(start / 60) % 60, Math.floor(start) % 60, Math.round((start % 1) * ff) % ff].map((x) => String(x).padStart(2, '0')).join('\\:');
+  const box = `box=1:boxcolor=black@0.6:boxborderw=${Math.round(sz * 0.35)}`;
+  if (EX.burnTC) { g.push(`[${v}]drawtext=fontfile=${font('0123456789:')}:timecode='${tc}':rate=${ff}:fontsize=${sz}:fontcolor=white:${box}:x=(w-tw)/2:y=h-th-${Math.round(H * 0.04)}[vtc]`); v = 'vtc'; }
+  if (EX.burnName) { const nm = String(project.seq?.name || project.name || ''); g.push(`[${v}]drawtext=fontfile=${font(nm)}:textfile=${textfile(nm)}:expansion=none:fontsize=${Math.round(sz * 0.8)}:fontcolor=white:${box}:x=${Math.round(W * 0.03)}:y=${Math.round(H * 0.04)}[vnm]`); v = 'vnm'; }
 }
 g.push(`[${v}]format=yuv420p[vout]`);
 

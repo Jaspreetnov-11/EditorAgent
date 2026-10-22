@@ -4,13 +4,13 @@ import { guarded } from './errlog.js';
 import { S, on, emit, commit, layout, duration, findClip, saveNow } from './store.js';
 import { zoneBandsHTML } from './zones.js';
 import { seqMenu, seqName, openSequence, nestSelected, renameSequence } from './sequences.js';
-import { makeCompFromClip, textBehindFromClip } from './motionpage.js';
+import { makeCompFromClip, textBehindFromClip, trackMatteFromClips } from './motionpage.js';
 import { fusionFromClip, rotoFromClip } from './fusionpage.js';
 import { seqList } from './model.js';
 import { sharedSeqId } from './store.js';
 import { openAudioGain, soundClips } from './audiogain.js';
 import { copyClips, pasteClips, clipboard } from './clipboard.js';
-import { clipDur, uid, fmtTC, fmt, trackList, trackKind, addTrack, syncLinked, linkAudioOf, linkedPartner, freeAudioTrack, RAMPS, setRamp, rampPts, rampPart, TRANSITIONS, setTransition, trHandles, propAt, keepLength } from './model.js';
+import { clipDur, uid, fmtTC, fmt, trackList, trackKind, addTrack, syncLinked, linkAudioOf, linkedPartner, freeAudioTrack, RAMPS, setRamp, rampPts, rampPart, TRANSITIONS, setTransition, trHandles, propAt, keepLength, sourceAt } from './model.js';
 import { $, $$, h, esc, clamp, toast, modal } from './ui.js';
 import { api, enc } from './api.js';
 import { openTemplates } from './titlesui.js';
@@ -19,6 +19,7 @@ import { GFX } from './graphics.js';
 import { autoSoundDesign } from './sfxui.js';
 import { openReplace } from './replace.js';
 import { dropFx, transitionLength } from './fxpanel.js';
+import { editMarker, markerNear } from './markers.js';
 
 // row heights: the main story is tallest; voice-over and music get room for their waveforms
 // track heights: drag the bottom edge of a track header (double-click = back to normal); kept in this browser
@@ -51,6 +52,10 @@ export function mountTimeline(el) {
         <button data-tool="type" title="Type tool (T): click on the Program monitor and type - text where you click, like Premiere" aria-label="Type tool"><b>T</b></button>
         <button data-tool="pen" title="Pen (P): click on a clip to put a keyframe on its opacity (video) / volume (audio) line - higher = more" aria-label="Pen tool"><b>✒</b></button>
         <button data-tool="remix" title="Remix: drag a music clip's end to the length you need - the music is re-cut to fit, from its best part" aria-label="Remix tool"><b>♫</b></button>
+        <button data-tool="slip" title="Slip (Y): drag a clip - it shows an earlier / later part of its file; its place and length stay" aria-label="Slip tool"><b>↔</b></button>
+        <button data-tool="slide" title="Slide (U): drag a main-story clip between its neighbours - the one before gets longer, the one after shorter (or the other way); nothing else moves" aria-label="Slide tool"><b>⇆</b></button>
+        <button data-tool="hand" title="Hand (H): drag to scroll the timeline" aria-label="Hand tool"><b>✋</b></button>
+        <button data-tool="zoom" title="Zoom (Z): click to zoom in where you click, Alt+click to zoom out" aria-label="Zoom tool"><b>⌕</b></button>
       </div>
       <span class="sep"></span>
       <button data-act="split" title="Split clips under the playhead (S)">${ICON.split}<span>Split</span></button>
@@ -155,6 +160,8 @@ export function mountTimeline(el) {
   }, { passive: false });
 
   ruler.addEventListener('pointerdown', (e) => scrubStart(e));
+  // 📍 double-click a marker on the ruler: name, comment, colour, length (markers.js)
+  ruler.addEventListener('dblclick', (e) => { const mk = markerNear(timeAt(e.clientX)); if (mk) { e.preventDefault(); editMarker(mk, drawRuler); } });
   // the playhead line itself can be taken and dragged anywhere down the tracks (not only in the ruler)
   playheadEl.addEventListener('pointerdown', (e) => { if (e.button !== 0) return; e.stopPropagation(); scrubStart(e); });
   rowsEl.addEventListener('pointerdown', onRowsDown);
@@ -247,6 +254,30 @@ let drawn = null, scrollRender = 0;
 const VIRTUAL_AT = 150;
 // 🛡 drawn through guarded(): a clip it cannot draw leaves a note + Reload over the tracks, never a blank timeline
 function render() { return guarded(rowsEl, 'Timeline', renderNow); }
+// ⧉ Duplicate frame markers (like Premiere, View menu): where the same frames of a file are used by more than one video
+// clip, a stripe in that file's own colour runs along the bottom of each - so a shot used twice is seen at once
+let dupMarks = null;
+const DUP_KEY = 've-dupframes';
+export const dupFramesOn = () => { try { return localStorage.getItem(DUP_KEY) !== '0'; } catch { return true; } };
+export function toggleDupFrames() { try { localStorage.setItem(DUP_KEY, dupFramesOn() ? '0' : '1'); } catch {} render(); toast(`Duplicate frame markers ${dupFramesOn() ? 'on' : 'off'}`); }
+function dupFrames(L) {
+  const by = {};
+  for (const [t, list] of Object.entries(L)) if (trackKind(t) === 'video') for (const x of list) {
+    const c = x.clip; if (c.type !== 'video' || c.gap || c.disabled || rampPts(c)) continue;
+    const sp = c.speed || 1, a = c.in || 0; (by[c.mediaId] ||= []).push({ x, a, b: a + (x.end - x.start) * sp, sp });
+  }
+  const out = new Map();
+  for (const [mid, arr] of Object.entries(by)) {
+    if (arr.length < 2) continue;
+    let h = 0; for (const ch of mid) h = (h * 31 + ch.charCodeAt(0)) % 360;
+    for (const p of arr) {
+      const segs = [];
+      for (const q of arr) { if (q === p) continue; const o0 = Math.max(p.a, q.a), o1 = Math.min(p.b, q.b); if (o1 - o0 > 0.04) segs.push([(o0 - p.a) / p.sp, (o1 - p.a) / p.sp]); }
+      if (segs.length) out.set(p.x.clip.id, { col: `hsl(${h} 85% 58%)`, segs });
+    }
+  }
+  return out;
+}
 function renderNow() {
   if (!S.project || !root) return;
   syncBar();
@@ -259,6 +290,7 @@ function renderNow() {
   // a track the list shows always exists in the project (an older project has no V3 yet: dropping on it must work)
   for (const t of TR) { S.project.tracks[t.id] ||= []; ts[t.id] ||= { mute: false, hide: false, lock: false, volume: 1 }; }
   drawHeads(TR, ts);
+  dupMarks = dupFramesOn() ? dupFrames(L) : null;
   const many = Object.values(L).reduce((n, l) => n + l.length, 0) > VIRTUAL_AT, vw = scroller.clientWidth || 1200;
   drawn = many ? { a: Math.max(0, scroller.scrollLeft - vw), b: scroller.scrollLeft + vw * 2 } : null;
   const near = (x) => !drawn || (x.end * S.zoom >= drawn.a && x.start * S.zoom <= drawn.b) || S.sel.has(x.clip.id);
@@ -347,14 +379,26 @@ function patchRows(rows) {
 
 // track headers: rebuilt only when something on them changed (so a volume slider keeps its grip while you drag it)
 let headsKey = '';
+// 🎯 Track targeting (Premiere's source patching): the track Insert ( , ) and Overwrite ( . ) put a Source clip on - one
+// video and one audio track, picked with the small target button at the left of a track's name. Nothing picked: as
+// before (Insert on V1 / A2, Overwrite as an overlay on V2 / A1). Kept per browser.
+const TG_KEY = 've-targets';
+export function targets() { try { return JSON.parse(localStorage.getItem(TG_KEY) || '{}'); } catch { return {}; } }
+function setTarget(kind, id) {
+  const t = targets(); if (t[kind] === id) delete t[kind]; else t[kind] = id;
+  try { localStorage.setItem(TG_KEY, JSON.stringify(t)); } catch {}
+  headsKey = ''; render();
+  toast(t[kind] ? `Insert / Overwrite now go to ${t[kind]}` : `${kind === 'v' ? 'Video' : 'Audio'} target off - Insert / Overwrite as before`);
+}
 function drawHeads(TR, ts) {
-  const key = JSON.stringify([TR, ts, TR.map((t) => rowH(t.id))]);
+  const tg = targets();
+  const key = JSON.stringify([TR, ts, TR.map((t) => rowH(t.id)), tg]);
   if (key === headsKey && headsEl.children.length) return;
   headsKey = key;
   headsEl.innerHTML = `<div class="th-ruler"></div>` + TR.map((t) => {
     const st = ts[t.id] || {};
     return `<div class="th ${t.kind}${st.lock ? ' locked' : ''}" style="height:${rowH(t.id)}px" data-track="${t.id}" title="Right-click: rename, add or delete a track">
-      <div class="th-name"><b>${t.name}</b><span>${esc(t.label)}</span></div>
+      <div class="th-name"><button class="th-tg${tg[t.kind === 'video' ? 'v' : 'a'] === t.id ? ' on' : ''}" data-tg="${t.id}" title="Target: Insert / Overwrite from the Source monitor go to ${t.name} (click again: off)">${t.kind === 'video' ? 'V' : 'A'}</button><b>${t.name}</b><span>${esc(t.label)}</span></div>
       <div class="th-btns">
         ${t.kind === 'video' ? `<button class="tbtn${st.hide ? ' on' : ''}" data-tst="hide" title="Hide track">${st.hide ? ICON.eyeOff : ICON.eye}</button>` : ''}
         <button class="tbtn${st.mute ? ' on' : ''}" data-tst="mute" title="${t.kind === 'video' ? 'Mute clip sound' : 'Mute track'}">M</button>
@@ -372,6 +416,7 @@ function drawHeads(TR, ts) {
     emit('mix'); // (the preview mix follows mute / solo at once)
   }));
   $$('[data-rec]', headsEl).forEach((b) => (b.onclick = () => import('./vorecord.js').then((m) => m.toggleRecord(b.dataset.rec))));
+  $$('[data-tg]', headsEl).forEach((b) => (b.onclick = (e) => { e.stopPropagation(); setTarget(trackKind(b.dataset.tg) === 'video' ? 'v' : 'a', b.dataset.tg); }));
   $$('[data-rowh]', headsEl).forEach((g) => {
     const id = g.dataset.rowh;
     g.ondblclick = () => setRowH(id, 0);
@@ -457,9 +502,9 @@ function clipHTML(track, x, i) {
   const ov = '';
   const kt = [...new Set(Object.values(c.keys || {}).flat().map((k) => +k.t.toFixed(3)))];
   const kfs = kt.length ? `<div class="kfs">${kt.map((t) => `<i style="left:${t * S.zoom}px"></i>`).join('')}</div>` : '';
-  return `<div class="clip t-${c.type}${kind}${S.sel.has(c.id) ? ' sel' : ''}${missing ? ' missing' : ''}${c.disabled ? ' off' : ''}" data-id="${c.id}" data-track="${track}"
-    style="left:${vs * S.zoom}px;width:${w}px" title="${esc(mName(c))} · ${fmt(ve - vs)}${c.color && Object.keys(c.color).length ? ' · colour graded' : ''}${c.speed && c.speed !== 1 ? ` · ${c.speed}×` : ''}${c.ramp ? ' · speed ramp' : ''}${c.mute ? ' · muted' : ''}">
-    <div class="clip-bg" style="${bg}">${wv}</div>${ov}${kfs}${bandHTML(c, track, x.end - x.start)}
+  return `<div class="clip t-${c.type}${kind}${S.sel.has(c.id) ? ' sel' : ''}${missing ? ' missing' : ''}${c.disabled ? ' off' : ''}${c.label ? ' lab' : ''}" data-id="${c.id}" data-track="${track}"
+    style="left:${vs * S.zoom}px;width:${w}px${c.label ? `;--lab:${c.label}` : ''}" title="${esc(mName(c))} · ${fmt(ve - vs)}${c.color && Object.keys(c.color).length ? ' · colour graded' : ''}${c.speed && c.speed !== 1 ? ` · ${c.speed}×` : ''}${c.ramp ? ' · speed ramp' : ''}${c.mute ? ' · muted' : ''}">
+    <div class="clip-bg" style="${bg}">${wv}</div>${ov}${(dupMarks?.get(c.id)?.segs || []).map(([a0, a1]) => `<i class="dupf" title="These frames are used in another clip too" style="left:${Math.max(0, (a0 - (vs - x.start)) * S.zoom)}px;width:${Math.max(2, (a1 - a0) * S.zoom)}px;background:${dupMarks.get(c.id).col}"></i>`).join('')}${kfs}${bandHTML(c, track, x.end - x.start)}
     <div class="clip-lbl"><span class="nm">${missing ? '⚠ ' : ''}${esc(mName(c))}</span><span class="bd">${badges}</span></div>
     <div class="clip-dur">${fmt(ve - vs)}</div>
     <div class="trim l" data-trim="l"></div><div class="trim r" data-trim="r"></div>${trans}
@@ -537,8 +582,12 @@ function drawRuler() {
     const x = (mk.t - t0) * S.zoom;
     if (x < -10 || x > w + 10) continue;
     // notes: orange until done (green); plain markers blue
-    g.fillStyle = mk.color || (mk.note ? (mk.done ? '#36c27e' : '#ff9933') : '#4f8cff'); g.beginPath(); g.moveTo(x - 5, 0); g.lineTo(x + 5, 0); g.lineTo(x, 8); g.fill();
+    g.fillStyle = mk.color || (mk.note ? (mk.done ? '#36c27e' : '#ff9933') : '#4f8cff');
+    // 📍 a range marker: a band as long as it lasts; its name next to it when there is room
+    if (mk.dur > 0) { g.globalAlpha = 0.35; g.fillRect(x, 0, mk.dur * S.zoom, 8); g.globalAlpha = 1; }
+    g.beginPath(); g.moveTo(x - 5, 0); g.lineTo(x + 5, 0); g.lineTo(x, 8); g.fill();
     if (mk.note && !mk.done) g.fillRect(x - 0.5, 8, 1, 20);
+    if (mk.name && S.zoom > 6) { g.save(); g.font = '10px sans-serif'; g.fillText(mk.name.slice(0, 30), x + 7, 22); g.restore(); }
   }
 }
 
@@ -555,6 +604,40 @@ export function clearRange() {
   delete S.project.settings.range; commit('Clear In / Out'); drawRuler(); toast('In / Out cleared - Export makes the whole timeline');
 }
 export const rangeMark = (kind) => S.project?.settings.range?.[kind];
+// ⌫ Lift ( ; ) and Extract ( ' ), like Premiere: the part of every unlocked track between the timeline's In and Out
+// comes out. Lift leaves a gap there (nothing else moves); Extract closes it - everything after the Out moves up by
+// the range's length, on every track, so picture and sound stay together.
+export function liftExtract(extract) {
+  const rg = S.project?.settings.range;
+  if (!(rg?.in !== undefined && rg?.out !== undefined && rg.out > rg.in)) return toast('Mark an In ( I ) and an Out ( O ) on the timeline first', 'err');
+  const a = rg.in, b = rg.out, len = b - a, ts = S.project.trackState, eps = 0.01;
+  const tracks = Object.keys(S.project.tracks).filter((t) => !ts[t]?.lock);
+  // cut every clip that crosses In or Out, so the range holds whole clips only
+  for (const t of tracks) for (const at of [a, b]) for (const x of [...layout()[t]]) if (!x.clip.gap && x.start < at - eps && x.end > at + eps) splitClip(x.clip.id, at);
+  let n = 0;
+  for (const t of tracks) {
+    const inside = layout()[t].filter((x) => x.start >= a - eps && x.end <= b + eps).map((x) => x.clip);
+    if (t === 'V1') {
+      for (const c of inside) {
+        const i = S.project.tracks.V1.indexOf(c); if (i < 0) continue;
+        if (extract) S.project.tracks.V1.splice(i, 1);
+        else if (!c.gap) S.project.tracks.V1.splice(i, 1, { id: uid(), type: 'title', gap: true, text: '', bg: '#000000', dur: +clipDur(c, S.mediaById).toFixed(3) });
+        if (!c.gap) n++;
+      }
+      if (extract && S.project.tracks.V1[0]) delete S.project.tracks.V1[0].transitionIn;
+    } else {
+      S.project.tracks[t] = S.project.tracks[t].filter((c) => !inside.includes(c));
+      n += inside.length;
+      if (extract) for (const c of S.project.tracks[t]) if ((c.start || 0) >= b - eps) c.start = +((c.start || 0) - len).toFixed(3);
+    }
+  }
+  tidyGaps();
+  // (an Extract closes the range on V1 too; a gap that covered more than the range is cut down to fit)
+  delete S.project.settings.range; S.sel.clear(); S.playhead = a;
+  commit(extract ? `Extract ${len.toFixed(2)} s` : `Lift ${len.toFixed(2)} s`);
+  emit('seek', a);
+  toast(`${extract ? 'Extract' : 'Lift'}: ${n} clip piece${n === 1 ? '' : 's'} out of ${len.toFixed(2)} s${extract ? ' - the rest moved up' : ' - a gap is left, nothing else moved'}`);
+}
 
 function placePlayhead() {
   if (!playheadEl) return;
@@ -653,6 +736,9 @@ function select(id, additive, single = false) {
 
 function onRowsDown(e) {
   if (e.button !== 0) return;
+  // ✋ Hand: drag the timeline around; ⌕ Zoom: click to zoom in there, Alt+click out (like Premiere's H / Z)
+  if (S.tool === 'hand') { handDrag(e); return; }
+  if (S.tool === 'zoom') { e.preventDefault(); setZoom(S.zoom * (e.altKey ? 1 / 1.6 : 1.6), true, e.clientX); return; }
   // ⧓ an end of a transition box: drag it to make that side longer / shorter, on its own - the left end is how long
   // it runs before the cut, the right end after it (like Premiere); the cut and every shot stay put
   const fdb = e.target.closest('[data-fade]');
@@ -731,6 +817,7 @@ function onRowsDown(e) {
   if (S.project.trackState[track]?.lock) { toast(`${track} is locked`); return; }
   if (S.tool === 'blade') { splitClip(id, snap(timeAt(e.clientX), snapPoints(new Set([id])))); commit('Blade'); return; }
   if (S.tool === 'pen' && !e.target.closest('[data-trim]')) { penKey(id, track, e, el); return; }
+  if (S.tool === 'slip' || S.tool === 'slide') { select(id, false); slipSlide(e, id, track); return; }
   if (!S.sel.has(id) || e.shiftKey || e.ctrlKey || e.altKey) select(id, e.shiftKey || e.ctrlKey, e.altKey);
   S.linkLead = id; // (the linked half follows the one you drag / trim)
   const trim = e.target.closest('[data-trim]')?.dataset.trim;
@@ -776,6 +863,185 @@ function onRowsDown(e) {
     others: [...S.sel].filter((s) => s !== id && !(f.clip.link && findClip(s)?.clip.link === f.clip.link)).map((s) => ({ id: s, ...findClip(s) })).filter((o) => o.track !== 'V1').map((o) => ({ id: o.id, start: o.clip.start || 0 })) };
   window.addEventListener('pointermove', onDragMove);
   window.addEventListener('pointerup', onDragUp, { once: true });
+}
+
+// ⏸ Frame Hold, like Premiere: the frame under the playhead as a full-size still (POST /api/media/still).
+// Add Frame Hold: from the playhead on, the clip stays on that frame - same length, nothing moves, its sound plays on.
+// Insert Frame Hold Segment: the clip is cut at the playhead and 2 s of that frame go in between (the main story moves
+// along by 2 s, as an insert does; on the other tracks the part after it moves 2 s on).
+async function frameHold(id, insert) {
+  const f = findClip(id), c = f?.clip; if (!c || c.type !== 'video') return;
+  const x = layout()[f.track].find((p) => p.clip.id === id), t = S.playhead;
+  if (!x || t < x.start + 0.02 || t > x.end - 0.02) return toast('Put the playhead inside this clip first (the frame there is held)', 'err');
+  const D = clipDur(c, S.mediaById);
+  let src = sourceAt(c, t - x.start, D);
+  if (c.reverse) src = (c.in || 0) + (c.out ?? S.mediaById[c.mediaId]?.duration ?? 0) - src;
+  toast('Taking the frame…');
+  let r;
+  try { r = await api('POST', `/api/media/still?p=${enc(S.proj)}`, { mediaId: c.mediaId, t: src }); } catch (e) { return toast(e.message, 'err'); }
+  const { refreshMedia } = await import('./mediapool.js'); await refreshMedia();
+  const now = findClip(id); if (!now) return;
+  const keep = (o) => Object.fromEntries(['transform', 'color', 'effects', 'opacity', 'blend', 'masks', 'cropX', 'cropY', 'fit'].filter((k) => o[k] !== undefined).map((k) => [k, JSON.parse(JSON.stringify(o[k]))]));
+  const still = (dur) => ({ id: uid(), type: 'image', mediaId: r.mediaId, dur: +dur.toFixed(3), kenburns: false, hold: true, ...keep(now.clip) });
+  const atCut = t > x.start + 0.05 && t < x.end - 0.05;
+  if (!insert) {
+    // from the playhead to the end of the clip: the still, as long as the part it replaces
+    let tail = now.clip;
+    if (atCut && splitClip(id, t)) { const L = layout()[f.track]; tail = L[L.findIndex((p) => p.clip.id === id) + 1]?.clip || tail; }
+    const len = clipDur(tail, S.mediaById), mate = linkedPartner(S.project, tail)?.clip, list = S.project.tracks[f.track], i = list.indexOf(tail);
+    if (mate) delete mate.link; // (its sound plays on under the held frame)
+    const h = still(len); if (f.track !== 'V1') h.start = +(layout()[f.track].find((p) => p.clip.id === tail.id)?.start ?? t).toFixed(3);
+    list.splice(i, 1, h);
+    S.sel = new Set([h.id]); commit('Add Frame Hold');
+    toast(`Frame Hold: the clip stays on this frame for ${len.toFixed(2)} s (a still in Media › Frame holds)`);
+  } else {
+    if (atCut) splitClip(id, t);
+    const list = S.project.tracks[f.track], i = list.indexOf(now.clip), h = still(2);
+    if (f.track === 'V1') list.splice(atCut ? i + 1 : (t - x.start < 0.05 ? i : i + 1), 0, h);
+    else { h.start = +t.toFixed(3); for (const o of list) if (o !== now.clip && (o.start || 0) >= t - 0.001) o.start = +((o.start || 0) + 2).toFixed(3); list.push(h); }
+    S.sel = new Set([h.id]); commit('Insert Frame Hold Segment');
+    toast('2 s of this frame put in (Media › Frame holds) - drag its end to change the length');
+  }
+}
+
+// 🪄 Morph Cut (like Premiere): the jump cut before a main-story clip (words taken out of an interview) made smooth -
+// the two shots each give up a quarter second at the cut and the frames from one to the other are made from their
+// motion (server /api/morph). The story keeps its length; the sound stays exactly as it was (unlinked from them).
+// ⏩ Extend: a clip carries on past its end for up to 1 s - its last half second slowed with in-between frames - into
+// the empty space after it (a gap), so nothing moves; with no room after it, it says so. (Not generative AI: the
+// frames come from the shot's own motion.)
+async function morphOrExtend(id, kind) {
+  const f = findClip(id), c = f?.clip; if (!c || c.type !== 'video') return;
+  if (rampPts(c)) return toast('Take the speed ramp off first', 'err');
+  const fps = S.project.settings.fps || 30, V1 = S.project.tracks.V1, L = layout()[f.track], x = L.find((p) => p.clip.id === id);
+  const m = S.mediaById[c.mediaId], end = c.out ?? m?.duration ?? 0, sp = c.speed || 1;
+  let body, room = 0, A = null, D = 0;
+  if (kind === 'morph') {
+    A = V1[f.index - 1];
+    if (rampPts(A)) return toast('The clip before has a speed ramp - take it off first', 'err');
+    D = +Math.min(0.5, clipDur(A, S.mediaById) / 2, clipDur(c, S.mediaById) / 2).toFixed(3);
+    const aEnd = (A.out ?? S.mediaById[A.mediaId]?.duration ?? 0) - (D / 2) * (A.speed || 1), bIn = (c.in || 0) + (D / 2) * sp;
+    body = { kind, a: { mediaId: A.mediaId, t: aEnd - 1 / fps }, b: { mediaId: c.mediaId, t: bIn }, dur: D, _aEnd: aEnd, _bIn: bIn };
+  } else {
+    if (f.track === 'V1') { const nx = V1[f.index + 1]; room = !nx ? 1 : nx.gap ? clipDur(nx, S.mediaById) : 0; }
+    else { const after = L.filter((p) => p.start >= x.end - 0.001).reduce((t, p) => Math.min(t, p.start), Infinity); room = after - x.end; }
+    D = +Math.min(1, room).toFixed(3);
+    if (D < 0.1) return toast('No room after this clip - make a gap after it (trim or move the next clip), then Extend', 'err');
+    body = { kind, a: { mediaId: c.mediaId, t: end }, dur: D, from: Math.min(0.5, D / 2 + 0.1) };
+  }
+  emit('job', { running: true, label: kind === 'morph' ? '🪄 Making the morph cut…' : '⏩ Extending…' });
+  let r;
+  try {
+    const job = await api('POST', `/api/morph?p=${enc(S.proj)}`, body);
+    const { watchJob } = await import('./api.js'), { refreshMedia } = await import('./mediapool.js');
+    r = (await watchJob(job.id)).result; await refreshMedia();
+  } catch (e) { emit('job', { running: false }); return toast(e.job ? e.job.log.slice(-1).join(' ') : e.message, 'err'); }
+  emit('job', { running: false });
+  const now = findClip(id); if (!now) return;
+  const piece = { id: uid(), type: 'video', mediaId: r.mediaId, in: 0, out: D, mute: true, ...(kind === 'morph' ? { morph: true } : { extendOf: c.id }) };
+  if (kind === 'morph') {
+    for (const k of [A, c]) { const mate = linkedPartner(S.project, k)?.clip; if (mate) delete mate.link; } // (the sound stays as it was)
+    A.out = +body._aEnd.toFixed(3); c.in = +body._bIn.toFixed(3); delete c.transitionIn;
+    V1.splice(V1.indexOf(c), 0, piece);
+  } else if (f.track === 'V1') {
+    const i = V1.indexOf(c), nx = V1[i + 1];
+    V1.splice(i + 1, 0, piece);
+    if (nx?.gap) { nx.dur = +(clipDur(nx, S.mediaById) - D).toFixed(3); if (nx.dur < 0.04) V1.splice(V1.indexOf(nx), 1); }
+  } else { piece.start = +x.end.toFixed(3); S.project.tracks[f.track].push(piece); }
+  S.sel = new Set([piece.id]);
+  commit(kind === 'morph' ? 'Morph Cut' : 'Extend');
+  toast(kind === 'morph' ? `🪄 Morph Cut: ${D.toFixed(2)} s of in-between frames - the cut is smooth, the length is the same` : `⏩ Extended by ${D.toFixed(2)} s into the space after it`);
+}
+
+// 🎬 Scene Edit Detection (like Premiere): a clip of a finished video is cut wherever its picture cuts - the server
+// finds them (FFmpeg scene change, /api/media/scenes); the clip is split there, nothing else moves
+async function sceneEdits(id) {
+  const f = findClip(id), c = f?.clip; if (!c || c.type !== 'video') return;
+  if (rampPts(c)) return toast('Take the speed ramp off first - its cuts would not land on the picture cuts', 'err');
+  const m = S.mediaById[c.mediaId], a = c.in || 0, b = c.out ?? m?.duration ?? 0;
+  emit('job', { running: true, label: '🎬 Looking for the cuts…' });
+  let cuts = [];
+  try {
+    const job = await api('POST', `/api/media/scenes?p=${enc(S.proj)}`, { mediaId: c.mediaId, in: a, out: b });
+    const { watchJob } = await import('./api.js');
+    cuts = (await watchJob(job.id, (j) => emit('job', { running: true, label: `🎬 Looking for the cuts ${j.progress || 0}%` }))).result.cuts || [];
+  } catch (e) { emit('job', { running: false }); return toast(e.job ? e.job.log.slice(-1).join(' ') : e.message, 'err'); }
+  emit('job', { running: false });
+  const now = findClip(id); if (!now) return;
+  const x = layout()[now.track].find((p) => p.clip.id === id), sp = c.speed || 1;
+  // last cut first: the clip keeps its id on the part before each cut
+  const ts = cuts.map((s) => x.start + (c.reverse ? (b - s) : (s - a)) / sp).filter((t) => t > x.start + 0.1 && t < x.end - 0.1).sort((p, q) => q - p);
+  let n = 0;
+  for (const t of ts) if (splitClip(id, t)) n++;
+  if (n) commit(`Scene Edit Detection: ${n} cut${n > 1 ? 's' : ''}`);
+  toast(n ? `🎬 Cut at ${n} scene change${n > 1 ? 's' : ''}` : 'No cuts found in this clip - it is one shot');
+}
+
+// 🏷 Label colour on the selected timeline clips: their name bar takes the colour (like Premiere's labels)
+function clipLabel() {
+  const ids = [...S.sel]; if (!ids.length) return;
+  import('./mediapool.js').then(({ LABELS }) => {
+    const d = modal('Label colour', `<div class="mk-colors">${LABELS.map(([c, n]) => `<button class="mk-c" data-lab="${c}" title="${n}" style="background:${c}"></button>`).join('')}<button class="small" data-lab="">None</button></div>`, { width: 360 });
+    d.el.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-lab]'); if (!b) return; d.close();
+      for (const id of ids) { const c = findClip(id)?.clip; if (c) { if (b.dataset.lab) c.label = b.dataset.lab; else delete c.label; } }
+      commit('Label colour');
+    });
+  });
+}
+
+function handDrag(e) {
+  e.preventDefault();
+  const x0 = e.clientX, y0 = e.clientY, l0 = scroller.scrollLeft, t0 = scroller.scrollTop;
+  root.classList.add('grabbing');
+  const move = (ev) => { scroller.scrollLeft = l0 - (ev.clientX - x0); scroller.scrollTop = t0 - (ev.clientY - y0); };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', () => { window.removeEventListener('pointermove', move); root.classList.remove('grabbing'); }, { once: true });
+}
+// ↔ Slip: the clip keeps its place and length and shows another part of its file (In and Out move together, as far
+// as the file goes). ⇆ Slide (main story): the clip moves between its neighbours - the one before grows into it as much
+// as the one after shrinks (or the other way), from their spare frames - so the rest of the story stays where it is.
+// On the other tracks Slide moves the clip as far as the clips around it allow.
+function slipSlide(e, id, track) {
+  const f = findClip(id), c = f?.clip; if (!c || c.gap) return;
+  const m = S.mediaById[c.mediaId], media = c.type === 'video' || c.type === 'audio';
+  const o = JSON.parse(JSON.stringify(c)), x0 = e.clientX, sp = c.speed || 1, slip = S.tool === 'slip';
+  if (slip && (!media || rampPts(c))) return toast(media ? 'A clip with a speed ramp cannot slip - take the ramp off first' : 'Slip works on video and audio clips', 'err');
+  const V1 = S.project.tracks.V1, i = V1.indexOf(c), A = track === 'V1' ? V1[i - 1] : null, B = track === 'V1' ? V1[i + 1] : null;
+  const a0 = A && JSON.parse(JSON.stringify(A)), b0 = B && JSON.parse(JSON.stringify(B));
+  const L = layout()[track], others = L.filter((x) => x.clip.id !== id), me = L.find((x) => x.clip.id === id);
+  // how far each way: slip - the frames before In / after Out in the file; slide - what the neighbours can give / take
+  const isM = (x) => x.type === 'video' || x.type === 'audio';
+  const tail = (x) => (x.gap || !isM(x) ? Infinity : ((S.mediaById[x.mediaId]?.duration ?? x.out ?? 0) - (x.out ?? S.mediaById[x.mediaId]?.duration ?? 0)) / (x.speed || 1));
+  const head = (x) => (x.gap || !isM(x) ? Infinity : (x.in || 0) / (x.speed || 1));
+  const shrink = (x) => Math.max(0, clipDur(x, S.mediaById) - (x.gap ? 0.04 : 0.2));
+  let lo, hi;
+  if (slip) { lo = -((o.in || 0) / sp); hi = ((m?.duration ?? o.out ?? 0) - (o.out ?? m?.duration ?? 0)) / sp; }
+  else if (track === 'V1') {
+    if (!A || !B) return toast('Slide needs a clip on both sides of this one', 'err');
+    if (rampPts(A) || rampPts(B)) return toast('A neighbour has a speed ramp - Slide would change it', 'err');
+    hi = Math.min(tail(A), shrink(B)); lo = -Math.min(shrink(A), head(B));
+  } else {
+    const before = others.filter((x) => x.end <= me.start + 0.001).reduce((t, x) => Math.max(t, x.end), 0);
+    const after = others.filter((x) => x.start >= me.end - 0.001).reduce((t, x) => Math.min(t, x.start), Infinity);
+    lo = before - me.start; hi = after - me.end;
+  }
+  root.classList.add('grabbing');
+  const move = (ev) => {
+    const d = Math.min(hi, Math.max(lo, (ev.clientX - x0) / S.zoom));
+    if (slip) { c.in = +Math.max(0, (o.in || 0) + d * sp).toFixed(3); if (o.out !== undefined || m?.duration) c.out = +((o.out ?? m.duration) + d * sp).toFixed(3); emit('mix'); }
+    else if (track === 'V1') {
+      // the shot moves later by d: the one before is longer by d, the one after starts d later in its file (shorter)
+      if (A) { if (A.gap) A.dur = +(clipDur(a0, S.mediaById) + d).toFixed(3); else if (A.type === 'video' || A.type === 'audio') A.out = +((a0.out ?? S.mediaById[A.mediaId]?.duration ?? 0) + d * (A.speed || 1)).toFixed(3); else A.dur = +(clipDur(a0, S.mediaById) + d).toFixed(3); }
+      if (B) { if (B.gap) B.dur = +(clipDur(b0, S.mediaById) - d).toFixed(3); else if (B.type === 'video' || B.type === 'audio') B.in = +Math.max(0, (b0.in || 0) + d * (B.speed || 1)).toFixed(3); else B.dur = +(clipDur(b0, S.mediaById) - d).toFixed(3); }
+    } else c.start = +((o.start || 0) + d).toFixed(3);
+    render();
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', () => {
+    window.removeEventListener('pointermove', move); root.classList.remove('grabbing');
+    if (JSON.stringify(c) !== JSON.stringify(o) || (A && JSON.stringify(A) !== JSON.stringify(a0)) || (B && JSON.stringify(B) !== JSON.stringify(b0))) commit(slip ? 'Slip' : 'Slide');
+  }, { once: true });
 }
 
 // A V1 shot just trimmed (c; o = as it was): the gap next to the trimmed end takes up the difference so nothing else
@@ -1136,9 +1402,10 @@ export function trimAtPlayhead(side) {
   commit(side === 'start' ? 'Trim front' : 'Trim back');
   if (v1Start !== null) emit('seek', v1Start); // the rest of the story moved up to where the cut was
 }
-// Delete = "Ripple delete": a main-story (V1) clip goes and the next one moves up into its place (no gap to fix by hand).
-// Shift+Delete = "Lift": it leaves a gap of its length (black, silent), so nothing after it moves. A selected gap: Delete closes it.
-export function deleteSelected(ripple = true) {
+// 📌 Delete = "Lift": a main-story (V1) clip leaves a gap of its length (black, silent), so every clip after it stays
+// exactly where it was put. Shift+Delete = "Ripple delete": the next one moves up into its place. A selected gap:
+// Delete closes it.
+export function deleteSelected(ripple = false) {
   if (!S.sel.size) return toast('Select a clip first');
   // many clips at once (box select / Ctrl+A): ask first, and keep a backup copy of the project before deleting
   if (S.sel.size >= 8) {
@@ -1204,6 +1471,8 @@ function toggleTransition(id) {
 export function placeMedia(mediaId, track, time, marks = {}) {
   const m = S.mediaById[mediaId];
   if (!m) return null;
+  if (m.subOf && marks.in === undefined && marks.out === undefined) marks = { ...marks, in: m.subIn, out: m.subOut }; // (✂ a subclip: its part)
+  const ik = m.interpretFps && m.fps ? m.interpretFps / m.fps : 1; // (🎞 Interpret footage: its clips play at that speed)
   const only = m.kind === 'video' ? marks.only : undefined;
   if (only === 'audio') {
     if (!m.hasAudio) { toast('This video has no sound'); return null; }
@@ -1221,6 +1490,7 @@ export function placeMedia(mediaId, track, time, marks = {}) {
   if (KIND[track] === 'audio') Object.assign(c, { type: 'audio', in: marks.in ?? 0, ...(marks.out !== undefined ? { out: marks.out } : {}), volume: track === 'A2' ? 0.5 : 1, ...(track === 'A2' ? { duck: true } : {}) });
   else if (m.kind === 'image') Object.assign(c, { type: 'image', dur: 4 });
   else Object.assign(c, { type: 'video', in: marks.in ?? 0, ...(marks.out !== undefined ? { out: marks.out } : {}), ...(only === 'video' && m.hasAudio ? { mute: true } : {}) }); // (video only = no sound)
+  if (c.type === 'video' && Math.abs(ik - 1) > 1e-4) c.speed = +ik.toFixed(5);
   if (track === 'V1' && marks.overwrite && time < 1e8) overwriteV1(c, Math.max(0, time)); // dragged in from Media: at the mouse
   else if (track === 'V1') {
     const L = layout().V1;
@@ -1377,8 +1647,12 @@ function onContext(e) {
     ['split', 'Split at playhead', 'S'], ['copy', S.sel.size > 1 ? `Copy ${S.sel.size} clips` : 'Copy', 'Ctrl+C'],
     ...(clipboard()?.kind === 'clips' ? [['paste', `Paste ${clipboard().items.length > 1 ? `${clipboard().items.length} clips ` : ''}at playhead`, 'Ctrl+V']] : []),
     ['dup', 'Duplicate', 'Ctrl+D'], ['nest', S.sel.size > 1 ? `⤵ Nest ${S.sel.size} clips…` : '⤵ Nest…'],
-    ...(c.mediaId && S.mediaById[c.mediaId] ? ['-', ['revealP', '📁 Reveal in Project'], ['revealE', '📂 Reveal in Explorer'], '-'] : []),
-    ...(c.type === 'video' ? [['comp', '🎬 Make Motion comp (animate it in Motion)'], ['roto', '✂ Roto: cut out the subject (AI)'], ['behind', '✂ Text behind subject (AI roto)'], ['fusion', '✨ Open in Fusion (node effects)']] : []), ['del', 'Delete', 'Del'], ...(f.track === 'V1' && !c.gap ? [['lift', 'Delete and leave a gap', 'Shift+Del']] : []), '-',
+    ...(c.type === 'video' && !c.gap ? [['hold', 'Add Frame Hold (from the playhead)'], ['holdIns', 'Insert Frame Hold Segment (2 s)'], ['scenes', 'Scene Edit Detection (cut at its cuts)'],
+      ...(f.track === 'V1' && f.index > 0 && S.project.tracks.V1[f.index - 1]?.type === 'video' ? [['morph', '🪄 Morph Cut (smooth the jump cut before this clip)']] : []), ['extend', '⏩ Extend the end (+1 s, optical flow)']] : []),
+    ['pasteAttr', 'Paste Attributes…', 'Ctrl+Alt+V'], ['removeAttr', 'Remove Attributes…'], ['label', 'Label colour…'],
+    ...(S.sel.size === 2 ? [['matte', '◐ Track Matte Key (the upper clip is the matte)']] : []),
+    ...(c.mediaId && S.mediaById[c.mediaId] ? ['-', ['revealP', '📁 Reveal in Project'], ['copydir', '📋 Copy folder path'], ...(/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? [['revealE', '📂 Reveal in Explorer']] : []), '-'] : []),
+    ...(c.type === 'video' ? [['comp', '🎬 Make Motion comp (animate it in Motion)'], ['roto', '✂ Roto: cut out the subject (AI)'], ['behind', '✂ Text behind subject (AI roto)'], ['fusion', '✨ Open in Fusion (node effects)']] : []), ['del', 'Delete (leave a gap)', 'Del'], ...(f.track === 'V1' && !c.gap ? [['ripdel', 'Ripple delete (close the gap)', 'Shift+Del']] : []), '-',
     ...(c.type === 'video' ? [['ramp', `⏩ Speed ramp…${c.ramp ? ' (on)' : ''}`]] : []),
     ...(soundClips([id]).length ? [['gain', '🔊 Audio gain…', 'G']] : []),
     ['spdlg', '⏩ Speed / Duration…', 'Ctrl+R'],
@@ -1400,8 +1674,15 @@ function onContext(e) {
     close();
     if (a === 'split') { if (splitClip(id, S.playhead)) commit('Split'); else toast('Move the playhead inside this clip first'); }
     if (a === 'nest') nestSelected();
+    if (a === 'hold' || a === 'holdIns') frameHold(id, a === 'holdIns');
+    if (a === 'label') clipLabel();
+    if (a === 'scenes') sceneEdits(id);
+    if (a === 'morph' || a === 'extend') morphOrExtend(id, a);
+    if (a === 'matte') trackMatteFromClips([...S.sel], findClip);
+    if (a === 'pasteAttr' || a === 'removeAttr') import('./attrs.js').then((x) => (a === 'pasteAttr' ? x.pasteAttributes() : x.removeAttributes()));
     if (a === 'revealP') import('./mediapool.js').then((x) => x.revealInProject(c.mediaId));
     if (a === 'revealE') import('./mediapool.js').then((x) => x.revealInExplorer(c.mediaId));
+    if (a === 'copydir') import('./mediapool.js').then((x) => x.copyFolderPath(c.mediaId));
     if (a === 'comp') makeCompFromClip(id, findClip); // (stays on the timeline: double-click the orange clip to open it)
     if (a === 'behind') textBehindFromClip(id, findClip);
     if (a === 'fusion') fusionFromClip(id, findClip); // (double-click the maroon clip to open it)
@@ -1410,8 +1691,8 @@ function onContext(e) {
     if (a === 'copy') copyClips();
     if (a === 'paste') pasteClips().catch((err) => toast(err.message, 'err'));
     if (a === 'dup') duplicateSelected();
-    if (a === 'del' || a === 'closegap') deleteSelected(true);
-    if (a === 'lift') deleteSelected(false);
+    if (a === 'closegap' || a === 'ripdel') deleteSelected(true);
+    if (a === 'del') deleteSelected(false);
     if (a === 'spdlg') return import('./speeddlg.js').then((x) => x.openSpeedDuration());
     if (a.startsWith('sp')) { const D0 = clipDur(c, S.mediaById); c.speed = +a.slice(2) === 1 ? undefined : +a.slice(2); keepLength(S.project, c, D0, S.mediaById); commit('Speed'); }
     if (a === 'mute') { c.mute = !c.mute || undefined; commit('Mute'); }

@@ -2,7 +2,7 @@
 // maintain audio pitch, ripple edit and time interpolation - for the selected clips. A clip's linked sound / picture
 // gets the same speed, so the two stay in sync.
 import { S, commit, layout } from './store.js';
-import { clipDur, fmtTC, linkedPartner, rampPts, rampAvg } from './model.js';
+import { clipDur, fmtTC, linkedPartner, rampPts, rampAvg, keepLength } from './model.js';
 import { $, esc, toast, modal } from './ui.js';
 
 const isMedia = (c) => c.type === 'video' || (c.type === 'audio' && !c.loop);
@@ -55,7 +55,7 @@ export function openSpeedDuration() {
     if (one && !(dur > 0.04)) return toast('A duration like 00:00:04:13 or 4.5', 'err');
     const ripple = $('[data-ripple]', f).checked, rev = $('[data-rev]', f).checked, pitch = $('[data-pitch]', f).checked, interp = $('[data-interp]', f).value;
     const L = layout();
-    let moved = 0, short = 0;
+    let short = 0, cut = 0;
     for (const c of clips) {
       const track = Object.keys(S.project.tracks).find((t) => S.project.tracks[t].includes(c)), before = clipDur(c, S.mediaById);
       const x = L[track]?.find((p) => p.clip.id === c.id);
@@ -75,24 +75,37 @@ export function openSpeedDuration() {
       // the linked sound (or picture) plays at the same speed over the same part of the file
       const lp = linkedPartner(S.project, c)?.clip;
       if (lp && isMedia(lp) && !clips.includes(lp)) for (const k of ['speed', 'out', 'reverse', 'keepPitch']) { if (c[k] === undefined) delete lp[k]; else lp[k] = c[k]; }
-      const delta = clipDur(c, S.mediaById) - before;
+      let delta = clipDur(c, S.mediaById) - before;
       if (Math.abs(delta) < 0.001 || !x) continue;
+      // ✂ without Ripple edit a clip made longer (slowed down) never covers the next one: it fills the empty space after
+      // it and is cut where the next clip starts - that part of the file is simply not played (like Premiere)
+      const fit = (room) => {
+        if (delta <= room + 0.001) return;
+        if (isMedia(c)) keepLength(S.project, c, before + room, S.mediaById); else c.dur = +(before + room).toFixed(3);
+        if (lp && isMedia(lp) && !clips.includes(lp)) lp.out = c.out;
+        delta = room; cut++;
+      };
       if (track === 'V1') {
         // the main story always closes up; without Ripple edit a gap (or the gap after it) keeps the rest in place
         if (!ripple) {
           const i = S.project.tracks.V1.indexOf(c), nx = S.project.tracks.V1[i + 1];
           if (delta < 0) S.project.tracks.V1.splice(i + 1, 0, { id: `g${Date.now().toString(36)}${i}`, type: 'title', gap: true, text: '', bg: '#000000', dur: +(-delta).toFixed(3) });
-          else if (nx?.gap && nx.dur > delta + 0.04) nx.dur = +(nx.dur - delta).toFixed(3);
-          else if (nx?.gap) S.project.tracks.V1.splice(i + 1, 1);
-          else if (nx) moved++;
+          else if (nx) {
+            fit(nx.gap ? clipDur(nx, S.mediaById) : 0);
+            if (nx.gap && clipDur(nx, S.mediaById) > delta + 0.04) nx.dur = +(clipDur(nx, S.mediaById) - delta).toFixed(3);
+            else if (nx.gap && delta > 0.001) S.project.tracks.V1.splice(i + 1, 1);
+          }
         }
       } else if (ripple) {
         for (const o of S.project.tracks[track]) if (o !== c && o.start >= x.end - 0.01) o.start = +(o.start + delta).toFixed(3);
+      } else if (delta > 0) {
+        const next = Math.min(Infinity, ...S.project.tracks[track].filter((o) => o !== c && (o.start || 0) >= x.end - 0.01).map((o) => o.start || 0));
+        if (Number.isFinite(next)) fit(Math.max(0, next - x.end));
       }
     }
     dlg.close();
     commit('Speed / Duration');
-    if (moved) toast('The clip got longer and there was no gap after it - the story after it moved along');
+    if (cut) toast(`Slowed down - ${cut > 1 ? `${cut} clips end` : 'it ends'} where the next clip starts, so nothing after ${cut > 1 ? 'them' : 'it'} is covered or moved (tick Ripple edit to push the rest along instead)`);
     if (short) toast('The file ends before that duration - the clip stops where the file ends', 'err');
   };
 }

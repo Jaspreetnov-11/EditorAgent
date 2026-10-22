@@ -18,6 +18,7 @@ import { Readable } from 'node:stream';
 import zlib from 'node:zlib';
 import { newProject, uid, placed, clipDur, seqOf, seqHash, ASPECTS, normalizeProject, rangeOf, totalDuration } from './public/js/model.js';
 import { gfxKey } from './public/js/graphics.js';
+import { stabOf } from './public/js/effects.js';
 import { ensureLuts, guessLogLut } from './engine/lutgen.mjs';
 import { ensureLooks } from './engine/looklut.mjs';
 import { keywords, searchStock, downloadStock } from './engine/stock.mjs';
@@ -805,6 +806,21 @@ async function makeWave(file, out) {
 // place in it, kept the viewer black. On this computer the file itself still plays (full quality, it is right here).
 const heavy = (m) => m.kind === 'video' && m.proxy === 'none' && ((m.bitrate || 0) > 8e6 || (m.width || 0) * (m.height || 0) > 1920 * 1080);
 const liteQueued = new Set(); // projects whose light copies were asked for since the start
+// 🎞 old 540p preview copies of the files on a project's timelines are made again at 1080p, in the background (once
+// per project and server start). Files the monitor plays itself (HEVC, H.264 - see player.js) are left as they are.
+const upQueued = new Set();
+const playsItself = (m) => (m.vcodec === 'hevc' && /^yuv420p(10le)?$/.test(m.pixfmt || '')) || (m.vcodec === 'h264' && /^yuvj?420p$/.test(m.pixfmt || ''));
+function upgradeProxies(proj) {
+  if (upQueued.has(proj)) return;
+  upQueued.add(proj);
+  const used = usedMediaIds(proj);
+  for (const m of mediaDb(proj).items) {
+    // (a proxyUp left from a server stopped half way is taken up again: this runs once per start)
+    if (!used.has(m.id) || m.kind !== 'video' || m.proxy !== 'ready' || (m.proxyH || 0) >= PROXY_H || playsItself(m)) continue;
+    m.proxyUp = 'queued'; proxyQ.push({ proj, id: m.id });
+  }
+  pump();
+}
 function ensureLite(proj) {
   if (liteQueued.has(proj)) return;
   liteQueued.add(proj);
@@ -814,22 +830,32 @@ function ensureLite(proj) {
   }
   pump();
 }
+// 🎞 The preview copy of a file the browser cannot play (MXF, ProRes, 4:2:2, 10-bit H.264) is 1080p and nearly as good
+// as the file (crf 18) - the monitor is to look like the footage, as in Premiere. It was 540p / crf 26 and the monitor
+// looked soft. (The light copy for editors over the internet stays small: it has to stream.) PROXY_H marks the new ones.
+const PROXY_H = 1080;
 async function processProxy(proj, id) {
   const m = mediaItem(proj, id);
   if (!m || !fs.existsSync(m.path)) return;
   const lite = m.proxy === 'none'; // (a light copy of a file that plays as it is)
-  if (lite) { m.lite = 'making'; } else { m.proxy = 'making'; m.proxyPct = 0; }
+  const up = !lite && m.proxy === 'ready' && m.proxyUp; // (a sharper copy replacing an old 540p one: the old one plays meanwhile)
+  if (lite) { m.lite = 'making'; } else if (up) { m.proxyUp = 'making'; } else { m.proxy = 'making'; m.proxyPct = 0; }
   const out = P(proj, 'cache', 'proxies', `${id}.mp4`), tmp = `${out}.part.mp4`;
   const r = await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-i', m.path, '-map', '0:v:0', '-map', '0:a:0?',
-    '-vf', 'scale=-2:540,format=yuv420p', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26', '-g', '12', '-c:a', 'aac', '-b:a', '128k', '-ac', '2',
+    '-vf', lite ? 'scale=-2:540,format=yuv420p' : `scale=-2:'min(ih,${PROXY_H})',format=yuv420p`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', lite ? '26' : '18', '-g', '12', '-c:a', 'aac', '-b:a', lite ? '128k' : '192k', '-ac', '2',
     '-movflags', '+faststart', '-progress', 'pipe:1', '-nostats', tmp],
   { onLine: (l) => { const k = /^out_time_ms=(\d+)/.exec(l); if (k && m.duration && !lite) m.proxyPct = Math.min(99, Math.round((+k[1] / 1e6 / m.duration) * 100)); } });
   if (lite) {
     if (r.code === 0 && fs.existsSync(tmp)) { fs.renameSync(tmp, out); m.lite = 'ready'; } else { fs.rmSync(tmp, { force: true }); m.lite = 'error'; }
     return;
   }
+  if (up) {
+    if (r.code === 0 && fs.existsSync(tmp)) { fs.renameSync(tmp, out); m.proxyH = PROXY_H; m.mtimeProxy = Date.now(); } else fs.rmSync(tmp, { force: true });
+    delete m.proxyUp;
+    return;
+  }
   if (r.code === 0 && fs.existsSync(tmp)) {
-    fs.renameSync(tmp, out); m.proxy = 'ready'; m.proxyPct = 100;
+    fs.renameSync(tmp, out); m.proxy = 'ready'; m.proxyPct = 100; m.proxyH = PROXY_H;
     if (m.hasAudio && !m.wave) m.wave = await makeWave(out, P(proj, 'cache', 'waves', `${id}.png`));
     // the agent's per-second analysis, from the small proxy right away, so the agent never has to read the camera file
     await analyzeClip(out, P(proj, 'cache', 'analysis', `${id}.json`), { hasAudio: m.hasAudio, duration: m.duration }).catch(() => {});
@@ -903,7 +929,7 @@ pump();
 
 // Media as the browser needs it (no absolute paths needed client side except for display).
 function publicMedia(proj, m) {
-  const base = `/pm/${encodeURIComponent(proj)}/${m.id}`;
+  const base = `/pm/${encodeURIComponent(proj)}/${m.subOf || m.id}`; // (✂ a subclip shows and plays its whole file)
   const playable = m.kind === 'video' ? (m.proxy === 'ready' || m.proxy === 'none') : m.kind !== 'image' || true;
   return { ...m, camera: m.kind === 'video' && m.width && !m.seqOf ? cameraKey(m) : null, urls: { play: `${base}/play`, thumb: m.thumb ? `${base}/thumb` : null, strip: m.strip ? `${base}/strip` : null, wave: m.wave ? `${base}/wave` : null, peaks: m.hasAudio ? `${base}/peaks` : null }, playable };
 }
@@ -992,6 +1018,13 @@ function startTask(kind, fn, meta = {}) {
     });
   return job;
 }
+// 🎥 two stabilised copies for the monitor at a time (each FFmpeg uses every core); the others wait their turn
+let stabBusy = 0;
+const stabWait = [];
+const stabLine = (fn) => new Promise((ok, bad) => {
+  const go = () => { stabBusy++; fn().then(ok, bad).finally(() => { stabBusy--; stabWait.shift()?.(); }); };
+  if (stabBusy < 2) go(); else stabWait.push(go);
+});
 // Prefer the small proxy for analysis (much faster); colours are the same.
 const analysisFile = (proj, m) => (m.proxy === 'ready' ? P(proj, 'cache', 'proxies', `${m.id}.mp4`) : m.path);
 
@@ -1028,7 +1061,8 @@ function prepareRender(name, b, o = {}) {
     ...(b.aspect && b.aspect !== pj.settings.aspect ? { aspect: b.aspect, fit: b.fit || 'blur' } : {}) } : null;
   const exp = exp0 || Object.keys(qy).length ? { ...(exp0 || {}),
     ...(+qy.res ? { res: +qy.res } : {}), ...(+qy.fps ? { fpsOut: +qy.fps } : {}), ...(qy.codec ? { codec: qy.codec } : {}),
-    ...(+qy.crf ? { crf: +qy.crf } : {}), ...(+qy.abr ? { abr: +qy.abr } : {}), ...(qy.gpu === 'off' ? { gpu: false } : qy.gpu && healthCache?.nvenc ? { gpu: true } : {}) } : null;
+    ...(+qy.crf ? { crf: +qy.crf } : {}), ...(+qy.abr ? { abr: +qy.abr } : {}), ...(qy.gpu === 'off' ? { gpu: false } : qy.gpu && healthCache?.nvenc ? { gpu: true } : {}),
+    ...(qy.burnTC ? { burnTC: true } : {}), ...(qy.burnName ? { burnName: true } : {}) } : null; // (⏱ burn-in for review copies)
   const base = safeName(b.filename || pj.name || name) + (pr && b.tag !== false ? `_${pr.tag}` : '') + (b.tag !== false && exp?.res ? { 2160: '_4K', 1440: '_2K', 1080: '_1080p', 720: '_720p', 480: '_480p' }[exp.res] || '' : '');
   const ext = (exp?.codec || pr?.codec) === 'prores' ? 'mov' : 'mp4';
   let out = '_preview.mp4';
@@ -1037,7 +1071,7 @@ function prepareRender(name, b, o = {}) {
   const taken = (f) => fs.existsSync(P(name, 'renders', f)) || rq.items.some((x) => x.project === name && x.out === f && ['waiting', 'rendering'].includes(x.state))
     || Date.now() - (outReserved.get(`${name}/${f}`) || 0) < 6 * 3600e3;
   if (!preview) { let v = 1; while (taken(`${base}_v${v}.${ext}`)) v++; out = `${base}_v${v}.${ext}`; outReserved.set(`${name}/${out}`, Date.now()); }
-  const media = Object.fromEntries([...used].map((id) => [id, { path: byId[id].path, duration: byId[id].duration, hasAudio: byId[id].hasAudio, kind: byId[id].kind, width: byId[id].width, height: byId[id].height, rotation: byId[id].rotation, size: byId[id].size, mtime: byId[id].mtime }]));
+  const media = Object.fromEntries([...used].map((id) => [id, { path: byId[id].path, duration: byId[id].duration, hasAudio: byId[id].hasAudio, kind: byId[id].kind, width: byId[id].width, height: byId[id].height, rotation: byId[id].rotation, size: byId[id].size, mtime: byId[id].mtime, subOf: byId[id].subOf }]));
   const jobFile = o.jobFile || P(name, 'cache', preview ? 'render-job-preview.json' : `render-job-${safeName(out)}.json`);
   fs.mkdirSync(path.dirname(jobFile), { recursive: true });
   const range = b.whole ? null : rangeOf(pj, totalDuration(pj, byId));
@@ -2100,6 +2134,28 @@ function savePresence() {
   }, 5000);
 }
 const ipOf = (req) => String(req.socket?.remoteAddress || '').replace(/^::ffff:/, '');
+// the request comes from this computer itself - also through the team link (the PC's own LAN address). One that came
+// through a tunnel / proxy (cloudflared on this PC also connects from 127.0.0.1) says where it really came from.
+function samePC(req) {
+  if (req.who?.local) return true;
+  const fwd = String(req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  const ip = (fwd || ipOf(req)).replace(/^::ffff:/, '');
+  return ip === '::1' || (!fwd && ip.startsWith('127.')) || lanIps().includes(ip);
+}
+// L:\Day 4\a.mp4 -> \\Limeligt\Limelight NAS\Day 4\a.mp4: a mapped drive as its network path (net use), so another PC
+// with other drive letters (or none) can open it. Read once a minute at most.
+let netUse = { at: 0, map: {} };
+function toUnc(p) {
+  const d = /^([a-z]):[\\/]/i.exec(p || '')?.[1]?.toUpperCase();
+  if (!d || process.platform !== 'win32') return p || '';
+  if (Date.now() - netUse.at > 60e3) {
+    const map = {};
+    const r = spawnSync('net', ['use'], { encoding: 'utf8', windowsHide: true });
+    for (const l of String(r.stdout || '').split(/\r?\n/)) { const m = /^\S*\s+([A-Z]):\s+(\\\\.+?)(?:\s{2,}\S.*)?\s*$/.exec(l); if (m) map[m[1]] = m[2].trim(); }
+    netUse = { at: Date.now(), map };
+  }
+  return netUse.map[d] ? netUse.map[d] + p.slice(2) : p;
+}
 const whoLabel = (who) => (who.local ? `${who.name} (this PC)` : who.name);
 const routes = {
   'GET /api/health': () => healthCache || checkHealth(),
@@ -2406,17 +2462,93 @@ const routes = {
     backup(name); fs.copyFileSync(f, P(name, 'project.json'));
     return readJSON(P(name, 'project.json'));
   },
-  // 📂 Reveal in Explorer (right-click a file in Media or a clip on the timeline): an Explorer window with the file
-  // selected - on the editor's own PC only (from another PC the window would open here, on the editor's computer, so
-  // the path comes back for them to copy). A file that is not there: the folder it was in, or the project's folder.
+  // ⏸ Frame Hold: one frame of a file (seconds t) as a full-size still in the project (imports/stills), added to Media
+  // (folder "Frame holds") - the timeline holds it as a still clip. Body { mediaId, t } -> { mediaId } once it is read.
+  'POST /api/media/still': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req), m = mediaItem(name, String(b.mediaId || ''));
+    if (!m || m.kind !== 'video' || !fs.existsSync(m.path)) throw err(400, 'That clip has no video file here');
+    const t = Math.max(0, Math.min((m.duration || 0) - 0.02, +b.t || 0)), dir = P(name, 'imports', 'stills');
+    fs.mkdirSync(dir, { recursive: true });
+    const out = path.join(dir, `${m.id}_${t.toFixed(3).replace('.', '_')}.png`);
+    if (!fs.existsSync(out)) {
+      const r = await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-ss', t.toFixed(3), '-i', m.path, '-frames:v', '1', '-update', '1', out]);
+      if (r.code !== 0 || !fs.existsSync(out)) throw err(500, `Could not take that frame: ${r.stderr.trim().split(/\r?\n/).pop() || 'unknown'}`);
+    }
+    const it = addMediaFile(name, out, { bin: 'Frame holds', imported: true }) || mediaDb(name).items.find((x) => x.path.toLowerCase() === path.resolve(out).toLowerCase());
+    saveMedia(name, true);
+    if (activeProject !== name) { activeProject = name; pump(); }
+    for (let i = 0; i < 50 && !['ready', 'error'].includes(mediaItem(name, it.id)?.status); i++) await new Promise((ok) => setTimeout(ok, 200));
+    return { mediaId: it.id };
+  },
+  // 🎥 the monitor's stabilised copy of a shot (Warp Stabilizer / Stabilize, like Premiere's "Analyzing in background"):
+  // the part of the file the shot uses (a second either side, so a small trim needs no new one), stabilised with the
+  // shot's own settings (stabOf - the same as the export) into a 1080p copy with its sound, cache/stab/<key>.mp4. Made
+  // from the camera file, not its 540p preview copy: the shake is measured on the real detail (and the copy is sharp).
+  // Body { clip, a, b }: { ready, file, a } at once when it is there, else { job } - the job's result is the same.
+  'POST /api/stab': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req), c = b.clip || {}, m = mediaItem(name, String(c.mediaId || ''));
+    const so = stabOf(c);
+    if (!m || m.kind !== 'video' || !so) throw err(400, 'Not a stabilised video clip');
+    const a = Math.max(0, +b.a || 0), z = Math.min(m.duration || Infinity, +b.b || 0);
+    if (!(z - a > 0.1)) throw err(400, 'Nothing to stabilise');
+    const key = crypto.createHash('sha1').update(`${m.id}|${a.toFixed(2)}|${z.toFixed(2)}|${so.key}`).digest('hex').slice(0, 16);
+    const dir = P(name, 'cache', 'stab'), out = path.join(dir, `${key}.mp4`), info = { file: `${key}.mp4`, a };
+    if (fs.existsSync(out)) return { ready: true, ...info };
+    const running = [...jobs.values()].find((j) => j.kind === 'stab' && j.stabKey === key && j.status === 'running');
+    if (running) return { job: running.id };
+    const job = startTask('stab', async (job) => {
+      job.stage = 'Waiting for the stabiliser…';
+      return stabLine(async () => {
+        fs.mkdirSync(dir, { recursive: true });
+        const src = fs.existsSync(m.path) ? m.path : analysisFile(name, m), len = z - a, pre = "scale=-2:'min(ih,1080)'";
+        const prog = (base) => (l) => { const t = /^out_time_ms=(\d+)/.exec(l); if (t) job.progress = Math.min(99, Math.round(base + 50 * (+t[1] / 1e6 / len))); };
+        // (run in the folder: vid.stab's motion file then needs no Windows path inside the filter text)
+        job.stage = 'Analysing the shake (1 of 2)…';
+        let r = await run('ffmpeg', ['-hide_banner', '-nostats', '-progress', 'pipe:1', '-y', '-ss', a.toFixed(3), '-t', len.toFixed(3), '-i', src, '-an', '-vf', `${pre},${so.detect}:result=${key}.trf`, '-f', 'null', '-'], { cwd: dir, onLine: prog(0) });
+        if (r.code !== 0) throw new Error(`Could not analyse the shot: ${r.stderr.trim().split(/\r?\n/).pop()}`);
+        job.stage = 'Stabilising (2 of 2)…';
+        r = await run('ffmpeg', ['-hide_banner', '-nostats', '-progress', 'pipe:1', '-y', '-ss', a.toFixed(3), '-t', len.toFixed(3), '-i', src, '-vf', `${pre},vidstabtransform=input=${key}.trf:${so.transform},format=yuv420p`,
+          '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '19', '-g', '15', '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', `${key}.part.mp4`], { cwd: dir, onLine: prog(50) });
+        fs.rmSync(path.join(dir, `${key}.trf`), { force: true });
+        if (r.code !== 0) { fs.rmSync(path.join(dir, `${key}.part.mp4`), { force: true }); throw new Error(`Could not stabilise the shot: ${r.stderr.trim().split(/\r?\n/).pop()}`); }
+        fs.renameSync(path.join(dir, `${key}.part.mp4`), out);
+        return { ready: true, ...info };
+      });
+    }, { project: name, stabKey: key, label: `🎥 Stabilising ${m.name}` });
+    return { job: job.id };
+  },
+  'GET /api/stab/file': (req, res, u) => serveFile(req, res, P(needProject(q(u, 'p')), 'cache', 'stab', path.basename(String(q(u, 'f') || ''))), true),
+  // 📂 Reveal in Explorer (right-click a file in Media or a clip on the timeline): the folder the file came from, with
+  // the file selected. On the editor's own PC (also when it is opened through the team link) the server opens Explorer.
+  // Another PC opens it itself through its Reveal helper (/api/reveal-helper) - so the answer carries the network path
+  // (L:\… -> \\Limeligt\Limelight NAS\…), which every PC can open whatever drive letters it has.
   'POST /api/media/reveal': (req, res, u) => {
     const name = needProject(q(u, 'p')), m = mediaItem(name, String(q(u, 'id') || ''));
     if (!m) throw err(404, 'media not found');
     const file = m.path && fs.existsSync(m.path) ? m.path : null;
-    const dir = file ? null : [m.path && path.dirname(m.path)].find((d) => d && fs.existsSync(d)) || projDir(name);
-    const opened = !!req.who?.local && process.platform === 'win32';
+    const dir = file ? path.dirname(file) : [m.path && path.dirname(m.path)].find((d) => d && fs.existsSync(d)) || projDir(name);
+    const opened = samePC(req) && process.platform === 'win32' && !q(u, 'copy'); // (copy=1: 📋 Copy folder path - only the path)
     if (opened) spawn('explorer', [file ? `/select,"${file}"` : `"${dir}"`], { detached: true, stdio: 'ignore', windowsVerbatimArguments: true }).unref();
-    return { path: m.path || '', opened, missing: !file };
+    return { path: m.path || '', unc: toUnc(file || dir), select: !!file, opened, missing: !file };
+  },
+  // the Reveal helper for another PC: one small file to run once there - it teaches Windows the limelight-reveal: link,
+  // which opens Explorer at a file (or a folder) on that PC. Nothing else is installed; no admin rights.
+  'GET /api/reveal-helper': (req, res) => {
+    // the link is limelight-reveal:<s|f><hex of each UTF-16 letter> (s: select the file, f: open the folder) - hex, so
+    // Hindi names reach Explorer whole (browsers and VBScript disagree about %-escapes)
+    const vbs = ['Dim a, p, i: a = WScript.Arguments(0): a = Mid(a, InStr(a, ":") + 1)', 'Do While Left(a, 1) = "/": a = Mid(a, 2): Loop',
+      'For i = 2 To Len(a) - 3 Step 4: p = p & ChrW(CLng("&H" & Mid(a, i, 4))): Next', 'Set s = CreateObject("WScript.Shell")',
+      'If Left(a, 1) = "f" Then s.Run "explorer.exe """ & p & """", 1, False Else s.Run "explorer.exe /select,""" & p & """", 1, False'];
+    const cmd = ['@echo off', 'rem Limelight Editor - Reveal helper: Right-click > Reveal in Explorer opens the NAS folder on this PC',
+      String.raw`set "D=%LOCALAPPDATA%\Limelight"`, 'if not exist "%D%" mkdir "%D%"',
+      // (written by PowerShell from base64: cmd's echo cannot write VBScript's quotes and & reliably)
+      `powershell -NoProfile -Command "[IO.File]::WriteAllText($env:LOCALAPPDATA + '${'\\'}Limelight${'\\'}reveal.vbs', [Text.Encoding]::ASCII.GetString([Convert]::FromBase64String('${Buffer.from(vbs.join('\r\n'), 'ascii').toString('base64')}')))"`,
+      String.raw`reg add "HKCU\Software\Classes\limelight-reveal" /ve /d "URL:Limelight Reveal" /f >nul`,
+      String.raw`reg add "HKCU\Software\Classes\limelight-reveal" /v "URL Protocol" /d "" /f >nul`,
+      String.raw`reg add "HKCU\Software\Classes\limelight-reveal\shell\open\command" /ve /d "wscript.exe \"%D%\reveal.vbs\" \"%%1\"" /f >nul`,
+      'echo Done - Reveal in Explorer now opens the folder on this PC. You can close this window.', 'pause'].join('\r\n');
+    res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename="Limelight Reveal helper.cmd"' });
+    res.end(cmd);
   },
   'POST /api/open-folder': (req, res, u) => {
     const name = needProject(q(u, 'p'));
@@ -2461,6 +2593,7 @@ const routes = {
     if (activeProject !== name) { activeProject = name; pump(); }
     checkOfflineSoon(name); // 🗂 files gone since they were read (moved, drive unplugged) show as offline (next list)
     if (!req.who?.local) ensureLite(name); // 🌐 someone over the internet has it open: light copies of its heavy files
+    upgradeProxies(name); // 🎞 sharper (1080p) preview copies for the files on its timelines
     const items = mediaDb(name).items;
     // counts for this project only (other projects keep processing in the background)
     return { items: items.map((m) => publicMedia(name, m)), queue: {
@@ -2536,6 +2669,7 @@ const routes = {
   'DELETE /api/media': (req, res, u) => {
     const name = needProject(q(u, 'p')), db = mediaDb(name);
     const ids = new Set(String(q(u, 'id')).split(','));
+    for (const m of db.items) if (m.subOf && ids.has(m.subOf)) ids.add(m.id); // (✂ its subclips go with a file)
     for (const m of db.items.filter((x) => ids.has(x.id))) {
       for (const f of [['thumbs', 'jpg'], ['strips', 'jpg'], ['waves', 'png'], ['proxies', 'mp4']]) fs.rmSync(P(name, 'cache', f[0], `${m.id}.${f[1]}`), { force: true });
       if (m.imported && m.path.startsWith(P(name, 'imports'))) fs.rmSync(m.path, { force: true }); // only our own copy, never the raw footage
@@ -3228,6 +3362,103 @@ const routes = {
     return editPeople(name, (d) => { d.people = d.people.filter((x) => x.key !== b.key); return { removed: b.key }; });
   },
   // move clips to another folder (bin) of the media pool, e.g. "Rejects". Body { ids, bin }
+  // 🪄 Morph Cut (a jump cut in an interview made smooth) and ⏩ Extend: short new pictures made with optical flow
+  // (FFmpeg minterpolate, motion-compensated) - a file in imports/morph, added to Media (folder "Morph cuts").
+  //   Morph: Body { kind: 'morph', a: { mediaId, t }, b: { mediaId, t }, dur } - the frames in between the last frame of
+  //     the first shot (a) and the first of the second (b), over dur seconds
+  //   Extend: Body { kind: 'extend', a: { mediaId, t }, dur, from } - the last `from` seconds before t, slowed with
+  //     in-between frames to last `dur` seconds (the shot carries on, slower, instead of stopping)
+  // -> a job whose result is { mediaId }
+  'POST /api/morph': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req), A = mediaItem(name, String(b.a?.mediaId || ''));
+    const B = b.kind === 'morph' ? mediaItem(name, String(b.b?.mediaId || '')) : null, dur = Math.min(3, Math.max(0.2, +b.dur || 0.5));
+    if (!A || A.kind !== 'video' || !fs.existsSync(A.path) || (b.kind === 'morph' && (!B || !fs.existsSync(B.path)))) throw err(400, 'Those clips have no video file here');
+    const pj = liveOf(name).pj, [W0, H0] = ASPECTS[pj.settings?.aspect] || [1920, 1080], fps = pj.settings?.fps || 30;
+    const dir = P(name, 'imports', 'morph'); fs.mkdirSync(dir, { recursive: true });
+    const key = crypto.createHash('sha1').update(JSON.stringify([b.kind, A.id, b.a.t, B?.id, b.b?.t, dur, b.from, W0, H0, fps])).digest('hex').slice(0, 12), out = path.join(dir, `${b.kind}_${key}.mp4`);
+    const fit = `scale=${W0}:${H0}:force_original_aspect_ratio=decrease,pad=${W0}:${H0}:(ow-iw)/2:(oh-ih)/2,setsar=1`;
+    return startTask('morph', async (job) => {
+      if (!fs.existsSync(out)) {
+        const tmp = path.join(dir, `${key}_tmp`); fs.mkdirSync(tmp, { recursive: true });
+        // (scd=none: two different shots read as a scene change, and it would jump instead of morphing)
+        const mi = `minterpolate=fps=${fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1:scd=none`;
+        let r;
+        if (b.kind === 'morph') {
+          job.stage = 'Making the frames in between…';
+          for (const [f, m, t] of [['0.png', A, +b.a.t], ['2.png', B, +b.b.t]]) await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-ss', Math.max(0, t).toFixed(3), '-i', m.path, '-frames:v', '1', '-vf', fit, path.join(tmp, f)]);
+          fs.copyFileSync(path.join(tmp, '0.png'), path.join(tmp, '1.png')); fs.copyFileSync(path.join(tmp, '2.png'), path.join(tmp, '3.png'));
+          // A, A, B, B - dur apart (minterpolate needs frames either side): every frame from the 2nd to the 3rd is made
+          // from their motion, and only that part is kept
+          const ms = Math.round(dur * 1000);
+          r = await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-start_number', '0', '-framerate', `1000/${ms}`, '-i', path.join(tmp, '%d.png'),
+            '-vf', `${mi},trim=start=${(ms / 1000).toFixed(3)}:end=${((2 * ms) / 1000).toFixed(3)},setpts=PTS-STARTPTS,format=yuv420p`, '-c:v', 'libx264', '-crf', '16', '-preset', 'medium', out]);
+        } else {
+          job.stage = 'Making the shot carry on…';
+          const from = Math.min(dur, Math.max(0.2, +b.from || dur / 2)), t0 = Math.max(0, +b.a.t - from);
+          r = await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-ss', t0.toFixed(3), '-t', from.toFixed(3), '-i', A.path, '-an', '-vf', `${fit},setpts=${(dur / from).toFixed(4)}*PTS,${mi},format=yuv420p`, '-t', dur.toFixed(3), '-c:v', 'libx264', '-crf', '16', '-preset', 'medium', out]);
+        }
+        fs.rmSync(tmp, { recursive: true, force: true });
+        if (r.code !== 0 || !fs.existsSync(out)) { fs.rmSync(out, { force: true }); throw new Error(`Could not make it: ${r.stderr.trim().split(/\r?\n/).pop()}`); }
+      }
+      const it = addMediaFile(name, out, { bin: b.kind === 'morph' ? 'Morph cuts' : 'Extended', imported: true }) || mediaDb(name).items.find((x) => x.path.toLowerCase() === path.resolve(out).toLowerCase());
+      saveMedia(name, true);
+      if (activeProject !== name) { activeProject = name; pump(); }
+      for (let i = 0; i < 100 && !['ready', 'error'].includes(mediaItem(name, it.id)?.status); i++) await new Promise((ok) => setTimeout(ok, 200));
+      return { mediaId: it.id };
+    }, { project: name });
+  },
+  // 🎬 Scene Edit Detection (right-click a clip): where the picture cuts inside a file (a finished video, an old
+  // render, a YouTube download) between in and out - FFmpeg's scene change score, on the light preview copy when
+  // there is one. Body { mediaId, in, out, threshold? } -> a job whose result is { cuts: [seconds in the file] }
+  'POST /api/media/scenes': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req), m = mediaItem(name, String(b.mediaId || ''));
+    if (!m || m.kind !== 'video') throw err(400, 'Scene Edit Detection works on video clips');
+    const px = analysisFile(name, m), src = fs.existsSync(px) ? px : m.path;
+    if (!fs.existsSync(src)) throw err(404, 'The file is not there');
+    const a = Math.max(0, +b.in || 0), z = Math.min(m.duration || Infinity, +b.out || m.duration || 0), th = Math.min(0.8, Math.max(0.1, +b.threshold || 0.3));
+    return startTask('scenes', async (job) => {
+      job.stage = `Looking for the cuts in ${m.name}…`;
+      const cuts = [];
+      const r = await run('ffmpeg', ['-hide_banner', '-nostats', '-ss', a.toFixed(3), '-t', (z - a).toFixed(3), '-i', src, '-an', '-vf', `scale=320:-2,select='gt(scene,${th})',metadata=print:file=-`, '-f', 'null', '-'],
+        { onLine: (l) => { const t = /pts_time:([\d.]+)/.exec(l); if (t) { cuts.push(+(a + +t[1]).toFixed(3)); job.progress = Math.min(99, Math.round((+t[1] / Math.max(0.1, z - a)) * 100)); } } });
+      if (r.code !== 0) throw new Error(`Could not read the video: ${r.stderr.trim().split(/\r?\n/).pop()}`);
+      // (two cuts closer than half a second are one flash / one cut)
+      return { cuts: cuts.filter((t, i) => t > a + 0.2 && t < z - 0.2 && (i === 0 || t - cuts[i - 1] > 0.5)) };
+    }, { project: name });
+  },
+  // 🎞 Interpret Footage (Media, right-click): play a file as if it had another frame rate - 50 fps footage as 25 is
+  // smooth 2x slow motion. Body { ids, fps } (fps 0 = as it was shot). The clips of these files on the timelines get
+  // the matching speed in the browser (mediapool.js); here it is remembered on the file (m.interpretFps).
+  'POST /api/media/interpret': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req), ids = new Set(b.ids || []), fps = +b.fps || 0;
+    let n = 0;
+    for (const m of mediaDb(name).items) if (ids.has(m.id) && m.kind === 'video') { if (fps > 0) m.interpretFps = +fps.toFixed(3); else delete m.interpretFps; n++; }
+    saveMedia(name, true);
+    return { changed: n };
+  },
+  // ✂ Subclip (Premiere's Make Subclip, Ctrl+U): a part of a file (its Source In..Out) as its own item in Media - the
+  // same file (nothing copied), shown and played through its file's thumbnails / preview copy (publicMedia), put on the
+  // timeline with that part. Body { mediaId, in, out, name? } -> the new item
+  'POST /api/media/subclip': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req), db = mediaDb(name);
+    const par0 = db.items.find((x) => x.id === b.mediaId), par = par0?.subOf ? db.items.find((x) => x.id === par0.subOf) : par0;
+    if (!par || !['video', 'audio'].includes(par.kind)) throw err(400, 'Open a video or sound file in the Source monitor first');
+    const a = Math.max(0, +b.in || 0), z = Math.min(par.duration || Infinity, +b.out || 0);
+    if (!(z - a > 0.04)) throw err(400, 'Mark an In and an Out in the Source monitor first');
+    const n = String(b.name || '').trim().slice(0, 120) || `${par.name.replace(/\.[^.]+$/, '')} - Subclip ${db.items.filter((x) => x.subOf === par.id).length + 1}`;
+    const it = { ...JSON.parse(JSON.stringify(par)), id: crypto.randomBytes(6).toString('hex'), name: n, subOf: par.id, subIn: +a.toFixed(3), subOut: +z.toFixed(3), imported: false, bin: par.bin || '', added: Date.now() };
+    delete it.tags; delete it.people; delete it.label;
+    db.items.push(it); saveMedia(name, true);
+    return publicMedia(name, it);
+  },
+  // 🏷 Colour label on files in Media (like Premiere's labels): Body { ids, label: '#hex' | '' }
+  'POST /api/media/label': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req), ids = new Set(b.ids || []), lab = /^#[0-9a-f]{6}$/i.test(b.label || '') ? b.label : '';
+    let n = 0;
+    for (const m of mediaDb(name).items) if (ids.has(m.id)) { if (lab) m.label = lab; else delete m.label; n++; }
+    saveMedia(name, true);
+    return { labelled: n };
+  },
   'POST /api/media/bin': async (req, res, u) => {
     const name = needProject(q(u, 'p')), b = await readJson(req), ids = new Set(b.ids || []);
     let n = 0;

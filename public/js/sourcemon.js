@@ -7,7 +7,7 @@ import { S, on, emit, commit, duration } from './store.js';
 import { api, enc } from './api.js';
 import { fmtTC, fmt, clipDur } from './model.js';
 import { $, esc, toast } from './ui.js';
-import { placeMedia } from './timeline.js';
+import { placeMedia, targets } from './timeline.js';
 import { uploadFiles, refreshMedia } from './mediapool.js';
 
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
@@ -250,8 +250,9 @@ function put(how) {
   const mk = { ...marks(), only: takeOnly() };
   let c;
   if (how === 'append') { const track = m.kind === 'audio' ? 'A2' : 'V1'; c = placeMedia(id, track, track === 'V1' ? 1e9 : duration(), mk); }
-  else if (how === 'overlay') c = placeMedia(id, m.kind === 'audio' ? 'A1' : 'V2', S.playhead, mk);
-  else c = placeMedia(id, m.kind === 'audio' ? 'A2' : 'V1', S.playhead, mk);
+  else { const tg = targets()[m.kind === 'audio' ? 'a' : 'v']; // (🎯 a targeted track, else as before)
+    if (how === 'overlay') c = placeMedia(id, tg || (m.kind === 'audio' ? 'A1' : 'V2'), S.playhead, { ...mk, ...(tg ? { overwrite: true } : {}) });
+    else c = placeMedia(id, tg || (m.kind === 'audio' ? 'A2' : 'V1'), S.playhead, mk); }
   if (c) { commit(how === 'overlay' ? 'Overlay' : how === 'append' ? 'Append' : 'Insert'); toast(`${m.name} on the timeline (${fmt(clipDur(c, S.mediaById))})`); }
 }
 

@@ -103,7 +103,7 @@ function renderClip(id) {
     html += sec('transform', '🎬 Motion', motionHTML(c, (L?.end || 0) - (L?.start || 0), isVid) + `<div class="motion-presets"><button class="small" data-motion="zin">Zoom in</button><button class="small" data-motion="zout">Zoom out</button>
       <button class="small" data-motion="pan">Pan →</button><button class="small" data-motion="panl">← Pan</button><button class="small" data-motion="clear">Reset</button></div>`);
   }
-  if (isVid) html += sec('ai', '🤖 AI picture tools', aiHTML(c));
+  if (isVid) html += sec('ai', 'Generative Fill', aiHTML(c));
   if (isVid) html += sec('gyro', `🛸 Gyroflow (gyro stabilize)${c.gyroflow ? ' <span class="tag">on</span>' : ''}`, gyroHTML(c));
   if (isVid || (track !== 'V1' && (isImg || isTitle))) html += sec('trk', '🎯 Tracking', trackingHTML(c, track));
   if (isVid || isImg) html += sec('cutfx', `⚡ Cut effect${c.cutFx?.type ? ` <span class="tag">${esc(CUTFX[c.cutFx.type]?.label || c.cutFx.type)}</span>` : ''}`, fieldsHTML([

@@ -6,10 +6,25 @@ import * as SM from './sourcemon.js';
 import { useContext as audioOut } from './audioout.js';
 import { S, on, emit, layout, duration, commit } from './store.js';
 import { ASPECTS, fmtTC, fmt, clipDur, propAt, sourceAt, speedAt, rampPts, setAnimated, overlayTracks, audioTracks, evalKeys } from './model.js';
+import { stabState, stabBanner } from './stabprev.js';
+
+// 🎞 Full quality, like Premiere: a camera file the browser can decode itself - HEVC / H.265 (DJI drones, Sony, phones;
+// most PCs' graphics decode 4K of it, measured: a 4K DJI file loads in 0.75 s and plays without a dropped frame) - plays
+// from the file, not from its small 540p preview copy (which made the monitor soft). The preview copy stays for what
+// the browser cannot play (MXF, ProRes, 4:2:2), and when the editor is opened over the internet (too heavy to stream).
+const HEVC = (() => {
+  try { const v = document.createElement('video'); return { yuv420p: !!v.canPlayType('video/mp4; codecs="hvc1.1.6.L153.B0"'), yuv420p10le: !!v.canPlayType('video/mp4; codecs="hvc1.2.4.L153.B0"') }; } catch { return {}; }
+})();
+const ON_LAN = /^(localhost$|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(location.hostname);
+// (and 4K H.264, which only got the preview copy for being big)
+const direct = (m) => ON_LAN && m?.kind === 'video' && m.status === 'ready' && m.proxy !== 'none' && /\.(mp4|mov|m4v)$/i.test(m.path || '')
+  && ((m.vcodec === 'hevc' && HEVC[m.pixfmt]) || (m.vcodec === 'h264' && /^yuvj?420p$/.test(m.pixfmt || '')));
+export const canPlay = (m) => !!m && (m.playable || direct(m));
+export const playUrl = (m) => (direct(m) ? m.urls.play.replace(/\/play$/, '/orig') : m.urls.play);
 import { lookCss } from './looks.js';
 import { buildFxNodes } from './audiofx.js';
 import { $, $$, h, esc, clamp, toast } from './ui.js';
-import { placeMedia } from './timeline.js';
+import { placeMedia, targets } from './timeline.js';
 import { api, enc } from './api.js';
 import { Grader, loadLut, cachedLut } from './colorgl.js';
 import { isNeutral } from './colormath.js';
@@ -22,6 +37,7 @@ import { captionAt } from './captions.js';
 import { fitMap, framingOf, srcSize, boxAt, srcTimeAt } from './tracking.js';
 
 let root, frame, els = {}, mode = 'program', srcId = null, grader = null;
+export const sourceMediaId = () => srcId; // (the file open in the Source monitor - ✂ Make Subclip)
 let lookFilter = ''; // the film look, roughly (CSS); added to every picture layer in program mode
 let playing = false, wall0 = 0, t0 = 0, raf = 0;
 // rAF stops in background tabs; keep the clock (and audio sync) running there with a timer
@@ -66,6 +82,7 @@ export function mountViewer(el) {
       <div class="lyr guides" id="lyGuides" hidden><i class="g-action"></i><i class="g-title"></i><i class="g-h"></i><i class="g-v"></i></div>
       <div class="lyr maskui" id="lyMaskUi" hidden></div>
       <div class="vw-msg" id="vwMsg" hidden></div>
+      <div class="vw-stab" id="vwStab" hidden></div>
     </div>
   </div>
   <div class="vw-ruler" id="vwRuler" title="Drag to move through the edit"><div class="vr-ticks"></div><div class="vr-ph"><i></i></div></div>
@@ -91,7 +108,7 @@ export function mountViewer(el) {
     <span class="tc" id="vwDur"></span>
   </div>`;
   frame = $('#vwFrame', el);
-  for (const k of ['lyA', 'lyB', 'lyImg', 'lyCard', 'lyText', 'lyOv', 'lyOvImg', 'lyOvText', 'lyLogo', 'lyBlur', 'vwMsg', 'lyGrade', 'lyFx', 'lyOvStack', 'lyCap', 'lyMask', 'lyFxm', 'lyMaskUi', 'lyFxo']) els[k] = $(`#${k}`, el);
+  for (const k of ['lyA', 'lyB', 'lyImg', 'lyCard', 'lyText', 'lyOv', 'lyOvImg', 'lyOvText', 'lyLogo', 'lyBlur', 'vwMsg', 'lyGrade', 'lyFx', 'lyOvStack', 'lyCap', 'lyMask', 'lyFxm', 'lyMaskUi', 'lyFxo', 'vwStab']) els[k] = $(`#${k}`, el);
   try { grader = new Grader(els.lyGrade); } catch { grader = null; } // without WebGL2 the CSS approximation is used
   // a paused frame arrives after the seek finishes: redraw then so the graded canvas is up to date
   [els.lyA, els.lyB, els.lyImg].forEach((m) => m.addEventListener(m.tagName === 'IMG' ? 'load' : 'seeked', () => { if (mode === 'program' && !playing) drawProgram(S.playhead, false); }));
@@ -225,7 +242,7 @@ export function setMode(m) {
 }
 
 function hideAll() {
-  for (const k of ['lyA', 'lyB', 'lyImg', 'lyCard', 'lyText', 'lyOv', 'lyOvImg', 'lyOvText', 'lyLogo', 'lyBlur', 'vwMsg', 'lyFx', 'lyCap', 'lyMask', 'lyFxo', 'lyFxm']) { els[k].hidden = true; els[k].style.opacity = ''; }
+  for (const k of ['lyA', 'lyB', 'lyImg', 'lyCard', 'lyText', 'lyOv', 'lyOvImg', 'lyOvText', 'lyLogo', 'lyBlur', 'vwMsg', 'vwStab', 'lyFx', 'lyCap', 'lyMask', 'lyFxo', 'lyFxm']) { els[k].hidden = true; els[k].style.opacity = ''; }
   // the program's colour layer and cinematic overlay must not show through the source monitor
   els.lyGrade.hidden = true; const lk = $('#lyLook', root); if (lk) lk.hidden = true;
   for (const v of [els.lyA, els.lyB, els.lyOv]) v.pause();
@@ -237,7 +254,7 @@ function hideAll() {
 // A camera file whose preview copy is still being made cannot play yet; the Source monitor then scrubs a virtual
 // position (srcT) over the clip's filmstrip, and In / Out / Insert / Overlay still work. The copy is made right away.
 let srcT = 0;
-const srcPlayable = () => { const m = S.mediaById[srcId]; return !!m && m.kind !== 'image' && m.playable; };
+const srcPlayable = () => { const m = S.mediaById[srcId]; return !!m && m.kind !== 'image' && canPlay(m); };
 const srcTime = () => (srcPlayable() ? els.lyA.currentTime || 0 : srcT);
 let srcAt = null;
 export function openSource(id, at = null) {
@@ -255,19 +272,21 @@ function loadSource() {
   const m = S.mediaById[srcId];
   if (!m) return;
   $('#vwTitle').textContent = m.name;
+  // ✂ a subclip opens with its part marked (In / Out) - its file is the whole one
+  if (m.subOf && !S.sourceMarks[srcId]) S.sourceMarks[srcId] = { in: m.subIn, out: m.subOut };
   const v = els.lyA, mk = S.sourceMarks[srcId] || {};
   v.style.cssText = ''; v.style.objectFit = 'contain';
   srcT = srcAt ?? mk.in ?? 0;
   const jump = srcAt !== null; srcAt = null;
   if (m.kind === 'image') { els.lyImg.hidden = false; els.lyImg.src = m.urls.thumb ? `${m.urls.play}` : m.urls.play; els.lyImg.style.cssText = 'object-fit:contain'; }
-  else if (!m.playable) {
+  else if (!canPlay(m)) {
     showMsg(`${proxyMsg(m)} - you can scrub, mark In / Out and Insert meanwhile.`, m.urls.strip ? null : m.urls.thumb);
     drawStrip();
     if (m.kind === 'video') api('POST', `/api/media/urgent?p=${enc(S.proj)}&id=${m.id}`).catch(() => {});
   } else {
     v.hidden = false; v.muted = false; v.volume = 1; v.playbackRate = 1;
-    if (v.dataset.src !== m.urls.play) {
-      v.src = m.urls.play; v.dataset.src = m.urls.play; v.dataset.cid = '';
+    if (v.dataset.src !== playUrl(m)) {
+      v.src = playUrl(m); v.dataset.src = playUrl(m); v.dataset.cid = '';
       // show a real frame straight away (a freshly loaded video stays black until it is seeked)
       v.addEventListener('loadeddata', () => { if (mode === 'source') { v.currentTime = Math.max(0.04, srcT); srcUI(); } }, { once: true });
     } else if (jump) v.currentTime = Math.max(0.04, srcT);
@@ -309,8 +328,9 @@ export function sourceTo(how) {
   if (how === 'append') {
     const track = m.kind === 'audio' ? 'A2' : 'V1';
     c = placeMedia(srcId, track, track === 'V1' ? 1e9 : duration(), mk);
-  } else if (how === 'overlay') c = placeMedia(srcId, m.kind === 'audio' ? 'A1' : 'V2', S.playhead, mk);
-  else c = placeMedia(srcId, m.kind === 'audio' ? 'A2' : 'V1', S.playhead, mk);
+  } else { const tg = targets()[m.kind === 'audio' ? 'a' : 'v']; // (🎯 a targeted track, else as before)
+    if (how === 'overlay') c = placeMedia(srcId, tg || (m.kind === 'audio' ? 'A1' : 'V2'), S.playhead, { ...mk, ...(tg ? { overwrite: true } : {}) });
+    else c = placeMedia(srcId, tg || (m.kind === 'audio' ? 'A2' : 'V1'), S.playhead, mk); }
   if (c) { commit(how === 'overlay' ? 'Overlay' : how === 'append' ? 'Append' : 'Insert'); toast(`${m.name} added (${fmt(clipDur(c, S.mediaById))})`); }
 }
 
@@ -411,7 +431,10 @@ function fitStyle(el, c, rel = 0) {
 const isVertical = () => { const [w, h] = ASPECTS[S.project.settings.aspect] || [16, 9]; return h > w; };
 
 function syncVideo(v, m, c, start, t, play, vol, track = 'V1') {
-  const url = m.urls.play;
+  // 🎥 a stabilised shot plays its stabilised copy once the server has made it (stabprev.js); until then the file
+  const st = stabState(c, m), stab = st?.status === 'ready' ? st : null, banner = stabBanner(st);
+  if (banner && mode === 'program') { els.vwStab.hidden = false; els.vwStab.textContent = banner; }
+  const url = stab ? stab.url : playUrl(m);
   if (v.dataset.src !== url) { v.src = url; v.dataset.src = url; }
   v.dataset.cid = c.id;
   // speed ramps: the source position and playback rate follow the ramp curve (tighter resync while ramping)
@@ -419,6 +442,7 @@ function syncVideo(v, m, c, start, t, play, vol, track = 'V1') {
   let target = sourceAt(c, t - start, D);
   // ⏪ Reverse speed: the frame mirrored inside In..Out (a browser cannot play backwards: it is shown frame by frame)
   if (c.reverse) target = (c.in || 0) + (c.out ?? m.duration ?? 0) - target;
+  if (stab) target -= stab.a; // (the copy starts at that second of the file)
   v.preservesPitch = c.keepPitch !== false; // ("Maintain audio pitch" off: faster = higher, like the render)
   // (browsers play 1/16x - 16x; it used to stop at 0.25x - 4x, so bullet time / time-lapse looked wrong and kept jumping)
   // Playing, a small drift is caught up by playing a little faster / slower for a moment - a jump (seek) makes the
@@ -822,7 +846,7 @@ function drawOverlays(t, isPlay) {
       }
       const m = S.mediaById[c.mediaId];
       if (c.type !== 'title' && !m) continue; // (its file is not loaded yet / was removed: skip it, never stop the viewer)
-      if (c.type === 'video' && !m.playable) continue;
+      if (c.type === 'video' && !canPlay(m)) continue;
       const sl = ovSlot(c), el = sl.el;
       live.add(c.id); order.push(el);
       el.hidden = false;
@@ -856,7 +880,7 @@ function drawProgramNow(t, isPlay) {
   { const lkEl = els.lyLook || (els.lyLook = $('#lyLook', root)); if (lkEl?.dataset.grain) lkEl.style.backgroundPosition = [...Array(+lkEl.dataset.grain).fill('0 0'), grainShift()].join(', '); }
   drawRuler(t); // (redrawn only when the edit's length or the monitor's width changed)
   $('#vwDur').textContent = fmtTC(duration(), S.project.settings.fps);
-  els.vwMsg.hidden = true;
+  els.vwMsg.hidden = true; els.vwStab.hidden = true;
   const used = new Set();
   // 🔗 a V1 shot's linked sound is played by the shot's own video (with the sound clip's volume, fades and track) - not by a
   // second player of the same file that keeps chasing the picture (that stuttered and loaded everything twice)
@@ -890,7 +914,7 @@ function drawProgramNow(t, isPlay) {
       pixFx(img, c, els.lyGrade.hidden ? img : els.lyGrade);
       return;
     }
-    if (!m.playable) { showMsg(proxyMsg(m), m.urls.thumb); return; }
+    if (!canPlay(m)) { showMsg(proxyMsg(m), m.urls.thumb); return; }
     const v = slotFor(x); used.add(v);
     v.hidden = false; v.style.opacity = opacity;
     const fm = fitStyle(v, c, t - x.start);
@@ -925,7 +949,10 @@ function drawProgramNow(t, isPlay) {
   const nx = L.V1.find((x) => x.start > t && x.start - t < 2 && x.clip.type === 'video');
   if (nx && isPlay) {
     const m = S.mediaById[nx.clip.mediaId], free = slots.find((s) => !used.has(s));
-    if (m?.playable && free && free.dataset.cid !== nx.clip.id) { free.dataset.cid = nx.clip.id; if (free.dataset.src !== m.urls.play) { free.src = m.urls.play; free.dataset.src = m.urls.play; } free.currentTime = nx.clip.in || 0; }
+    if (canPlay(m) && free && free.dataset.cid !== nx.clip.id) {
+      const st = stabState(nx.clip, m), stab = st?.status === 'ready' ? st : null, url = stab ? stab.url : playUrl(m); // (🎥 its stabilised copy)
+      free.dataset.cid = nx.clip.id; if (free.dataset.src !== url) { free.src = url; free.dataset.src = url; } free.currentTime = (nx.clip.in || 0) - (stab ? stab.a : 0);
+    }
   }
 
   drawMasks(cur, t);

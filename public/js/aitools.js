@@ -1,4 +1,4 @@
-// 🤖 AI picture tools - turning what engine/vision.py saw (faces + motion, every 1/6 s) into edits:
+// Generative Fill (Effect Controls; was "AI picture tools") - turning what engine/vision.py saw (faces + motion, every 1/6 s) into edits:
 //   followKeys  🎯 Follow faces: crop-position keyframes so a Fill-framed shot (16:9 in a 9:16 reel) keeps the person
 //               (the one moving most - usually the speaker) in frame. Small moves pan smoothly, a jump to the other
 //               side of the picture is a cut, and the frame holds still while the person stays inside a dead zone.

@@ -54,7 +54,9 @@ document.getElementById('f').onsubmit = async (ev) => {
   if (!r) { e.textContent = 'Cannot reach the editing computer'; return; }
   const j = await r.json().catch(() => ({}));
   if (!r.ok) { e.textContent = j.error || 'Could not sign in'; return; }
-  location.href = `/${location.hash}`; // (a project link - #/p/<name> - opens that project after signing in)
+  // (a project link - #/p/<name> - opens that project after signing in). On that same address already, going "there"
+  // only changes the #, which loads nothing - the sign-in page stayed until a refresh. So: load the page again.
+  if (location.pathname === '/') location.reload(); else location.href = `/${location.hash}`;
 };
 </script>
 </body>

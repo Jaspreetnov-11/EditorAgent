@@ -3,7 +3,7 @@
 import { guarded } from './errlog.js';
 import { S, on, emit, commit, setMedia, saveNow } from './store.js';
 import { api, enc, uploadFile } from './api.js';
-import { fmt, seqList } from './model.js';
+import { fmt, seqList, clipDur, keepLength, rampPts, rampAvg } from './model.js';
 import { $, $$, h, esc, toast, modal, fmtSize } from './ui.js';
 import { placeMedia } from './timeline.js';
 import { openSmart, TAGS, dupIds } from './smart.js';
@@ -142,7 +142,7 @@ export function mountPool(el, { big = false } = {}) {
     const menu = h(`<div class="ctx" role="menu">
       <button data-c="src">Open in source viewer</button><button data-c="append">Add to end of timeline</button>
       <button data-c="logo"${m.kind !== 'image' ? ' hidden' : ''}>Use as logo</button><hr>
-      <button data-c="tobin">Move to folder…</button><button data-c="reveal">📂 Reveal in Explorer</button><button data-c="path">Show file location</button><button data-c="redo">Re-read file</button><hr>
+      <button data-c="subclip"${m.kind === 'video' || m.kind === 'audio' ? '' : ' hidden'}>Make subclip (Source In - Out)</button><button data-c="label">Label colour…</button><button data-c="interpret"${m.kind === 'video' ? '' : ' hidden'}>Interpret footage (frame rate)…</button><hr><button data-c="tobin">Move to folder…</button><button data-c="copydir">📋 Copy folder path</button>${IS_EDITOR_PC ? '<button data-c="reveal">📂 Reveal in Explorer</button>' : ''}<button data-c="path">Show file location</button><button data-c="redo">Re-read file</button><hr>
       <button data-c="remove">🗑 Delete from project <kbd>Del</kbd></button></div>`);
     document.body.append(menu);
     menu.style.left = `${Math.min(e.clientX, innerWidth - 220)}px`; menu.style.top = `${Math.min(e.clientY, innerHeight - 240)}px`;
@@ -165,6 +165,10 @@ export function mountPool(el, { big = false } = {}) {
         };
       }
       if (c === 'reveal') revealInExplorer(m.id);
+      if (c === 'subclip') makeSubclip(m.id);
+      if (c === 'label') pickLabel([...poolSel]);
+      if (c === 'interpret') interpretFootage([...poolSel]);
+      if (c === 'copydir') copyFolderPath(m.id);
       if (c === 'path') modal('File location', `<p class="mono">${esc(m.path)}</p>${m.error ? `<p class="warn">⚠ ${esc(m.error)}</p>` : ''}`);
       if (c === 'redo') { await api('POST', `/api/media/reprocess?p=${enc(S.proj)}&id=${m.id}`); refreshMedia(); }
       if (c === 'remove') removeSelected();
@@ -226,10 +230,10 @@ function renderNow(p) {
       const st = m.status !== 'ready' ? `<span class="mi-st"${m.status === 'error' && m.error ? ` title="${esc(m.error)}"` : ''}>${m.status === 'offline' ? 'Offline' : m.status === 'error' ? '⚠ Cannot read' : 'Reading…'}</span>`
         : m.kind === 'video' && m.proxy !== 'ready' && m.proxy !== 'none' ? `<span class="mi-st">${m.proxy === 'error' ? 'No preview' : `Preview ${m.proxyPct || 0}%`}</span>` : '';
       const res = m.width >= 3800 ? '4K' : m.width >= 2500 ? '2.7K' : m.height >= 1080 || m.width >= 1920 ? 'HD' : '';
-      return `<div class="mi${poolSel.has(m.id) ? ' sel' : ''}${m.status === 'offline' ? ' off' : ''}" data-id="${m.id}" draggable="true" title="${esc(mName(m))}${m.bin ? `\n${esc(m.bin)}` : ''}${m.tags ? `\n${esc(m.tags.join(' · '))}` : ''}${m.bad ? `\n⚠ ${esc(m.bad.join(', '))}` : ''}">
+      return `<div class="mi${poolSel.has(m.id) ? ' sel' : ''}${m.status === 'offline' ? ' off' : ''}${m.label ? ' lab' : ''}" data-id="${m.id}" draggable="true"${m.label ? ` style="--lab:${m.label}"` : ''} title="${esc(mName(m))}${m.bin ? `\n${esc(m.bin)}` : ''}${m.tags ? `\n${esc(m.tags.join(' · '))}` : ''}${m.bad ? `\n⚠ ${esc(m.bad.join(', '))}` : ''}">
         <div class="mi-th k-${m.kind}" ${m.urls.thumb ? `style="background-image:url('${m.urls.thumb}')" data-thumb="${m.urls.thumb}"` : m.urls.wave ? `style="background-image:url('${m.urls.wave}');background-size:100% 70%"` : ''} ${m.urls.strip ? `data-strip="${m.urls.strip}"` : ''}>
           ${!m.urls.thumb && !m.urls.wave ? `<span class="mi-ic">${m.kind === 'audio' ? '♪' : '▣'}</span>` : ''}
-          ${m.duration && m.kind !== 'image' ? `<span class="mi-d">${fmt(m.duration)}</span>` : ''}${res ? `<span class="mi-r">${res}</span>` : ''}${used ? '<span class="mi-u" title="Used in the timeline">●</span>' : ''}${st}
+          ${m.subOf ? `<span class="mi-d" title="Subclip ${fmt(m.subIn)} - ${fmt(m.subOut)} of its file">✂ ${fmt(m.subOut - m.subIn)}</span>` : m.duration && m.kind !== 'image' ? `<span class="mi-d">${fmt(m.duration)}</span>` : ''}${res ? `<span class="mi-r">${res}</span>` : ''}${used ? '<span class="mi-u" title="Used in the timeline">●</span>' : ''}${st}
         </div>
         <div class="mi-n">${m.bad ? '<b class="warn">⚠</b> ' : ''}${dups.has(m.id) ? '<b class="muted">⧉</b> ' : ''}${esc(mName(m))}</div></div>`;
     }).join('') || '<div class="pool-empty">Nothing matches</div>';
@@ -372,20 +376,119 @@ async function removeFolder(b) {
   } });
 }
 
-// 📂 Reveal in Explorer: the file selected in a Windows Explorer window (on the editor's PC); from another PC, where the
-// window cannot open, the path to copy
+// ✂ Make Subclip (Ctrl+U, like Premiere): the Source monitor's In - Out of a file as its own item in Media - same file,
+// nothing copied; it goes on the timeline with just that part. Without In / Out marked the whole file is asked for.
+export async function makeSubclip(id) {
+  const m = S.mediaById[id]; if (!m) return toast('Open a clip in the Source monitor first', 'err');
+  const mk = S.sourceMarks?.[id] || {}, a = mk.in ?? (m.subOf ? m.subIn : undefined), b = mk.out ?? (m.subOf ? m.subOut : undefined);
+  if (a === undefined || b === undefined || b - a < 0.05) return toast('Mark an In ( I ) and an Out ( O ) in the Source monitor first, then make the subclip', 'err');
+  const name = prompt('Subclip name', `${(m.name || '').replace(/\.[^.]+$/, '')} - Subclip`);
+  if (name === null) return;
+  try { const it = await api('POST', `/api/media/subclip?p=${enc(S.proj)}`, { mediaId: id, in: a, out: b, name }); await refreshMedia(); poolSel = new Set([it.id]); renderAll(); toast(`✂ Subclip "${it.name}" in Media (${fmt(b - a)})`); }
+  catch (e) { toast(e.message, 'err'); }
+}
+// 🎞 Interpret Footage (like Premiere): the selected files play as if shot at another frame rate - 50 fps footage
+// interpreted as 25 is smooth 2x slow motion, every frame shown. Their clips on the timelines take that speed (on top
+// of a speed they had) and keep their length, so nothing moves; new clips of them get it too (timeline.js placeMedia).
+export const interpretK = (m) => (m?.interpretFps && m.fps ? m.interpretFps / m.fps : 1);
+export function interpretFootage(ids) {
+  const ms = ids.map((id) => S.mediaById[id]).filter((m) => m?.kind === 'video');
+  if (!ms.length) return toast('Select video files', 'err');
+  const shot = [...new Set(ms.map((m) => Math.round((m.fps || 0) * 100) / 100))].join(', ');
+  const d = modal('Interpret footage', `<p class="muted small">Shot at ${esc(shot)} fps. Play ${ms.length > 1 ? 'them' : 'it'} as:</p>
+    <div class="row-in"><select data-fps>${[['', 'As shot'], ...[23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60].map((f) => [f, `${f} fps`])].map(([v, l]) => `<option value="${v}"${(ms[0].interpretFps || '') == v ? ' selected' : ''}>${l}</option>`).join('')}</select>
+    <button class="primary" data-ok>OK</button></div><p class="muted small">Lower than shot = slow motion with every frame; the clips already on the timeline keep their place and length.</p>`, { width: 440 });
+  d.el.querySelector('[data-ok]').onclick = async () => {
+    const fps = +d.el.querySelector('[data-fps]').value || 0; d.close();
+    const before = Object.fromEntries(ms.map((m) => [m.id, interpretK(m)]));
+    try { await api('POST', `/api/media/interpret?p=${enc(S.proj)}`, { ids: ms.map((m) => m.id), fps }); await refreshMedia(); } catch (e) { return toast(e.message, 'err'); }
+    let n = 0;
+    const all = [S.project, ...Object.values(S.project.sequences || {}).map((s) => s.data)];
+    for (const data of all) for (const list of Object.values(data?.tracks || {})) for (const c of list) {
+      if (!(c.mediaId in before) || c.type !== 'video') continue;
+      const k = interpretK(S.mediaById[c.mediaId]) / before[c.mediaId]; if (Math.abs(k - 1) < 1e-6) continue;
+      const D = clipDur(c, S.mediaById), sp = (c.speed || 1) * k;
+      if (Math.abs(sp - 1) < 1e-4) delete c.speed; else c.speed = +sp.toFixed(5);
+      if (data === S.project) keepLength(S.project, c, D, S.mediaById); else { const pts = rampPts(c); c.out = +((c.in || 0) + D * sp * (pts ? rampAvg(pts) : 1)).toFixed(3); }
+      n++;
+    }
+    if (n) commit('Interpret footage');
+    toast(fps ? `Plays as ${fps} fps${n ? ` - ${n} clip${n > 1 ? 's' : ''} on the timelines follow` : ''}` : 'Back to as shot');
+  };
+}
+
+// 🏷 Label colour on the selected files (Premiere's labels): a stripe on the tile, kept in the project
+export const LABELS = [['#9b6cff', 'Violet'], ['#4f8cff', 'Iris'], ['#3fc7c7', 'Caribbean'], ['#36c27e', 'Forest'], ['#e8d44d', 'Yellow'], ['#ff9933', 'Mango'], ['#e24c4c', 'Red'], ['#f06fb0', 'Rose']];
+export function pickLabel(ids) {
+  if (!ids.length) return;
+  const d = modal('Label colour', `<div class="mk-colors">${LABELS.map(([c, n]) => `<button class="mk-c" data-lab="${c}" title="${n}" style="background:${c}"></button>`).join('')}<button class="small" data-lab="">None</button></div>`, { width: 360 });
+  d.el.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-lab]'); if (!b) return; d.close();
+    try { await api('POST', `/api/media/label?p=${enc(S.proj)}`, { ids, label: b.dataset.lab }); await refreshMedia(); } catch (err) { toast(err.message, 'err'); }
+  });
+}
+
+// the editor's own computer (its own address): only there does Reveal in Explorer open a window by itself
+export const IS_EDITOR_PC = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+// 📋 Copy folder path: the network path of the folder the clip is in (\\192.168.0.99\Team Editing\…, the same on
+// every PC whatever its drive letters) goes to the clipboard - paste it into Explorer's address bar. Every PC can do it
+// (Reveal in Explorer needs the helper on other PCs). The team link is plain http, where the browser has no
+// navigator.clipboard - so the old copy command too, and the path shown to copy by hand if both say no.
+function copyText(t) {
+  const ta = Object.assign(document.createElement('textarea'), { value: t });
+  ta.style.cssText = 'position:fixed;left:-9999px;top:0';
+  document.body.append(ta); ta.select();
+  let ok = false; try { ok = document.execCommand('copy'); } catch {}
+  ta.remove();
+  return ok ? Promise.resolve() : navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject(new Error('no clipboard'));
+}
+export async function copyFolderPath(id) {
+  const m = S.mediaById[id];
+  let r = null;
+  try { r = await api('POST', `/api/media/reveal?p=${enc(S.proj)}&id=${enc(id)}&copy=1`); } catch {}
+  const p = r ? r.unc || r.path : m?.path || '';
+  const dir = r && !r.select ? p : p.replace(/[\\/][^\\/]*$/, '');
+  if (!dir) return toast('This clip has no file', 'err');
+  copyText(dir).then(() => toast(`Folder path copied - paste it in Explorer's address bar: ${dir}`), () => {
+    const d = modal('Folder path', `<p class="muted small">Copy it (Ctrl+C) and paste it in Explorer's address bar.</p><input class="mono" data-fp readonly style="width:100%">`, { width: 600 });
+    const i = $('[data-fp]', d.el); i.value = dir; i.focus(); i.select();
+  });
+}
+
+// 📂 Reveal in Explorer: the folder the clip is in (its NAS folder) opens, with the clip selected. On the editor's PC
+// the server opens Explorer; on any other PC this browser hands the file's network path (\\Limeligt\Limelight NAS\…)
+// to that PC's Reveal helper - a limelight-reveal: link, set up once per PC from here. (It used to guess "no helper"
+// when the window kept its focus - but Chrome's own "Open Windows Script Host?" question keeps it too, so a PC with
+// the helper got the set-up box again. Now each PC remembers that it has the helper.)
+const HELPER_KEY = 've-reveal-helper';
+const hasHelper = () => { try { return localStorage.getItem(HELPER_KEY) === '1'; } catch { return false; } };
+const markHelper = () => { try { localStorage.setItem(HELPER_KEY, '1'); } catch {} };
+function launchReveal(p, select) {
+  let hex = '';
+  for (let i = 0; i < p.length; i++) hex += p.charCodeAt(i).toString(16).padStart(4, '0');
+  const a = document.createElement('a'); a.href = `limelight-reveal:${select ? 's' : 'f'}${hex}`; a.click();
+}
+function helperSetup(p, select) {
+  const d = modal('Reveal in Explorer on this PC', `<p>One-time setup for this PC - after it, Reveal opens the clip's folder here with the clip selected.</p>
+    <ol class="rv-steps"><li>Download the Reveal helper and open it (it runs once and closes; no admin rights needed).</li>
+      <li>Click <b>Open the folder</b>. If the browser asks, tick <b>Always allow</b> and choose <b>Open</b>.</li></ol>
+    <p class="muted small mono" style="word-break:break-all">${esc(p)}</p>
+    <div class="dv-actions"><a class="btn" href="/api/reveal-helper" download data-dl>Download Reveal helper</a><button class="primary" data-go>Open the folder</button><button data-cp>Copy path</button><button data-close>Close</button></div>`, { width: 600 });
+  $('[data-dl]', d.el).onclick = markHelper;
+  $('[data-go]', d.el).onclick = () => { markHelper(); d.close(); launchReveal(p, select); };
+  $('[data-cp]', d.el).onclick = () => { navigator.clipboard?.writeText(p).then(() => toast('Path copied'), () => toast('Select the path and copy it', 'err')); };
+}
 export async function revealInExplorer(id) {
   const m = S.mediaById[id];
-  const showPath = (p) => {
-    const d = modal('File location', `<p class="mono" style="word-break:break-all">${esc(p || '(no file)')}</p><p class="muted small">Explorer opens on the editor's own computer only - copy the path to find the file there.</p>
-      <div class="dv-actions"><button class="primary" data-cp>Copy path</button><button data-close>Close</button></div>`, { width: 560 });
-    $('[data-cp]', d.el).onclick = () => { navigator.clipboard?.writeText(p || '').then(() => toast('Path copied'), () => toast('Select the path and copy it', 'err')); };
-  };
-  try {
-    const r = await api('POST', `/api/media/reveal?p=${enc(S.proj)}&id=${enc(id)}`);
-    if (r.opened) toast(r.missing ? 'The file is not there any more - opened the folder it was in' : `📂 ${m?.name || 'File'} shown in Explorer`);
-    else showPath(r.path);
-  } catch { showPath(m?.path); } // (an editor server from before this: at least where it is)
+  const showPath = (p, why) => modal('Reveal in Explorer', `<p>${esc(why)}</p><p class="mono" style="word-break:break-all">${esc(p || '(no file)')}</p>`, { width: 560 });
+  let r;
+  try { r = await api('POST', `/api/media/reveal?p=${enc(S.proj)}&id=${enc(id)}`); } catch (e) { return showPath(m?.path, e.message); }
+  if (r.opened) return toast(r.missing ? 'The file is not there any more - opened the folder it was in' : `${m?.name || 'File'} selected in its folder`);
+  const p = r.unc || r.path;
+  if (!/^\\\\/.test(p)) return showPath(p, "This file is on the editor's computer (not on the NAS), so it can only be opened there.");
+  if (!hasHelper()) return helperSetup(p, r.select);
+  launchReveal(p, r.select);
+  toast(`Opening ${r.missing ? 'the folder it was in' : `the folder of ${m?.name || 'the clip'}`}…`);
 }
 
 // 📁 Reveal in Project (right-click a clip on the timeline): its file in Media - the Media tab comes up, the file's

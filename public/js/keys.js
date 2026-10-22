@@ -18,10 +18,12 @@ export const COMMANDS = [
   ['insert', 'Insert', 'Source monitor'], ['overwrite', 'Overwrite (overlay)', 'Source monitor'],
   ['selectTool', 'Selection tool', 'Tools'], ['razorTool', 'Razor tool', 'Tools'], ['typeTool', 'Type tool (write on the monitor)', 'Tools'],
   ['rippleTool', 'Ripple edit tool', 'Tools'], ['rollingTool', 'Rolling edit tool', 'Tools'], ['rateTool', 'Rate stretch tool', 'Tools'], ['penTool', 'Pen tool', 'Tools'], ['remixTool', 'Remix tool', 'Tools'],
+  ['slipTool', 'Slip tool', 'Tools'], ['slideTool', 'Slide tool', 'Tools'], ['handTool', 'Hand tool', 'Tools'], ['zoomTool', 'Zoom tool', 'Tools'],
+  ['lift', 'Lift (In to Out out, leave a gap)', 'Timeline'], ['extract', 'Extract (In to Out out, close the gap)', 'Timeline'],
   ['addEdit', 'Add edit (split selected / at playhead)', 'Timeline'], ['addEditAll', 'Add edit to all tracks', 'Timeline'],
   ['rippleTrimPrev', 'Ripple trim previous edit to playhead', 'Timeline'], ['rippleTrimNext', 'Ripple trim next edit to playhead', 'Timeline'],
-  ['clear', 'Delete and leave a gap (lift)', 'Timeline'], ['rippleDelete', 'Delete (the next clip moves up - ripple)', 'Timeline'],
-  ['duplicate', 'Duplicate', 'Timeline'], ['transition', 'Apply default video transition', 'Timeline'],
+  ['clear', 'Delete (leaves a gap - nothing else moves)', 'Timeline'], ['rippleDelete', 'Ripple delete (the clips after it move up)', 'Timeline'],
+  ['duplicate', 'Duplicate', 'Timeline'], ['markersList', 'Markers list', 'Timeline'], ['exportEdl', 'Export EDL (CMX 3600)', 'File'], ['dupFrames', 'Show duplicate frame markers', 'Timeline'], ['makeSubclip', 'Make subclip (Source In - Out)', 'Source monitor'], ['pasteAttr', 'Paste attributes…', 'Timeline'], ['transition', 'Apply default video transition', 'Timeline'],
   ['selectAtPlayhead', 'Select clip at playhead', 'Timeline'], ['link', 'Link / unlink audio and video', 'Timeline'],
   ['enable', 'Enable / disable clip', 'Timeline'], ['audioGain', 'Audio gain…', 'Timeline'], ['snap', 'Snap in timeline', 'Timeline'], ['nest', 'Nest…', 'Timeline'],
   ['marker', 'Add marker', 'Markers'], ['nextMarker', 'Go to next marker', 'Markers'], ['prevMarker', 'Go to previous marker', 'Markers'], ['note', 'Add review note', 'Markers'],
@@ -36,11 +38,11 @@ const PREMIERE = {
   playStop: ['Space'], shuttleL: ['J'], shuttleStop: ['K'], shuttleR: ['L'], stepBack: ['Left'], stepFwd: ['Right'], stepBack5: ['Shift+Left'], stepFwd5: ['Shift+Right'],
   prevEdit: ['Up', 'PageUp'], nextEdit: ['Down', 'PageDown'], goStart: ['Home'], goEnd: ['End'], matchFrame: ['F'],
   markIn: ['I'], markOut: ['O'], goIn: ['Shift+I'], goOut: ['Shift+O'], clearInOut: ['Ctrl+Shift+X'], openXml: ['Ctrl+O'], speedDuration: ['Ctrl+R'], insert: [','], overwrite: ['.'],
-  selectTool: ['V'], razorTool: ['C'], typeTool: ['T'], rippleTool: ['B'], rollingTool: ['N'], rateTool: ['R'], penTool: ['P'], remixTool: [],
-  addEdit: ['Ctrl+K'], addEditAll: ['Ctrl+Shift+K'], rippleTrimPrev: ['Q'], rippleTrimNext: ['W'],
-  // Delete closes up (the next clip takes the deleted one's place); Shift+Delete leaves a gap. (The other way round
-  // from Premiere, on purpose: the gaps Delete used to leave meant shuffling clips by hand every time.)
-  clear: ['Shift+Delete', 'Shift+Backspace'], rippleDelete: ['Delete', 'Backspace'], duplicate: [], transition: ['Ctrl+D'],
+  selectTool: ['V'], razorTool: ['C'], typeTool: ['T'], rippleTool: ['B'], rollingTool: ['N'], rateTool: ['R'], penTool: ['P'], remixTool: [], slipTool: ['Y'], slideTool: ['U'], handTool: ['H'], zoomTool: ['Z'],
+  lift: [';'], extract: ["'"], addEdit: ['Ctrl+K'], addEditAll: ['Ctrl+Shift+K'], rippleTrimPrev: ['Q'], rippleTrimNext: ['W'],
+  // 📌 Delete leaves a gap, so every other clip stays exactly where it was put; Shift+Delete closes up (ripple) - like
+  // Premiere. (For a while Delete closed up, and clips slid along whenever something before them was deleted.)
+  clear: ['Delete', 'Backspace'], rippleDelete: ['Shift+Delete', 'Shift+Backspace'], duplicate: [], pasteAttr: ['Ctrl+Alt+V'], markersList: [], exportEdl: [], dupFrames: [], makeSubclip: ['Ctrl+U'], transition: ['Ctrl+D'],
   selectAtPlayhead: ['D'], link: ['Ctrl+L'], enable: ['Shift+E'], audioGain: ['G'], snap: ['S'], nest: [],
   marker: ['M'], nextMarker: ['Shift+M'], prevMarker: ['Ctrl+Shift+M'], note: ['Alt+M'],
   zoomIn: ['='], zoomOut: ['-'], zoomFit: ['\\'], maximize: ['`'], fullscreen: ['Ctrl+`'],
@@ -73,17 +75,17 @@ const read = () => { try { return JSON.parse(localStorage.getItem(LS) || '{}'); 
 const write = (o) => { try { localStorage.setItem(LS, JSON.stringify(o)); } catch {} };
 export const keyState = () => {
   const s = read();
-  // once: own presets made before Delete started closing up get the same swap (Delete = ripple, Shift+Delete = gap)
-  if (!s.delSwap) {
+  // once: own presets made while Delete closed up get Delete back as "leave a gap" (Shift+Delete = ripple)
+  if (s.delSwap !== 2) {
     for (const p of Object.values(s.custom || {})) {
       const m = p.map || {}, a = m.clear || [], b = m.rippleDelete || [];
-      if (a.includes('Delete') && b.includes('Shift+Delete')) { m.clear = b; m.rippleDelete = a; }
+      if (b.includes('Delete') && a.includes('Shift+Delete')) { m.clear = b; m.rippleDelete = a; }
     }
-    s.delSwap = 1; write(s);
+    s.delSwap = 2; write(s);
   }
   return { preset: s.preset || 'premiere', custom: s.custom || {} };
 };
-export function setKeyState(st) { write({ ...st, delSwap: 1 }); rebuild(); }
+export function setKeyState(st) { write({ ...st, delSwap: 2 }); rebuild(); }
 export function presetMap(id, st = keyState()) {
   if (BUILTIN[id]) return BUILTIN[id].map;
   const c = st.custom[id]; return c ? c.map : PREMIERE;

@@ -10,7 +10,7 @@ import { api, enc } from './api.js';
 import { $, $$, h, esc, toast } from './ui.js';
 import { renderHome, openXmlFile } from './home.js';
 import { mountPool, refreshMedia, uploadFiles } from './mediapool.js';
-import { mountTimeline, splitAtPlayhead, trimAtPlayhead, deleteSelected, duplicateSelected, addTitle, setTool, setZoom, fitZoom, unlinkSelected, markRange, clearRange, rangeMark } from './timeline.js';
+import { mountTimeline, splitAtPlayhead, trimAtPlayhead, deleteSelected, duplicateSelected, addTitle, setTool, setZoom, fitZoom, unlinkSelected, markRange, clearRange, rangeMark, liftExtract } from './timeline.js';
 import { mountViewer, toggle, shuttle, seek, isPlaying, isPlayingProgram, viewerMode, pause, setMode, sourceKey, toggleFullscreen, editTextClip } from './player.js';
 import { mountInspector } from './inspector.js';
 import { mountFxPanel } from './fxpanel.js';
@@ -397,12 +397,13 @@ const ACTIONS = {
   goOut: () => { if (!sourceKey('o', true)) { const t = rangeMark('out'); if (t === undefined) toast('No Out on the timeline (O sets it)'); else emit('seek', t); } },
   // Ctrl+R is Speed / Duration, never the browser's reload (F5 reloads): with nothing selected it only says so
   speedDuration: () => { if (S.page !== 'edit' || !S.sel.size) { toast('Select a clip on the timeline, then Ctrl+R for Speed / Duration (F5 reloads the page)'); return; } import('./speeddlg.js').then((x) => x.openSpeedDuration()); },
-  clearInOut: () => clearRange(), openXml: () => { openXmlFile().then((n) => n && emit('openProject', n)); }, insert: () => src(','), overwrite: () => src('.'),
+  clearInOut: () => clearRange(), lift: () => liftExtract(false), extract: () => liftExtract(true), openXml: () => { openXmlFile().then((n) => n && emit('openProject', n)); }, insert: () => src(','), overwrite: () => src('.'),
   selectTool: () => setTool('select'), razorTool: () => setTool('blade'), typeTool: () => { setTool('type'); toast('T Type tool: click on the picture and type (Esc when done; V = back to selection)'); },
   rippleTool: () => setTool('ripple'), rollingTool: () => setTool('rolling'), rateTool: () => setTool('rate'), penTool: () => setTool('pen'), remixTool: () => setTool('remix'),
+  slipTool: () => setTool('slip'), slideTool: () => setTool('slide'), handTool: () => setTool('hand'), zoomTool: () => setTool('zoom'),
   addEdit: () => splitAtPlayhead(), addEditAll: () => { S.sel = new Set(); splitAtPlayhead(); },
   rippleTrimPrev: () => trimAtPlayhead('start'), rippleTrimNext: () => trimAtPlayhead('end'),
-  clear: () => deleteSelected(false), rippleDelete: () => deleteSelected(true), duplicate: () => duplicateSelected(),
+  clear: () => deleteSelected(false), rippleDelete: () => deleteSelected(true), duplicate: () => duplicateSelected(), pasteAttr: () => import('./attrs.js').then((x) => x.pasteAttributes()),
   transition: () => { // a cross dissolve on the selected main-story clips, or on the cut nearest the playhead
     const L = layout().V1; let xs = L.filter((x, i) => i > 0 && S.sel.has(x.clip.id));
     if (!xs.length) { const near = L.slice(1).sort((a, b) => Math.abs(a.start - S.playhead) - Math.abs(b.start - S.playhead))[0]; if (near) xs = [near]; }
@@ -422,7 +423,12 @@ const ACTIONS = {
   snap: () => { S.snap = !S.snap; emit('change', {}); toast(`Snapping ${S.snap ? 'on' : 'off'}`); },
   nest: () => nestSelected(),
   audioGain: () => openAudioGain(),
-  marker: () => { (S.project.markers ||= []).push({ t: +S.playhead.toFixed(3) }); commit('Marker'); },
+  marker: () => {
+    const t = +S.playhead.toFixed(3), on = (S.project.markers || []).find((m) => Math.abs(m.t - t) < 0.02);
+    if (on) return import('./markers.js').then((x) => x.editMarker(on)); // (M on a marker: edit it, like Premiere)
+    (S.project.markers ||= []).push({ t }); commit('Marker');
+  }, markersList: () => import('./markers.js').then((x) => x.openMarkersList()), exportEdl: () => import('./edl.js').then((x) => x.exportEDL()), dupFrames: () => import('./timeline.js').then((x) => x.toggleDupFrames()),
+  makeSubclip: () => Promise.all([import('./player.js'), import('./mediapool.js')]).then(([p, mp]) => mp.makeSubclip(p.sourceMediaId())),
   nextMarker: () => goMarker(1), prevMarker: () => goMarker(-1), note: () => addNote(),
   zoomIn: () => setZoom(S.zoom * 1.25, true), zoomOut: () => setZoom(S.zoom / 1.25, true), zoomFit: () => fitZoom(),
   maximize: () => { // the panel under the mouse fills the window (again = back), like Premiere's ` key

@@ -122,6 +122,12 @@ export const TRANSITIONS = [
   // teaser transitions
   ['hblur', 'Whip blur'], ['fadefast', 'Flash cut'], ['pixelize', 'Pixelize'], ['radial', 'Radial wipe'], ['squeezeh', 'Squeeze'],
   ['hlslice', 'Slice'], ['circlecrop', 'Iris'], ['distance', 'Distance'],
+  // more of Premiere's transitions (FFmpeg xfade; the monitor shows them as a dissolve, Accurate preview / export exactly)
+  ['slideright', 'Push right'], ['slidedown', 'Push down'], ['coverleft', 'Cover (slide over)'], ['revealleft', 'Reveal (slide away)'],
+  ['wipeup', 'Wipe up'], ['wipedown', 'Wipe down'], ['diagtl', 'Diagonal wipe'], ['wipetl', 'Corner wipe'],
+  ['vertopen', 'Barn doors (open)'], ['horzopen', 'Barn doors (horizontal)'], ['vertclose', 'Split (close)'], ['circleclose', 'Circle close'],
+  ['rectcrop', 'Box (iris square)'], ['fadegrays', 'Film dissolve (through grey)'], ['fadeslow', 'Slow fade'], ['hlwind', 'Wind'],
+  ['squeezev', 'Squeeze vertical'], ['smoothright', 'Smooth right'], ['hrslice', 'Slice right'], ['vuslice', 'Slice up'],
 ];
 
 export function newProject(name, { aspect = '16:9', fps = 30 } = {}) {
@@ -243,11 +249,19 @@ export const RAMPS = {
 export const rampOk = (pts) => Array.isArray(pts) && pts.length >= 2 && pts.every((p) => Array.isArray(p) && p[1] > 0);
 export const rampPts = (c) => (c?.type === 'video' && (c.ramp === 'custom' ? (rampOk(c.rampPts) ? c.rampPts : null) : RAMPS[c.ramp]?.pts)) || null;
 const smooth = (u) => u * u * (3 - 2 * u);
-function profileAt(pts, u) {
+// The ease of a segment: smooth from its point to the next. A segment left over from a cut is only a piece of the
+// segment that was there - its point says which piece ([u, s, e0, e1]: e0..e1 of the old ease), so the speed follows
+// exactly the curve that was drawn and the cut part needs no extra points.
+function ease(x, e0 = 0, e1 = 1) {
+  if (e0 === 0 && e1 === 1) return smooth(x);
+  const s0 = smooth(e0), s1 = smooth(e1);
+  return s1 - s0 > 1e-9 ? (smooth(e0 + (e1 - e0) * x) - s0) / (s1 - s0) : x;
+}
+export function profileAt(pts, u) {
   if (u <= pts[0][0]) return pts[0][1];
   for (let i = 0; i < pts.length - 1; i++) {
-    const [a, sa] = pts[i], [b, sb] = pts[i + 1];
-    if (u <= b) return sa + (sb - sa) * smooth((u - a) / Math.max(1e-6, b - a));
+    const [a, sa, e0, e1] = pts[i], [b, sb] = pts[i + 1];
+    if (u <= b) return sa + (sb - sa) * ease((u - a) / Math.max(1e-6, b - a), e0, e1);
   }
   return pts[pts.length - 1][1];
 }
@@ -274,13 +288,25 @@ export function sourceAt(c, rel, D) {
   return (c.in || 0) + sp * D * rampCum(pts, rel / D);
 }
 // A part of a ramped shot (u0..u1 of its length, 0..1) as a shot of its own: the bit of the file it plays and its own
-// speed curve (the whole shot's curve over that part, sampled), so a cut or a trim leaves every frame where it was -
-// the parts used to get the WHOLE ramp again each, change length, and move the story after them.
+// speed curve, so a cut or a trim keeps the part where it was and the same frames at its ends - the parts used to get
+// the WHOLE ramp again each, change length, and move the story after them. Its curve is the user's own points inside
+// the part plus one point at each cut (the speed there) - it used to be 24 evenly sampled points, so every cut filled
+// the graph with dots instead of the ramp that was drawn.
 export function rampPart(c, u0, u1, D) {
-  const pts = rampPts(c), sp = c.speed || 1, a = sourceAt(c, u0 * D, D), b = sourceAt(c, u1 * D, D), len = (u1 - u0) * D, N = 24;
-  const raw = Array.from({ length: N + 1 }, (_, j) => [+(j / N).toFixed(4), profileAt(pts, u0 + ((u1 - u0) * j) / N)]);
-  const k = (b - a) / (sp * len) / rampAvg(raw); // (the samples smooth the curve a little: scaled so the part keeps its length)
-  return { in: +a.toFixed(3), out: +b.toFixed(3), ramp: 'custom', rampPts: raw.map(([u, s]) => [u, +(s * k).toFixed(5)]) };
+  const pts = rampPts(c), sp = c.speed || 1, a = sourceAt(c, u0 * D, D), b = sourceAt(c, u1 * D, D), len = (u1 - u0) * D, w = u1 - u0;
+  const near = 0.004 * w, X = [u0, ...pts.map(([u]) => u).filter((u) => u > u0 + near && u < u1 - near), u1];
+  const raw = X.map((x, j) => {
+    const p = [+((x - u0) / w).toFixed(5), profileAt(pts, x)], y = X[j + 1];
+    if (y === undefined) return p;
+    // the old segment this piece comes from, and which part of its ease it is (inside an older piece: of that one)
+    const mid = (x + y) / 2, i = pts.findIndex((q, k) => k < pts.length - 1 && mid >= q[0] && mid <= pts[k + 1][0]);
+    if (i < 0) return p; // (before the first point / after the last: the speed is flat there)
+    const [qa, , E0 = 0, E1 = 1] = pts[i], qb = pts[i + 1][0], t = (v) => Math.min(1, Math.max(0, (v - qa) / Math.max(1e-9, qb - qa)));
+    const e0 = E0 + (E1 - E0) * t(x), e1 = E0 + (E1 - E0) * t(y);
+    return e0 > 1e-6 || e1 < 1 - 1e-6 ? [...p, +e0.toFixed(6), +e1.toFixed(6)] : p;
+  });
+  const k = (b - a) / (sp * len) / rampAvg(raw); // (≈ 1: only rounding - the part keeps its length)
+  return { in: +a.toFixed(3), out: +b.toFixed(3), ramp: 'custom', rampPts: raw.map(([u, s, ...e]) => [u, +(s * k).toFixed(5), ...e]) };
 }
 export function speedAt(c, rel, D) {
   const pts = rampPts(c);

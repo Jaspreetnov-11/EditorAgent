@@ -39,6 +39,8 @@ export function mountDeliver(el) {
         <label class="fld"><span>Quality</span><select id="qCrf"><option value="">Platform default</option><option value="14">Best (big file)</option><option value="17">Very high</option><option value="19">High</option><option value="22">Standard</option><option value="26">Small</option></select></label>
         <label class="fld"><span>Audio</span><select id="qAbr"><option value="">Platform default</option><option value="320">320 kbps</option><option value="256">256 kbps</option><option value="192">192 kbps</option><option value="128">128 kbps</option></select></label>
         <label class="chk" id="qGpuL"><input type="checkbox" id="qGpu"> Use the NVIDIA GPU (faster 4K)</label>
+        <label class="chk" title="For client review copies: the sequence timecode at the bottom of the picture"><input type="checkbox" id="qBurnTC"> Burn in timecode</label>
+        <label class="chk" title="The sequence's name at the top left of the picture"><input type="checkbox" id="qBurnName"> Burn in sequence name</label>
       </div></details>
       <div class="dv-spec" id="dvSpec"></div>
       <ul class="warns" id="dvWarn" hidden></ul>
@@ -179,6 +181,9 @@ function applyPreset() {
 }
 const quality = () => {
   const q = { res: $('#qRes', root).value, fps: $('#qFps', root).value, codec: $('#qCodec', root).value, crf: $('#qCrf', root).value, abr: $('#qAbr', root).value, gpu: $('#qGpu', root).checked ? true : $('#qGpu', root).disabled ? '' : 'off' };
+  // ⏱ burn-in for review copies
+  if ($('#qBurnTC', root)?.checked) q.burnTC = true;
+  if ($('#qBurnName', root)?.checked) q.burnName = true;
   return Object.fromEntries(Object.entries(q).filter(([, v]) => v));
 };
 // 🎬 In / Out set on the timeline: Export (and the preview) make In to Out, unless "Whole timeline" is picked here

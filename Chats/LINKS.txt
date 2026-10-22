@@ -9,4 +9,6 @@ Chat 05                claude://claude.ai/epitaxy/local_7825d333-24f5-4e12-885b-
 Chat 06                claude://claude.ai/epitaxy/local_6d66a249-e127-4111-9409-d68f87b880dd
 Chat 07                claude://claude.ai/epitaxy/local_d38e6a10-6a08-4555-853e-52baed994907
 Chat 08                claude://claude.ai/epitaxy/local_e543553c-db7f-4a48-b45e-62a4a9c8ebfb
-Chat 09                (this chat - the Markdown copy is "Video editor agent - chat 09.md")
+Chat 09                claude://claude.ai/epitaxy/local_0d2503f2-a006-414d-815c-ee20ac3252a8
+Chat 10                (this chat - the Markdown copy is "Video editor agent - chat 10.md")
+Chat 10 - Phase 20     claude://claude.ai/epitaxy/local_190c8544-68c9-40f5-b585-54b26306d7fb

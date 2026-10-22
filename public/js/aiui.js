@@ -38,25 +38,31 @@ export function aiHTML(c) {
   const m = S.mediaById[c.mediaId], [W, H] = frame(), win = m ? fillWindow(m, W, H) : { axis: null };
   const following = c.keys?.cropX?.length || c.keys?.cropY?.length, autoMasks = (c.masks || []).filter((x) => x.auto === 'faces').length;
   const slow = (c.speed || 1) < 1 || c.ramp;
-  return `<div class="ai-row"><button class="small" data-ai="follow"${win.axis ? '' : ' disabled title="This shot already has the shape of the frame - nothing to reframe"'} title="Fill the ${S.project.settings.aspect} frame and keep the person (the one speaking / moving) in it - pans for small moves, cuts between people">🎯 Follow faces</button>
-      ${following ? '<button class="small" data-ai="unfollow">✕ Stop following</button>' : ''}</div>
-    ${following ? `<small class="hint">The frame follows the faces (Crop position keyframes) - press Space to watch.</small>` : ''}
-    <div class="ai-row"><button class="small" data-ai="blurfaces" title="Every face in this shot gets a moving blur (privacy: children, crowds, bystanders)">🙈 Blur all faces</button>
-      ${autoMasks ? `<button class="small" data-ai="unblur">✕ Remove (${autoMasks})</button>` : ''}</div>
-    <div class="ai-row"><button class="small" data-ai="hidearea" title="Draw a box on the Program monitor over a logo, a watermark or burnt-in text - it is removed (filled in from the picture around it), blurred, pixelated or blacked out for the whole shot">▭ Hide logo / text (mask)</button></div>
-    ${(c.masks || []).map((mk, i) => (mk.area ? `<div class="ai-row"><span class="small">▭ Box ${(c.masks || []).slice(0, i + 1).filter((x) => x.area).length}</span><select data-mk-mode="${i}">${MASK_MODES.map(([v, l]) => `<option value="${v}"${mk.type === v ? ' selected' : ''}>${l}</option>`).join('')}</select><button class="link small" data-mk-del="${i}" title="Take this box away">✕</button></div>` : '')).join('')}
-    ${(c.masks || []).some((x) => x.area) ? `<div class="ai-row"><button class="small accent" data-ai="aifill" title="Content-aware fill (AI, on the GPU): the boxes are filled in with what would be behind the logo / text, frame by frame - a new copy of this piece of the shot goes on the timeline (Ctrl+Z or ↶ brings the original back)">✨ AI fill the boxes (content-aware)</button></div>
-      <small class="hint">AI fill makes a new copy of this shot with the boxes filled in (~10 s of work per second of video). Quick options: Remove (fill from around) / Blur / Black - the viewer shows them blurred, the render applies them.</small>` : ''}
-    <div class="ai-row"><label class="fld"><span>✨ AI Enhance (like Topaz)</span><select data-enh-model><option value="fast">Fast</option><option value="detail">Most detail (slow)</option></select></label>
-      <label class="fld"><span>Size</span><select data-enh-h><option value="0">Same size</option><option value="1080">1080p</option><option value="2160">4K</option></select></label>
-      <label class="fld"><span>Noise</span><select data-enh-dn><option value="0.7">Clean it</option><option value="0.4">A little</option><option value="0">Keep the grain</option></select></label></div>
-    <div class="ai-row"><button class="small accent" data-ai="enhance" title="Real-ESRGAN on the GPU: noise and compression out, detail back, optionally bigger - a new copy of this piece of the shot goes on the timeline (↶ brings the original back). ~25 s of work per second of 1080p.">✨ Enhance this shot</button></div>
-    ${c.filled ? `<div class="ai-row"><button class="small" data-ai="unfill" title="Put the original shot back">↶ Original shot (undo AI ${c.filled.kind === 'enhance' ? 'enhance' : 'fill'})</button></div>` : ''}
-    <label class="chk${slow ? '' : ' muted'}"><input type="checkbox" data-ai-smooth${c.smooth ? ' checked' : ''}${slow ? '' : ' disabled'}> ✨ Smooth slow motion (makes in-between frames)</label>
-    ${slow ? '' : '<small class="hint">Set Speed below 1× (or a speed ramp) to use it.</small>'}
-    <label class="fld"><span>🧽 Clean up picture</span><select data-ai-enh>${ENHANCE.map(([v, l]) => `<option value="${v}"${(c.enhance || '') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
-    <div class="ai-row"><button class="small" data-ai="followall" title="🎯 Follow faces on every video shot of the main story (V1) - e.g. after making a 9:16 copy of a 16:9 film">🎯 Follow faces on all V1 shots</button></div>
-    <small class="hint">Smooth slow motion and Clean up show in Accurate preview and renders (they make the render slower).</small>`;
+  // Generative Fill (Effect Controls): four plain groups - Reframe, Remove & hide, Enhance, Picture - no emoji
+  const boxes = (c.masks || []).map((mk, i) => [mk, i]).filter(([mk]) => mk.area);
+  return `<div class="gf">
+    <div class="gf-g"><div class="gf-h">Reframe</div>
+      <div class="gf-row"><button class="small" data-ai="follow"${win.axis ? '' : ' disabled title="This shot already has the shape of the frame - nothing to reframe"'} title="Fill the ${S.project.settings.aspect} frame and keep the person (the one speaking / moving) in it - pans for small moves, cuts between people">Follow faces</button>
+        ${following ? '<button class="small" data-ai="unfollow">Stop following</button>' : ''}<button class="small" data-ai="followall" title="Follow faces on every video shot of the main story (V1) - e.g. after making a 9:16 copy of a 16:9 film">All V1 shots</button></div>
+      ${following ? '<small class="hint">The frame follows the faces (Crop position keyframes) - press Space to watch.</small>' : ''}</div>
+    <div class="gf-g"><div class="gf-h">Remove &amp; hide</div>
+      <div class="gf-row"><button class="small" data-ai="hidearea" title="Draw a box on the Program monitor over a logo, a watermark or burnt-in text - it is removed (filled in from the picture around it), blurred, pixelated or blacked out for the whole shot">Draw a box over logo / text</button>
+        <button class="small" data-ai="blurfaces" title="Every face in this shot gets a moving blur (privacy: children, crowds, bystanders)">Blur all faces</button>${autoMasks ? `<button class="small" data-ai="unblur">Remove face blur (${autoMasks})</button>` : ''}</div>
+      ${boxes.map(([mk, i], k) => `<div class="gf-box"><span>Box ${k + 1}</span><select data-mk-mode="${i}">${MASK_MODES.map(([v, l]) => `<option value="${v}"${mk.type === v ? ' selected' : ''}>${l}</option>`).join('')}</select><button class="link small" data-mk-del="${i}" title="Take this box away">Remove</button></div>`).join('')}
+      ${boxes.length ? `<button class="small accent gf-wide" data-ai="aifill" title="Content-aware fill (AI, on the GPU): the boxes are filled in with what would be behind the logo / text, frame by frame - a new copy of this piece of the shot goes on the timeline (Ctrl+Z or Original shot brings it back)">Generative fill the boxes</button>
+        <small class="hint">Makes a new copy of this shot with the boxes filled in (~10 s of work per second of video). Quick modes above: the viewer shows them blurred, the render applies them.</small>` : '<small class="hint">Draw a box, then fill it in with what would be behind it.</small>'}</div>
+    <div class="gf-g"><div class="gf-h">Enhance</div>
+      <div class="gf-grid"><label class="fld"><span>Model</span><select data-enh-model><option value="fast">Fast</option><option value="detail">Most detail (slow)</option></select></label>
+        <label class="fld"><span>Size</span><select data-enh-h><option value="0">Same size</option><option value="1080">1080p</option><option value="2160">4K</option></select></label>
+        <label class="fld"><span>Noise</span><select data-enh-dn><option value="0.7">Clean it</option><option value="0.4">A little</option><option value="0">Keep the grain</option></select></label></div>
+      <button class="small accent gf-wide" data-ai="enhance" title="Real-ESRGAN on the GPU: noise and compression out, detail back, optionally bigger - a new copy of this piece of the shot goes on the timeline (Original shot brings it back). ~25 s of work per second of 1080p.">Enhance this shot</button></div>
+    ${c.filled ? `<button class="small gf-wide" data-ai="unfill" title="Put the original shot back">Original shot (undo ${c.filled.kind === 'enhance' ? 'enhance' : 'fill'})</button>` : ''}
+    <div class="gf-g"><div class="gf-h">Picture</div>
+      <label class="chk${slow ? '' : ' muted'}"><input type="checkbox" data-ai-smooth${c.smooth ? ' checked' : ''}${slow ? '' : ' disabled'}> Smooth slow motion (makes in-between frames)</label>
+      ${slow ? '' : '<small class="hint">Set Speed below 1× (or a speed ramp) to use it.</small>'}
+      <label class="fld"><span>Clean up picture</span><select data-ai-enh>${ENHANCE.map(([v, l]) => `<option value="${v}"${(c.enhance || '') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+      <small class="hint">Smooth slow motion and Clean up show in Accurate preview and renders (they make the render slower).</small></div>
+  </div>`;
 }
 
 // a new copy of the shot's piece (AI fill / AI enhance) takes its place on the timeline with the same timing; what was

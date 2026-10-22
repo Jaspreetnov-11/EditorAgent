@@ -110,6 +110,15 @@ export const GFX = {
     fields: [{ k: 'label', label: 'Label', type: 'text' }, { k: 'text', label: 'News - one line each', type: 'area', rows: 3, wide: true },
       { k: 'speed', label: 'Speed', type: 'range', min: 0.4, max: 2.5, step: 0.1, def: 1 },
       { k: 'pos', label: 'Position', type: 'select', options: [['lower', 'Bottom'], ['top', 'Top']] }] },
+  // 🎞 Roll (credits) and Crawl, like Premiere's Roll / Crawl titles: the text moves the whole length of the clip -
+  // credits rise from below the frame until the last line has gone out the top; a crawl runs right to left once
+  credits: { label: '🎞 Rolling credits (roll)', dur: 12, motion: true, common: ['theme', 'scale'],
+    def: { head: 'Thank you', text: 'Concept & Direction | Limelight\nCamera | Team Limelight\nEdit | Limelight Editor\n\nWith thanks to\nDepartment of Public Relations', bg: 'dark', theme: 'mygov' },
+    fields: [{ k: 'head', label: 'Heading (first line, bigger)', type: 'text' }, { k: 'text', label: 'Lines - "Role | Name" puts them in two columns', type: 'area', rows: 6, wide: true },
+      { k: 'bg', label: 'Background', type: 'select', options: [['dark', 'Dark'], ['none', 'None (over the picture)']] }] },
+  crawl: { label: '➡ Crawl (one line across)', dur: 10, motion: true, common: ['theme', 'scale'],
+    def: { text: 'Registrations open till 31 October - visit mygov.in', pos: 'lower', theme: 'mygov' },
+    fields: [{ k: 'text', label: 'Text', type: 'area', rows: 2, wide: true }, { k: 'pos', label: 'Position', type: 'select', options: [['lower', 'Bottom'], ['middle', 'Middle'], ['top', 'Top']] }] },
 };
 // fields shown in Effect Controls for a template (its own first, then heading / look / place / size)
 export const gfxFields = (tpl) => [...(GFX[tpl]?.fields || []), ...COMMON.filter((f) => (GFX[tpl]?.common || ['title', 'theme', 'pos', 'scale']).includes(f.k) && !(tpl === 'route' && f.k === 'pos'))];
@@ -594,6 +603,34 @@ const DRAW = {
   },
 
   // 📰 breaking / news strip: a label block and a line of text running along the bottom
+  credits(ctx, W, H, g, t, dur, th) {
+    const u = Math.min(W, H) * (g.scale || 1), lh = u * 0.06, head = u * 0.085;
+    if (g.bg !== 'none') { ctx.fillStyle = th.solid || '#0b0b0f'; ctx.fillRect(0, 0, W, H); }
+    const lines = String(g.text || '').split('\n'), total = (g.head ? head * 2 : 0) + lines.length * lh;
+    // from just below the frame to just above it, evenly over the whole clip
+    let y = H + (-(H + total) * clamp(t / Math.max(0.1, dur)));
+    ctx.save(); ctx.textBaseline = 'top'; ctx.fillStyle = th.text;
+    if (g.head) { ctx.font = FONT(head, 800); ctx.textAlign = 'center'; ctx.fillText(g.head, W / 2, y); y += head * 2; }
+    for (const ln of lines) {
+      const [a, b] = ln.split('|').map((x) => x.trim());
+      if (b !== undefined) {
+        ctx.font = FONT(lh * 0.55, 500); ctx.globalAlpha = 0.75; ctx.textAlign = 'right'; ctx.fillText(a, W / 2 - lh * 0.4, y + lh * 0.1);
+        ctx.globalAlpha = 1; ctx.font = FONT(lh * 0.6, 700); ctx.textAlign = 'left'; ctx.fillText(b, W / 2 + lh * 0.4, y + lh * 0.05);
+      } else if (a) { ctx.font = FONT(lh * 0.62, 700); ctx.textAlign = 'center'; ctx.fillText(a, W / 2, y); }
+      y += lh;
+    }
+    ctx.restore();
+  },
+  crawl(ctx, W, H, g, t, dur, th) {
+    const u = Math.min(W, H) * (g.scale || 1), h = u * 0.07, y = g.pos === 'top' ? H * 0.06 : g.pos === 'middle' ? H / 2 - h / 2 : H - h - H * 0.07;
+    ctx.save(); ctx.font = FONT(h * 0.62, 700); ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    const text = String(g.text || '').replace(/\s*\n\s*/g, '   •   '), tw = ctx.measureText(text).width;
+    // in from the right edge, out past the left edge, once over the clip
+    const x = W - (W + tw) * clamp(t / Math.max(0.1, dur));
+    ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(0, y, W, h);
+    ctx.fillStyle = th.text; ctx.fillText(text, x, y + h / 2);
+    ctx.restore();
+  },
   ticker(ctx, W, H, g, t, dur, th) {
     const u = Math.min(W, H) * (g.scale || 1), h = u * 0.075, y = g.pos === 'top' ? H * 0.04 : H - h - H * 0.05;
     const k = outCubic(t / 0.45), outK = outCubic(clamp((dur - t) / 0.4));

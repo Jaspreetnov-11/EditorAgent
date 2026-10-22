@@ -6,7 +6,7 @@
 // Panels: Project (comps + presets) | Composition (viewer, tools) | Properties (the selected layer) / Timeline below
 // (layers, bars, keyframes) with the Graph Editor on a toggle.
 import { S, on, emit, commit, layout } from './store.js';
-import { ASPECTS, uid, clipDur, compTrack } from './model.js';
+import { ASPECTS, uid, clipDur, compTrack, linkedPartner } from './model.js';
 import { $, $$, esc, toast, clamp } from './ui.js';
 import * as M from './motion.js';
 import * as CV from './compvideo.js';
@@ -896,6 +896,44 @@ export function makeCompFromClip(clipId, findClip) {
   return true;
 }
 const layoutStart = (f) => Object.values(layout()).flat().find((x) => x.clip.id === f.clip.id)?.start;
+
+// ◐ Track Matte Key on the timeline (like Premiere's effect): two selected clips - the picture on the lower track, the
+// matte (text, a photo / logo with transparency, or a video) on a track above it - become one Motion comp where the
+// picture shows only through the matte: through its shape (alpha) for text / stills, through its light parts (luma)
+// for a video matte. The comp takes the picture's place and length; the picture's sound stays as it was.
+export function trackMatteFromClips(ids, findClip) {
+  const fs = ids.map((id) => findClip(id)).filter((f) => f && !f.clip.gap);
+  if (fs.length !== 2) return toast('Select two clips: the picture, and the matte (text / logo / video) on a track above it', 'err');
+  const num = (t) => +String(t).slice(1);
+  fs.sort((a, b) => num(a.track) - num(b.track));
+  const [fb, fm] = fs, b = fb.clip, mt = fm.clip, mb = S.mediaById[b.mediaId];
+  if (fb.track[0] !== 'V' || fm.track[0] !== 'V' || fb.track === fm.track) return toast('The two clips must be on two different video tracks (the matte above)', 'err');
+  if (!['video', 'image'].includes(b.type) || !mb) return toast('The lower clip must be a video or a photo', 'err');
+  const [w, h] = frame(), start = layoutStart(fb) ?? b.start ?? 0, dur = +clipDur(b, S.mediaById).toFixed(3);
+  const ms = layoutStart(fm) ?? mt.start ?? 0, md = clipDur(mt, S.mediaById), mm = S.mediaById[mt.mediaId];
+  let name = `${mb.name.replace(/\.[^.]+$/, '')} matte`, n = 2; while (Object.values(comps()).some((x) => x.name === name)) name = `${mb.name.replace(/\.[^.]+$/, '')} matte ${n++}`;
+  const cp = M.newComp(name, w, h, dur);
+  const fit = (m) => { const k = Math.max(w / (m.width || w), h / (m.height || h)); return { w: Math.round((m.width || w) * k), h: Math.round((m.height || h) * k) }; };
+  const base = b.type === 'video' ? M.newLayer('video', cp, { mediaId: mb.id, name: mb.name, srcIn: +(b.in || 0), speed: b.speed || 1, ...fit(mb) }) : M.newLayer('image', cp, { mediaId: mb.id, name: mb.name, ...fit(mb) });
+  let mat, mode = 'alpha';
+  const txt = mt.type === 'title' ? mt.text : mt.type === 'graphic' && mt.gfx?.tpl === 'text' ? mt.gfx.text : null;
+  if (mt.type === 'video' && mm) { mat = M.newLayer('video', cp, { mediaId: mm.id, name: mm.name, srcIn: +(mt.in || 0) + Math.max(0, start - ms) * (mt.speed || 1), speed: mt.speed || 1, ...fit(mm) }); mode = 'luma'; }
+  else if (mt.type === 'image' && mm) mat = M.newLayer('image', cp, { mediaId: mm.id, name: mm.name, ...fit(mm) });
+  else if (txt) { mat = M.newLayer('text', cp, { name: 'Matte text' }); mat.text.text = txt; mat.text.size = Math.round(h * 0.28); }
+  else return toast('The upper clip must be text, a photo / logo or a video', 'err');
+  mat.in = +Math.max(0, ms - start).toFixed(3); mat.out = +Math.min(dur, ms + md - start).toFixed(3);
+  base.matte = mode;
+  cp.layers = [mat, base]; comps()[cp.id] = cp;
+  const clip = { id: uid(), type: 'graphic', dur, gfx: { tpl: 'comp', compId: cp.id, comp: JSON.parse(JSON.stringify(cp)) } };
+  if (fb.track !== 'V1') clip.start = +start.toFixed(3);
+  const mate = linkedPartner(S.project, b)?.clip; if (mate) delete mate.link; // (its sound plays on)
+  const lb = S.project.tracks[fb.track]; lb.splice(lb.indexOf(b), 1, clip);
+  const lm = S.project.tracks[fm.track]; lm.splice(lm.indexOf(mt), 1);
+  S.sel = new Set([clip.id]);
+  commit(`Track Matte Key: ${name}`);
+  toast(`◐ "${name}": the picture shows through the ${mode === 'luma' ? 'light parts of the video' : 'shape of the matte'} - double-click it to change it in Motion`);
+  return true;
+}
 
 // ---------------- ✂ one-click roto ----------------
 // the AI matte of a video layer (engine/matte.py on the editor's GPU) for the layer's length: L.video.matte
