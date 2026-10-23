@@ -25,8 +25,8 @@ const MOTION = Object.entries(GFX).filter(([, x]) => x.motion).map(([k]) => k);
 
 test('motion templates are there with their fields', () => {
   for (const k of ['lower3', 'kinetic', 'logoreveal', 'endcard', 'ticker']) assert(MOTION.includes(k), `${k} missing`);
-  // (the Type tool's text has its own look - font size, fill, stroke, background - not a theme / size)
-  for (const k of MOTION.filter((m) => m !== 'text')) { const f = gfxFields(k).map((x) => x.k); assert(f.includes('theme') && f.includes('scale'), `${k}: look + size`); assert(!f.includes('title') || k === 'endcard', `${k}: no stray heading field`); }
+  // (the Type tool's text and the Rectangle / Ellipse tools' shape have their own look - fill, stroke, box - not a theme / size)
+  for (const k of MOTION.filter((m) => m !== 'text' && m !== 'shape')) { const f = gfxFields(k).map((x) => x.k); assert(f.includes('theme') && f.includes('scale'), `${k}: look + size`); assert(!f.includes('title') || k === 'endcard', `${k}: no stray heading field`); }
 });
 
 test('Type tool text: placed where it was put, its box grows with the words and lines', () => {

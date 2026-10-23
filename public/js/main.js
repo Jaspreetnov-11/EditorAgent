@@ -432,7 +432,7 @@ const ACTIONS = {
   clearInOut: () => clearRange(), lift: () => liftExtract(false), extract: () => liftExtract(true), openXml: () => { openXmlFile().then((n) => n && emit('openProject', n)); }, insert: () => src(','), overwrite: () => src('.'),
   selectTool: () => setTool('select'), razorTool: () => setTool('blade'), typeTool: () => { setTool('type'); toast('T Type tool: click on the picture and type (Esc when done; V = back to selection)'); },
   rippleTool: () => setTool('ripple'), rollingTool: () => setTool('rolling'), rateTool: () => setTool('rate'), penTool: () => setTool('pen'), remixTool: () => setTool('remix'),
-  slipTool: () => setTool('slip'), slideTool: () => setTool('slide'), handTool: () => setTool('hand'), zoomTool: () => setTool('zoom'),
+  slipTool: () => setTool('slip'), slideTool: () => setTool('slide'), handTool: () => setTool('hand'), rectTool: () => setTool('rect'), ellipseTool: () => setTool('ellipse'), extendTool: () => setTool('extend'), zoomTool: () => setTool('zoom'),
   trackFwdTool: () => setTool('trackfwd'), trackBackTool: () => setTool('trackback'),
   trackUp: () => moveSelectedTrack(1), trackDown: () => moveSelectedTrack(-1),
   nudgeL: () => nudgeSelected(-1), nudgeR: () => nudgeSelected(1), nudgeL5: () => nudgeSelected(-5), nudgeR5: () => nudgeSelected(5),

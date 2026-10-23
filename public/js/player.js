@@ -31,7 +31,7 @@ import { Grader, loadLut, cachedLut } from './colorgl.js';
 import { isNeutral } from './colormath.js';
 import { fxPreview, wordWindows, isKinetic, trLive, polyCss } from './fx.js';
 import { drawGraphic, textLayout, pinOn } from './graphics.js';
-import { addTextAt } from './gfxui.js';
+import { addTextAt, addShapeAt } from './gfxui.js';
 import { effectsCss, maskedEffectsCss, grainCss, VFX, inWindow, blendOf } from './effects.js';
 import { maskAlpha, movedMask, unmovedMask, maskKey } from './shapemask.js';
 import { captionAt, capTracks, capStack } from './captions.js';
@@ -648,10 +648,30 @@ function endTyping(keep) {
   } else if (c && keep) commit(isNew ? 'Type tool: new text' : 'Type text', `type:${id}`);
   drawProgram(S.playhead, false);
 }
+// ▭ ◯ Rectangle / Ellipse tool: drag a box on the picture (Shift: square / circle); a plain click makes a middle-sized one
+function drawShape(e) {
+  const r = frame.getBoundingClientRect(), kind = S.tool, x0 = e.clientX, y0 = e.clientY, ghost = document.createElement('div');
+  ghost.className = `shape-ghost${kind === 'ellipse' ? ' round' : ''}`; frame.append(ghost);
+  let box = null;
+  const mv = (ev) => {
+    let w = ev.clientX - x0, h = ev.clientY - y0;
+    if (ev.shiftKey) { const s = Math.max(Math.abs(w), Math.abs(h)); w = Math.sign(w || 1) * s; h = Math.sign(h || 1) * s; }
+    box = { l: Math.min(x0, x0 + w) - r.left, t: Math.min(y0, y0 + h) - r.top, w: Math.abs(w), h: Math.abs(h) };
+    Object.assign(ghost.style, { left: `${box.l}px`, top: `${box.t}px`, width: `${box.w}px`, height: `${box.h}px` });
+  };
+  const up = () => {
+    window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); ghost.remove();
+    if (!box || box.w < 4 || box.h < 4) { const s = Math.min(r.width, r.height) * 0.3; box = { l: x0 - r.left - s / 2, t: y0 - r.top - s / 2, w: s, h: s }; }
+    addShapeAt(kind, (box.l / r.width) * 100, (box.t / r.height) * 100, (box.w / r.width) * 100, (box.h / r.height) * 100);
+    toast(`${kind === 'ellipse' ? 'Ellipse' : 'Rectangle'} added - colour, stroke and rounding in Effect Controls (V: back to the Selection tool)`);
+  };
+  window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+}
 function bindTypeTool() {
   // capture: before the drag-to-move of shots, so a text on top of a shot is the one taken
   frame.addEventListener('pointerdown', (e) => {
     if (mode !== 'program' || e.button !== 0 || e.target.closest('.type-box, .maskui .mk-shape, .maskui .mk-h')) return;
+    if (S.tool === 'rect' || S.tool === 'ellipse') { e.preventDefault(); e.stopPropagation(); return drawShape(e); }
     const hit = textHit(e);
     if (S.tool === 'type') {
       e.preventDefault(); e.stopPropagation();
@@ -676,7 +696,7 @@ function bindTypeTool() {
     window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
   }, true);
   frame.addEventListener('dblclick', (e) => { if (e.target.closest('.type-box')) return; const hit = textHit(e); if (hit.c) { e.preventDefault(); startTyping(hit.c); } });
-  frame.addEventListener('pointermove', (e) => { if (e.buttons) return; frame.classList.toggle('type-cursor', S.tool === 'type'); frame.classList.toggle('over-text', S.tool !== 'type' && !!textHit(e).c); });
+  frame.addEventListener('pointermove', (e) => { if (e.buttons) return; frame.classList.toggle('type-cursor', S.tool === 'type'); frame.classList.toggle('shape-cursor', S.tool === 'rect' || S.tool === 'ellipse'); frame.classList.toggle('over-text', S.tool !== 'type' && !!textHit(e).c); });
   new ResizeObserver(() => placeTyping()).observe(frame);
 }
 export const editTextClip = (id) => { const c = findClipAny(id); if (c?.gfx?.tpl === 'text') startTyping(c); };

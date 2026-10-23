@@ -1456,3 +1456,16 @@ html.ui2 .tl-row .clip.lab .clip-lbl, .tl-row .clip.lab .clip-lbl { background: 
 .vw-stage.zoomed { display: block; overflow: auto; }
 .vw-stage.zoomed .vw-frame { margin: 8px auto; }
 .vw-zoom { width: auto; min-width: 64px; }
+/* 🧰 Tools panel flyouts (timeline.js TOOL_GROUPS): a ◢ on a button that holds more tools, the list beside it */
+.tl-tools [data-grp] { position: relative; }
+.tg-more { position: absolute; right: 2px; bottom: 2px; width: 0; height: 0; border-left: 5px solid transparent; border-bottom: 5px solid currentColor; opacity: .55; cursor: pointer; }
+.tg-more::after { content: ''; position: absolute; right: -4px; bottom: -7px; width: 12px; height: 12px; } /* (a bigger spot to click) */
+.tg-fly { position: fixed; z-index: 10001; min-width: 230px; }
+.tg-fly button { display: flex; align-items: center; gap: 10px; }
+.tg-fly .tg-ic { width: 18px; text-align: center; flex: none; }
+.tg-fly .tg-ic svg { width: 14px; height: 14px; }
+.tg-fly kbd { margin-left: auto; }
+/* ▭ ◯ Rectangle / Ellipse tool on the Program monitor */
+.vw-frame.shape-cursor { cursor: crosshair; }
+.shape-ghost { position: absolute; z-index: 30; border: 1.5px dashed #fff; background: #ff993333; pointer-events: none; }
+.shape-ghost.round { border-radius: 50%; }

@@ -83,6 +83,20 @@ export const GFX = {
       { k: 'x', label: 'Position (% of frame)', type: 'range', min: -20, max: 120, step: 0.5, def: 50 },
       { k: 'y', label: 'Position (% of frame)', type: 'range', min: -20, max: 120, step: 0.5, def: 50 }] },
 
+  // ▭ ◯ a shape drawn with the Rectangle / Ellipse tool on the Program monitor (Premiere's shape tools): its box in % of
+  // the frame, fill / stroke / corner rounding; no in / out animation (fade it with a transition, like Premiere)
+  shape: { label: '▭ Shape (Rectangle / Ellipse tool)', dur: 5, motion: true, common: [],
+    def: { shape: 'rect', x: 30, y: 30, w: 40, h: 40, fill: true, color: '#ff9933', stroke: false, strokeColor: '#ffffff', strokeW: 6, radius: 0, opacity: 1, shadow: false },
+    fields: [{ k: 'shape', label: 'Shape', type: 'select', options: [['rect', 'Rectangle'], ['ellipse', 'Ellipse']] },
+      { k: 'fill', label: 'Fill', type: 'check' }, { k: 'color', label: 'Fill colour', type: 'color', def: '#ff9933' },
+      { k: 'stroke', label: 'Stroke', type: 'check' }, { k: 'strokeColor', label: 'Stroke colour', type: 'color', def: '#ffffff' },
+      { k: 'strokeW', label: 'Stroke width (px at 1080)', type: 'range', min: 1, max: 80, step: 1, def: 6 },
+      { k: 'radius', label: 'Corner rounding', type: 'range', min: 0, max: 50, step: 1, def: 0 },
+      { k: 'opacity', label: 'Opacity', type: 'range', min: 0, max: 1, step: 0.01, def: 1 },
+      { k: 'shadow', label: 'Shadow', type: 'check' },
+      { k: 'x', label: 'Left (% of frame)', type: 'range', min: -50, max: 150, step: 0.5, def: 30 }, { k: 'y', label: 'Top (% of frame)', type: 'range', min: -50, max: 150, step: 0.5, def: 30 },
+      { k: 'w', label: 'Width (% of frame)', type: 'range', min: 0.5, max: 200, step: 0.5, def: 40 }, { k: 'h', label: 'Height (% of frame)', type: 'range', min: 0.5, max: 200, step: 0.5, def: 40 }] },
+
   // 🎬 motion templates (Phase 19): lower thirds, kinetic text, logo reveal, end card, news strip
   lower3: { label: 'Lower third (name + title)', dur: 5, motion: true, common: ['theme', 'scale'],
     def: { name: 'Shri Vishnu Deo Sai', role: 'Chief Minister, Chhattisgarh', style: 'bar', side: 'left', pos: 'lower', theme: 'mygov' },
@@ -177,7 +191,7 @@ export function drawGraphic(ctx, W, H, g, t, dur, extra = {}) {
   const th = g.theme === 'brand' ? brandTheme(g.brand) : THEMES[g.theme] || THEMES.mygov;
   FAM = `${g.font ? `"${String(g.font).replace(/"/g, '')}", ` : ''}"Nirmala UI", "Segoe UI", Arial, sans-serif`;
   ctx.clearRect(0, 0, W, H);
-  const fade = g.tpl === 'text' ? 1 : clamp((dur - t) / 0.4); // (Type tool text: no built-in fade, like Premiere)
+  const fade = g.tpl === 'text' || g.tpl === 'shape' ? 1 : clamp((dur - t) / 0.4); // (Type tool text: no built-in fade, like Premiere)
   ctx.save();
   ctx.globalAlpha = fade;
   if (g.pos === 'full' && g.tpl !== 'route' && g.tpl !== 'callout') { ctx.fillStyle = th.solid || th.card.replace(/[\d.]+\)$/, '1)'); ctx.fillRect(0, 0, W, H); }
@@ -276,6 +290,17 @@ function heading(ctx, p, g, th, t) {
 }
 
 const DRAW = {
+  // ▭ ◯ the Rectangle / Ellipse tool's shape
+  shape(ctx, W, H, g) {
+    const x = (+g.x / 100) * W, y = (+g.y / 100) * H, w = (+g.w / 100) * W, h = (+g.h / 100) * H, k = H / 1080;
+    ctx.globalAlpha *= Math.min(1, Math.max(0, g.opacity ?? 1));
+    ctx.beginPath();
+    if (g.shape === 'ellipse') ctx.ellipse(x + w / 2, y + h / 2, Math.abs(w / 2), Math.abs(h / 2), 0, 0, Math.PI * 2);
+    else rr(ctx, x, y, w, h, (Math.min(Math.abs(w), Math.abs(h)) / 2) * ((+g.radius || 0) / 50));
+    if (g.shadow) { ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 24 * k; ctx.shadowOffsetX = ctx.shadowOffsetY = 8 * k; }
+    if (g.fill !== false) { ctx.fillStyle = g.color || '#ff9933'; ctx.fill(); ctx.shadowColor = 'transparent'; }
+    if (g.stroke) { ctx.strokeStyle = g.strokeColor || '#ffffff'; ctx.lineWidth = (+g.strokeW || 6) * k; ctx.stroke(); }
+  },
   // T Type tool text: fill, optional stroke, shadow and a background box behind the block
   text(ctx, W, H, g) {
     const L = textLayout(ctx, W, H, g), pad = L.px * 0.28;

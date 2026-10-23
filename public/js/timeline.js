@@ -48,19 +48,7 @@ export function mountTimeline(el) {
   <div class="tl-top">
     <div class="tl-tools" role="toolbar" aria-label="Tools">
       <div class="segbtns" role="radiogroup" aria-label="Tool">
-        <button data-tool="select" title="Select / move (V)" aria-label="Select tool">${ICON.pointer}</button>
-        <button data-tool="blade" title="Razor - click a clip to cut it (C)" aria-label="Razor tool">${ICON.blade}</button>
-        <button data-tool="ripple" title="Ripple Edit (B): drag a clip's end - the story after it closes up / moves along" aria-label="Ripple edit tool"><b>⇤</b></button>
-        <button data-tool="rolling" title="Rolling Edit (N): drag a cut - one shot gets longer, the other shorter, nothing else moves" aria-label="Rolling edit tool"><b>⇹</b></button>
-        <button data-tool="rate" title="Rate Stretch (R): drag a clip's end - its speed changes so the same shot fills the new length" aria-label="Rate stretch tool"><b>⟷</b></button>
-        <button data-tool="type" title="Type tool (T): click on the Program monitor and type - text where you click, like Premiere" aria-label="Type tool"><b>T</b></button>
-        <button data-tool="pen" title="Pen (P): click on a clip to put a keyframe on its opacity (video) / volume (audio) line - higher = more" aria-label="Pen tool"><b>✒</b></button>
-        <button data-tool="remix" title="Remix: drag a music clip's end to the length you need - the music is re-cut to fit, from its best part" aria-label="Remix tool"><b>♫</b></button>
-        <button data-tool="slip" title="Slip (Y): drag a clip - it shows an earlier / later part of its file; its place and length stay" aria-label="Slip tool"><b>↔</b></button>
-        <button data-tool="slide" title="Slide (U): drag a main-story clip between its neighbours - the one before gets longer, the one after shorter (or the other way); nothing else moves" aria-label="Slide tool"><b>⇆</b></button>
-        <button data-tool="trackfwd" title="Track Select Forward (A) / Backward (Shift+A): click - that clip and everything after (before) it on every track is selected (Shift+click: only that track). Drag an overlay clip to move them all, or Alt+← / → to nudge" aria-label="Track select tool"><b>⇥⇥</b></button>
-        <button data-tool="hand" title="Hand (H): drag to scroll the timeline" aria-label="Hand tool"><b>✋</b></button>
-        <button data-tool="zoom" title="Zoom (Z): click to zoom in where you click, Alt+click to zoom out" aria-label="Zoom tool"><b>⌕</b></button>
+        ${TOOL_GROUPS.map((g, i) => toolBtn(g[0], i)).join('')}
       </div>
       <span class="sep"></span>
       <button data-act="split" title="Split clips under the playhead (S)">${ICON.split}<span>Split</span></button>
@@ -107,6 +95,7 @@ export function mountTimeline(el) {
   playheadEl = $('#tlPlayhead', el); snapEl = $('#tlSnap', el); headsEl = $('#tlHeads', el);
 
   $$('[data-tool]', el).forEach((b) => (b.onclick = () => setTool(b.dataset.tool)));
+  bindToolGroups(el);
   // 🎞 a sequence tab: open that sequence (this browser only)
   $('#tlSeqTabs', el).addEventListener('click', (e) => {
     const x = e.target.closest('[data-sclose]');
@@ -207,10 +196,67 @@ export function mountTimeline(el) {
   render();
 }
 
+// 🧰 Premiere's Tools panel: one button per group, showing the tool last used from it; the others are in its flyout
+// (click and hold, right-click, or the little ◢ in its corner), like Premiere. [tool, name, key, icon, what it does]
+const TOOL_GROUPS = [
+  [['select', 'Selection Tool', 'V', '@pointer', 'Select / move']],
+  [['trackfwd', 'Track Select Forward Tool', 'A', '<b>⇥⇥</b>', 'Click a clip: it and everything after it on every track is selected (Shift+click: only that track). Drag an overlay clip to move them all, or Alt+← / → to nudge'],
+    ['trackback', 'Track Select Backward Tool', 'Shift+A', '<b>⇤⇤</b>', 'Click a clip: it and everything before it on every track is selected (Shift+click: only that track)']],
+  [['ripple', 'Ripple Edit Tool', 'B', '<b>⇤</b>', "Drag a clip's end - the story after it closes up / moves along"],
+    ['rolling', 'Rolling Edit Tool', 'N', '<b>⇹</b>', 'Drag a cut - one shot gets longer, the other shorter, nothing else moves'],
+    ['rate', 'Rate Stretch Tool', 'R', '<b>⟷</b>', "Drag a clip's end - its speed changes so the same shot fills the new length"],
+    ['remix', 'Remix Tool', '', '<b>♫</b>', "Drag a music clip's end to the length you need - the music is re-cut to fit, from its best part"]],
+  [['blade', 'Razor Tool', 'C', '@blade', 'Click a clip to cut it']],
+  [['slip', 'Slip Tool', 'Y', '<b>↔</b>', 'Drag a clip - it shows an earlier / later part of its file; its place and length stay'],
+    ['slide', 'Slide Tool', 'U', '<b>⇆</b>', 'Drag a main-story clip between its neighbours - the one before gets longer, the one after shorter; nothing else moves']],
+  [['pen', 'Pen Tool', 'P', '<b>✒</b>', 'Click on a clip to put a keyframe on its opacity (video) / volume (audio) line - higher = more'],
+    ['rect', 'Rectangle Tool', '', '<b>▭</b>', 'Drag on the Program monitor to draw a rectangle (a shape graphic on a free overlay track; Shift: square)'],
+    ['ellipse', 'Ellipse Tool', '', '<b>◯</b>', 'Drag on the Program monitor to draw an ellipse (Shift: circle)']],
+  [['hand', 'Hand Tool', 'H', '<b>✋</b>', 'Drag to scroll the timeline'],
+    ['zoom', 'Zoom Tool', 'Z', '<b>⌕</b>', 'Click to zoom in where you click, Alt+click to zoom out']],
+  [['type', 'Type Tool', 'T', '<b>T</b>', 'Click on the Program monitor and type - text where you click']],
+  [['extend', 'Generative Extend Tool', '', '<b>⇲</b>', "Click a video clip: it carries on past its end for up to 1 s (made from its own motion) into the empty space after it"]],
+];
+const toolIcon = (x) => (x[3][0] === '@' ? ICON[x[3].slice(1)] : x[3]); // (ICON is made further down)
+const toolTip = (x) => `${x[1]}${x[2] ? ` (${x[2]})` : ''}: ${x[4]}`;
+function toolBtn(x, i) {
+  const many = TOOL_GROUPS[i].length > 1;
+  return `<button data-tool="${x[0]}" data-grp="${i}" title="${esc(toolTip(x))}${many ? ' - hold, right-click or ◢ for the others' : ''}" aria-label="${esc(x[1])}">${toolIcon(x)}${many ? '<i class="tg-more" data-tgmore></i>' : ''}</button>`;
+}
+// the flyout of group i under / beside its button
+function toolFlyout(btn) {
+  document.querySelector('.tg-fly')?.remove();
+  const g = TOOL_GROUPS[+btn.dataset.grp], r = btn.getBoundingClientRect(), m = document.createElement('div');
+  m.className = 'tg-fly ctx'; m.setAttribute('role', 'menu');
+  m.innerHTML = g.map((x) => `<button role="menuitem" data-pick="${x[0]}" title="${esc(x[4])}"><span class="tg-ic">${toolIcon(x)}</span><span>${S.tool === x[0] ? '■ ' : ''}${esc(x[1])}</span>${x[2] ? `<kbd>${x[2]}</kbd>` : ''}</button>`).join('');
+  document.body.append(m);
+  m.style.left = `${Math.min(r.right + 4, innerWidth - m.offsetWidth - 6)}px`; m.style.top = `${Math.min(r.top, innerHeight - m.offsetHeight - 6)}px`;
+  const close = () => { m.remove(); window.removeEventListener('pointerdown', out, true); };
+  const out = (e) => { if (!m.contains(e.target)) close(); };
+  setTimeout(() => window.addEventListener('pointerdown', out, true));
+  m.addEventListener('click', (e) => { const p = e.target.closest('[data-pick]'); if (p) { close(); setTool(p.dataset.pick); } });
+}
+function bindToolGroups(el) {
+  el.querySelectorAll('[data-grp]').forEach((b) => {
+    let hold = null;
+    b.addEventListener('pointerdown', (e) => { if (e.button === 0 && TOOL_GROUPS[+b.dataset.grp].length > 1) hold = setTimeout(() => { hold = 'open'; toolFlyout(b); }, 450); });
+    const stop = () => { if (hold && hold !== 'open') clearTimeout(hold); };
+    b.addEventListener('pointerup', stop); b.addEventListener('pointerleave', stop);
+    b.addEventListener('click', (e) => {
+      if (hold === 'open') { hold = null; e.stopImmediatePropagation(); return; }
+      if (e.target.closest('[data-tgmore]')) { e.stopImmediatePropagation(); toolFlyout(b); }
+    }, true);
+    b.addEventListener('contextmenu', (e) => { if (TOOL_GROUPS[+b.dataset.grp].length > 1) { e.preventDefault(); toolFlyout(b); } });
+  });
+}
 export function setTool(t) { S.tool = t; syncBar(); root.classList.toggle('blade', t === 'blade'); root.dataset.tool = t; render(); }
 function syncBar() {
-  $$('[data-tool]', root).forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tool === S.tool || (b.dataset.tool === 'trackfwd' && S.tool === 'trackback'))));
-  const tsb = root.querySelector('button[data-tool="trackfwd"] b'); if (tsb) tsb.textContent = S.tool === 'trackback' ? '⇤⇤' : '⇥⇥'; // (one slot for both, like Premiere)
+  // (the group of the tool in use shows it on its button)
+  root.querySelectorAll('[data-grp]').forEach((b) => {
+    const g = TOOL_GROUPS[+b.dataset.grp], x = g.find((y) => y[0] === S.tool);
+    if (x && b.dataset.tool !== x[0]) { const n = document.createElement('div'); n.innerHTML = toolBtn(x, +b.dataset.grp); const nb = n.firstElementChild; b.dataset.tool = x[0]; b.title = nb.title; b.setAttribute('aria-label', nb.getAttribute('aria-label')); b.innerHTML = nb.innerHTML; }
+    b.setAttribute('aria-pressed', String(!!x));
+  });
   const sn = $('#tlSeqName', root); if (sn && S.project) sn.textContent = seqName(); // 🎞 the open sequence
   const tabs = $('#tlSeqTabs', root);
   if (tabs && S.project) {
@@ -953,6 +999,7 @@ function onRowsDown(e) {
   // 🔒 a locked clip: it can be selected (and looked at), never moved, trimmed or cut
   if (findClip(id)?.clip.locked) { if (!S.sel.has(id)) select(id, e.shiftKey || e.ctrlKey, e.altKey); toast('This clip is locked - right-click › Unlock clip'); return; }
   if (S.tool === 'blade') { splitClip(id, snap(timeAt(e.clientX), snapPoints(new Set([id])))); commit('Blade'); return; }
+  if (S.tool === 'extend') { select(id, false); if (findClip(id)?.clip.type === 'video') morphOrExtend(id, 'extend'); else toast('Generative Extend works on video clips'); return; }
   if (S.tool === 'pen' && !e.target.closest('[data-trim]')) { penKey(id, track, e, el); return; }
   if (S.tool === 'slip' || S.tool === 'slide') { select(id, false); slipSlide(e, id, track); return; }
   if (!S.sel.has(id) || e.shiftKey || e.ctrlKey || e.altKey) select(id, e.shiftKey || e.ctrlKey, e.altKey);

@@ -88,6 +88,21 @@ export function addTextAt(x, y) {
   return c;
 }
 
+// ▭ ◯ the Rectangle / Ellipse tool: a shape over the box dragged on the Program monitor (% of the frame)
+export function addShapeAt(shape, x, y, w, h) {
+  const t = S.playhead, dur = GFX.shape.dur;
+  const free = (id) => !(S.project.tracks[id] || []).some((c) => (c.start || 0) < t + dur && (c.start || 0) + clipDur(c, S.mediaById) > t);
+  const ov = trackList(S.project).filter((k) => k.kind === 'video' && k.id !== 'V1').map((k) => k.id).reverse();
+  const id = ov.find(free) || addTrack(S.project, 'video');
+  (S.project.tracks[id] ||= []);
+  const c = { id: uid(), type: 'graphic', start: +t.toFixed(3), dur, gfx: { ...made('shape'), shape, x: +x.toFixed(2), y: +y.toFixed(2), w: +w.toFixed(2), h: +h.toFixed(2) } };
+  S.project.tracks[id].push(c);
+  S.sel = new Set([c.id]);
+  commit(shape === 'ellipse' ? 'Ellipse tool: new shape' : 'Rectangle tool: new shape');
+  emit('select');
+  return c;
+}
+
 // ---- Effect Controls ----
 export function gfxInspector(c) {
   const g = c.gfx || {};
@@ -98,7 +113,7 @@ export function gfxInspector(c) {
   return `<div class="isec"><div class="fgrid">${fieldsHTML([
     { k: 'tpl', label: 'Template', type: 'select', options: Object.entries(GFX).map(([k, x]) => [k, x.label]), wide: true },
     ...gfxFields(g.tpl).map((f) => (f.k === 'logo' ? { ...f, options: [['', 'None (round placeholder)'], ...S.media.filter((m) => m.kind === 'image').slice(0, 2000).map((m) => [m.id, m.name])] } : f)),
-    { type: 'html', html: fontField(g.font) }, // (🔤 any font on this computer, like Premiere's Essential Graphics)
+    ...(g.tpl === 'shape' ? [] : [{ type: 'html', html: fontField(g.font) }]), // (🔤 any font on this computer, like Premiere's Essential Graphics)
     ...respFields(g),
   ], g)}</div>
   <div class="fgrid">${fieldsHTML([{ k: 'start', label: 'Starts at', type: 'time', fmt, ph: '0:00.0' }, { k: 'dur', label: 'Length', type: 'num', min: 1, step: 0.5, unit: 'sec' }], c)}</div>
