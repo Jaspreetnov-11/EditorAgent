@@ -19,6 +19,8 @@ const P = {
   tag: '<path d="M2.5 3.3v4.1c0 .3.1.5.3.7l5.6 5.6c.4.4 1 .4 1.4 0l3.9-3.9c.4-.4.4-1 0-1.4L8.1 2.8a1 1 0 0 0-.7-.3H3.3a.8.8 0 0 0-.8.8z"/><circle cx="5.5" cy="5.5" r="1"/>',
   edit: '<path d="M11 2.3l2.7 2.7-8.2 8.2H2.8v-2.7z"/><path d="M9.3 4l2.7 2.7"/>',
   pen: '<path d="M2.6 13.4l1.8-6.1L10.7 3l2.3 2.3-4.3 6.3z"/><path d="M2.6 13.4l3.7-3.7"/><circle cx="7.3" cy="8.7" r="1.1"/>',
+  // ✂ Roto (AI): a person cut out of the frame
+  roto: '<rect x="1.5" y="1.5" width="13" height="13" rx="2" stroke-dasharray="2 1.7"/><circle cx="8" cy="6" r="2.2"/><path d="M4.2 13c.5-2.4 1.9-3.7 3.8-3.7s3.3 1.3 3.8 3.7"/>',
   scissors: '<circle cx="4.3" cy="4.5" r="2"/><circle cx="4.3" cy="11.5" r="2"/><path d="M6 5.7l7.5 6.8M6 10.3l7.5-6.8"/>',
   slip: '<path d="M2 8h12M5 5 2 8l3 3M11 5l3 3-3 3"/>',
   ramp: '<path d="M2 4l5.2 4L2 12zM8.3 4l5.2 4-5.2 4z"/>',

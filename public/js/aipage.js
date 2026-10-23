@@ -6,7 +6,7 @@ import { S, on, commit, emit, findClip, layout } from './store.js';
 import { api, enc, watchJob } from './api.js';
 import { uid, fmt, clipDur } from './model.js';
 import { esc, toast, modal } from './ui.js';
-import { refreshMedia } from './mediapool.js';
+import { refreshMedia, uploadFiles } from './mediapool.js';
 import { TEMPLATES, templateById, applyTemplate, clearTemplate } from './aitemplates.js';
 import { labsWorkHTML, mountLabsWork, draw as drawLabs, labOpen, labTemplate, labClear, stopLabs } from './labsedit.js';
 
@@ -29,6 +29,7 @@ const TOOLS = [
 
 // thin line glyphs in the editor's own icon style (16 × 16, stroke = currentColor)
 const G = {
+  clone: '<rect x="2" y="1.5" width="4.5" height="7.5" rx="2.25"/><path d="M.8 6.5a3.5 3.5 0 0 0 6.9 0M4.25 10.5v2"/><path d="M9.5 5.5c.9.7.9 2.3 0 3M11.5 4c1.9 1.6 1.9 4.4 0 6M13.5 2.5c2.8 2.5 2.8 6.5 0 9"/>',
   dub: '<path d="M2.5 5.5h5M5 4v1.5M3.3 5.5c.4 2 1.7 3.4 3.4 4M6.7 5.5c-.4 2-1.7 3.4-3.4 4"/><path d="M8.5 13l2.5-6 2.5 6M9.3 11h3.4"/>',
   crashin: '<rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><rect x="5" y="5.5" width="6" height="5" rx="1"/><path d="M2.5 3.5l2.5 2M13.5 3.5l-2.5 2M2.5 12.5l2.5-2M13.5 12.5l-2.5-2"/>',
   crashout: '<rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><rect x="5" y="5.5" width="6" height="5" rx="1"/><path d="M5 5.5L2.8 3.6M11 5.5l2.2-1.9M5 10.5l-2.2 1.9M11 10.5l2.2 1.9"/>',
@@ -60,18 +61,18 @@ const selClip = () => { const id = [...S.sel][0]; const f = id && findClip(id); 
 export function mountAI(el) {
   root = el;
   el.innerHTML = `<div class="lab">
-    <header class="lab-head"><div><h1>Labs</h1><p>AI tools for dubbing, camera moves and faster edits - all running on this computer.</p></div></header>
+    <header class="lab-head"><div><h1>Labs</h1><p>AI tools for voice cloning, camera moves and faster edits - all running on this computer.</p></div></header>
     <section class="lab-sec">
       <div class="lab-sec-h"><div><span class="lab-kicker">Motion templates</span><h2>One-click camera moves</h2></div><p class="lab-note" data-tplsel></p><button class="lab-link" data-a="untpl">Remove from selected</button></div>
       <div class="lab-grid" data-tpls>${TEMPLATES.map((t) => `<button class="lab-tile" data-tpl="${t.id}"><span class="lab-tile-ic">${glyph(t.id)}</span><span class="lab-tile-t"><b>${esc(t.label)}</b><small>${esc(t.sub)}</small></span>${t.video ? '<i class="lab-tag">video</i>' : ''}</button>`).join('')}</div>
     </section>
     ${labsWorkHTML()}
     <section class="lab-hero">
-      <div class="lab-hero-ic">${glyph('dub')}</div>
-      <div class="lab-hero-txt"><span class="lab-kicker">AI dubbing</span><h2>Any language, in the speaker's own voice</h2>
-        <p>Listens to the clip, translates every line, and speaks it again in the same voice - fitted to the original timing.</p>
+      <div class="lab-hero-ic">${glyph('clone')}</div>
+      <div class="lab-hero-txt"><span class="lab-kicker">Voice cloning</span><h2>Any voice, from a short sample</h2>
+        <p>Give it 10-15 seconds of someone speaking - a clip, a file or your microphone - then type what they should say. It is spoken in that same voice, Hindi or English, on this computer.</p>
         <p class="lab-note" data-dubsel></p></div>
-      <div class="lab-hero-act"><span class="lab-pill" data-vst></span><button class="primary" data-a="dub">Dub selected clip</button><button class="lab-link" data-a="setup" hidden>Set up same-voice AI (one time, about 5 GB)</button></div>
+      <div class="lab-hero-act"><span class="lab-pill" data-vst></span><button class="primary" data-a="clone">Clone a voice</button><button class="lab-link" data-a="setup" hidden>Set up same-voice AI (one time, about 5 GB)</button></div>
     </section>
     <section class="lab-sec">
       <div class="lab-sec-h"><div><span class="lab-kicker">Tools</span><h2>Edit faster</h2></div></div>
@@ -80,7 +81,7 @@ export function mountAI(el) {
   mountLabsWork(el.querySelector('[data-work]'));
   el.addEventListener('click', (e) => {
     const a = e.target.closest('[data-a]')?.dataset.a, tpl = e.target.closest('[data-tpl]')?.dataset.tpl, tool = e.target.closest('[data-tool]')?.dataset.tool;
-    if (a === 'dub') openAiDub();
+    if (a === 'clone') openVoiceClone();
     if (a === 'setup') setupVoice();
     // (with a Labs clip open, the templates go on it - Update on timeline puts them on the edit)
     if (a === 'untpl') { if (!labClear()) removeTemplates(); }
@@ -96,7 +97,7 @@ on('change', () => { if (S.page === 'ai') drawLabs(); }); // (undo / redo of a L
 function drawSel() {
   const c = selClip(), n = S.sel.size;
   const m = c && S.mediaById[c.clip.mediaId];
-  root.querySelector('[data-dubsel]').textContent = c ? `Selected: ${m?.name || c.clip.type}${m?.hasAudio ? '' : ' - this clip has no sound to dub'}` : 'Select a clip with speech on the Edit timeline (an interview, a speech, a VO).';
+  root.querySelector('[data-dubsel]').textContent = c && m?.hasAudio ? `Voice sample ready: ${m.name} (the selected clip)` : 'Select a clip with clear speech on the timeline to use its voice - or pick a file or record one in the next step.';
   if (labOpen()) { root.querySelector('[data-tplsel]').textContent = `Goes on the open Labs clip "${labOpen().name}" - then Update on timeline`; return; }
   root.querySelector('[data-tplsel]').textContent = n ? `${n} shot${n > 1 ? 's' : ''} selected${c?.clip.tpl ? ` · has "${templateById(c.clip.tpl.id)?.label}"` : ''}` : 'Select shots on the Edit timeline first (V1 or above).';
 }
@@ -140,6 +141,104 @@ async function runTool(id) {
     emit('gotoPage', 'edit');
     return import('./trackui.js').then((x) => x.addPin(c.id, () => emit('select')));
   }
+}
+
+// ---------------- 🧬 voice cloning ----------------
+// a voice sample (the selected clip from its In, any clip with sound, a file, or 15 s from the microphone) + the words ->
+// the words spoken in that voice (offline same-voice AI, server: POST /api/tts provider 'clone') -> A1 at the playhead
+const withSound = () => S.media.filter((m) => m.kind === 'audio' || (m.kind === 'video' && m.hasAudio));
+export async function openVoiceClone() {
+  const vs = await api('GET', '/api/aivoice').catch(() => ({ ready: false }));
+  const c = selClip(), cm = c && S.mediaById[c.clip.mediaId];
+  const body = document.createElement('div');
+  body.className = 'vo vclone';
+  body.innerHTML = `
+    <div class="vc-step"><b>1 · Voice sample</b><span class="muted small">10-15 seconds of one person speaking clearly, no music</span></div>
+    <div class="row-in vc-src">
+      <select name="ref" aria-label="Voice sample"></select>
+      <button type="button" class="small" data-play title="Hear the sample">Play</button>
+      <button type="button" class="small" data-up title="Use an audio or video file from this computer">Upload…</button>
+      <button type="button" class="small" data-rec title="Record 15 seconds from the microphone">Record</button>
+      <input type="file" accept="audio/*,video/*" hidden>
+    </div>
+    <p class="muted small" data-st></p>
+    <div class="vc-step"><b>2 · What the voice says</b><span class="muted small">Hindi, English or Hinglish - a blank line = a short pause</span></div>
+    <textarea name="text" rows="7" placeholder="नमस्कार, मैं आपका स्वागत करता हूँ…"></textarea>
+    <label class="chk"><input type="checkbox" name="subs" checked> Subtitles from it (exact words, timed to the voice)</label>
+    <label class="chk"><input type="checkbox" name="place" checked> Put it on A1 (Voice-over) at the playhead</label>
+    ${vs.ready ? '' : '<p class="vo-note">The same-voice AI is not set up on this computer yet - press "Set up same-voice AI" on the Labs page first (one time).</p>'}
+    <div class="ag-foot"><span class="muted small" data-count></span><span class="grow"></span><button type="button" data-close>Cancel</button><button type="button" class="primary" data-go${vs.ready ? '' : ' disabled'}>Make it in this voice</button></div>`;
+  const dlg = modal('Voice cloning', body, { width: 640 });
+  const q = (x) => body.querySelector(x), sel = q('[name="ref"]'), st = q('[data-st]'), ta = q('[name="text"]');
+  // the samples: the selected clip first (from its In), then every file with sound
+  const fill = (pick) => {
+    const own = c && cm?.hasAudio ? [`<option value="clip">Selected clip: ${esc(cm.name)} (from its In)</option>`] : [];
+    sel.innerHTML = own.concat(withSound().map((m) => `<option value="${m.id}">${esc(m.name)}</option>`)).join('') || '<option value="">No clip with sound yet - upload or record one</option>';
+    if (pick) sel.value = pick;
+  };
+  fill();
+  const ref = () => (sel.value === 'clip' ? { refMediaId: cm.id, refIn: +(c.clip.in || 0) } : sel.value ? { refMediaId: sel.value, refIn: 0 } : null);
+  // hear the 15 s that will be used
+  const au = new Audio(); let stopAt = 0;
+  au.ontimeupdate = () => { if (au.currentTime >= stopAt) au.pause(); };
+  q('[data-play]').onclick = () => {
+    const r = ref(), m = r && S.mediaById[r.refMediaId]; if (!m) return;
+    if (!au.paused) return au.pause();
+    if (au.dataset.src !== m.urls.play) { au.src = m.urls.play; au.dataset.src = m.urls.play; }
+    au.currentTime = r.refIn; stopAt = r.refIn + 15; au.play().catch(() => {});
+  };
+  // a file (or a recording) becomes a clip of the project, then the sample
+  const addFile = async (file) => {
+    st.textContent = `Adding ${file.name}…`;
+    try {
+      const added = await uploadFiles([file]), first = added.find((x) => x.kind === 'audio' || x.kind === 'video');
+      if (!first) throw new Error('That file has no sound');
+      for (let i = 0; i < 60 && S.mediaById[first.id]?.status !== 'ready'; i++) { await new Promise((r) => setTimeout(r, 1000)); await refreshMedia(); }
+      fill(first.id); st.textContent = `Sample: ${first.name}`;
+    } catch (e) { st.textContent = ''; toast(e.message, 'err'); }
+  };
+  const fileIn = q('input[type="file"]');
+  q('[data-up]').onclick = () => fileIn.click();
+  fileIn.onchange = () => { if (fileIn.files[0]) addFile(fileIn.files[0]); fileIn.value = ''; };
+  // 🎙 15 s from the microphone (again = stop early)
+  let rec = null;
+  q('[data-rec]').onclick = async () => {
+    if (rec) return rec.stop();
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: true } }); }
+    catch { return toast('The microphone could not be opened (allow it in the browser)', 'err'); }
+    const chunks = [], mr = new MediaRecorder(stream), btn = q('[data-rec]'), t0 = Date.now();
+    rec = mr; btn.textContent = 'Stop'; btn.classList.add('on');
+    const tick = setInterval(() => { const n = Math.round((Date.now() - t0) / 1000); st.textContent = `Recording… ${n} s (read a few lines in a normal voice)`; if (n >= 15) mr.stop(); }, 250);
+    mr.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+    mr.onstop = () => {
+      clearInterval(tick); stream.getTracks().forEach((t) => t.stop()); rec = null; btn.textContent = 'Record'; btn.classList.remove('on');
+      const d = new Date(), p = (x) => String(x).padStart(2, '0');
+      addFile(new File(chunks, `Voice sample ${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}.webm`, { type: mr.mimeType || 'audio/webm' }));
+    };
+    mr.start(250);
+  };
+  const cnt = () => { const n = ta.value.trim().length; q('[data-count]').textContent = n ? `${n} characters · about ${fmt(n / 14.5)}` : ''; };
+  ta.oninput = cnt;
+  q('[data-go]').onclick = async () => {
+    const r = ref();
+    if (!r) return toast('Pick, upload or record the voice sample first', 'err');
+    if (!ta.value.trim()) return toast('Write what the voice should say', 'err');
+    const subs = q('[name="subs"]').checked, place = q('[name="place"]').checked;
+    au.pause(); dlg.close(); emit('job', { running: true, label: 'Cloning the voice…' });
+    try {
+      const job = await api('POST', `/api/tts?p=${enc(S.proj)}`, { provider: 'clone', ...r, text: ta.value, subtitles: subs });
+      const res = (await watchJob(job.id, (x) => emit('job', { running: true, label: `Voice clone · ${x.stage || 'Speaking…'} ${x.progress || 0}%` }))).result;
+      await refreshMedia();
+      if (place && res.mediaId) {
+        S.project.tracks.A1.push({ id: uid(), type: 'audio', mediaId: res.mediaId, start: +S.playhead.toFixed(3), in: 0, volume: 1 });
+        if (res.subs) S.project.subtitles = { ...S.project.subtitles, file: res.subs };
+        commit('Voice clone'); emit('subs');
+      }
+      toast(`Done in the cloned voice (${fmt(res.duration)})${res.subs ? ' with subtitles' : ''} - it is in the "AI voice-over" bin`);
+    } catch (e) { toast(e.message, 'err'); }
+    finally { emit('job', { running: false }); }
+  };
 }
 
 // ---------------- 🌐 AI dubbing ----------------

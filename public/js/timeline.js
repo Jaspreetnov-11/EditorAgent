@@ -80,7 +80,7 @@ export function mountTimeline(el) {
       <button data-act="gfx" title="Motion graphics: counters, charts, callouts, route lines"><b>${ic('chart')}</b><span>Graphic</span></button>
       <button data-act="adjust" title="Adjustment layer: colour / effects for every track below it, at the playhead"><b>${ic('adjust')}</b><span>Adjust</span></button>
       <button data-act="ramp" title="Speed ramp: pick a preset for the selected video clips (slow-mo hit, bullet time, whoosh…)"><b>${ic('ramp')}</b><span>Ramp</span></button>
-      <button data-act="roto" title="Roto (AI): select a video clip - its subject (person / animal / vehicle) is cut out onto the track above. Put text on a track in between to have it behind the person"><b>${ic('scissors')}</b><span>Roto</span></button>
+      <button data-act="roto" title="Roto (AI): select a video clip - its subject (person / animal / vehicle) is cut out onto the track above. Put text on a track in between to have it behind the person"><b>${ic('roto')}</b><span>Roto</span></button>
       <button data-act="sfx" title="Auto sound design: whooshes, hits and a riser on A3, lined up with your cuts, transitions and effects"><b>${ic('speaker')}</b><span>SFX</span></button>
       <span class="sep"></span>
       <button data-act="snap" class="tog" title="Snapping on/off (N)">${ICON.magnet}<span>Snap</span></button>
@@ -1992,13 +1992,13 @@ function onContext(e) {
   const id = el.dataset.id;
   if (!S.sel.has(id)) select(id, false);
   const f = findClip(id), c = f.clip;
-  // the everyday edits only; the rest sit under "More…" (same spot) so the menu stays short
+  // the everyday edits only; the rest sit under "More…" (same spot) so the menu stays short. What the toolbar already
+  // has (Split, Duplicate, Delete, Roto, Speed ramp) is not repeated here
   const items = [
     ...(c.gap ? [['closegap', 'Close gap (ripple)', 'Del'], '-'] : []),
-    ['split', 'Split at playhead', 'S'], ['copy', S.sel.size > 1 ? `Copy ${S.sel.size} clips` : 'Copy', 'Ctrl+C'],
+    ['copy', S.sel.size > 1 ? `Copy ${S.sel.size} clips` : 'Copy', 'Ctrl+C'],
     ...(clipboard()?.kind === 'clips' ? [['paste', `Paste ${clipboard().items.length > 1 ? `${clipboard().items.length} clips ` : ''}at playhead`, 'Ctrl+V']] : []),
-    ['dup', 'Duplicate', 'Ctrl+D'],
-    ...(c.gap ? [] : [['del', 'Delete (leave a gap)', 'Del'], ...(f.track === 'V1' ? [['ripdel', 'Ripple delete (close the gap)', 'Shift+Del']] : [])]),
+    ...(c.gap || f.track !== 'V1' ? [] : [['ripdel', 'Ripple delete (close the gap)', 'Shift+Del']]),
     ...(S.sel.size > 1 ? [['nest', `Nest ${S.sel.size} clips…`], ['group', 'Group', 'Ctrl+G']] : []), ...(c.grp ? [['ungroup', 'Ungroup', 'Ctrl+Shift+G']] : []),
     '-',
     ['spdlg', 'Speed / Duration…', 'Ctrl+R'],
@@ -2006,14 +2006,13 @@ function onContext(e) {
     ...(soundClips([id]).length ? [['gain', 'Audio gain…', 'G']] : []),
     ...((c.type === 'video' || c.type === 'audio') && !linkedPartner(S.project, c) ? [['mute', c.mute ? 'Unmute' : 'Mute']] : []),
     ...(linkedPartner(S.project, c) ? [['unlink', 'Unlink audio / video']] : c.type === 'video' && S.mediaById[c.mediaId]?.hasAudio && !c.link ? [['linkA', 'Separate audio (linked)']] : c.type === 'video' && c.link && S.mediaById[c.mediaId]?.hasAudio ? [['linkA', 'Bring back its sound (linked)']] : []),
-    ...(c.type === 'video' ? ['-', ['comp', 'Make Motion comp (animate it in Motion)'], ['fusion', 'Open in Fusion (node effects)'], ['labs', c.labsId ? 'Open in Labs' : 'Edit in Labs (templates, AI)'], ['roto', 'Roto: cut out the subject (AI)']] : []),
+    ...(c.type === 'video' ? ['-', ['comp', 'Make Motion comp (animate it in Motion)'], ['fusion', 'Open in Fusion (node effects)'], ['labs', c.labsId ? 'Open in Labs' : 'Edit in Labs (templates, AI)']] : []),
     ...(c.mediaId ? ['-', ['replace', 'Replace clip…']] : []),
     '-', ['more', 'More…'],
   ];
   const more = [
     ...(c.type === 'video' && !c.gap ? [['hold', 'Add Frame Hold (from the playhead)'], ['holdIns', 'Insert Frame Hold Segment (2 s)'], ['scenes', 'Scene Edit Detection (cut at its cuts)'],
-      ...(f.track === 'V1' && f.index > 0 && S.project.tracks.V1[f.index - 1]?.type === 'video' ? [['morph', 'Morph Cut (smooth the jump cut before this clip)']] : []), ['extend', 'Extend the end (+1 s, optical flow)'],
-      ['ramp', `Speed ramp…${c.ramp ? ' (on)' : ''}`]] : []),
+      ...(f.track === 'V1' && f.index > 0 && S.project.tracks.V1[f.index - 1]?.type === 'video' ? [['morph', 'Morph Cut (smooth the jump cut before this clip)']] : []), ['extend', 'Extend the end (+1 s, optical flow)']] : []),
     ...(c.type === 'video' || c.type === 'audio' ? [['sp0.5', 'Speed 0.5× (slow-mo)'], ['sp1', 'Speed 1×'], ['sp2', 'Speed 2×']] : []),
     '-',
     ...(S.sel.size > 1 ? [] : [['nest', 'Nest…']]),
