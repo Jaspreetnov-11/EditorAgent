@@ -13,6 +13,7 @@ import { AFX } from './audioeffects.js';
 import { sharedSeqId } from './store.js';
 import { openAudioGain, soundClips } from './audiogain.js';
 import { copyClips, pasteClips, clipboard } from './clipboard.js';
+import { TOOL_GROUPS, groupClick, MANY_SELECT } from './toolgroups.js';
 import { clipDur, uid, fmtTC, fmt, trackList, trackKind, trackNum, ensureTrack, frameScale, addTrack, syncLinked, linkAudioOf, linkedPartner, linkedIds, groupedIds, syncShift, rippleMarkers, evalKeys, fmtTime, freeAudioTrack, RAMPS, setRamp, rampPts, rampPart, profileAt, TRANSITIONS, setTransition, trHandles, propAt, keepLength, sourceAt } from './model.js';
 import { $, $$, h, esc, clamp, toast, modal } from './ui.js';
 import { api, enc } from './api.js';
@@ -196,27 +197,6 @@ export function mountTimeline(el) {
   render();
 }
 
-// 🧰 Premiere's Tools panel: one button per group, showing the tool last used from it; the others are in its flyout
-// (click and hold, right-click, or the little ◢ in its corner), like Premiere. [tool, name, key, icon, what it does]
-const TOOL_GROUPS = [
-  [['select', 'Selection Tool', 'V', '@pointer', 'Select / move']],
-  [['trackfwd', 'Track Select Forward Tool', 'A', '<b>⇥⇥</b>', 'Click a clip: it and everything after it on every track is selected (Shift+click: only that track). Drag an overlay clip to move them all, or Alt+← / → to nudge'],
-    ['trackback', 'Track Select Backward Tool', 'Shift+A', '<b>⇤⇤</b>', 'Click a clip: it and everything before it on every track is selected (Shift+click: only that track)']],
-  [['ripple', 'Ripple Edit Tool', 'B', '<b>⇤</b>', "Drag a clip's end - the story after it closes up / moves along"],
-    ['rolling', 'Rolling Edit Tool', 'N', '<b>⇹</b>', 'Drag a cut - one shot gets longer, the other shorter, nothing else moves'],
-    ['rate', 'Rate Stretch Tool', 'R', '<b>⟷</b>', "Drag a clip's end - its speed changes so the same shot fills the new length"],
-    ['remix', 'Remix Tool', '', '<b>♫</b>', "Drag a music clip's end to the length you need - the music is re-cut to fit, from its best part"]],
-  [['blade', 'Razor Tool', 'C', '@blade', 'Click a clip to cut it']],
-  [['slip', 'Slip Tool', 'Y', '<b>↔</b>', 'Drag a clip - it shows an earlier / later part of its file; its place and length stay'],
-    ['slide', 'Slide Tool', 'U', '<b>⇆</b>', 'Drag a main-story clip between its neighbours - the one before gets longer, the one after shorter; nothing else moves']],
-  [['pen', 'Pen Tool', 'P', '<b>✒</b>', 'Click on a clip to put a keyframe on its opacity (video) / volume (audio) line - higher = more'],
-    ['rect', 'Rectangle Tool', '', '<b>▭</b>', 'Drag on the Program monitor to draw a rectangle (a shape graphic on a free overlay track; Shift: square)'],
-    ['ellipse', 'Ellipse Tool', '', '<b>◯</b>', 'Drag on the Program monitor to draw an ellipse (Shift: circle)']],
-  [['hand', 'Hand Tool', 'H', '<b>✋</b>', 'Drag to scroll the timeline'],
-    ['zoom', 'Zoom Tool', 'Z', '<b>⌕</b>', 'Click to zoom in where you click, Alt+click to zoom out']],
-  [['type', 'Type Tool', 'T', '<b>T</b>', 'Click on the Program monitor and type - text where you click']],
-  [['extend', 'Generative Extend Tool', '', '<b>⇲</b>', "Click a video clip: it carries on past its end for up to 1 s (made from its own motion) into the empty space after it"]],
-];
 const toolIcon = (x) => (x[3][0] === '@' ? ICON[x[3].slice(1)] : x[3]); // (ICON is made further down)
 const toolTip = (x) => `${x[1]}${x[2] ? ` (${x[2]})` : ''}: ${x[4]}`;
 function toolBtn(x, i) {
@@ -242,14 +222,19 @@ function bindToolGroups(el) {
     b.addEventListener('pointerdown', (e) => { if (e.button === 0 && TOOL_GROUPS[+b.dataset.grp].length > 1) hold = setTimeout(() => { hold = 'open'; toolFlyout(b); }, 450); });
     const stop = () => { if (hold && hold !== 'open') clearTimeout(hold); };
     b.addEventListener('pointerup', stop); b.addEventListener('pointerleave', stop);
-    b.addEventListener('click', (e) => {
-      if (hold === 'open') { hold = null; e.stopImmediatePropagation(); return; }
-      if (e.target.closest('[data-tgmore]')) { e.stopImmediatePropagation(); toolFlyout(b); }
-    }, true);
+    // (its own click handler: the generic one switched the tool before the flyout could stop it)
+    const many = TOOL_GROUPS[+b.dataset.grp].length > 1;
+    b.onclick = (e) => {
+      const act = groupClick({ held: hold === 'open', corner: !!e.target.closest('[data-tgmore]'), many });
+      hold = null;
+      if (act === 'flyout') toolFlyout(b); else if (act === 'set') setTool(b.dataset.tool);
+    };
     b.addEventListener('contextmenu', (e) => { if (TOOL_GROUPS[+b.dataset.grp].length > 1) { e.preventDefault(); toolFlyout(b); } });
   });
 }
-export function setTool(t) { S.tool = t; syncBar(); root.classList.toggle('blade', t === 'blade'); root.dataset.tool = t; render(); }
+export function setTool(t) {
+  if (MANY_SELECT.has(t) && S.tool !== t) toast(`${t === 'trackfwd' ? 'Track Select Forward (A): a click selects that clip and everything after it' : 'Track Select Backward (Shift+A): a click selects that clip and everything before it'} on every track - press V for the Selection tool`);
+  S.tool = t; syncBar(); root.classList.toggle('blade', t === 'blade'); root.dataset.tool = t; render(); }
 function syncBar() {
   // (the group of the tool in use shows it on its button)
   root.querySelectorAll('[data-grp]').forEach((b) => {
