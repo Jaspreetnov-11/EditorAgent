@@ -9,7 +9,7 @@ import { GFX, gfxFields, newGraphic, drawGraphic, gfxKey, setGfxAssets, setGfxVi
 import { compVideos } from './motion.js';
 import { fusionVideos } from './fusion.js';
 import * as CV from './compvideo.js';
-import { CAPTION_FONTS } from './captions.js';
+import { fontField, pickFont } from './fontpick.js';
 
 // logos inside graphics come from the media pool (full-size image); a frame is drawn again when one has loaded
 setGfxAssets((id) => S.mediaById[id]?.urls?.play || null, () => emit('live'));
@@ -98,7 +98,7 @@ export function gfxInspector(c) {
   return `<div class="isec"><div class="fgrid">${fieldsHTML([
     { k: 'tpl', label: 'Template', type: 'select', options: Object.entries(GFX).map(([k, x]) => [k, x.label]), wide: true },
     ...gfxFields(g.tpl).map((f) => (f.k === 'logo' ? { ...f, options: [['', 'None (round placeholder)'], ...S.media.filter((m) => m.kind === 'image').slice(0, 2000).map((m) => [m.id, m.name])] } : f)),
-    ...(GFX[g.tpl]?.motion ? [{ k: 'font', label: 'Font', type: 'select', options: [['', 'Default (Nirmala UI - Hindi)'], ...CAPTION_FONTS.map((f) => [f, f])] }] : []),
+    { type: 'html', html: fontField(g.font) }, // (🔤 any font on this computer, like Premiere's Essential Graphics)
     ...respFields(g),
   ], g)}</div>
   <div class="fgrid">${fieldsHTML([{ k: 'start', label: 'Starts at', type: 'time', fmt, ph: '0:00.0' }, { k: 'dur', label: 'Length', type: 'num', min: 1, step: 0.5, unit: 'sec' }], c)}</div>
@@ -126,6 +126,11 @@ export function bindGfxInspector(root, id, render) {
     },
   });
   bindFields(fields[1], () => findClip(id)?.clip, { parse: { start: parseTime }, live: () => emit('live'), commit: () => commit('Graphic timing') });
+  box.querySelector('[data-fontpick]')?.addEventListener('click', (e) => pickFont(e.currentTarget, findClip(id)?.clip.gfx?.font || '', (fam) => {
+    const c = findClip(id)?.clip; if (!c?.gfx) return;
+    if (fam) c.gfx.font = fam; else delete c.gfx.font;
+    commit(`Font: ${fam || 'default'}`); render();
+  }));
 }
 
 // ---- baking (frames -> server) ----

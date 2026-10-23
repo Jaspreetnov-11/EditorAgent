@@ -3,9 +3,9 @@
 // Replace Edit (the selected clip takes the clip open in the Source monitor from its In, same place and length).
 import { S, emit, commit, layout, findClip, saveNow } from './store.js';
 import { api, enc, watchJob } from './api.js';
-import { uid, parseTC, fmtTC, clipDur, rampPts, syncShift } from './model.js';
+import { uid, parseTC, fmtTC, clipDur, rampPts, syncShift, moveClipsTrack } from './model.js';
 import { toast, modal } from './ui.js';
-import { gapClip, tidyGaps } from './timeline.js';
+import { gapClip, tidyGaps, overwriteV1 } from './timeline.js';
 import { replaceClip } from './replace.js';
 import { sourceMediaId } from './player.js';
 import { srcMonOn, sourceState } from './sourcemon.js';
@@ -50,6 +50,24 @@ export function nudgeSelected(frames) {
   commit('Nudge', 'nudge');
   const n = Math.round(d * fps());
   toast(`Moved ${n > 0 ? '+' : ''}${n} frame${Math.abs(n) === 1 ? '' : 's'}${fails.length ? ` (a main-story clip stayed: ${fails[0]})` : ''}`);
+}
+
+// ---- ⇅ one track up / down (Alt+↑ / Alt+↓, Premiere's Nudge clip selection up / down) ----
+// The selected clips keep their time; a video's linked sound goes the same way (V2 -> V3 with A2 -> A3); past the top
+// video / bottom audio track a new one is made. A main-story clip going up leaves a gap (the story does not move); a
+// clip coming down onto V1 overwrites what is there, as a drag does. One undo step.
+export function moveSelectedTrack(dir) {
+  if (S.page !== 'edit') return;
+  if (!S.sel.size) return toast('Select clips first - Alt+↑ / Alt+↓ moves them a track up / down');
+  const r = moveClipsTrack(S.project, S.mediaById, [...S.sel], dir, {
+    liftV1: (c, i) => { const x = layout().V1.find((p) => p.clip.id === c.id); S.project.tracks.V1.splice(i, 1, gapClip(x ? x.end - x.start - (x.overlap || 0) : 0.04)); },
+    toV1: (c, t) => overwriteV1(c, t),
+  });
+  if (!r.moved) return toast(r.stayed ? `Cannot go ${dir > 0 ? 'up' : 'down'}: the track there is taken at that time, locked, or there is none` : 'Nothing to move');
+  tidyGaps();
+  S.linkLead = null;
+  commit(dir > 0 ? 'Move to the track above' : 'Move to the track below');
+  if (r.stayed) toast(`${r.stayed} clip${r.stayed > 1 ? 's' : ''} stayed - the track there is taken at that time`);
 }
 
 // ---- ⌨ typed timecode ----

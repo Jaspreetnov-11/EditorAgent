@@ -12,7 +12,7 @@ import { renderHome, openXmlFile } from './home.js';
 import { mountPool, refreshMedia, uploadFiles } from './mediapool.js';
 import { mountTimeline, splitAtPlayhead, trimAtPlayhead, deleteSelected, duplicateSelected, addTitle, setTool, setZoom, fitZoom, unlinkSelected, markRange, clearRange, rangeMark, liftExtract } from './timeline.js';
 import { mountViewer, toggle, shuttle, seek, isPlaying, isPlayingProgram, viewerMode, pause, setMode, sourceKey, toggleFullscreen, editTextClip } from './player.js';
-import { mountInspector } from './inspector.js';
+import { mountInspector, deleteSelectedKeys } from './inspector.js';
 import { mountFxPanel } from './fxpanel.js';
 import { mountCapsPanel, refreshCaps } from './capspanel.js';
 import { openBrandKit } from './library.js';
@@ -42,7 +42,7 @@ import { mountFusion, showFusion, hideFusion, openFusionClip } from './fusionpag
 import { mountMenuBar, openLogo, openBackups } from './menubar.js';
 import { openTemplates } from './titlesui.js';
 import { openAudioGain } from './audiogain.js';
-import { nudgeSelected, groupSelected, ungroupSelected, replaceEdit, typeTimecode, closeAllGaps, goGap, addClipMarker, exportFrame } from './editing.js';
+import { nudgeSelected, moveSelectedTrack, groupSelected, ungroupSelected, replaceEdit, typeTimecode, closeAllGaps, goGap, addClipMarker, exportFrame } from './editing.js';
 import { toggleTrimMode } from './trimmode.js';
 import './presence.js'; // 📊 session time (Team & users > Sessions)
 
@@ -265,7 +265,10 @@ on('save', () => {
   el.className = `save ${S.saveState}`;
 });
 on('change', () => { $('[data-a="undo"]').disabled = !canUndo(); $('[data-a="redo"]').disabled = !canRedo(); });
-on('live', () => emit('mix'));
+// ⚡ a slider / Motion value dragged: the monitor is drawn again once per screen frame, not on every mouse event (a
+// full redraw per pointermove - a hundred a second on a fast mouse - made it trail behind the mouse)
+let liveRaf = 0;
+on('live', () => { if (!liveRaf) liveRaf = requestAnimationFrame(() => { liveRaf = 0; emit('mix'); }); });
 on('deleteSelected', deleteSelected);
 on('duplicateSelected', duplicateSelected);
 on('splitAtPlayhead', splitAtPlayhead);
@@ -431,6 +434,7 @@ const ACTIONS = {
   rippleTool: () => setTool('ripple'), rollingTool: () => setTool('rolling'), rateTool: () => setTool('rate'), penTool: () => setTool('pen'), remixTool: () => setTool('remix'),
   slipTool: () => setTool('slip'), slideTool: () => setTool('slide'), handTool: () => setTool('hand'), zoomTool: () => setTool('zoom'),
   trackFwdTool: () => setTool('trackfwd'), trackBackTool: () => setTool('trackback'),
+  trackUp: () => moveSelectedTrack(1), trackDown: () => moveSelectedTrack(-1),
   nudgeL: () => nudgeSelected(-1), nudgeR: () => nudgeSelected(1), nudgeL5: () => nudgeSelected(-5), nudgeR5: () => nudgeSelected(5),
   pasteInsert: () => { if (S.page !== 'edit') return false; pasteClips({ insert: true }).catch((err) => toast(err.message, 'err')); },
   group: () => groupSelected(), ungroup: () => ungroupSelected(), trimMode: () => toggleTrimMode(), replaceEdit: () => replaceEdit(),
@@ -440,7 +444,7 @@ const ACTIONS = {
   history: () => import('./history.js').then((x) => x.openHistory()), autoReframe: () => import('./aiui.js').then((x) => x.autoReframeSequence()), seqSettings: () => import('./seqsettings.js').then((x) => x.openSequenceSettings()),
   addEdit: () => splitAtPlayhead(), addEditAll: () => { S.sel = new Set(); splitAtPlayhead(); },
   rippleTrimPrev: () => trimAtPlayhead('start'), rippleTrimNext: () => trimAtPlayhead('end'),
-  clear: () => deleteSelected(false), rippleDelete: () => deleteSelected(true), duplicate: () => duplicateSelected(), pasteAttr: () => import('./attrs.js').then((x) => x.pasteAttributes()),
+  clear: () => { if (!deleteSelectedKeys()) deleteSelected(false); }, rippleDelete: () => deleteSelected(true), duplicate: () => duplicateSelected(), pasteAttr: () => import('./attrs.js').then((x) => x.pasteAttributes()),
   transition: () => { // a cross dissolve on the selected main-story clips, or on the cut nearest the playhead
     const L = layout().V1; let xs = L.filter((x, i) => i > 0 && S.sel.has(x.clip.id));
     if (!xs.length) { const near = L.slice(1).sort((a, b) => Math.abs(a.start - S.playhead) - Math.abs(b.start - S.playhead))[0]; if (near) xs = [near]; }

@@ -85,7 +85,7 @@ function wire() {
     if (!selKeys() || !document.activeElement?.closest?.('.pm') || e.target.closest?.('input, textarea, select, [contenteditable]')) return;
     const f9 = e.key === 'F9' && !e.altKey ? (e.ctrlKey && e.shiftKey ? 'easeout' : e.shiftKey ? 'easein' : e.ctrlKey ? null : 'easy') : null;
     if (f9) setIp(f9);
-    else if (e.key === 'Delete' || e.key === 'Backspace') delKey();
+    else if (e.key === 'Delete' || e.key === 'Backspace') { if (!cx.deleteSel?.()) delKey(); }
     else return;
     e.preventDefault(); e.stopImmediatePropagation();
   }, true);

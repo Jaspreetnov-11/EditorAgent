@@ -5,7 +5,7 @@ import { reportError } from './errlog.js';
 import * as SM from './sourcemon.js';
 import { useContext as audioOut } from './audioout.js';
 import { S, on, emit, layout, duration, commit } from './store.js';
-import { ASPECTS, fmtTC, fmtTime, fmt, clipDur, propAt, sourceAt, speedAt, rampPts, setAnimated, overlayTracks, audioTracks, evalKeys } from './model.js';
+import { ASPECTS, fmtTC, fmtTime, fmt, clipDur, propAt, sourceAt, speedAt, rampPts, setAnimated, overlayTracks, audioTracks, evalKeys, BLEND_CSS } from './model.js';
 import { stabState, stabBanner } from './stabprev.js';
 
 // 🎞 Full quality, like Premiere: a camera file the browser can decode itself - HEVC / H.265 (DJI drones, Sony, phones;
@@ -32,7 +32,7 @@ import { isNeutral } from './colormath.js';
 import { fxPreview, wordWindows, isKinetic, trLive, polyCss } from './fx.js';
 import { drawGraphic, textLayout, pinOn } from './graphics.js';
 import { addTextAt } from './gfxui.js';
-import { effectsCss, maskedEffectsCss, grainCss, VFX, inWindow } from './effects.js';
+import { effectsCss, maskedEffectsCss, grainCss, VFX, inWindow, blendOf } from './effects.js';
 import { maskAlpha, movedMask, unmovedMask, maskKey } from './shapemask.js';
 import { captionAt, capTracks, capStack } from './captions.js';
 import { fitMap, framingOf, srcSize, boxAt, srcTimeAt, pinAt, quadMatrix, orderQuad } from './tracking.js';
@@ -56,6 +56,7 @@ export function mountViewer(el) {
     </div>
     <span class="vw-title" id="vwTitle"></span>
     <span class="grow"></span>
+    <select class="small vw-zoom" data-vzoom title="Zoom level, like Premiere's: Fit shows the whole frame. The mouse wheel over the picture zooms in / out where the mouse is (Alt + wheel scales the selected clip); middle-drag or the scrollbars move around"><option value="fit">Fit</option>${ZOOMS.map((z) => `<option value="${z}">${Math.round(z * 100)}%</option>`).join('')}</select>
     <button class="tog small" data-act="guides" title="Title/action-safe guides">Guides</button>
     <select class="small vw-pq" data-pq title="Accurate preview quality: 1080p from the camera files (sharp), or Fast 720p from the small proxy copies (much quicker - for checking timing)"><option value="hq">1080p</option><option value="fast">Fast 720p</option></select>
     <button class="small" data-act="accurate" title="Render the exact result with FFmpeg (quality: the choice next to it)">Accurate preview</button>
@@ -189,6 +190,24 @@ function bindDirectMove() {
     const up = () => { frame.removeEventListener('pointermove', move); frame.removeEventListener('pointerup', up); if (moved) commit('Move in viewer'); };
     frame.addEventListener('pointermove', move); frame.addEventListener('pointerup', up);
   });
+  // 🔍 the wheel zooms the monitor in / out where the mouse is (Alt + wheel: the selected clip's own Scale, below)
+  const stage = $('#vwStage', root);
+  stage.addEventListener('wheel', (e) => {
+    if (e.altKey || e.ctrlKey) return;
+    e.preventDefault();
+    const [w] = frameWH(), cur = frame.getBoundingClientRect().width / w;
+    setViewZoom(cur * (e.deltaY < 0 ? 1.15 : 1 / 1.15), { x: e.clientX, y: e.clientY });
+  }, { passive: false });
+  $('[data-vzoom]', root).addEventListener('change', (e) => setViewZoom(e.target.value === 'fit' ? 'fit' : +e.target.value));
+  // middle-drag moves around a zoomed-in picture (like the Hand)
+  stage.addEventListener('pointerdown', (e) => {
+    if (e.button !== 1 || viewZoom === 'fit') return;
+    e.preventDefault();
+    const x0 = e.clientX, y0 = e.clientY, l0 = stage.scrollLeft, t0 = stage.scrollTop;
+    const mv = (ev) => { stage.scrollLeft = l0 - (ev.clientX - x0); stage.scrollTop = t0 - (ev.clientY - y0); };
+    const up = () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+  });
   let wheelT = 0;
   frame.addEventListener('wheel', (e) => {
     const m = e.altKey && movable(); if (!m) return;
@@ -219,11 +238,35 @@ const grainShift = () => (playing ? `${Math.floor(Math.random() * 160)}px ${Math
 export const isPlaying = () => playing || (mode === 'source' && !els.lyA.paused);
 export const viewerMode = () => mode;
 
-function sizeFrame() {
-  const st = $('#vwStage', root); if (!st || !S.project) return;
+// 🔍 the monitor's zoom (Premiere's Select Zoom Level): 'fit' or a share of the frame's own pixels (1 = 100%)
+const ZOOMS = [0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 4];
+let viewZoom = 'fit';
+function frameWH() {
   let [w, h] = ASPECTS[S.project.settings.aspect] || [16, 9];
   if (mode === 'source' && srcId) { const m = S.mediaById[srcId]; if (m?.width) { w = m.width; h = m.height; if (Math.abs(m.rotation) === 90) [w, h] = [h, w]; } }
-  const W = st.clientWidth - 16, H = st.clientHeight - 16, k = Math.min(W / w, H / h);
+  return [w, h];
+}
+// z: 'fit' or a level; at: the screen point that stays put (the mouse), else the middle of the view
+function setViewZoom(z, at = null) {
+  const st = $('#vwStage', root); if (!st || !S.project) return;
+  const [w, h] = frameWH(), fitK = Math.min((st.clientWidth - 16) / w, (st.clientHeight - 16) / h);
+  if (z !== 'fit') { z = Math.min(8, Math.max(0.05, z)); if (z <= fitK * 1.001) z = 'fit'; } // (smaller than fitting: back to Fit)
+  const b0 = frame.getBoundingClientRect(), sr = st.getBoundingClientRect();
+  const p = at || { x: sr.left + sr.width / 2, y: sr.top + sr.height / 2 }, u = (p.x - b0.left) / b0.width, v = (p.y - b0.top) / b0.height;
+  viewZoom = z; sizeFrame();
+  if (z !== 'fit') { const b1 = frame.getBoundingClientRect(); st.scrollLeft += b1.left + u * b1.width - p.x; st.scrollTop += b1.top + v * b1.height - p.y; }
+  const sel = $('[data-vzoom]', root);
+  if (sel) {
+    sel.querySelector('[data-cur]')?.remove();
+    if (z !== 'fit' && !ZOOMS.includes(z)) sel.insertAdjacentHTML('beforeend', `<option data-cur value="${z}">${Math.round(z * 100)}%</option>`);
+    sel.value = String(z);
+  }
+  if (mode === 'program' && !playing) drawProgram(S.playhead, false);
+}
+function sizeFrame() {
+  const st = $('#vwStage', root); if (!st || !S.project) return;
+  const [w, h] = frameWH(), W = st.clientWidth - 16, H = st.clientHeight - 16, k = viewZoom === 'fit' ? Math.min(W / w, H / h) : viewZoom;
+  st.classList.toggle('zoomed', viewZoom !== 'fit');
   frame.style.width = `${Math.max(10, w * k)}px`; frame.style.height = `${Math.max(10, h * k)}px`;
   frame.style.setProperty('--fh', `${h * k}px`);
 }
@@ -513,7 +556,7 @@ function gradeLayer(src, c, opacity) {
 // An adjustment layer adds its colour + effects (CSS, approximate) to every layer below it; blend modes use
 // CSS mix-blend-mode. Exact results: Accurate preview / render.
 const ovSlots = new Map(); // clipId -> { el, used }
-const CSS_BLEND = { addition: 'plus-lighter', softlight: 'soft-light' };
+const CSS_BLEND = BLEND_CSS;
 function ovSlot(c) {
   const tag = c.type === 'video' ? 'VIDEO' : c.type === 'image' ? 'IMG' : c.type === 'graphic' ? 'CANVAS' : 'DIV';
   let sl = ovSlots.get(c.id);
@@ -911,11 +954,12 @@ function drawOverlays(t, isPlay) {
       const sl = ovSlot(c), el = sl.el;
       live.add(c.id); order.push(el);
       el.hidden = false;
-      el.style.mixBlendMode = c.blend ? CSS_BLEND[c.blend] || c.blend : '';
+      const bfx = c.blend ? null : blendOf(c); // (🎨 the Blend effect: its mode, or Crossfade as opacity)
+      el.style.mixBlendMode = c.blend ? CSS_BLEND[c.blend] || c.blend : bfx && bfx.mode !== 'crossfade' ? bfx.css : '';
       if (c.type === 'title') { textStyle(el, c, null, t, x.start, x.end, true); continue; }
       const lk = look(c, rel);
       fitStyle(el, c, rel);
-      el.style.opacity = propAt(c, 'opacity', rel) * fadeK(c, rel, x.end - x.start); el.style.transform = lk.transform; el.style.filter = lk.filter; el.style.clipPath = lk.clip || ''; setMask(el, c.omask);
+      el.style.opacity = propAt(c, 'opacity', rel) * fadeK(c, rel, x.end - x.start) * (bfx?.mode === 'crossfade' ? bfx.amount : 1); el.style.transform = lk.transform; el.style.filter = lk.filter; el.style.clipPath = lk.clip || ''; setMask(el, c.omask);
       // ▱ stuck onto a tracked surface: the whole picture is bent onto the surface's four corners (as the render does)
       const pq = c.pin?.keys?.length && (c.type === 'image' || c.type === 'video') ? pinAt(c.pin.keys, rel) : null;
       if (pq) { const fw = el.clientWidth || frame.clientWidth, fh = el.clientHeight || frame.clientHeight; el.style.objectFit = 'fill'; el.style.transformOrigin = '0 0'; el.style.clipPath = ''; el.style.transform = quadMatrix(fw, fh, pq.map((v, j) => v * (j % 2 ? fh : fw))); }
@@ -1079,7 +1123,7 @@ const findAny = (id) => Object.values(S.project.tracks).some((l) => l.some((c) =
 // ---------------- live audio mix (Web Audio) ----------------
 // media element -> own gain (clip volume, may exceed 1) -> track FX chain -> track fader -> meter -> master.
 // Created on the first Play (browsers allow audio only after a user gesture). Noise reduction, de-essing and ducking are render-only.
-let actx = null, master = null, masterAn = null;
+let actx = null, master = null, masterAn = null, masterLR = null;
 const chains = {}, fxSig = {};
 function ensureAudio() {
   if (actx) { if (actx.state === 'suspended') actx.resume(); return actx; }
@@ -1087,6 +1131,10 @@ function ensureAudio() {
   audioOut(actx); // 🎧 on the speakers / headphones chosen in View › Sound output
   master = actx.createGain(); masterAn = actx.createAnalyser(); masterAn.fftSize = 2048;
   master.connect(masterAn); masterAn.connect(actx.destination);
+  // 🎚 left / right for the master meter (timeline's Audio Meters): a splitter beside the output, nothing in the way of the sound
+  const split = actx.createChannelSplitter(2); masterLR = [actx.createAnalyser(), actx.createAnalyser()];
+  const up = actx.createGain(); up.channelCount = 2; up.channelCountMode = 'explicit'; up.channelInterpretation = 'speakers'; // (a mono mix shows on both)
+  masterAn.connect(up); up.connect(split); masterLR.forEach((an, i) => { an.fftSize = 2048; split.connect(an, i); });
   for (const id of ['V1', 'V2', 'A1', 'A2', 'A3']) {
     const fx = buildFxNodes(actx), fader = actx.createGain(), an = actx.createAnalyser();
     an.fftSize = 2048; fx.output.connect(fader); fader.connect(an); an.connect(master);
@@ -1171,4 +1219,6 @@ export function levels() {
   for (const id of Object.keys(chains)) out[id] = measureAn(chains[id].an);
   return out;
 }
+// the master's left and right channel ({ peak, rms } in dBFS each), null until the sound has started
+export const masterLevels = () => (masterLR ? masterLR.map(measureAn) : null);
 export const isPlayingProgram = () => playing;

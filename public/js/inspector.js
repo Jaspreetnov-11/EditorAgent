@@ -33,6 +33,7 @@ import { mountRamp } from './rampui.js';
 import { MASK_SHAPES, newMask } from './shapemask.js';
 import { gyroHTML, bindGyro } from './gyroui.js';
 import { kgTwirl, kgRow, mountKeyGraphs } from './kfgraph.js';
+import { inSel, pickKeys, moveKeys, settleKeys, deleteKeys } from './kfsel.js';
 
 let lastClip = null;
 let root, selfCommit = false, openSections = new Set(['clip', 'transform', 'text', 'audio', 'transition', 'project', 'logo', 'vfx', 'cutfx', 'omask']);
@@ -114,7 +115,7 @@ function renderClip(id) {
   if (!isAud && !isAdj && !(isTitle && track !== 'V1')) {
     // 🎬 like Premiere's Effect Controls: one line per property - ⏱ animate on / off, its name, its value (drag it left /
     // right, or click and type), ◂ ◆ ▸ and its keyframes on a little timeline of the clip, all in the same line
-    html += sec('transform', 'Motion', motionHTML(c, (L?.end || 0) - (L?.start || 0), isVid) + `<div class="motion-presets"><button class="small" data-motion="zin">Zoom in</button><button class="small" data-motion="zout">Zoom out</button>
+    html += sec('transform', 'Motion', motionHTML(c, (L?.end || 0) - (L?.start || 0), isVid, (isVid || isImg) && track) + `<div class="motion-presets"><button class="small" data-motion="zin">Zoom in</button><button class="small" data-motion="zout">Zoom out</button>
       <button class="small" data-motion="pan">Pan →</button><button class="small" data-motion="panl">← Pan</button><button class="small" data-motion="clear">Reset</button></div>`);
   }
   if (isVid) html += sec('ai', 'Generative Fill', aiHTML(c));
@@ -353,7 +354,7 @@ function effectsHTML(c, track) {
       if (p.type === 'select') return `<label class="fld"><span>${esc(p.label)}</span><select data-ep="${k}">${p.options.map(([o, l]) => `<option value="${esc(o)}"${o === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
       return `<label class="fld"><span>${esc(p.label)} <b data-ev="${k}">${v}${p.unit || ''}</b></span><input type="range" data-ep="${k}" min="${p.min}" max="${p.max}" step="${p.step}" value="${v}"></label>`;
     }).join('');
-    const canMask = !def.stab && !def.key;
+    const canMask = !def.stab && !def.key && !def.post && !def.blend;
     const warn = def.v2only && track !== 'V2' ? '<small class="hint warn">Works on V2 overlays only (it shows the shot below).</small>' : def.stab ? '<small class="hint">Analysed and stabilised when rendering (Accurate preview / export) - the render takes longer for this shot. Perspective / Subspace Warp work like Position, Scale, Rotation here.</small>' : !def.css ? '<small class="hint">Seen in Accurate preview and renders.</small>' : '';
     return `<div class="efx${e.on === false ? ' off' : ''}" data-efx="${e.id}">
       <div class="efx-h"><button class="icon-btn small" data-ea="toggle" title="${e.on === false ? 'Turn on' : 'Turn off'}" aria-label="On / off">${e.on === false ? '◌' : '●'}</button><b>${esc(def.label)}</b><span class="grow"></span>
@@ -486,8 +487,14 @@ function fromShown(r, n, c) {
 }
 const mShow = (r, v, c) => `${+toShown(r, v, c).toFixed(r.pr ? 1 : r.k ? 0 : 1)}${r.unit}`;
 function motionVal(c, p, rel) { return hasKeys(c, p) && rel !== null ? propAt(c, p, rel) : getPath(c, p) ?? KEYABLE[p].def; }
-function motionHTML(c, D, isVid) {
-  const rel = relTime(c.id);
+// 🎭 Opacity › Blend Mode (Premiere): how this clip mixes with the tracks below it (clip.blend, FFmpeg's blend mode)
+function blendHTML(c, track) {
+  const v1 = track === 'V1';
+  return `<div class="pm-row pm-blend"><span></span><span class="pm-n">Blend Mode</span>
+    <select data-blend${v1 ? ' disabled title="On the main story there is nothing below to blend with - put the clip on V2 or higher"' : ' title="How this clip mixes with the tracks below it. Darken / Multiply… make it darker, Lighten / Screen / Add lighter, Overlay / Soft Light add contrast. Exact in Accurate preview and the render."'}>${BLEND_MODES.map(([k, l]) => `<option value="${k}"${(c.blend || '') === k ? ' selected' : ''}>${l}</option>`).join('')}</select></div>`;
+}
+function motionHTML(c, D, isVid, blendTrack) {
+  const rel = relTime(c.id), ks = kSel.id === c.id ? kSel.list : [];
   return `<div class="pm" data-kl data-d="${D}">${MOTION.filter((r) => !r.vid || isVid).map((r) => {
     const keys = c.keys?.[r.p] || [];
     return `<div class="pm-row" data-kp="${r.p}" data-kpath="${r.p}">
@@ -495,8 +502,8 @@ function motionHTML(c, D, isVid) {
       <span class="pm-n">${kgTwirl(c, r.p)}${r.label}</span>
       <span class="pm-v" data-pv="${r.p}" tabindex="0" title="Drag left / right (Shift: faster) or click to type">${mShow(r, motionVal(c, r.p, rel), c)}</span>
       <span class="pm-k"><button class="kfb" data-kprev="${r.p}" title="Previous keyframe">◂</button><button class="kfd" data-kf="${r.p}" title="Add / remove a keyframe at the playhead">◆</button><button class="kfb" data-knext="${r.p}" title="Next keyframe">▸</button></span>
-      <div class="kl-track">${keys.map((k, j) => `<i class="kl-k${k.ease ? ' ease' : ''}${k.ip ? ` ip-${k.ip}` : ''}" data-kj="${j}" style="left:${Math.min(100, (k.t / Math.max(0.01, D)) * 100).toFixed(2)}%" title="${fmt(k.t)} · ${mShow(r, k.v, c)} - drag to move, double-click to delete, right-click: interpolation"></i>`).join('')}<b class="kl-ph"></b></div>
-    </div>${kgRow(c, r.p)}`; // (📈 kfgraph.js: the value / velocity graphs when twirled open)
+      <div class="kl-track">${keys.map((k, j) => `<i class="kl-k${k.ease ? ' ease' : ''}${k.ip ? ` ip-${k.ip}` : ''}${inSel(ks, k) ? ' sel' : ''}" data-kj="${j}" style="left:${Math.min(100, (k.t / Math.max(0.01, D)) * 100).toFixed(2)}%" title="${fmt(k.t)} · ${mShow(r, k.v, c)} - click to select (Shift / Ctrl: more, or drag a box), drag to move the selected ones, Delete removes them, right-click: interpolation"></i>`).join('')}<b class="kl-ph"></b></div>
+    </div>${kgRow(c, r.p)}${r.p === 'opacity' && blendTrack ? blendHTML(c, blendTrack) : ''}`; // (📈 kfgraph.js: the value / velocity graphs when twirled open)
   }).join('')}</div>`;
 }
 function bindMotion(id) {
@@ -530,6 +537,11 @@ function bindMotion(id) {
       window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
     });
   });
+  box.querySelector('[data-blend]')?.addEventListener('change', (e) => {
+    const c = findClip(id)?.clip; if (!c) return;
+    if (e.target.value) c.blend = e.target.value; else delete c.blend;
+    doCommit(`Blend mode: ${BLEND_MODES.find(([k]) => k === e.target.value)?.[1] || 'Normal'}`);
+  });
   // ⏱ animate on (a first keyframe at the playhead, with the value now) / off (its keyframes go, the value stays)
   box.querySelectorAll('[data-sw]').forEach((b) => b.addEventListener('click', () => {
     const c = findClip(id)?.clip, p = b.dataset.sw; if (!c) return;
@@ -549,33 +561,88 @@ function keyLaneHTML(c, D) {
       <div class="kl-track">${(c.keys?.[p] || []).map((k, j) => `<i class="kl-k${k.ease ? ' ease' : ''}" data-kj="${j}" style="left:${Math.min(100, (k.t / Math.max(0.01, D)) * 100).toFixed(2)}%" title="${fmt(k.t)} · ${(+k.v).toFixed(2)}"></i>`).join('')}<b class="kl-ph"></b></div></div>`).join('')}</div>
     <small class="hint">${any ? 'Drag ◆ to retime · double-click ◆ to delete · click the lane to move the playhead.' : 'No keyframes yet - press ◆ next to Zoom / Position / Rotation / Opacity above.'}</small>`;
 }
+// ◆ selecting keys (kfsel.js): click one, Shift / Ctrl+click more, drag a box over the lanes; drag a selected ◆ and all
+// the selected ones move with it; Delete removes them. Click the lane (not a ◆) to move the playhead.
+let kSel = { id: null, list: [] };
 function bindKeyLane(id) {
   const kl = root.querySelector('[data-kl]'); if (!kl) return;
-  const D = +kl.dataset.d || 1;
+  if (kSel.id !== id) kSel = { id, list: [] };
+  const D = +kl.dataset.d || 1, fps = S.project.settings.fps || 30;
   const clipStart = () => { const f = findClip(id); return layout()[f.track].find((x) => x.clip.id === id)?.start || 0; };
   const tAt = (track, x) => { const r = track.getBoundingClientRect(); return Math.min(D, Math.max(0, ((x - r.left) / r.width) * D)); };
+  const keyOf = (el) => { const p = el.closest('[data-kp]').dataset.kp; return { p, k: findClip(id)?.clip.keys?.[p]?.[+el.dataset.kj] }; };
+  const mark = () => kl.querySelectorAll('.kl-k').forEach((el) => el.classList.toggle('sel', inSel(kSel.list, keyOf(el).k)));
   kl.addEventListener('pointerdown', (e) => {
-    const track = e.target.closest('.kl-track'); if (!track) return;
-    const p = track.closest('[data-kp]').dataset.kp, k = e.target.closest('.kl-k');
-    if (!k) { emit('seek', clipStart() + tAt(track, e.clientX)); return; }
-    e.preventDefault(); try { k.setPointerCapture(e.pointerId); } catch {}
-    const c = findClip(id).clip, keys = c.keys[p], j = +k.dataset.kj, key = keys[j];
-    const lo = j > 0 ? keys[j - 1].t + 0.02 : 0, hi = j < keys.length - 1 ? keys[j + 1].t - 0.02 : D;
+    const track = e.target.closest('.kl-track'); if (!track || e.button !== 0) return;
+    const k = e.target.closest('.kl-k'), add = e.shiftKey || e.ctrlKey || e.metaKey;
+    e.preventDefault();
+    if (!k) return keyBox(e, track, add);
+    const hit = keyOf(k); if (!hit.k) return;
+    const was = inSel(kSel.list, hit.k);
+    if (add) kSel.list = pickKeys(kSel.list, hit, 'toggle');
+    else if (!was) kSel.list = pickKeys(kSel.list, hit, 'set');
+    mark();
+    if (!inSel(kSel.list, hit.k)) return; // (Ctrl+click took it out)
+    const c = findClip(id).clip, list = kSel.list.filter((s) => c.keys?.[s.p]?.includes(s.k)), t0s = list.map((s) => s.k.t);
+    const els = [...kl.querySelectorAll('.kl-k')].map((el) => ({ el, k: keyOf(el).k })).filter((x) => inSel(list, x.k));
+    const x0 = e.clientX, a0 = tAt(track, x0);
     let moved = false;
-    const mv = (ev) => { key.t = +Math.min(hi, Math.max(lo, tAt(track, ev.clientX))).toFixed(3); k.style.left = `${(key.t / D) * 100}%`; moved = true; emit('live'); };
-    const up = () => { k.removeEventListener('pointermove', mv); k.removeEventListener('pointerup', up); if (moved) doCommit('Move keyframe'); else emit('seek', clipStart() + key.t); };
-    k.addEventListener('pointermove', mv); k.addEventListener('pointerup', up);
+    const mv = (ev) => {
+      if (!moved && Math.abs(ev.clientX - x0) < 3) return;
+      moved = true;
+      moveKeys(c, list, t0s, tAt(track, ev.clientX) - a0, D);
+      for (const x of els) x.el.style.left = `${(x.k.t / D) * 100}%`;
+      emit('live'); updateKeyUI();
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up);
+      if (moved) { settleKeys(c, list, fps); doCommit(list.length > 1 ? `Move ${list.length} keyframes` : 'Move keyframe'); render(); return; }
+      if (was && !add && kSel.list.length > 1) { kSel.list = pickKeys(kSel.list, hit, 'set'); mark(); } // (a click on one of several: only it)
+      emit('seek', clipStart() + hit.k.t);
+    };
+    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
   });
+  // a box dragged over the lanes selects the keys in it (Shift / Ctrl: adds them); a plain click moves the playhead
+  function keyBox(e, track, add) {
+    const x0 = e.clientX, y0 = e.clientY, base = add ? kSel.list : [];
+    let box = null;
+    const mv = (ev) => {
+      if (!box && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 4) return;
+      if (!box) { box = document.createElement('div'); box.className = 'kl-box'; document.body.append(box); }
+      const l = Math.min(x0, ev.clientX), t = Math.min(y0, ev.clientY), r = Math.max(x0, ev.clientX), b = Math.max(y0, ev.clientY);
+      Object.assign(box.style, { left: `${l}px`, top: `${t}px`, width: `${r - l}px`, height: `${b - t}px` });
+      const hits = [...kl.querySelectorAll('.kl-k')].filter((el) => { const q = el.getBoundingClientRect(), cx = q.left + q.width / 2, cy = q.top + q.height / 2; return cx >= l && cx <= r && cy >= t && cy <= b; }).map(keyOf).filter((h) => h.k);
+      kSel.list = hits.reduce((acc, h) => pickKeys(acc, h, 'add'), base);
+      mark();
+    };
+    const up = (ev) => {
+      window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up);
+      if (box) { box.remove(); if (kSel.list.length) toast(`${kSel.list.length} keyframe${kSel.list.length > 1 ? 's' : ''} selected - drag one to move them, Delete removes them`); return; }
+      if (!add) { kSel.list = []; mark(); }
+      emit('seek', clipStart() + tAt(track, ev.clientX));
+    };
+    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+  }
   kl.addEventListener('dblclick', (e) => {
     const k = e.target.closest('.kl-k'); if (!k) return;
-    const p = k.closest('[data-kp]').dataset.kp, c = findClip(id).clip;
-    c.keys[p].splice(+k.dataset.kj, 1);
-    if (!c.keys[p].length) delete c.keys[p];
-    if (!Object.keys(c.keys).length) delete c.keys;
+    const hit = keyOf(k), c = findClip(id).clip; if (!hit.k) return;
+    deleteKeys(c, [hit]); kSel.list = kSel.list.filter((s) => s.k !== hit.k);
     doCommit('Delete keyframe'); render();
   });
   moveLanePlayhead();
 }
+// Delete / Backspace with keys selected in Effect Controls: they go (and not the clip). true when it took the key press.
+export function deleteSelectedKeys() {
+  if (!kSel.list.length || S.sel.size !== 1 || !S.sel.has(kSel.id)) return false;
+  const c = findClip(kSel.id)?.clip; if (!c) { kSel.list = []; return false; }
+  const n = deleteKeys(c, kSel.list.filter((s) => c.keys?.[s.p]?.includes(s.k)));
+  kSel.list = [];
+  if (!n) return false;
+  doCommit(n > 1 ? `Delete ${n} keyframes` : 'Delete keyframe'); render();
+  return true;
+}
+// a click anywhere outside the keyframe lanes lets the selection go (Delete is the clip's again)
+document.addEventListener('pointerdown', (e) => { if (kSel.list.length && !e.target.closest?.('.pm .kl-track, .kg, .kg-menu')) { kSel.list = []; root?.querySelectorAll('.kl-k.sel').forEach((el) => el.classList.remove('sel')); } }, true);
 function moveLanePlayhead() {
   const kl = root?.querySelector('[data-kl]'); if (!kl || S.sel.size !== 1) return;
   const id = [...S.sel][0], f = findClip(id); if (!f) return;
@@ -590,7 +657,7 @@ function bindKeyGraphs(id) {
   mountKeyGraphs(root, {
     id, D: +kl.dataset.d || 1, fps: S.project.settings.fps || 30,
     clip: () => findClip(id)?.clip, rel: () => relTime(id), seek: (t) => emit('seek', clipStart() + t),
-    live: () => { emit('live'); updateKeyUI(); }, commit: (label) => doCommit(label), rerender: render,
+    live: () => { emit('live'); updateKeyUI(); }, commit: (label) => doCommit(label), rerender: render, deleteSel: () => deleteSelectedKeys(),
     shown: (p, v) => toShown(def(p), v, findClip(id)?.clip), unit: (p) => def(p).unit, clamp: (p, v) => Math.min(def(p).max, Math.max(def(p).min, v)),
   });
 }

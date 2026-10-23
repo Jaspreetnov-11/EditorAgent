@@ -1435,3 +1435,24 @@ html.ui2 .tl-row .clip.lab .clip-lbl, .tl-row .clip.lab .clip-lbl { background: 
 .clip.k-labs .clip-name { color: #1a1300; font-weight: 600; }
 .clip.k-labs .clip-bg { opacity: .28; mix-blend-mode: luminosity; } /* (the Labs clip reads yellow; its frames show faintly) */
 .clip.k-labs .clip-lbl, .clip.k-labs .clip-dur { color: #1a1300; text-shadow: none; }
+/* 🎚 Audio Meters at the right of the timeline (mastermeter.js) */
+.tl-meter { flex: none; width: 52px; min-height: 0; border-left: 1px solid var(--line); background: #121110; }
+.tl-meter canvas { display: block; width: 100%; height: 100%; cursor: default; }
+/* ◆ selected keyframes (kfsel.js) and the box dragged over the lanes */
+.kl-k.sel { background: #fff; box-shadow: 0 0 0 1.5px var(--accent), 0 0 6px var(--accent); }
+.kl-box { position: fixed; z-index: 9999; border: 1px dashed #d8d2c6; background: #ffffff14; pointer-events: none; }
+/* 🎭 Opacity › Blend Mode in Effect Controls */
+.pm-blend select { grid-column: 3 / -1; justify-self: start; max-width: 200px; height: 24px; font-size: 12px; }
+/* 🔤 font picker (fontpick.js): each font written in its own face */
+.fontbtn { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; text-align: left; font-size: 14px; }
+.fontbtn i { font-style: normal; font-family: 'Segoe UI', sans-serif; color: var(--muted); font-size: 11px; }
+.fontpick { position: fixed; z-index: 10000; width: 290px; max-height: 360px; display: flex; flex-direction: column; gap: 6px; padding: 8px; background: var(--panel-2, #1d1b19); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 30px #0009; }
+.fontpick input { width: 100%; }
+.fp-list { overflow-y: auto; min-height: 0; flex: 1; display: flex; flex-direction: column; }
+.fp-list button { flex: none; min-height: 30px; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; text-align: left; background: none; border: 0; border-radius: 4px; padding: 5px 8px; font-size: 16px; color: var(--text); white-space: nowrap; overflow: hidden; }
+.fp-list button small { font-family: 'Segoe UI', sans-serif; font-size: 10px; color: var(--muted); flex: none; }
+.fp-list button:hover, .fp-list button.on { background: var(--accent-soft, #ffffff14); }
+/* 🔍 Program / Source monitor zoomed in (player.js setViewZoom): scrollbars, the picture from its top left */
+.vw-stage.zoomed { display: block; overflow: auto; }
+.vw-stage.zoomed .vw-frame { margin: 8px auto; }
+.vw-zoom { width: auto; min-width: 64px; }

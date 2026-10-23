@@ -13,7 +13,7 @@ import { AFX } from './audioeffects.js';
 import { sharedSeqId } from './store.js';
 import { openAudioGain, soundClips } from './audiogain.js';
 import { copyClips, pasteClips, clipboard } from './clipboard.js';
-import { clipDur, uid, fmtTC, fmt, trackList, trackKind, addTrack, syncLinked, linkAudioOf, linkedPartner, linkedIds, groupedIds, syncShift, rippleMarkers, evalKeys, fmtTime, freeAudioTrack, RAMPS, setRamp, rampPts, rampPart, profileAt, TRANSITIONS, setTransition, trHandles, propAt, keepLength, sourceAt } from './model.js';
+import { clipDur, uid, fmtTC, fmt, trackList, trackKind, trackNum, ensureTrack, frameScale, addTrack, syncLinked, linkAudioOf, linkedPartner, linkedIds, groupedIds, syncShift, rippleMarkers, evalKeys, fmtTime, freeAudioTrack, RAMPS, setRamp, rampPts, rampPart, profileAt, TRANSITIONS, setTransition, trHandles, propAt, keepLength, sourceAt } from './model.js';
 import { $, $$, h, esc, clamp, toast, modal } from './ui.js';
 import { api, enc } from './api.js';
 import { openTemplates } from './titlesui.js';
@@ -103,6 +103,7 @@ export function mountTimeline(el) {
     </div>
   </div>`;
   scroller = $('#tlScroll', el); rowsEl = $('#tlRows', el); ruler = $('#tlRuler', el);
+  import('./mastermeter.js').then((m) => m.mountMasterMeter($('.tl-main', el))); // 🎚 Audio Meters at its right
   playheadEl = $('#tlPlayhead', el); snapEl = $('#tlSnap', el); headsEl = $('#tlHeads', el);
 
   $$('[data-tool]', el).forEach((b) => (b.onclick = () => setTool(b.dataset.tool)));
@@ -992,7 +993,7 @@ function onRowsDown(e) {
       roll = { aId: A.id, bId: B.id, a0: JSON.parse(JSON.stringify(A)), b0: JSON.parse(JSON.stringify(B)), cut0: L0[iB].start };
     }
   }
-  drag = { id, track, el, x0: e.clientX, y0: e.clientY, moved: false, trim, v1, roll, multi, rate: !!trim && S.tool === 'rate', remix: !!trim && S.tool === 'remix' && f.clip.type === 'audio', orig: JSON.parse(JSON.stringify(f.clip)), index: f.index,
+  drag = { id, track, from: track, made: [], el, x0: e.clientX, y0: e.clientY, moved: false, trim, v1, roll, multi, rate: !!trim && S.tool === 'rate', remix: !!trim && S.tool === 'remix' && f.clip.type === 'audio', orig: JSON.parse(JSON.stringify(f.clip)), index: f.index,
     // where on the clip it was taken (sec from its start) - from the timeline, not the element: select() above has
     // already redrawn the clips, so `el` may be a removed one (its position read as 0 and drops landed seconds off)
     grab: timeAt(e.clientX) - (layout()[track]?.find((x) => x.clip.id === id)?.start ?? f.clip.start ?? 0),
@@ -1335,7 +1336,8 @@ function onDragMove(e) {
   }
   // move - onto another track only once the mouse has clearly gone up / down (a clip taken near its top edge used to
   // jump onto the track above at the first wobble and show there as a faded copy)
-  const overTrack = Math.abs(e.clientY - drag.y0) < 12 ? f.track : rowAt(e.clientY);
+  let overTrack = Math.abs(e.clientY - drag.y0) < 12 ? f.track : rowAt(e.clientY);
+  if (!overTrack && Math.abs(e.clientY - drag.y0) >= 12) overTrack = edgeTrack(e.clientY, KIND[drag.track]);
   const overOverlay = overTrack && trackKind(overTrack) === 'video' && overTrack !== 'V1';
   // the clip as drawn now: the timeline may have been redrawn since the press (select, moves on overlay tracks), and
   // moving the old, removed element made the clip freeze and then jump
@@ -1373,10 +1375,56 @@ function onDragMove(e) {
     S.project.tracks[f.track].splice(f.index, 1);
     S.project.tracks[target].push(c);
     drag.track = target;
-  }
+  } else if (target !== f.track) groupToTrack(f, target);
   render();
 }
+// ⇅ several clips selected (video and audio): the whole selection goes as many tracks as the one being dragged, each
+// on its own side - V2 -> V3 with A2 -> A3, out from the middle like a linked clip - with the linked sound of each
+// picture; new tracks at the edges. When one of them has no room there (or would land on V1 / above A1) none moves.
+function groupToTrack(f, target) {
+  const d = trackNum(target) - trackNum(f.track), ids = new Set([drag.id, ...drag.others.map((o) => o.id)]);
+  for (const id of [...ids]) { const c = findClip(id)?.clip, lp = c?.type === 'video' ? linkedPartner(S.project, c) : null; if (lp && KIND[lp.track] === 'audio') ids.add(lp.clip.id); }
+  const items = [...ids].map((id) => findClip(id)).filter(Boolean);
+  if (items.some((x) => x.track === 'V1')) return;
+  const moving = new Set(items.map((x) => x.clip)), ts = S.project.trackState || {};
+  const last = (k) => Math.max(...trackList(S.project).filter((t) => t.id[0] === k).map((t) => trackNum(t.id)));
+  const plan = items.map((x) => ({ x, to: `${x.track[0]}${Math.min(last(x.track[0]) + 1, trackNum(x.track) + d)}` })); // (no skipped numbers)
+  const free = (to, c) => { const a = c.start || 0, b = a + clipDur(c, S.mediaById); return !(S.project.tracks[to] || []).some((o) => !moving.has(o) && (o.start || 0) < b - 1e-3 && (o.start || 0) + clipDur(o, S.mediaById) > a + 1e-3); };
+  if (plan.some(({ x, to }) => trackNum(to) < 1 || to === 'V1' || ts[to]?.lock || !free(to, x.clip))) return;
+  for (const { x } of plan) { const l = S.project.tracks[x.track]; l.splice(l.indexOf(x.clip), 1); }
+  for (const { x, to } of plan) {
+    if (!S.project.tracks[to] && !trackList(S.project).some((t) => t.id === to)) drag.made.push(to);
+    ensureTrack(S.project, to); S.project.tracks[to].push(x.clip);
+  }
+  drag.track = target;
+}
 
+// ➕ dragged above the top video track / below the last audio track: a new track there (like Premiere). Made at once so
+// the clip shows on it; one that is still empty when the clip is let go is taken away again (onDragUp).
+function edgeTrack(y, kind) {
+  const rows = $$('.tl-row', rowsEl); if (!rows.length) return null;
+  const list = trackList(S.project), up = kind === 'video';
+  if (up ? y >= rows[0].getBoundingClientRect().top : y < rows[rows.length - 1].getBoundingClientRect().bottom) return null;
+  const end = up ? list.find((t) => t.kind === 'video') : [...list].reverse().find((t) => t.kind === 'audio');
+  if (end && drag.made.includes(end.id)) return end.id; // (the one this drag made already)
+  const id = `${up ? 'V' : 'A'}${trackNum(end?.id || (up ? 'V1' : 'A1')) + 1}`;
+  ensureTrack(S.project, id); drag.made.push(id);
+  render();
+  return id;
+}
+// 🔗 a linked picture moved to another video track: its sound goes as many tracks the same way (V2 -> V3 with A2 -> A3),
+// onto a new audio track when there is none - if that track is free at its time
+function soundFollows(c, from, to) {
+  const lp = c?.type === 'video' ? linkedPartner(S.project, c) : null;
+  if (!lp || KIND[lp.track] !== 'audio' || to === from) return;
+  const lastA = Math.max(...trackList(S.project).filter((t) => t.kind === 'audio').map((t) => trackNum(t.id)));
+  const n = Math.min(lastA + 1, trackNum(lp.track) + trackNum(to) - trackNum(from)); if (n < 1 || n === trackNum(lp.track)) return; // (no skipped numbers)
+  const id = `A${n}`, a = lp.clip.start || 0, b = a + clipDur(lp.clip, S.mediaById);
+  if (S.project.trackState?.[id]?.lock || (S.project.tracks[id] || []).some((o) => o !== lp.clip && (o.start || 0) < b - 1e-3 && (o.start || 0) + clipDur(o, S.mediaById) > a + 1e-3)) return;
+  ensureTrack(S.project, id);
+  const l = S.project.tracks[lp.track]; l.splice(l.indexOf(lp.clip), 1);
+  S.project.tracks[id].push(lp.clip);
+}
 // Where a clip dragged over V1 would go, shown while dragging. Like Premiere: it overwrites what is under it at that
 // time and nothing else on the timeline moves. With Ctrl held it is inserted at the nearest cut instead (the story
 // after it moves along). from: where the clip is drawn now (sec); yOff: px down to V1.
@@ -1421,7 +1469,10 @@ function onDragUp(e) {
   if (drag?.moved && e) onDragMove(e);
   snapEl.hidden = true; $('#tlInsert').hidden = true;
   const d = drag; drag = null;
-  if (!d || !d.moved) { S.linkLead = null; return; }
+  // (tracks this drag made at the edge that ended up empty go again)
+  const dropMade = () => { for (const id of d?.made || []) if (!S.project.tracks[id]?.length) { delete S.project.tracks[id]; delete S.project.trackState?.[id]; } };
+  if (!d || !d.moved) { dropMade(); S.linkLead = null; if (d?.made.length) render(); return; }
+  dropMade();
   // 🎬 let go over the Source / Program monitor: the clip opens in the Source monitor at its In, and stays where it was
   const overMon = e && !d.trim && !d.roll && !d.rate && !d.multi?.length && document.elementFromPoint(e.clientX, e.clientY)?.closest('.srcmon, .mon-dock, .edit-grid.ws-monsrc .viewer');
   if (overMon) {
@@ -1456,6 +1507,8 @@ function onDragUp(e) {
       // lifted out (a gap stays where it was) and laid over the spot it was let go: nothing else moves
       const x = layout().V1.find((p) => p.clip.id === d.id);
       if (x && Math.abs(d.dropT - x.start) < 0.01) return render();
+      // (the other selected clips - overlays, sound - go along by as much)
+      if (x) for (const o of d.others) { const y = findClip(o.id); if (y && y.track !== 'V1') y.clip.start = +Math.max(0, o.start + d.dropT - x.start).toFixed(3); }
       const [c] = S.project.tracks.V1.splice(f.index, 1, gapClip(v1Len(d.id)));
       overwriteV1(c, d.dropT);
     }
@@ -1466,7 +1519,8 @@ function onDragUp(e) {
     const [c] = S.project.tracks.V1.splice(f.index, 1, gapClip(v1Len(d.id)));
     tidyGaps();
     delete c.transitionIn; c.start = +d.newStart.toFixed(3);
-    S.project.tracks[d.toTrack].push(c);
+    ensureTrack(S.project, d.toTrack); S.project.tracks[d.toTrack].push(c);
+    soundFollows(c, 'V1', d.toTrack);
     commit(`Move to ${d.toTrack}`); return;
   }
   if (d.toTrack === 'V1' && f.track !== 'V1') {
@@ -1477,6 +1531,7 @@ function onDragUp(e) {
     else overwriteV1(c, d.dropT ?? 0); // exactly where it was let go; nothing else moves
     commit('Move to V1'); return;
   }
+  if (f.track !== d.from && KIND[f.track] === 'video' && !d.others.length) soundFollows(f.clip, d.from, f.track); // (a group took its sound along already)
   commit('Move clip');
 }
 
@@ -1806,6 +1861,7 @@ function onContext(e) {
     ...(S.sel.size > 1 ? [['nest', `Nest ${S.sel.size} clips…`], ['group', 'Group', 'Ctrl+G']] : []), ...(c.grp ? [['ungroup', 'Ungroup', 'Ctrl+Shift+G']] : []),
     '-',
     ['spdlg', 'Speed / Duration…', 'Ctrl+R'],
+    ...(c.type === 'video' || c.type === 'image' ? [['frameFit', 'Set to Frame Size (fit)'], ['frameScale', 'Scale to Frame Size'], ['frameFill', 'Fill Frame']] : []),
     ...(soundClips([id]).length ? [['gain', 'Audio gain…', 'G']] : []),
     ...((c.type === 'video' || c.type === 'audio') && !linkedPartner(S.project, c) ? [['mute', c.mute ? 'Unmute' : 'Mute']] : []),
     ...(linkedPartner(S.project, c) ? [['unlink', 'Unlink audio / video']] : c.type === 'video' && S.mediaById[c.mediaId]?.hasAudio && !c.link ? [['linkA', 'Separate audio (linked)']] : c.type === 'video' && c.link && S.mediaById[c.mediaId]?.hasAudio ? [['linkA', 'Bring back its sound (linked)']] : []),
@@ -1865,6 +1921,7 @@ function onContext(e) {
     if (a === 'dup') duplicateSelected();
     if (a === 'closegap' || a === 'ripdel') deleteSelected(true);
     if (a === 'del') deleteSelected(false);
+    if (a === 'frameFit' || a === 'frameScale' || a === 'frameFill') frameSize(a === 'frameFill' ? 'fill' : 'fit');
     if (a === 'spdlg') return import('./speeddlg.js').then((x) => x.openSpeedDuration());
     if (a.startsWith('sp')) { const D0 = clipDur(c, S.mediaById); c.speed = +a.slice(2) === 1 ? undefined : +a.slice(2); keepLength(S.project, c, D0, S.mediaById); commit('Speed'); }
     if (a === 'mute') { c.mute = !c.mute || undefined; commit('Mute'); }
@@ -1882,6 +1939,24 @@ function onContext(e) {
     if (a === 'group') groupSelected();
     if (a === 'ungroup') ungroupSelected();
   };
+}
+
+// 📐 Set to Frame Size / Scale to Frame Size (the whole picture inside the frame) and Fill Frame (the frame covered, the
+// rest cropped off), like Premiere: Motion › Scale of every selected video / photo clip from its own width x height.
+// Position and rotation stay; animated Scale stops animating (one value now).
+function frameSize(mode) {
+  const st = S.project.settings, list = [...S.sel].map((x) => findClip(x)?.clip).filter((c) => c && (c.type === 'video' || c.type === 'image') && !c.locked);
+  if (!list.length) return;
+  let keyed = 0;
+  for (const c of list) {
+    const z = frameScale(c, S.mediaById[c.mediaId], st.aspect, st.fit, mode);
+    if (c.keys?.['transform.zoom']) { delete c.keys['transform.zoom']; if (!Object.keys(c.keys).length) delete c.keys; keyed++; }
+    if (c.type === 'image' && (c.kenburns ?? st.kenburns)) c.kenburns = false; // (a slow zoom would scale it again)
+    c.transform = { ...(c.transform || {}), zoom: z };
+    const t = c.transform; if (t.zoom === 1 && !t.x && !t.y && !t.rotation) delete c.transform;
+  }
+  commit(mode === 'fill' ? 'Fill Frame' : 'Set to Frame Size');
+  toast(`${mode === 'fill' ? 'Fill Frame: the frame is covered' : 'Set to Frame Size: the whole picture fits in the frame'}${list.length > 1 ? ` (${list.length} clips)` : ''}${keyed ? ' - its Scale keyframes were taken off' : ''}`);
 }
 
 // ⛓ Unlink: the picture and its sound move and trim on their own from now on (the picture stays silent)

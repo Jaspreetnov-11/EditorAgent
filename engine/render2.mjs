@@ -14,12 +14,12 @@ import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
-import { ASPECTS, clipDur, placed, totalDuration, keysExpr, rampPts, sourceAt, overlayTracks, audioTracks, syncLinked } from '../public/js/model.js';
+import { ASPECTS, clipDur, placed, totalDuration, keysExpr, rampPts, sourceAt, overlayTracks, audioTracks, syncLinked, blendFF } from '../public/js/model.js';
 import { fxFilters } from '../public/js/audiofx.js';
 import { aeffectFilters, fadeCurve } from '../public/js/audioeffects.js';
 import { colorFilters, stager } from './color.mjs';
 import { cutFxDur, wordWindows, isKinetic, hitsOf, CUTFX, xfadeOf } from '../public/js/fx.js';
-import { VFX, activeEffects, stabOf } from '../public/js/effects.js';
+import { VFX, activeEffects, stabOf, blendOf, postEffects } from '../public/js/effects.js';
 import { buildAss, capTracks } from '../public/js/captions.js';
 import { maskTrack } from '../public/js/tracking.js';
 import { gfxKey } from '../public/js/graphics.js';
@@ -290,6 +290,18 @@ function vfxGraph(c, inL, g, pre = `vx${segN}`, addMask = null) {
   }
   return cur;
 }
+// ▱ Drop Shadow / Radial Shadow / Bevel Alpha (effects.js post) work on the layer's outline after Motion: a white frame
+// moved by the same Motion is the picture's transparency (times its key's, when it has one), then the effects run in
+// order. in: the moved picture (black around it), out: a label with alpha - the shadow included.
+function postGraph(c, inL, g, pre, dur, hasAlpha) {
+  const mot = transformFilters(c);
+  g.push(`color=c=white:s=${W}x${H}:r=${F}:d=${dur.toFixed(3)},format=gray${mot.length ? `,${mot.join(',')}` : ''},format=gray,setsar=1[${pre}m]`);
+  if (hasAlpha) g.push(`[${inL}]format=yuva420p,split[${pre}k1][${pre}k2]`, `[${pre}k2]alphaextract[${pre}ka]`, `[${pre}ka][${pre}m]blend=all_mode=multiply[${pre}am]`, `[${pre}k1][${pre}am]alphamerge[${pre}0]`);
+  else g.push(`[${inL}]format=yuva420p[${pre}i]`, `[${pre}i][${pre}m]alphamerge[${pre}0]`);
+  let cur = `${pre}0`;
+  postEffects(c).forEach((e, j) => { const o = `${pre}${j + 1}`; g.push(VFX[e.type].post(e.p || {}, { W, H })(cur, o)); cur = o; });
+  return cur;
+}
 // a mask as a grey PNG of the output size in the work folder (made once per mask)
 const maskPngs = new Map();
 function maskPng(m) {
@@ -437,6 +449,12 @@ function segment(c, label, fixed = null) {
     cur = 'vom';
   }
   if (mot.length) { g.push(`[${cur}]${mot.join(',')}[vp]`); cur = 'vp'; }
+  // ▱ a shadow on the main story falls on the black around the moved picture (overlays get theirs in the final pass)
+  if (label.startsWith('V1') && postEffects(c).length && (c.type === 'video' || c.type === 'image')) {
+    const pl = postGraph(c, cur, g, `ps${segN}_`, dur, false);
+    g.push(`color=c=black:s=${W}x${H}:r=${F}:d=${dur.toFixed(3)}[psb]`, `[psb][${pl}]overlay=format=auto:shortest=1,format=yuv420p[vps]`);
+    cur = 'vps';
+  }
   cur = cutFxGraph(c, cur, dur, g);
   cur = hitsGraph(c, cur, dur, g);
   // opacity on V1: the picture fades towards the black below it (static, or keyframed per frame with geq)
@@ -667,22 +685,38 @@ ovl.forEach((x, k) => {
   if (!s) return; // (outside In-Out: not made)
   const i = n++;
   inputs.push('-i', s.file);
-  const op = c.opacity ?? 1;
+  // 🎨 the Blend effect (Channel): Crossfade is the layer's opacity, the other modes blend it with the shots below
+  const bfx = c.blend ? null : blendOf(c), bmode = bfx && bfx.mode !== 'crossfade' ? bfx : null;
+  const op = (c.opacity ?? 1) * (bfx?.mode === 'crossfade' ? bfx.amount : 1);
   // keyframed opacity: per-frame alpha (geq's T = seconds into the clip, before it is moved to its start)
   // green screen (or another key) on an overlay: keyed here so the shot below shows through
-  const key = activeEffects(c).find((e) => VFX[e.type].key);
-  let keyF = key ? `${VFX[key.type].key(key.p || {})},` : '', src = `${i}:v`;
+  // (several keys run one after the other: Green screen, then Alpha Adjust, Noise Alpha...)
+  const key = activeEffects(c).filter((e) => VFX[e.type].key).map((e) => VFX[e.type].key(e.p || {})).join(',');
+  let keyF = key ? `${key},` : '', src = `${i}:v`;
   // ◐ Opacity mask: the shot below shows outside it (where Motion has put the picture)
   if (c.omask?.shape) {
     const mk = finalMask(maskPng(movedMask(c.omask, c.transform)), en - st + 0.5);
     g.push(`[${src}]${keyF}format=yuva420p[oma${k}]`, `[oma${k}][${mk}]alphamerge[omb${k}]`);
     src = `omb${k}`; keyF = '';
   }
-  const opA = c.keys?.opacity?.length ? `format=yuva420p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='${key || c.omask?.shape ? 'alpha(X,Y)' : '255'}*clip(${keysExpr(c.keys.opacity, 'T')},0,1)',` : op < 1 ? `format=rgba,colorchannelmixer=aa=${op},` : '';
-  g.push(c.blend ? `[${src}]${keyF}setpts=PTS-STARTPTS[ov${k}]` : `[${src}]${keyF}${opA}setpts=PTS-STARTPTS+${st.toFixed(3)}/TB[ov${k}]`);
-  if (c.blend) {
+  // ▱ Drop Shadow / Radial Shadow / Bevel Alpha: on the layer's own outline, over the shots below
+  const post = postEffects(c).length > 0;
+  if (post) { g.push(`[${src}]${keyF}null[pk${k}]`); src = postGraph(c, `pk${k}`, g, `pg${k}`, en - st, !!key || !!c.omask?.shape); keyF = ''; }
+  const opA = c.keys?.opacity?.length ? `format=yuva420p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='${key || c.omask?.shape || post ? 'alpha(X,Y)' : '255'}*clip(${keysExpr(c.keys.opacity, 'T')},0,1)',` : op < 1 ? `format=rgba,colorchannelmixer=aa=${op},` : '';
+  g.push(c.blend || bmode ? `[${src}]${keyF}setpts=PTS-STARTPTS[ov${k}]` : `[${src}]${keyF}${opA}setpts=PTS-STARTPTS+${st.toFixed(3)}/TB[ov${k}]`);
+  const on = `eof_action=pass:enable='between(t,${st.toFixed(3)},${en.toFixed(3)})'`;
+  if (bmode && (bmode.mode === 'colour' || bmode.mode === 'tint')) {
+    // Color only / Tint only: the brightness of the shots below, the colour of this layer (Tint: part of it); "Blend
+    // with original" brings this layer's own brightness back
+    const K = bmode.mode === 'tint' ? 0.6 : 1, a = (+bmode.amount).toFixed(3);
+    g.push(`[ov${k}]tpad=start_duration=${st.toFixed(3)}:color=black,format=yuv444p[ob${k}]`, `[${v}]format=yuv444p[ub${k}]`,
+      `[ob${k}][ub${k}]blend=c0_expr='A*${a}+B*(1-${a})':c1_expr='A*${K}+B*${(1 - K).toFixed(3)}':c2_expr='A*${K}+B*${(1 - K).toFixed(3)}':all_opacity=${Math.min(1, op).toFixed(2)}:${on},format=yuv420p[vo${k}]`);
+  } else if (bmode) {
     g.push(`[ov${k}]tpad=start_duration=${st.toFixed(3)}:color=black,format=gbrp[ob${k}]`, `[${v}]format=gbrp[ub${k}]`,
-      `[ub${k}][ob${k}]blend=all_mode=${c.blend}:all_opacity=${Math.min(1, op).toFixed(2)}:eof_action=pass:enable='between(t,${st.toFixed(3)},${en.toFixed(3)})',format=yuv420p[vo${k}]`);
+      `[ob${k}][ub${k}]blend=${blendFF(bmode.mode)}:all_opacity=${Math.min(1, (1 - bmode.amount) * op).toFixed(2)}:${on},format=yuv420p[vo${k}]`);
+  } else if (c.blend) {
+    g.push(`[ov${k}]tpad=start_duration=${st.toFixed(3)}:color=black,format=gbrp[ob${k}]`, `[${v}]format=gbrp[ub${k}]`,
+      `[ub${k}][ob${k}]blend=${blendFF(c.blend)}:all_opacity=${Math.min(1, op).toFixed(2)}:eof_action=pass:enable='between(t,${st.toFixed(3)},${en.toFixed(3)})',format=yuv420p[vo${k}]`);
   } else g.push(`[${v}][ov${k}]overlay=eof_action=pass:enable='between(t,${st.toFixed(3)},${en.toFixed(3)})'[vo${k}]`);
   v = `vo${k}`;
   if (!ts[x.track]?.mute && !c.mute && (c.volume ?? 0) > 0) {

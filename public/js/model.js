@@ -118,7 +118,79 @@ export function addTrack(project, kind) {
   project.trackState[id] = { mute: false, hide: false, lock: false, volume: 1 };
   return id;
 }
-export const BLEND_MODES = [['', 'Normal'], ['screen', 'Screen (lighten, light leaks)'], ['multiply', 'Multiply (darken)'], ['overlay', 'Overlay (contrast)'], ['softlight', 'Soft light'], ['addition', 'Add (glow)'], ['lighten', 'Lighten'], ['darken', 'Darken'], ['difference', 'Difference']];
+// a track that is shown but not in project.tracks yet (V3 of an older project, a new top / bottom track): made now
+export function ensureTrack(project, id) {
+  project.tracks[id] ||= [];
+  (project.trackState ||= {})[id] ||= { mute: false, hide: false, lock: false, volume: 1 };
+  return id;
+}
+
+// 🎭 Opacity › Blend Mode, Premiere's list in its groups. key = FFmpeg's blend all_mode (the render, render2.mjs);
+// css = the monitor's mix-blend-mode (an approximation where the browser has no such mode - exact in Accurate preview).
+export const BLEND_MODES = [['', 'Normal'],
+  ['darken', 'Darken'], ['multiply', 'Multiply'], ['burn', 'Color Burn'], ['linearburn', 'Linear Burn'],
+  ['lighten', 'Lighten'], ['screen', 'Screen'], ['dodge', 'Color Dodge'], ['addition', 'Linear Dodge (Add)'],
+  ['overlay', 'Overlay'], ['softlight', 'Soft Light'], ['hardlight', 'Hard Light'], ['vividlight', 'Vivid Light'], ['linearlight', 'Linear Light'], ['pinlight', 'Pin Light'], ['hardmix', 'Hard Mix'],
+  ['difference', 'Difference'], ['exclusion', 'Exclusion'], ['subtract', 'Subtract'], ['divide', 'Divide']];
+export const BLEND_CSS = { addition: 'plus-lighter', softlight: 'soft-light', hardlight: 'hard-light', dodge: 'color-dodge', burn: 'color-burn', linearburn: 'multiply',
+  vividlight: 'color-dodge', linearlight: 'hard-light', pinlight: 'hard-light', hardmix: 'hard-light', subtract: 'difference', divide: 'color-dodge' };
+// FFmpeg has no Linear Burn: A + B - 1 (per channel, 0-255)
+export const BLEND_FF = { linearburn: "all_expr='max(0,A+B-255)'" };
+export const blendFF = (k) => BLEND_FF[k] || `all_mode=${k}`;
+
+// ⇅ Alt+↑ / Alt+↓ (Premiere's Nudge clip selection up / down): the clips go one track up (dir 1) or down (-1) on
+// screen and keep their time. A video's linked sound goes the same way out from the middle, as a drag takes it
+// (V2 -> V3 with A2 -> A3). Above the top video / below the last audio track a new track is made. A clip whose new track
+// is busy at its time (or is locked) stays. Main story (V1): opt.liftV1(clip, index) leaves its gap and gives its start,
+// opt.toV1(clip, t) puts a clip in; without them V1 clips stay. Returns { moved, stayed }.
+export function moveClipsTrack(project, media, ids, dir, opt = {}) {
+  const P = placed(project, media), ts = project.trackState || {}, at = new Map();
+  for (const [tr, list] of Object.entries(P)) for (const x of list) at.set(x.clip.id, { tr, x });
+  const want = new Set(ids), go = [];
+  const sel = [...want].map((id) => at.get(id)).filter((f) => f && !f.x.clip.gap && !f.x.clip.locked && !ts[f.tr]?.lock);
+  const vidLinks = new Set(sel.filter((f) => trackKind(f.tr) === 'video' && f.x.clip.link).map((f) => f.x.clip.link));
+  let stayed = 0;
+  for (const f of sel) {
+    const c = f.x.clip, kind = trackKind(f.tr), n = trackNum(f.tr);
+    if (kind === 'audio' && c.link && vidLinks.has(c.link)) continue; // (goes with its picture, below)
+    if (kind === 'video') {
+      go.push({ ...f, to: `V${n + dir}` });
+      if (c.link) for (const [, g] of at) if (g.x.clip.link === c.link && g.x.clip !== c && trackKind(g.tr) === 'audio' && !ts[g.tr]?.lock) go.push({ ...g, to: `A${trackNum(g.tr) + dir}`, mate: c.id });
+    } else go.push({ ...f, to: `A${n - dir}` });
+  }
+  const leaving = new Set(go.map((g) => g.x.clip));
+  const busy = (tr, a, b) => (project.tracks[tr] || []).some((o) => !leaving.has(o) && !o.gap && (o.start || 0) < b - 1e-3 && (o.start || 0) + clipDur(o, media) > a + 1e-3);
+  const ok = new Set();
+  for (const g of go) {
+    const a = g.x.start, b = g.x.end, n = trackNum(g.to);
+    g.ok = n >= 1 && !ts[g.to]?.lock && (g.to === 'V1' ? !!opt.toV1 && g.x.clip.type !== 'adjust' : g.tr === 'V1' ? !!opt.liftV1 && !busy(g.to, a, b) : !busy(g.to, a, b));
+    if (g.mate && !ok.has(g.mate)) g.ok = false; // (the picture stayed: its sound stays too)
+    if (g.ok) ok.add(g.x.clip.id); else if (!g.mate) stayed++;
+  }
+  // last V1 shot first, so the earlier ones keep their index while gaps are put in
+  const moving = go.filter((g) => g.ok).sort((p, q) => (p.tr === 'V1' && q.tr === 'V1' ? project.tracks.V1.indexOf(q.x.clip) - project.tracks.V1.indexOf(p.x.clip) : 0));
+  for (const g of moving) {
+    const c = g.x.clip, t = +g.x.start.toFixed(3);
+    if (g.tr === 'V1') opt.liftV1(c, project.tracks.V1.indexOf(c));
+    else { const l = project.tracks[g.tr], i = l.indexOf(c); if (i >= 0) l.splice(i, 1); }
+    ensureTrack(project, g.to);
+    if (g.to === 'V1') opt.toV1(c, t);
+    else { delete c.transitionIn; c.start = t; project.tracks[g.to].push(c); }
+  }
+  return { moved: moving.filter((g) => !g.mate).length, stayed };
+}
+
+// 📐 right-click › Set to Frame Size / Fill Frame (Premiere): Motion's Scale that shows the whole picture inside the
+// frame ('fit') or covers the frame ('fill'), from the clip's own width x height. Stored zoom is a factor on the clip's
+// framing (fit / fill / blur, as fitOf in the inspector), so it is the size wanted over the size it already has.
+export function frameScale(c, m, aspect, projFit, mode) {
+  const [W, H] = ASPECTS[aspect] || ASPECTS['16:9'];
+  const rot = Math.abs(m?.rotation || 0) % 180 === 90, w = (rot ? m?.height : m?.width) || W, h = (rot ? m?.width : m?.height) || H;
+  const framing = c?.fit || projFit || (H > W ? 'blur' : 'fit');
+  const base = framing === 'fill' ? Math.max(W / w, H / h) : Math.min(W / w, H / h);
+  const want = mode === 'fill' ? Math.max(W / w, H / h) : Math.min(W / w, H / h);
+  return +(want / base).toFixed(4);
+}
 
 export const TRANSITIONS = [
   ['cut', 'Cut'], ['fade', 'Cross dissolve'], ['fadeblack', 'Dip to black'], ['fadewhite', 'Dip to white'],
@@ -140,6 +212,8 @@ export const TRANSITIONS = [
   ['clockwipe', 'Clock wipe'], ['wedgewipe', 'Wedge wipe'], ['pinwheel', 'Pinwheel'], ['inset', 'Inset'], ['venetian', 'Venetian blinds'],
   ['bandwipe', 'Band wipe'], ['checkerwipe', 'Checker wipe'], ['checkerboard', 'CheckerBoard'], ['randomblocks', 'Random blocks'],
   ['centersplit', 'Center split'], ['bandslide', 'Band slide'], ['flipover', 'Flip over'],
+  ['cubespin', 'Cube spin'], ['pageturn', 'Page turn'], ['pagepeel', 'Page peel'], ['gradientwipe', 'Gradient wipe'],
+  ['spiralboxes', 'Spiral boxes'], ['zigzag', 'Zig-zag blocks'], ['randomwipe', 'Random wipe'], ['paintsplatter', 'Paint splatter'],
 ];
 
 export function newProject(name, { aspect = '16:9', fps = 30 } = {}) {
