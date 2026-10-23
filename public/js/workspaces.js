@@ -54,8 +54,21 @@ let grid = null;
 export function mountWorkspaces(el) {
   grid = el;
   if (!grid) return;
-  new ResizeObserver(() => placeSplits()).observe(grid);
+  // the drag lines sit on the panels' real edges: placed again whenever the grid or any panel in it changes size, and
+  // once the page has its fonts (they were left at the top of the grid when the first placing came too early - grabbing
+  // a panel's tab row then resized the wrong way)
+  const ro = new ResizeObserver(() => placeSplits());
+  ro.observe(grid);
+  for (const p of grid.children) if (!p.classList.contains('ws-split')) ro.observe(p);
+  document.fonts?.ready.then(() => placeSplits());
+  document.addEventListener('visibilitychange', () => placeSplits());
   apply();
+}
+// ⇕ the size a track gets when its far edge is dragged to `pos` px from its start: the edge follows the pointer, and
+// neither of the two panels it divides gets smaller than `min` px (the grid's minmax). px: the tracks' sizes now.
+export function pairResize(px, i, pos, min = 120) {
+  const pair = px[i] + px[i + 1];
+  return Math.min(Math.max(pos, min), Math.max(min, pair - min));
 }
 
 // ---- apply the current workspace to the Edit page ----
@@ -90,7 +103,8 @@ export function apply() {
 function tracks(prop) { return getComputedStyle(grid)[prop].split(' ').map(parseFloat).filter(Number.isFinite); }
 function placeSplits() {
   const w = current();
-  if (!grid || !w.areas) return;
+  // (a hidden grid reports its sizes as written - "minmax(120px, 58fr)" - not in pixels: wait until it shows)
+  if (!grid || !w.areas || !grid.getClientRects().length) return;
   const cs = getComputedStyle(grid), gap = parseFloat(cs.columnGap) || 0, padL = parseFloat(cs.paddingLeft) || 0, padT = parseFloat(cs.paddingTop) || 0;
   const C = tracks('gridTemplateColumns'), R = tracks('gridTemplateRows');
   const at = (L, pad, i) => pad + L.slice(0, i + 1).reduce((a, b) => a + b, 0) + gap * i + gap / 2;
@@ -113,10 +127,13 @@ function wireSplit(sp) {
   sp.addEventListener('pointerdown', (e) => {
     e.preventDefault(); sp.setPointerCapture(e.pointerId); sp.classList.add('drag'); document.documentElement.classList.add('ui-dragging');
     const w = current(), L = [...w[axis]], px = tracks(axis === 'cols' ? 'gridTemplateColumns' : 'gridTemplateRows');
-    const total = L[i] + L[i + 1], pxTotal = px[i] + px[i + 1], start = axis === 'cols' ? e.clientX : e.clientY;
+    const total = L[i] + L[i + 1], pxTotal = px[i] + px[i + 1];
+    // where track i starts on screen: the edge being dragged goes exactly where the pointer is (not by how far it
+    // moved - a line a little off its edge made the panels jump the other way)
+    const cs = getComputedStyle(grid), g = grid.getBoundingClientRect(), gap = parseFloat(axis === 'cols' ? cs.columnGap : cs.rowGap) || 0;
+    const t0 = (axis === 'cols' ? g.left + (parseFloat(cs.paddingLeft) || 0) : g.top + (parseFloat(cs.paddingTop) || 0)) + px.slice(0, i).reduce((a, b) => a + b, 0) + gap * i;
     const move = (ev) => {
-      const d = ((axis === 'cols' ? ev.clientX : ev.clientY) - start) / Math.max(1, pxTotal);
-      const a = Math.min(0.9, Math.max(0.1, px[i] / pxTotal + d));
+      const a = pairResize(px, i, (axis === 'cols' ? ev.clientX : ev.clientY) - t0 - gap / 2) / Math.max(1, pxTotal);
       L[i] = +(total * a).toFixed(2); L[i + 1] = +(total - L[i]).toFixed(2);
       change({ [axis]: L }, false);
     };
