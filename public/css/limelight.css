@@ -275,3 +275,14 @@ html.ui2[data-look="limelight"] input[type=range], html.ui2[data-look="limelight
 html.ui2[data-look="limelight"] #colorPage .segbtns button { background: transparent; box-shadow: none; }
 html.ui2[data-look="limelight"] #colorPage .segbtns button:is([aria-selected="true"], [aria-pressed="true"]), html.ui2[data-look="limelight"] #colorPage :is(button[aria-selected="true"], button[aria-pressed="true"]) {
   background: rgba(255,194,26,.12); color: #ffd252; box-shadow: 0 0 0 1px rgba(255,194,26,.45) inset; }
+
+/* 🎞 sequence tabs (seqtabs.js, at most five): they share the bar's free space in equal widths - a long name is cut
+   with "…" inside its tab - so the bar never scrolls and the timecode keeps its place at the right */
+html.ui2 .timeline .tl-bar { overflow: hidden; }
+html.ui2 .tl-seqtabs { flex: 1 1 0; min-width: 0; overflow: hidden; }
+html.ui2 .tl-bar .tl-stab { flex: 1 1 0; min-width: 0; max-width: 220px; padding: 0 10px; }
+html.ui2 .tl-bar .tl-stab > span { flex: 1 1 auto; min-width: 0; }
+html.ui2 .tl-bar .tl-stab :is(.stab-x, .stab-team) { flex: none; }
+html.ui2 .tl-bar :is(.tl-seq, .tl-tc, .tl-dur) { flex: none; }
+html.ui2 .timeline .tl-bar > .grow { display: none; } /* (the tabs take the free room; the timecode is pinned instead:) */
+html.ui2 .timeline .tl-bar .tl-tc { margin-left: auto; }
