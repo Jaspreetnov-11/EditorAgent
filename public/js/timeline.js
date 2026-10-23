@@ -70,18 +70,13 @@ export function mountTimeline(el) {
         ${TOOL_GROUPS.map((g, i) => toolBtn(g[0], i)).join('')}
       </div>
       <span class="sep"></span>
-      <button data-act="split" title="Split clips under the playhead (S)">${ICON.split}<span>Split</span></button>
-      <button data-act="trimStart" title="Cut the front: remove everything before the playhead from the clip under it, the gap closes (Q)"><b>${ic('trimstart')}</b><span>Trim front</span></button>
-      <button data-act="trimEnd" title="Cut the back: remove everything after the playhead from the clip under it, the gap closes (W)"><b>${ic('trimend')}</b><span>Trim back</span></button>
-      <button data-act="delete" title="Delete selected (Del)">${ICON.trash}<span>Delete</span></button>
-      <button data-act="dup" title="Duplicate (Ctrl+D)">${ICON.copy}<span>Duplicate</span></button>
+      ${actBtn('cut')}${actBtn('clip')}
       <span class="sep"></span>
-      <button data-act="title" title="Type tool (T): click on the Program monitor and type - text right there (title templates: Graphics and Titles menu)">${ICON.text}<span>Text</span></button>
-      <button data-act="gfx" title="Motion graphics: counters, charts, callouts, route lines"><b>${ic('chart')}</b><span>Graphic</span></button>
-      <button data-act="adjust" title="Adjustment layer: colour / effects for every track below it, at the playhead"><b>${ic('adjust')}</b><span>Adjust</span></button>
-      <button data-act="ramp" title="Speed ramp: pick a preset for the selected video clips (slow-mo hit, bullet time, whoosh…)"><b>${ic('ramp')}</b><span>Ramp</span></button>
-      <button data-act="roto" title="Roto (AI): select a video clip - its subject (person / animal / vehicle) is cut out onto the track above. Put text on a track in between to have it behind the person"><b>${ic('roto')}</b><span>Roto</span></button>
-      <button data-act="sfx" title="Auto sound design: whooshes, hits and a riser on A3, lined up with your cuts, transitions and effects"><b>${ic('speaker')}</b><span>SFX</span></button>
+      ${actBtn('make')}${actBtn('fx')}
+      <span class="sep"></span>
+      <button data-act="mcomp" class="tl-letter" title="M · Motion comp: the selected video clip becomes a Motion comp - animate it in Motion (also on the clip's right-click)" aria-label="Motion comp"><b>M</b></button>
+      <button data-act="mfusion" class="tl-letter" title="F · Fusion: open the selected video clip in Fusion - node effects (also on the clip's right-click)" aria-label="Fusion"><b>F</b></button>
+      <button data-act="mlabs" class="tl-letter" title="L · Labs: edit the selected video clip in Labs - templates, AI (also on the clip's right-click)" aria-label="Labs"><b>L</b></button>
       <span class="sep"></span>
       <button data-act="snap" class="tog" title="Snapping on/off (N)">${ICON.magnet}<span>Snap</span></button>
     </div>
@@ -125,26 +120,35 @@ export function mountTimeline(el) {
   // middle-click closes a tab too (like a browser / Premiere)
   $('#tlSeqTabs', el).addEventListener('auxclick', (e) => { const t = e.target.closest('[data-stab]'); if (t && e.button === 1) { e.preventDefault(); closeSeqTab(t.dataset.stab); } });
   $('.tl-top', el).addEventListener('click', (e) => {
-    const a = e.target.closest('[data-act]')?.dataset.act;
-    if (!a) return;
+    if (e.target.closest('[data-agmore]')) return; // (the corner of a group: its flyout)
+    const b = e.target.closest('[data-act]'); if (b) runAct(b.dataset.act, b);
+  });
+  runActRef = (a, b) => runAct(a, b);
+  bindActGroups(el);
+  function runAct(a, btn) {
     if (a === 'seq') seqMenu(e.target.closest('[data-act]'));
     if (a === 'split') splitAtPlayhead();
     if (a === 'trimStart') trimAtPlayhead('start');
     if (a === 'trimEnd') trimAtPlayhead('end');
     if (a === 'delete') deleteSelected();
     if (a === 'dup') duplicateSelected();
-    if (a === 'title') { setTool('type'); toast('T Type tool: click on the picture and type (Esc when done; V = back to the Selection tool)'); } // (templates: Graphics and Titles menu)
     if (a === 'gfx') openGraphics();
     if (a === 'adjust') addAdjustmentLayer();
-    if (a === 'ramp') { const r = e.target.closest('[data-act]').getBoundingClientRect(); rampMenu({ clientX: r.right + 4, clientY: r.top }); }
+    if (a === 'ramp') { const r = btn.getBoundingClientRect(); rampMenu({ clientX: r.right + 4, clientY: r.top }); }
     if (a === 'roto') {
       const id = [...S.sel].find((s) => findClip(s)?.clip.type === 'video');
       if (!id) toast('Select a video clip on the timeline first, then press Roto', 'err'); else rotoFromClip(id, findClip);
     }
     if (a === 'sfx') autoSoundDesign().catch((err) => toast(err.message, 'err'));
+    // M / F / L: the selected video clip into Motion, Fusion or Labs (the same as its right-click)
+    if (a === 'mcomp' || a === 'mfusion' || a === 'mlabs') {
+      const id = [...S.sel].find((x) => findClip(x)?.clip.type === 'video');
+      if (!id) toast(`Select a video clip on the timeline first, then press ${a === 'mcomp' ? 'M' : a === 'mfusion' ? 'F' : 'L'}`, 'err');
+      else if (a === 'mcomp') makeCompFromClip(id, findClip); else if (a === 'mfusion') fusionFromClip(id, findClip); else labsFromClip(id);
+    }
     if (a === 'snap') { S.snap = !S.snap; syncBar(); }
     if (a === 'fit') fitZoom();
-  });
+  }
   // ⌨ the timecode is a field, like Premiere's: click it and type where to go / how far to move
   $('#tlTC', el).addEventListener('click', () => typeTimecode($('#tlTC', el)));
   const z = $('#tlZoom', el);
@@ -220,6 +224,53 @@ function toolBtn(x, i) {
   const many = TOOL_GROUPS[i].length > 1;
   return `<button data-tool="${x[0]}" data-grp="${i}" title="${esc(toolTip(x))}${many ? ' - hold or right-click for the others' : ''}" aria-label="${esc(x[1])}">${toolIcon(x)}${many ? '<i class="tg-more" data-tgmore></i>' : ''}</button>`;
 }
+// 🧰 the toolbar's actions in groups of the same kind of work, like the tool groups: the button runs the one shown (the
+// last one used), its corner / right-click / a long press lists the others. [act, label, key, icon(), tip]
+const ACT_GROUPS = {
+  cut: [['split', 'Split at playhead', 'S', () => ICON.split, 'Split clips under the playhead (S)'],
+    ['trimStart', 'Trim front', 'Q', () => `<b>${ic('trimstart')}</b>`, 'Cut the front: remove everything before the playhead from the clip under it, the gap closes (Q)'],
+    ['trimEnd', 'Trim back', 'W', () => `<b>${ic('trimend')}</b>`, 'Cut the back: remove everything after the playhead from the clip under it, the gap closes (W)']],
+  clip: [['delete', 'Delete', 'Del', () => ICON.trash, 'Delete selected (Del)'], ['dup', 'Duplicate', 'Ctrl+D', () => ICON.copy, 'Duplicate (Ctrl+D)']],
+  make: [['gfx', 'Motion graphic', '', () => `<b>${ic('chart')}</b>`, 'Motion graphics: counters, charts, callouts, route lines'],
+    ['adjust', 'Adjustment layer', '', () => `<b>${ic('adjust')}</b>`, 'Adjustment layer: colour / effects for every track below it, at the playhead']],
+  fx: [['ramp', 'Speed ramp', '', () => `<b>${ic('ramp')}</b>`, 'Speed ramp: pick a preset for the selected video clips (slow-mo hit, bullet time, whoosh…)'],
+    ['roto', 'Roto (AI)', '', () => `<b>${ic('roto')}</b>`, 'Roto (AI): select a video clip - its subject (person / animal / vehicle) is cut out onto the track above. Put text on a track in between to have it behind the person'],
+    ['sfx', 'Auto sound design', '', () => `<b>${ic('speaker')}</b>`, 'Auto sound design: whooshes, hits and a riser on A3, lined up with your cuts, transitions and effects']],
+};
+const actPick = () => { try { return JSON.parse(localStorage.getItem('ve-actgrp') || '{}'); } catch { return {}; } };
+function actBtn(g, act = actPick()[g]) {
+  const list = ACT_GROUPS[g], x = list.find((y) => y[0] === act) || list[0];
+  return `<button data-act="${x[0]}" data-agrp="${g}" title="${esc(x[4])} - right-click or the corner for: ${esc(list.filter((y) => y !== x).map((y) => y[1]).join(', '))}" aria-label="${esc(x[1])}">${x[3]()}<span>${esc(x[1])}</span><i class="tg-more" data-agmore></i></button>`;
+}
+function actFlyout(btn, run) {
+  document.querySelector('.tg-fly')?.remove();
+  const g = btn.dataset.agrp, r = btn.getBoundingClientRect(), m = document.createElement('div');
+  m.className = 'tg-fly ctx'; m.setAttribute('role', 'menu');
+  m.innerHTML = ACT_GROUPS[g].map((x) => `<button role="menuitem" data-pick="${x[0]}" title="${esc(x[4])}"><span class="tg-ic">${x[3]()}</span><span>${esc(x[1])}</span>${x[2] ? `<kbd>${x[2]}</kbd>` : ''}</button>`).join('');
+  document.body.append(m);
+  m.style.left = `${Math.min(r.left, innerWidth - m.offsetWidth - 6)}px`; m.style.top = `${Math.min(r.bottom + 4, innerHeight - m.offsetHeight - 6)}px`;
+  const close = () => { m.remove(); window.removeEventListener('pointerdown', out, true); };
+  const out = (e) => { if (!m.contains(e.target)) close(); };
+  setTimeout(() => window.addEventListener('pointerdown', out, true));
+  m.onclick = (e) => {
+    const p = e.target.closest('[data-pick]'); if (!p) return;
+    close();
+    // the picked one becomes the group's button (remembered in this browser), then runs
+    const pick = actPick(); pick[g] = p.dataset.pick; try { localStorage.setItem('ve-actgrp', JSON.stringify(pick)); } catch {}
+    const n = document.createElement('div'); n.innerHTML = actBtn(g, p.dataset.pick); const nb = n.firstElementChild;
+    btn.replaceWith(nb); bindActGroup(nb, run); run(p.dataset.pick, nb);
+  };
+}
+function bindActGroup(b, run) {
+  let hold = null;
+  b.addEventListener('pointerdown', (e) => { if (e.button === 0 && !e.target.closest('[data-agmore]')) hold = setTimeout(() => { hold = 'open'; actFlyout(b, run); }, 450); });
+  const stop = () => { if (hold && hold !== 'open') clearTimeout(hold); };
+  b.addEventListener('pointerup', stop); b.addEventListener('pointerleave', stop);
+  b.addEventListener('click', (e) => { if (hold === 'open') { e.stopPropagation(); hold = null; return; } hold = null; if (e.target.closest('[data-agmore]')) actFlyout(b, run); }, true);
+  b.addEventListener('contextmenu', (e) => { e.preventDefault(); actFlyout(b, run); });
+}
+let runActRef = null;
+function bindActGroups(el) { el.querySelectorAll('[data-agrp]').forEach((b) => bindActGroup(b, (a, nb) => runActRef?.(a, nb))); }
 // the flyout of group i under / beside its button
 function toolFlyout(btn) {
   document.querySelector('.tg-fly')?.remove();
@@ -525,8 +576,9 @@ function drawHeads(TR, ts) {
   headsEl.innerHTML = `<div class="th-ruler"></div>` + TR.map((t) => {
     const st = ts[t.id] || {};
     // 🎛 laid out like Premiere's track header: lock, the track name (audio: blue = the Insert / Overwrite target - click
-    // it), sync lock, then eye / M S mic; the track's own name shows under it when the track is tall enough
-    const label = t.kind === 'video' ? st.name || '' : t.label || '';
+    // it), sync lock, then eye / M S mic; a name the user gave the track shows under it when the track is tall enough
+    // (no default words like "Voice-over" / "Music" - only a renamed track)
+    const label = st.name || '';
     return `<div class="th pp ${t.kind}${st.lock ? ' locked' : ''}${rowH(t.id) < 44 ? ' tiny' : ''}${rowH(t.id) < 30 ? ' mini' : ''}" style="height:${rowH(t.id)}px" data-track="${t.id}" title="Right-click: rename, add or delete a track">
       <div class="th-btns">
         <button class="tbtn lk${st.lock ? ' on' : ''}" data-tst="lock" title="Lock track">${ICON.lock}</button>
