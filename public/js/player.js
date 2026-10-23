@@ -461,6 +461,7 @@ export function play() {
   if (S.playhead >= duration() - 0.05) S.playhead = 0;
   playing = true; S.progPlaying = true; t0 = S.playhead; wall0 = performance.now();
   setPlayingUI(true);
+  drawProgram(S.playhead, true); // (at once: an exact effect picture (🎯) gives way to the live picture before the first frame)
   cancelFrame(raf);
   const loop = () => {
     if (!playing) return;
