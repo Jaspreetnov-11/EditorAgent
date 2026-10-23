@@ -1321,6 +1321,12 @@ html.ui2 .tl-row .clip.lab .clip-lbl, .tl-row .clip.lab .clip-lbl { background: 
 .pagebar .pb-zoom .zoom { display: flex; align-items: center; gap: 4px; color: var(--muted); }
 .pagebar .pb-zoom input[type=range] { width: 130px; }
 @media (max-width: 1100px) { .pagebar .pb-zoom input[type=range] { width: 70px; } .pagebar .pb-zoom { left: 6px; gap: 4px; } }
+/* 🏠 the logo at the right end of the page bar (the top bar had no room for it); the page buttons stay centred */
+.pagebar .pb-brand { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); display: inline-flex; align-items: center; gap: 8px; height: auto;
+  padding: 3px 8px; border: 1px solid transparent; border-radius: 6px; color: var(--text); }
+.pagebar .pb-brand:hover { background: #d4a24c12; border-color: #d4a24c33; }
+.pagebar .pb-brand .logo-mark { width: 22px; height: 22px; }
+@media (max-width: 1250px) { .pagebar .pb-brand .wordmark { display: none; } }
 
 /* 🎚 track volume keyframes */
 .tl-auto { position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 6; pointer-events: none; }

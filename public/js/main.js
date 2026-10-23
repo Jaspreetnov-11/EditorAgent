@@ -62,7 +62,6 @@ function shell() {
   editorEl.innerHTML = `
   <header class="top">
     <div class="tb-left">
-      <button class="brand" data-a="home" title="All projects"><img class="logo-mark" src="/img/limelight-icon.png" alt=""><span class="wordmark">LIME<em>LIGHT</em><small>EDITOR</small></span></button>
       <span class="pname" id="pName"></span><button class="seqbtn" data-a="seq" title="Sequences: several timelines in this project (film, teaser, reel…), nesting, versions">🎞 <span id="seqName"></span> ▾</button><span class="save" id="saveState"></span>
     </div>
     <div class="tb-right">
@@ -127,7 +126,8 @@ function shell() {
     <section class="page" data-page="ai" id="aiPage" hidden></section>
     <section class="page" data-page="deliver" id="deliverPage" hidden></section>
   </main>
-  <nav class="pagebar" aria-label="Pages">${PAGES.map(([k, l]) => `<button data-page-btn="${k}">${l}</button>`).join('')}</nav>`;
+  <nav class="pagebar" aria-label="Pages">${PAGES.map(([k, l]) => `<button data-page-btn="${k}">${l}</button>`).join('')}
+    <button class="brand pb-brand" data-a="home" title="All projects"><img class="logo-mark" src="/img/limelight-icon.png" alt=""><span class="wordmark">LIME<em>LIGHT</em><small>EDITOR</small></span></button></nav>`; // (🏠 the logo sits at the right end of the page bar - the top bar had no room for it)
   mountMenuBar(editorEl, runMenu); // ☰ File · Edit · Clip · Sequence · Markers · Graphics and Titles · View · Window · Help
   mountWorkspaces(editorEl.querySelector('.edit-grid')); // 🪟 workspaces: Premiere / Resolve / Limelight / your own layouts
   mountSourceMonitor($('#srcMon')); mountDock(editorEl.querySelector('.edit-grid')); mountMonDock(editorEl.querySelector('.edit-grid')); // 🎬 Premiere's two monitors (Studio look)

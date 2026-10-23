@@ -53,8 +53,11 @@ html.ui2 .mono, html.ui2 .tc, html.ui2 #vwTC, html.ui2 #vwDur, html.ui2 .tl-tc, 
 html.ui2 .top { height: var(--hdr); padding: 0 10px; gap: 10px; background: linear-gradient(#151413, #11100e); border-bottom: 1px solid #22211e; position: relative; }
 html.ui2 .top::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: linear-gradient(90deg, transparent, #d4a24c40 30%, #d4a24c40 70%, transparent); pointer-events: none; }
 html.ui2 .tb-left, html.ui2 .tb-right { display: flex; align-items: center; gap: 6px; min-width: 0; }
-html.ui2 .tb-left { flex: 1 1 0; }
-html.ui2 .tb-right { flex: 1 1 0; justify-content: flex-end; }
+/* (the right half takes the room its buttons need; the left - project name, sequence - gives way with "…". Both were
+   half the bar each, and the wider right half spread over the left: names, "editing" and Logout on top of each other) */
+html.ui2 .tb-left { flex: 1 1 auto; overflow: hidden; }
+html.ui2 .tb-right { flex: 0 0 auto; justify-content: flex-end; }
+html.ui2 .people, html.ui2 .me { white-space: nowrap; flex: none; }
 html.ui2 .brand { gap: 8px; font-weight: 500; color: var(--text); padding: 4px 6px; letter-spacing: .02em; }
 html.ui2 .brand b { font-weight: 700; }
 html.ui2 .logo-dot { width: 18px; height: 18px; border-radius: 5px; background: conic-gradient(from 210deg, var(--saffron), #ffd08a, var(--accent), #b07a2a, var(--saffron)); box-shadow: 0 0 12px -2px #d4a24c88; position: relative; }
