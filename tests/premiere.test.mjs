@@ -22,7 +22,7 @@ test('the new video effects make FFmpeg filters', () => {
   }
 });
 
-test('40 transitions, every one an FFmpeg xfade name', () => {
-  same(TRANSITIONS.length, 40);
+test('60 transitions, every key a plain name (an FFmpeg xfade name or a custom shape - premierefx.test.mjs)', () => {
+  same(TRANSITIONS.length, 60);
   assert(TRANSITIONS.every(([k]) => /^[a-z]+$/.test(k)));
 });

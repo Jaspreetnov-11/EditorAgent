@@ -127,12 +127,19 @@ export const TRANSITIONS = [
   // teaser transitions
   ['hblur', 'Whip blur'], ['fadefast', 'Flash cut'], ['pixelize', 'Pixelize'], ['radial', 'Radial wipe'], ['squeezeh', 'Squeeze'],
   ['hlslice', 'Slice'], ['circlecrop', 'Iris'], ['distance', 'Distance'],
-  // more of Premiere's transitions (FFmpeg xfade; the monitor shows them as a dissolve, Accurate preview / export exactly)
+  // more of Premiere's transitions (FFmpeg xfade; the monitor draws the wipes / irises / slides live - fx.js trLive - the
+  // rest as a dissolve; Accurate preview / export exactly)
   ['slideright', 'Push right'], ['slidedown', 'Push down'], ['coverleft', 'Cover (slide over)'], ['revealleft', 'Reveal (slide away)'],
   ['wipeup', 'Wipe up'], ['wipedown', 'Wipe down'], ['diagtl', 'Diagonal wipe'], ['wipetl', 'Corner wipe'],
   ['vertopen', 'Barn doors (open)'], ['horzopen', 'Barn doors (horizontal)'], ['vertclose', 'Split (close)'], ['circleclose', 'Circle close'],
   ['rectcrop', 'Box (iris square)'], ['fadegrays', 'Film dissolve (through grey)'], ['fadeslow', 'Slow fade'], ['hlwind', 'Wind'],
   ['squeezev', 'Squeeze vertical'], ['smoothright', 'Smooth right'], ['hrslice', 'Slice right'], ['vuslice', 'Slice up'],
+  // the rest of Premiere's Video Transitions (engine/premiere-effects-gap.md): xfade built-ins and fx.js XFADE_EXPR shapes
+  ['coverright', 'Slide right (cover)'], ['coverup', 'Slide up (cover)'], ['coverdown', 'Slide down (cover)'], ['horzclose', 'Split (horizontal close)'],
+  ['adddissolve', 'Additive dissolve'], ['nonadddissolve', 'Non-additive dissolve'], ['iriscross', 'Iris cross'], ['irisdiamond', 'Iris diamond'],
+  ['clockwipe', 'Clock wipe'], ['wedgewipe', 'Wedge wipe'], ['pinwheel', 'Pinwheel'], ['inset', 'Inset'], ['venetian', 'Venetian blinds'],
+  ['bandwipe', 'Band wipe'], ['checkerwipe', 'Checker wipe'], ['checkerboard', 'CheckerBoard'], ['randomblocks', 'Random blocks'],
+  ['centersplit', 'Center split'], ['bandslide', 'Band slide'], ['flipover', 'Flip over'],
 ];
 
 export function newProject(name, { aspect = '16:9', fps = 30 } = {}) {

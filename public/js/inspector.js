@@ -353,7 +353,7 @@ function effectsHTML(c, track) {
       if (p.type === 'select') return `<label class="fld"><span>${esc(p.label)}</span><select data-ep="${k}">${p.options.map(([o, l]) => `<option value="${esc(o)}"${o === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
       return `<label class="fld"><span>${esc(p.label)} <b data-ev="${k}">${v}${p.unit || ''}</b></span><input type="range" data-ep="${k}" min="${p.min}" max="${p.max}" step="${p.step}" value="${v}"></label>`;
     }).join('');
-    const canMask = !def.stab && e.type !== 'chromakey';
+    const canMask = !def.stab && !def.key;
     const warn = def.v2only && track !== 'V2' ? '<small class="hint warn">Works on V2 overlays only (it shows the shot below).</small>' : def.stab ? '<small class="hint">Analysed and stabilised when rendering (Accurate preview / export) - the render takes longer for this shot. Perspective / Subspace Warp work like Position, Scale, Rotation here.</small>' : !def.css ? '<small class="hint">Seen in Accurate preview and renders.</small>' : '';
     return `<div class="efx${e.on === false ? ' off' : ''}" data-efx="${e.id}">
       <div class="efx-h"><button class="icon-btn small" data-ea="toggle" title="${e.on === false ? 'Turn on' : 'Turn off'}" aria-label="On / off">${e.on === false ? '◌' : '●'}</button><b>${esc(def.label)}</b><span class="grow"></span>

@@ -18,7 +18,7 @@ import { ASPECTS, clipDur, placed, totalDuration, keysExpr, rampPts, sourceAt, o
 import { fxFilters } from '../public/js/audiofx.js';
 import { aeffectFilters, fadeCurve } from '../public/js/audioeffects.js';
 import { colorFilters, stager } from './color.mjs';
-import { cutFxDur, wordWindows, isKinetic, hitsOf, CUTFX } from '../public/js/fx.js';
+import { cutFxDur, wordWindows, isKinetic, hitsOf, CUTFX, xfadeOf } from '../public/js/fx.js';
 import { VFX, activeEffects, stabOf } from '../public/js/effects.js';
 import { buildAss, capTracks } from '../public/js/captions.js';
 import { maskTrack } from '../public/js/tracking.js';
@@ -264,14 +264,15 @@ function hitsGraph(c, inL, dur, g) {
 }
 
 // a clip's video effects in order; chain effects are joined, graph effects (glow, mirror) get their own labels.
-// Chroma key is left to the final pass, where the overlay keeps its transparency.
+// Keys (Green screen, Luma Key, Color Key) are left to the final pass, where the overlay keeps its transparency.
 // ◯ An effect with a mask (public/js/shapemask.js) works on a copy of the picture, which is then laid back over it
 // through the mask - the effect shows only inside (or, inverted, outside). addMask(file) -> the mask picture's label.
 function vfxGraph(c, inL, g, pre = `vx${segN}`, addMask = null) {
   let cur = inL, k = 0;
   for (const e of activeEffects(c)) {
-    if (e.type === 'chromakey') continue;
-    const r = VFX[e.type].ff(e.p || {}, { W, H }), out = `${pre}_${k++}`;
+    if (VFX[e.type].key) continue;
+    // (Timecode / Clip Name draw text: they get the render's font, a text file, the frame rate and the clip)
+    const r = VFX[e.type].ff(e.p || {}, { W, H, F, clip: c, name: media[c.mediaId]?.name || path.basename(media[c.mediaId]?.path || ''), font: () => font('0'), textfile }), out = `${pre}_${k++}`;
     if (r === 'null') continue;
     const masked = e.mask?.shape && addMask;
     // ⏱ a time window (Labs: e.from / e.to, seconds into the clip): the effect is made on a copy that shows only then
@@ -585,7 +586,7 @@ const inputs = [], g = [];
     for (let i = 1; i < v1Segs.length; i++) {
       const lay = v1[i], tr = lay.clip.transitionIn;
       if (lay.overlap > 0) {
-        g.push(`[${v}][s${i}v]xfade=transition=${tr.type}:duration=${lay.overlap.toFixed(3)}:offset=${(len - lay.overlap).toFixed(3)},${TB}[jv${i}]`);
+        g.push(`[${v}][s${i}v]xfade=${xfadeOf(tr.type)}:duration=${lay.overlap.toFixed(3)}:offset=${(len - lay.overlap).toFixed(3)},${TB}[jv${i}]`);
         g.push(`[${a}][s${i}a]acrossfade=d=${lay.overlap.toFixed(3)}[ja${i}]`);
       } else {
         g.push(`[${v}][s${i}v]concat=n=2:v=1:a=0,${TB}[jv${i}]`, `[${a}][s${i}a]concat=n=2:v=0:a=1[ja${i}]`);
@@ -668,9 +669,9 @@ ovl.forEach((x, k) => {
   inputs.push('-i', s.file);
   const op = c.opacity ?? 1;
   // keyframed opacity: per-frame alpha (geq's T = seconds into the clip, before it is moved to its start)
-  // green screen on an overlay: keyed here so the shot below shows through
-  const key = activeEffects(c).find((e) => e.type === 'chromakey');
-  let keyF = key ? `${VFX.chromakey.key(key.p || {})},` : '', src = `${i}:v`;
+  // green screen (or another key) on an overlay: keyed here so the shot below shows through
+  const key = activeEffects(c).find((e) => VFX[e.type].key);
+  let keyF = key ? `${VFX[key.type].key(key.p || {})},` : '', src = `${i}:v`;
   // ◐ Opacity mask: the shot below shows outside it (where Motion has put the picture)
   if (c.omask?.shape) {
     const mk = finalMask(maskPng(movedMask(c.omask, c.transform)), en - st + 0.5);

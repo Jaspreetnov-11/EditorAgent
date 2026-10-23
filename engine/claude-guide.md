@@ -79,6 +79,8 @@ Clip fields (seconds):
   `keys` `{ "transform.zoom":[{"t":0,"v":1,"ease":true},{"t":2.5,"v":1.08}], "transform.x":[…], "transform.y":[…], "opacity":[…] }` (t from the clip start),
   `transform` `{ "zoom":1.1, "x":0, "y":0, "rotation":0 }`, `color` `{ "exposure":0.1, "contrast":1.1, "saturation":1.15, "temp":-0.3, "lut":"<name>" }`,
   `stabilize` "light"|"medium"|"strong", `fadeIn`/`fadeOut` seconds.
+  `effects` `[{ "type":"<key>", "p":{…} }]` - Premiere's Video Effects by their keys in `public/js/effects.js` (VFX); what
+  each Premiere effect / transition is called here, and the ones left out, are in `engine/premiere-effects-gap.md`.
 - image: `{ "type":"image", "mediaId":"<id>", "dur": 2.6 }` (+ `keys`, `fit`, `color`, `kenburns`: false when you give your own keys)
 - title (V1 card or V2 overlay): `{ "type":"title", "text":"नशे को NO\nसपनों को GO!", "start": 13.4, "dur": 3, "textStyle":"center"|"lower"|"top",
   "size": 70, "textColor":"#ffffff", "box":"none"|"#000000", "anim":"fade"|"slide"|"words"|"none" }`

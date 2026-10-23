@@ -29,10 +29,10 @@ import { placeMedia, targets } from './timeline.js';
 import { api, enc } from './api.js';
 import { Grader, loadLut, cachedLut } from './colorgl.js';
 import { isNeutral } from './colormath.js';
-import { fxPreview, wordWindows, isKinetic } from './fx.js';
+import { fxPreview, wordWindows, isKinetic, trLive, polyCss } from './fx.js';
 import { drawGraphic, textLayout, pinOn } from './graphics.js';
 import { addTextAt } from './gfxui.js';
-import { effectsCss, maskedEffectsCss, grainCss } from './effects.js';
+import { effectsCss, maskedEffectsCss, grainCss, VFX, inWindow } from './effects.js';
 import { maskAlpha, movedMask, unmovedMask, maskKey } from './shapemask.js';
 import { captionAt, capTracks, capStack } from './captions.js';
 import { fitMap, framingOf, srcSize, boxAt, srcTimeAt, pinAt, quadMatrix, orderQuad } from './tracking.js';
@@ -639,12 +639,13 @@ function bindTypeTool() {
 export const editTextClip = (id) => { const c = findClipAny(id); if (c?.gfx?.tpl === 'text') startTyping(c); };
 
 // ✦ ---------------- effects CSS cannot do: drawn into a canvas each frame ----------------
-// Mirror (left half + its reflection) and Green screen (the key colour made see-through). The shot's own element keeps
+// Mirror (left half + its reflection), Green screen (the key colour made see-through) and the effects with a pix drawing
+// (Generate, Magnify, Replicate, the keys, Change Color, Timecode... - effects.js). The shot's own element keeps
 // playing but is hidden; the canvas beside it takes its place, size, Motion and filters. Exact: Accurate preview / render.
 const pixCanvas = new WeakMap(); // picture element -> its canvas
 const hexRgb = (hx) => { const v = parseInt(String(hx || '#00ff00').replace('#', '').padEnd(6, '0').slice(0, 6), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; };
-function pixFx(el, c, after = el) {
-  const fx = (c.effects || []).filter((e) => e.on !== false && !e.mask?.shape && (e.type === 'mirror' || e.type === 'chromakey'));
+function pixFx(el, c, after = el, rel) {
+  const fx = (c.effects || []).filter((e) => e.on !== false && !e.mask?.shape && inWindow(e, rel) && (e.type === 'mirror' || e.type === 'chromakey' || VFX[e.type]?.pix));
   let cv = pixCanvas.get(el);
   if (!fx.length || el.hidden) { if (cv) cv.hidden = true; el.style.visibility = el._gradeHidden ? 'hidden' : ''; return null; }
   if (!cv) { cv = document.createElement('canvas'); cv.className = 'lyr pixfx'; pixCanvas.set(el, cv); }
@@ -653,7 +654,7 @@ function pixFx(el, c, after = el) {
   const src = el._gradeHidden && !els.lyGrade.hidden ? els.lyGrade : el;
   const sw = src.videoWidth || src.naturalWidth || src.width, sh = src.videoHeight || src.naturalHeight || src.height;
   if (!sw || !sh) return cv;
-  const key = fx.find((e) => e.type === 'chromakey'), W = Math.min(key ? 640 : 1280, Math.round((frame?.clientWidth || 640) * Math.min(2, devicePixelRatio || 1))), [FW, FH] = ASPECTS[S.project.settings.aspect] || [16, 9], H = Math.round((W * FH) / FW);
+  const key = fx.find((e) => e.type === 'chromakey' || VFX[e.type]?.key || VFX[e.type]?.reads), W = Math.min(key ? 640 : 1280, Math.round((frame?.clientWidth || 640) * Math.min(2, devicePixelRatio || 1))), [FW, FH] = ASPECTS[S.project.settings.aspect] || [16, 9], H = Math.round((W * FH) / FW);
   if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
   const g = cv.getContext('2d', { willReadFrequently: !!key });
   g.clearRect(0, 0, W, H);
@@ -672,13 +673,32 @@ function pixFx(el, c, after = el) {
         if (dist < sim) d[i + 3] = 0; else if (dist < sim + bl) d[i + 3] = Math.round(d[i + 3] * ((dist - sim) / bl));
       }
       g.putImageData(im, 0, 0);
-    }
+    } else if (e.type !== 'mirror') VFX[e.type].pix(g, W, H, e.p || {}, { cv, rel, fps: S.project.settings.fps || 30, c, name: S.mediaById[c.mediaId]?.name });
   }
   cv.hidden = false;
   for (const k of ['transform', 'opacity', 'clipPath', 'maskImage', 'webkitMaskImage', 'maskSize', 'webkitMaskSize', 'mixBlendMode']) cv.style[k] = src.style[k] || el.style[k];
   cv.style.filter = src === el ? el.style.filter : src.style.filter;
   src.style.visibility = 'hidden';
   return cv;
+}
+// 🖥 a transition drawn on the two V1 pictures: the moves on each, and the shape on whichever lies on top - the incoming
+// shot seen through the shape, or the outgoing one seen around it (an even-odd polygon: the frame with the shape cut out)
+function trDraw(tr, pe, ce) {
+  const curTop = !!(pe.compareDocumentPosition(ce) & Node.DOCUMENT_POSITION_FOLLOWING);
+  const local = (pts, part) => pts.map(([x, y]) => [x - (part?.tx || 0), y - (part?.ty || 0)]);
+  const clip = tr.show && (curTop ? polyCss(local(tr.show, tr.cur)) : polyCss([[0, 0], [100, 0], [100, 100], [0, 100], [0, 0], ...local(tr.show, tr.prev), local(tr.show, tr.prev)[0], [0, 0]], true));
+  const style = (el, part, cl, grade) => {
+    const tf = part && (part.tx || part.ty || part.sx !== undefined) ? `translate(${part.tx || 0}%, ${part.ty || 0}%)${part.sx !== undefined ? ` scaleX(${Math.max(0, part.sx).toFixed(4)})` : ''} ` : '';
+    // the element, its effects canvas and (when it shows this shot) the exact colour layer
+    for (const e of [el, pixCanvas.get(el), grade ? els.lyGrade : null]) {
+      if (!e || (e !== el && e.hidden)) continue;
+      if (tf) e.style.transform = tf + (e.style.transform || '');
+      if (cl) e.style.clipPath = cl;
+      if (part?.op !== undefined) e.style.opacity = String((e.style.opacity === '' ? 1 : +e.style.opacity) * part.op);
+    }
+  };
+  style(pe, tr.prev, curTop ? null : clip, pe._gradeHidden && !ce._gradeHidden);
+  style(ce, tr.cur, curTop ? clip : null, ce._gradeHidden);
 }
 // a clip's own fade from / to black (one-sided Dip to Black), as a factor on its opacity
 const fadeK = (c, rel, len) => Math.min(+c.fadeIn > 0 ? clamp(rel / c.fadeIn, 0, 1) : 1, +c.fadeOut > 0 ? clamp((len - rel) / c.fadeOut, 0, 1) : 1);
@@ -902,7 +922,7 @@ function drawOverlays(t, isPlay) {
       else el.style.transformOrigin = '';
       if (c.type === 'image') { if (el.dataset.src !== m.urls.play) { el.src = m.urls.play; el.dataset.src = m.urls.play; } }
       else syncVideo(el, m, c, x.start, t, isPlay, c.volume ?? 0, id);
-      const pc = pixFx(el, c); if (pc) order.push(pc); // (mirror / green screen: its canvas stacks right above it)
+      const pc = pixFx(el, c, el, rel); if (pc) order.push(pc); // (mirror / green screen: its canvas stacks right above it)
       below.push(pc || el);
     }
   }
@@ -956,8 +976,8 @@ function drawProgramNow(t, isPlay) {
       fitStyle(img, kb ? { ...c, fit: 'fill' } : c, t - x.start);
       img.style.transform = `${lk.transform} scale(${z})`; img.style.filter = lk.filter; img.style.opacity = opacity; img.style.clipPath = lk.clip || ''; img._fxFilter = lk.fxFilter; setMask(img, c.omask);
       gradeLayer(img, c, opacity);
-      pixFx(img, c, els.lyGrade.hidden ? img : els.lyGrade);
-      return;
+      pixFx(img, c, els.lyGrade.hidden ? img : els.lyGrade, t - x.start);
+      return img;
     }
     if (!canPlay(m)) { showMsg(proxyMsg(m), m.urls.thumb); return; }
     const v = slotFor(x); used.add(v);
@@ -972,11 +992,15 @@ function drawProgramNow(t, isPlay) {
       syncVideo(v, m, c, x.start, t, isPlay, pa.a.mute || !trackAudible(pa.id) ? 0 : propAt(pa.a, 'volume', rel) * fade, pa.id);
     } else syncVideo(v, m, c, x.start, t, isPlay, v1vol(c, t - x.start));
     gradeLayer(v, c, opacity);
-    pixFx(v, c, els.lyGrade.hidden ? v : els.lyGrade);
+    pixFx(v, c, els.lyGrade.hidden ? v : els.lyGrade, t - x.start);
+    return v;
   };
   els.lyCard.hidden = true; els.lyImg.hidden = true; els.lyBlur.hidden = true; els.lyGrade.hidden = true;
-  if (prev) drawV1(prev, 1);
-  if (cur) drawV1(cur, prev ? String(clamp((t - cur.start) / Math.max(0.01, cur.overlap), 0, 1)) : 1);
+  // 🖥 a transition's live look (fx.js trLive): wipes, irises and slides are drawn; the rest is a dissolve
+  const trQ = prev && cur ? clamp((t - cur.start) / Math.max(0.01, cur.overlap), 0, 1) : 1, [aw, ah] = ASPECTS[S.project.settings.aspect] || [16, 9];
+  const tr = prev && cur ? trLive(cur.clip.transitionIn?.type, trQ, aw / ah) : null;
+  const pe = prev ? drawV1(prev, 1) : null, ce = cur ? drawV1(cur, prev && !tr ? String(trQ) : 1) : null;
+  if (tr && pe && ce && pe !== ce) trDraw(tr, pe, ce);
   // the shot's overlay effects (vignette), over its picture and moving with it
   { const lk2 = cur && !cur.clip.disabled && cur.clip.type !== 'title' ? look(cur.clip, t - cur.start) : null; const lay = lk2 ? [lk2.overlay, lk2.grain].filter(Boolean) : []; els.lyFxo.hidden = !lay.length;
     if (lay.length) { els.lyFxo.style.background = lay.join(', '); els.lyFxo.style.transform = lk2.transform; els.lyFxo.style.backgroundPosition = lay.map((l) => (l === lk2.grain ? grainShift() : '0 0')).join(', '); } }

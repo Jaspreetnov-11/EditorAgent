@@ -129,6 +129,326 @@ export const VFX = {
     ff: () => 'null', key: (p) => `chromakey=${String(p.color || '#00ff00').replace('#', '0x')}:${n(p.similarity, 0.15)}:${n(p.blend, 0.05)}`,
     css: () => ({}) }, // (live: keyed on a canvas by the viewer - player.js pixFx)
 };
+
+// ---- the rest of Premiere's Video Effects (engine/premiere-effects-gap.md), in Premiere's folders ----
+// Written with p already holding every parameter (withDefaults below fills the missing ones and makes numbers numbers).
+// pix(g, W, H, p, info) -> draws the live look into the viewer's canvas (player.js pixFx; info = { cv, rel, fps, name })
+// key(p) -> like Green screen: a keying filter for the final pass (V2 overlays only)
+// reads: the live drawing reads the pixels back (the viewer keeps that canvas small)
+const hex6 = (c, d = '#ffffff') => (/^#[0-9a-f]{6}$/i.test(c || '') ? c : d).slice(1);
+const hx = (c) => `0x${hex6(c)}`;
+const rgbOf = (c) => { const v = parseInt(hex6(c), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; };
+const rgba = (c, a) => `rgba(${rgbOf(c).join(',')},${(+a).toFixed(3)})`;
+const f4 = (x) => (+x).toFixed(4);
+const fid = (k, ...v) => `vfx-${k}-${v.map((x) => String(x).replace(/[^0-9a-z]/gi, '_')).join('-')}`;
+// 🖥 SVG component-transfer stages, one function per colour channel ('R' / 'G' / 'B' -> the feFunc attributes)
+const svgCt = (id, ...stages) => svgFx(id, stages.map((s) => (typeof s === 'string' ? s : `<feComponentTransfer>${['R', 'G', 'B'].map((c) => `<feFunc${c} ${s(c)}/>`).join('')}</feComponentTransfer>`)).join(''));
+// a curve 0..1 -> 0..1 as an SVG table (sampled at n points)
+const tbl = (f, n = 33) => `type="table" tableValues="${Array.from({ length: n }, (_, i) => Math.min(1, Math.max(0, f(i / (n - 1)))).toFixed(3)).join(' ')}"`;
+// FFmpeg pixel moves: e = the expression of the source pixel, p(x, y), for every plane (planes the same size)
+const warp = (e) => `format=yuv444p,geq=lum='${e}':cb='${e}':cr='${e}'`;
+// the picture faded towards black where k (0..1, an expression) is below 1
+const shade = (k) => `format=yuv444p,geq=lum='16+(p(X,Y)-16)*(${k})':cb='128+(p(X,Y)-128)*(${k})':cr='128+(p(X,Y)-128)*(${k})'`;
+// per RGB channel: e(ch, value 0..255 of the colour c) -> the expression of the new value
+const rgbGeq = (e) => `format=gbrp,geq=r='${e('r', 0)}':g='${e('g', 1)}':b='${e('b', 2)}',format=yuv420p`;
+// a colour laid over the picture with coverage a (an expression 0..1): ch(X,Y) mixed towards the colour
+const paint = (col, a) => { const c = rgbOf(col); return rgbGeq((ch, i) => `st(0,${a});${ch}(X,Y)*(1-ld(0))+${c[i]}*ld(0)`); };
+const lutAll = (e) => `lutrgb=r='${e}':g='${e}':b='${e}'`;
+const lumOf = (r, g, b) => (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+function rgb2hsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
+  if (!d) return [0, 0, l];
+  const s = d / (1 - Math.abs(2 * l - 1)), h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [(h * 60 + 360) % 360, s, l];
+}
+function hsl2rgb(h, s, l) {
+  const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = l - c / 2, k = Math.floor(((h % 360) + 360) % 360 / 60);
+  const [r, g, b] = [[c, x, 0], [x, c, 0], [0, c, x], [0, x, c], [x, 0, c], [c, 0, x]][k] || [c, x, 0];
+  return [(r + m) * 255, (g + m) * 255, (b + m) * 255];
+}
+// 🖥 live recolouring of the pixels near one colour (Change Color, Change to Color, Color Replace), as FFmpeg's colorkey
+// measures it: distance in RGB / (255 * sqrt 3); match below sim, fading out over soft
+function recolorPix(g, W, H, from, sim, soft, fn) {
+  const [kr, kg, kb] = rgbOf(from), im = g.getImageData(0, 0, W, H), d = im.data, bl = Math.max(0.001, soft);
+  for (let i = 0; i < d.length; i += 4) {
+    const dist = Math.sqrt((d[i] - kr) ** 2 + (d[i + 1] - kg) ** 2 + (d[i + 2] - kb) ** 2) / 441.7;
+    const m = dist < sim ? 1 : dist < sim + bl ? 1 - (dist - sim) / bl : 0;
+    if (!m) continue;
+    const [h, s, l] = rgb2hsl(d[i], d[i + 1], d[i + 2]), o = hsl2rgb(...fn(h, s, l));
+    for (let j = 0; j < 3; j++) d[i + j] = d[i + j] * (1 - m) + o[j] * m;
+  }
+  g.putImageData(im, 0, 0);
+}
+// the matching pixels (colorkey on a copy of the picture) show a changed copy (alt) - the rest stays as it was
+const recolor = (from, sim, soft, alt) => ({ graph: (a, b) => `[${a}]split[${b}o][${b}c];[${b}c]${alt},format=yuv420p[${b}n];[${b}o]format=rgba,colorkey=${hx(from)}:${f4(Math.max(0.01, sim))}:${f4(soft)}[${b}k];[${b}n][${b}k]overlay=format=auto,format=yuv420p[${b}]` });
+const XY = { x: { label: 'Centre across', min: 0, max: 100, step: 0.5, def: 50, unit: '%' }, y: { label: 'Centre down', min: 0, max: 100, step: 0.5, def: 50, unit: '%' } };
+const OPA = { label: 'Opacity', min: 0, max: 1, step: 0.05, def: 1 };
+const SEL = (label, options, def) => ({ label, type: 'select', options, def });
+const tmpCanvas = () => (tmpCanvas.c ||= document.createElement('canvas'));
+// emboss: a 3x3 kernel that takes the difference across the light's direction (integers, as FFmpeg's convolution wants)
+const embossK = (deg, relief, centre) => { const a = (deg * Math.PI) / 180, k = [];
+  for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) k.push(i || j ? Math.round(-(i * Math.cos(a) - j * Math.sin(a)) * relief) : centre);
+  return k; };
+// the timecode of the source at t seconds into the clip, as drawtext's text expansion writes it (HH:MM:SS:FF)
+const tcText = (inS, sp, F) => { const T = `(t*${f4(sp)}+${f4(inS)})`; return `%{eif:floor(${T}/3600):d:2}:%{eif:mod(floor(${T}/60),60):d:2}:%{eif:mod(floor(${T}),60):d:2}:%{eif:mod(floor(${T}*${F}),${F}):d:2}`; };
+const tcAt = (s, F) => { const f = Math.floor(s * F + 1e-6), p2 = (v) => String(v).padStart(2, '0'); return `${p2(Math.floor(f / F / 3600))}:${p2(Math.floor(f / F / 60) % 60)}:${p2(Math.floor(f / F) % 60)}:${p2(f % F)}`; };
+const TXT_POS = [['bc', 'Bottom centre'], ['bl', 'Bottom left'], ['br', 'Bottom right'], ['tc', 'Top centre'], ['tl', 'Top left'], ['tr', 'Top right'], ['c', 'Centre']];
+const txtXY = (pos, m) => [pos.endsWith('l') ? `${m}` : pos.endsWith('r') ? `w-tw-${m}` : '(w-tw)/2', pos[0] === 't' ? `${m}` : pos[0] === 'b' ? `h-th-${m}` : '(h-th)/2'];
+// burnt-in text (Timecode, Clip Name): drawtext with the render's own font and a text file (no escaping of : in the graph)
+function burnText(text, p, { W, font, textfile }, expand = false) {
+  if (!font || !textfile) return 'null';
+  const fs = Math.round((p.size * W) / 1920), [x, y] = txtXY(p.pos, Math.round(fs * 0.6));
+  return `drawtext=fontfile=${font()}:textfile=${textfile(text)}${expand ? '' : ':expansion=none'}:fontsize=${fs}:fontcolor=white:box=1:boxcolor=black@${f4(p.bg)}:boxborderw=${Math.round(fs * 0.25)}:x=${x}:y=${y}`;
+}
+function burnPix(g, W, text, p) {
+  const fs = Math.max(6, (p.size * W) / 1920), m = fs * 0.6;
+  g.save(); g.font = `${Math.round(fs)}px Consolas, monospace`; g.textBaseline = 'top';
+  const tw = g.measureText(text).width, b = fs * 0.25, H = g.canvas.height;
+  const x = p.pos.endsWith('l') ? m : p.pos.endsWith('r') ? W - tw - m : (W - tw) / 2, y = p.pos[0] === 't' ? m : p.pos[0] === 'b' ? H - fs - m : (H - fs) / 2;
+  g.fillStyle = `rgba(0,0,0,${p.bg})`; g.fillRect(x - b, y - b, tw + 2 * b, fs + 2 * b); g.fillStyle = '#fff'; g.fillText(text, x, y); g.restore();
+}
+
+const MORE = {
+  // ---------- Adjust ----------
+  levels: { label: 'Levels', cat: 'Adjust', params: { ib: { label: 'Input black', min: 0, max: 254, step: 1, def: 0 }, iw: { label: 'Input white', min: 1, max: 255, step: 1, def: 255 }, gamma: { label: 'Gamma', min: 0.1, max: 5, step: 0.05, def: 1 }, ob: { label: 'Output black', min: 0, max: 255, step: 1, def: 0 }, ow: { label: 'Output white', min: 0, max: 255, step: 1, def: 255 } },
+    ff: (p) => lutAll(`clip(${p.ob}+${p.ow - p.ob}*pow(clip((val-${p.ib})/${Math.max(1, p.iw - p.ib)},0,1),${f4(1 / p.gamma)}),0,255)`),
+    css: (p) => ({ filter: svgCt(fid('lv', p.ib, p.iw, p.gamma, p.ob, p.ow), () => `type="linear" slope="${f4(255 / Math.max(1, p.iw - p.ib))}" intercept="${f4(-p.ib / Math.max(1, p.iw - p.ib))}"`, () => `type="gamma" amplitude="1" exponent="${f4(1 / p.gamma)}" offset="0"`, () => `type="linear" slope="${f4((p.ow - p.ob) / 255)}" intercept="${f4(p.ob / 255)}"`) }) },
+  procamp: { label: 'ProcAmp', cat: 'Adjust', params: { bright: { label: 'Brightness', min: -100, max: 100, step: 1, def: 0 }, contrast: { label: 'Contrast', min: 0, max: 200, step: 1, def: 100 }, hue: { label: 'Hue', min: -180, max: 180, step: 1, def: 0, unit: '°' }, sat: { label: 'Saturation', min: 0, max: 200, step: 1, def: 100 } },
+    ff: (p) => `eq=brightness=${f4(p.bright / 250)}:contrast=${f4(p.contrast / 100)}:saturation=${f4(p.sat / 100)}${p.hue ? `,hue=h=${p.hue}` : ''}`,
+    css: (p) => ({ filter: `brightness(${f4(1 + p.bright / 250)}) contrast(${f4(p.contrast / 100)}) saturate(${f4(p.sat / 100)}) hue-rotate(${p.hue}deg)` }) },
+  extract: { label: 'Extract', cat: 'Adjust', params: { black: { label: 'Black input level', min: 0, max: 255, step: 1, def: 0 }, white: { label: 'White input level', min: 0, max: 255, step: 1, def: 255 }, soft: { label: 'Softness', min: 0, max: 100, step: 1, def: 0 }, invert: SEL('Invert', [['off', 'Off'], ['on', 'On']], 'off') },
+    // the brightness band black..white goes white, the rest black (softness ramps the edges)
+    ff: (p) => { const s = Math.max(1, p.soft * 2.55), e = `255*clip(min((val-${p.black})/${f4(s)}+1,(${p.white}-val)/${f4(s)}+1),0,1)`; return `lutyuv=y='${p.invert === 'on' ? `255-${e}` : e}':u=128:v=128`; },
+    css: (p) => { const s = Math.max(1, p.soft * 2.55), f = (x) => { const v = Math.min(1, Math.max(0, Math.min((x * 255 - p.black) / s + 1, (p.white - x * 255) / s + 1))); return p.invert === 'on' ? 1 - v : v; };
+      return { filter: svgCt(fid('ex', p.black, p.white, p.soft, p.invert), '<feColorMatrix type="saturate" values="0"/>', () => tbl(f, 65)) }; } },
+  lighting: { label: 'Lighting Effects', cat: 'Adjust', params: { ...XY, x: { ...XY.x, def: 40 }, y: { ...XY.y, def: 35 }, radius: { label: 'Radius', min: 5, max: 150, step: 1, def: 60, unit: '%' }, intensity: { label: 'Intensity', min: 0, max: 2, step: 0.05, def: 1 }, ambient: { label: 'Ambience', min: 0, max: 1, step: 0.05, def: 0.25 }, color: { label: 'Light colour', type: 'color', def: '#fff4e0' } },
+    // one spotlight (Omni): light falls off from the centre; ambience lights the rest
+    ff: (p) => { const c = rgbOf(p.color); return rgbGeq((ch, i) => `clip(${ch}(X,Y)*(${f4(p.ambient)}+${f4(p.intensity)}*max(0,1-pow(hypot(X-W*${f4(p.x / 100)},Y-H*${f4(p.y / 100)})/(W*${f4(p.radius / 100)}),2)))*${f4(c[i] / 255)},0,255)`); },
+    css: (p) => ({ overlay: `radial-gradient(circle at ${p.x}% ${p.y}%, ${rgba(p.color, Math.max(0, p.intensity - 1) * 0.3)} 0%, rgba(0,0,0,0) ${(p.radius * 0.35).toFixed(1)}%, rgba(0,0,0,${f4(Math.min(0.95, 1 - p.ambient))}) ${(p.radius * 0.75).toFixed(1)}%)` }) },
+  autolevels: { label: 'Auto Levels / Contrast / Color', cat: 'Adjust', params: { mode: SEL('Mode', [['levels', 'Auto Levels'], ['contrast', 'Auto Contrast'], ['color', 'Auto Color']], 'levels'), smooth: { label: 'Temporal smoothing (frames)', min: 0, max: 60, step: 1, def: 10 }, blend: { label: 'Blend with original', min: 0, max: 1, step: 0.05, def: 0 } },
+    ff: (p) => `normalize=smoothing=${Math.round(p.smooth)}:independence=${p.mode === 'contrast' ? 0 : 1}:strength=${f4(1 - p.blend)}` },
+
+  // ---------- Blur & sharpen ----------
+  unsharp: { label: 'Unsharp Mask', cat: 'Blur & sharpen', params: { amount: { label: 'Amount', min: 0, max: 250, step: 1, def: 50, unit: '%' }, radius: { label: 'Radius', min: 1, max: 11, step: 1, def: 2, unit: 'px' } },
+    ff: (p, { W }) => { const s = Math.min(23, Math.max(3, 2 * Math.round((p.radius * W) / 1920) + 1)); return `unsharp=${s}:${s}:${f4(Math.min(5, p.amount / 50))}:${s}:${s}:0`; },
+    css: (p) => ({ filter: `contrast(${f4(1 + p.amount / 1500)})` }) },
+  flicker: { label: 'Reduce Interlace Flicker', cat: 'Blur & sharpen', params: { soft: { label: 'Softness', min: 0.1, max: 10, step: 0.1, def: 1 } },
+    ff: (p, { H }) => `gblur=sigma=0.01:sigmaV=${f4((p.soft * H) / 1080)}`, css: (p, k) => ({ filter: `blur(${f4(p.soft * k * 0.3)}px)` }) },
+
+  // ---------- Channel ----------
+  solidcomp: { label: 'Solid Composite', cat: 'Channel', params: { color: { label: 'Colour', type: 'color', def: '#ff8a00' }, opacity: { ...OPA, def: 0.5 } },
+    ff: (p) => `drawbox=x=0:y=0:w=iw:h=ih:t=fill:color=${hx(p.color)}@${f4(p.opacity)}`, css: (p) => ({ overlay: `linear-gradient(${rgba(p.color, p.opacity)}, ${rgba(p.color, p.opacity)})` }) },
+  arith: { label: 'Arithmetic', cat: 'Channel', params: { op: SEL('Operator', [['add', 'Add'], ['sub', 'Subtract'], ['mul', 'Multiply'], ['min', 'Min'], ['max', 'Max'], ['diff', 'Difference']], 'add'), r: { label: 'Red value', min: 0, max: 255, step: 1, def: 0 }, g: { label: 'Green value', min: 0, max: 255, step: 1, def: 0 }, b: { label: 'Blue value', min: 0, max: 255, step: 1, def: 0 } },
+    ff: (p) => { const e = (v) => ({ add: `clip(val+${v},0,255)`, sub: `clip(val-${v},0,255)`, mul: `val*${v}/255`, min: `min(val,${v})`, max: `max(val,${v})`, diff: `abs(val-${v})` })[p.op] || 'val'; return `lutrgb=r='${e(p.r)}':g='${e(p.g)}':b='${e(p.b)}'`; },
+    css: (p) => { const f = (v) => (x) => ({ add: x + v, sub: x - v, mul: x * v, min: Math.min(x, v), max: Math.max(x, v), diff: Math.abs(x - v) })[p.op] ?? x, v = { R: p.r / 255, G: p.g / 255, B: p.b / 255 };
+      return { filter: svgCt(fid('ar', p.op, p.r, p.g, p.b), (c) => tbl(f(v[c]))) }; } },
+
+  // ---------- Color Correction ----------
+  ascdl: { label: 'ASC CDL', cat: 'Color Correction',
+    params: { ...Object.fromEntries(['r', 'g', 'b'].flatMap((c) => { const N = { r: 'Red', g: 'Green', b: 'Blue' }[c]; return [[`${c}s`, { label: `${N} slope`, min: 0, max: 4, step: 0.01, def: 1 }], [`${c}o`, { label: `${N} offset`, min: -1, max: 1, step: 0.01, def: 0 }], [`${c}p`, { label: `${N} power`, min: 0.1, max: 4, step: 0.01, def: 1 }]]; })), sat: { label: 'Saturation', min: 0, max: 2, step: 0.01, def: 1 } },
+    ff: (p) => { const e = (c) => `255*pow(clip(val/255*${f4(p[`${c}s`])}+${f4(p[`${c}o`])},0,1),${f4(p[`${c}p`])})`; return `lutrgb=r='${e('r')}':g='${e('g')}':b='${e('b')}'${p.sat !== 1 ? `,hue=s=${f4(p.sat)}` : ''}`; },
+    css: (p) => { const c = (C) => C.toLowerCase();
+      return { filter: svgCt(fid('cdl', ...['r', 'g', 'b'].flatMap((x) => [p[`${x}s`], p[`${x}o`], p[`${x}p`]]), p.sat), (C) => `type="linear" slope="${f4(p[`${c(C)}s`])}" intercept="${f4(p[`${c(C)}o`])}"`, (C) => `type="gamma" amplitude="1" exponent="${f4(p[`${c(C)}p`])}" offset="0"`, `<feColorMatrix type="saturate" values="${f4(p.sat)}"/>`) }; } },
+  changecolor: { reads: true, label: 'Change Color', cat: 'Color Correction', params: { color: { label: 'Colour to change', type: 'color', def: '#d62828' }, hue: { label: 'Hue transform', min: -180, max: 180, step: 1, def: 120, unit: '°' }, light: { label: 'Lightness transform', min: -100, max: 100, step: 1, def: 0 }, sat: { label: 'Saturation transform', min: -100, max: 100, step: 1, def: 0 }, match: { label: 'Matching tolerance', min: 0.02, max: 0.6, step: 0.01, def: 0.25 }, soft: { label: 'Matching softness', min: 0, max: 0.5, step: 0.01, def: 0.1 } },
+    ff: (p) => recolor(p.color, p.match, p.soft, `hue=h=${p.hue}:s=${f4(1 + p.sat / 100)}:b=${f4(p.light / 10)}`),
+    pix: (g, W, H, p) => recolorPix(g, W, H, p.color, p.match, p.soft, (h, s, l) => [h + p.hue, Math.min(1, s * (1 + p.sat / 100)), Math.min(1, Math.max(0, l + p.light / 200))]) },
+  changetocolor: { reads: true, label: 'Change to Color', cat: 'Color Correction', params: { from: { label: 'From', type: 'color', def: '#d62828' }, to: { label: 'To', type: 'color', def: '#2a6fdb' }, match: { label: 'Tolerance', min: 0.02, max: 0.6, step: 0.01, def: 0.25 }, soft: { label: 'Softness', min: 0, max: 0.5, step: 0.01, def: 0.1 } },
+    // the hue (and saturation) of "from" becomes that of "to"; the shading of the picture stays
+    ff: (p) => { const a = rgb2hsl(...rgbOf(p.from)), b = rgb2hsl(...rgbOf(p.to)); return recolor(p.from, p.match, p.soft, `hue=h=${Math.round(b[0] - a[0])}:s=${f4(Math.min(10, b[1] / Math.max(0.05, a[1])))}`); },
+    pix: (g, W, H, p) => { const a = rgb2hsl(...rgbOf(p.from)), b = rgb2hsl(...rgbOf(p.to)); recolorPix(g, W, H, p.from, p.match, p.soft, (h, s, l) => [h + b[0] - a[0], Math.min(1, s * Math.min(10, b[1] / Math.max(0.05, a[1]))), l]); } },
+  chanmix: { label: 'Channel Mixer', cat: 'Color Correction',
+    params: Object.fromEntries(['r', 'g', 'b'].flatMap((o) => ['r', 'g', 'b'].map((i) => [`${o}${i}`, { label: `${{ r: 'Red', g: 'Green', b: 'Blue' }[o]} - ${{ r: 'Red', g: 'Green', b: 'Blue' }[i]}`, min: -200, max: 200, step: 1, def: o === i ? 100 : 0, unit: '%' }]))),
+    ff: (p) => `colorchannelmixer=${['r', 'g', 'b'].flatMap((o) => ['r', 'g', 'b'].map((i) => `${o}${i}=${f4(p[`${o}${i}`] / 100)}`)).join(':')}`,
+    css: (p) => { const m = ['r', 'g', 'b'].map((o) => `${['r', 'g', 'b'].map((i) => f4(p[`${o}${i}`] / 100)).join(' ')} 0 0`).join(' ');
+      return { filter: svgFx(fid('cm', ...['r', 'g', 'b'].flatMap((o) => ['r', 'g', 'b'].map((i) => p[`${o}${i}`]))), `<feColorMatrix type="matrix" values="${m} 0 0 0 1 0"/>`) }; } },
+  colorbalance: { label: 'Color Balance', cat: 'Color Correction',
+    params: Object.fromEntries(['s', 'm', 'h'].flatMap((t) => ['r', 'g', 'b'].map((c) => [`${c}${t}`, { label: `${{ s: 'Shadow', m: 'Midtone', h: 'Highlight' }[t]} ${{ r: 'red', g: 'green', b: 'blue' }[c]} balance`, min: -100, max: 100, step: 1, def: 0 }]))),
+    ff: (p) => `colorbalance=${['s', 'm', 'h'].flatMap((t) => ['r', 'g', 'b'].map((c) => `${c}${t}=${f4(p[`${c}${t}`] / 100)}`)).join(':')}` },
+  colorbalancehls: { label: 'Color Balance (HLS)', cat: 'Color Correction', params: { hue: { label: 'Hue', min: -180, max: 180, step: 1, def: 0, unit: '°' }, light: { label: 'Lightness', min: -100, max: 100, step: 1, def: 0 }, sat: { label: 'Saturation', min: -100, max: 100, step: 1, def: 0 } },
+    ff: (p) => `hue=h=${p.hue}:s=${f4(1 + p.sat / 100)}:b=${f4(p.light / 10)}`,
+    css: (p) => ({ filter: `hue-rotate(${p.hue}deg) saturate(${f4(1 + p.sat / 100)}) brightness(${f4(1 + p.light / 200)})` }) },
+  equalize: { label: 'Equalize', cat: 'Color Correction', params: { amount: { label: 'Amount to equalize', min: 0, max: 1, step: 0.05, def: 0.5 } },
+    ff: (p) => `histeq=strength=${f4(p.amount)}:intensity=0.21` },
+  limiter: { label: 'Video Limiter', cat: 'Color Correction', params: { lo: { label: 'Luma min', min: 0, max: 64, step: 1, def: 16 }, hi: { label: 'Luma max', min: 180, max: 255, step: 1, def: 235 } },
+    ff: (p) => `limiter=min=${Math.round(p.lo)}:max=${Math.round(p.hi)}:planes=1` },
+
+  // ---------- Distort ----------
+  magnify: { label: 'Magnify', cat: 'Distort', params: { ...XY, size: { label: 'Size (radius)', min: 2, max: 60, step: 0.5, def: 18, unit: '%' }, mag: { label: 'Magnification', min: 100, max: 600, step: 5, def: 200, unit: '%' } },
+    ff: (p) => { const cx = `W*${f4(p.x / 100)}`, cy = `H*${f4(p.y / 100)}`, m = f4(p.mag / 100); return warp(`st(0,lt(hypot(X-${cx},Y-${cy}),W*${f4(p.size / 100)}));p(if(ld(0),${cx}+(X-${cx})/${m},X),if(ld(0),${cy}+(Y-${cy})/${m},Y))`); },
+    pix: (g, W, H, p, { cv }) => { const cx = (W * p.x) / 100, cy = (H * p.y) / 100, r = (W * p.size) / 100, m = p.mag / 100;
+      g.save(); g.beginPath(); g.arc(cx, cy, r, 0, 2 * Math.PI); g.clip(); g.drawImage(cv, cx - r / m, cy - r / m, (2 * r) / m, (2 * r) / m, cx - r, cy - r, 2 * r, 2 * r); g.restore(); } },
+  spherize: { label: 'Spherize', cat: 'Distort', params: { ...XY, radius: { label: 'Radius', min: 2, max: 80, step: 0.5, def: 30, unit: '%' }, amount: { label: 'Amount (- pinches)', min: -100, max: 100, step: 1, def: 60 } },
+    ff: (p) => { const cx = `W*${f4(p.x / 100)}`, cy = `H*${f4(p.y / 100)}`, e = f4(Math.pow(2, p.amount / 100) - 1);
+      return warp(`st(0,hypot(X-${cx},Y-${cy})/(W*${f4(p.radius / 100)}));st(1,if(lt(ld(0),1),pow(max(ld(0),0.001),${e}),1));p(${cx}+(X-${cx})*ld(1),${cy}+(Y-${cy})*ld(1))`); } },
+  twirl: { label: 'Twirl', cat: 'Distort', params: { ...XY, angle: { label: 'Angle', min: -720, max: 720, step: 1, def: 180, unit: '°' }, radius: { label: 'Twirl radius', min: 2, max: 100, step: 0.5, def: 35, unit: '%' } },
+    ff: (p) => { const cx = `W*${f4(p.x / 100)}`, cy = `H*${f4(p.y / 100)}`;
+      return warp(`st(0,hypot(X-${cx},Y-${cy})/(W*${f4(p.radius / 100)}));st(1,if(lt(ld(0),1),${f4((p.angle * Math.PI) / 180)}*pow(1-ld(0),2),0));p(${cx}+(X-${cx})*cos(ld(1))-(Y-${cy})*sin(ld(1)),${cy}+(X-${cx})*sin(ld(1))+(Y-${cy})*cos(ld(1)))`); } },
+  transform: { label: 'Transform', cat: 'Distort', params: { x: { label: 'Position across', min: -100, max: 100, step: 0.5, def: 0, unit: '%' }, y: { label: 'Position down', min: -100, max: 100, step: 0.5, def: 0, unit: '%' }, scale: { label: 'Scale', min: 5, max: 400, step: 1, def: 100, unit: '%' }, rot: { label: 'Rotation', min: -360, max: 360, step: 0.5, def: 0, unit: '°' }, skew: { label: 'Skew', min: -70, max: 70, step: 0.5, def: 0, unit: '°' }, opacity: { label: 'Opacity', min: 0, max: 100, step: 1, def: 100, unit: '%' } },
+    // each output pixel looks up where it came from (the moves undone in reverse order); outside the picture is black
+    ff: (p) => { const a = (p.rot * Math.PI) / 180, C = f4(Math.cos(a)), S = f4(Math.sin(a)), s = f4(Math.max(0.01, p.scale / 100)), T = f4(Math.tan((p.skew * Math.PI) / 180)), o = f4(p.opacity / 100);
+      const pre = `st(0,X-W/2-W*${f4(p.x / 100)});st(1,Y-H/2-H*${f4(p.y / 100)});st(3,(-ld(0)*${S}+ld(1)*${C})/${s});st(2,(ld(0)*${C}+ld(1)*${S})/${s}-${T}*ld(3));st(4,W/2+ld(2));st(5,H/2+ld(3));st(6,between(ld(4),0,W-1)*between(ld(5),0,H-1)*${o})`;
+      const pl = (k) => `${pre};${k}+(p(ld(4),ld(5))-${k})*ld(6)`;
+      return `format=yuv444p,geq=lum='${pl(16)}':cb='${pl(128)}':cr='${pl(128)}'`; },
+    css: (p) => ({ transform: `translate(${p.x}%, ${p.y}%) rotate(${p.rot}deg) scale(${f4(p.scale / 100)}) skewX(${p.skew}deg)`, filter: p.opacity < 100 ? `opacity(${f4(p.opacity / 100)})` : '' }) },
+  turbulent: { label: 'Turbulent Displace', cat: 'Distort', params: { amount: { label: 'Amount', min: 0, max: 100, step: 1, def: 20, unit: 'px' }, size: { label: 'Size', min: 10, max: 600, step: 5, def: 140, unit: 'px' }, speed: { label: 'Evolution speed', min: 0, max: 5, step: 0.1, def: 1 } },
+    ff: (p, { W }) => { const k = W / 1920, A = f4(p.amount * k), L = f4(p.size * k), v = f4(p.speed);
+      return warp(`p(X+${A}*sin(Y/${L}+T*${v})*cos(X/(1.7*${L})+T*${v}*0.7),Y+${A}*cos(X/${L}-T*${v}*0.8)*sin(Y/(1.3*${L})+T*${v}*0.5))`); } },
+
+  // ---------- Generate ----------
+  grad4: { label: '4-Color Gradient', cat: 'Generate', params: { c1: { label: 'Top left', type: 'color', def: '#e8c547' }, c2: { label: 'Top right', type: 'color', def: '#3fb950' }, c3: { label: 'Bottom left', type: 'color', def: '#d1499b' }, c4: { label: 'Bottom right', type: 'color', def: '#3b6fd8' }, opacity: OPA },
+    ff: (p) => { const c = [p.c1, p.c2, p.c3, p.c4].map(rgbOf);
+      return rgbGeq((ch, i) => `st(0,X/W);st(1,Y/H);${ch}(X,Y)*${f4(1 - p.opacity)}+${f4(p.opacity)}*((1-ld(0))*(1-ld(1))*${c[0][i]}+ld(0)*(1-ld(1))*${c[1][i]}+(1-ld(0))*ld(1)*${c[2][i]}+ld(0)*ld(1)*${c[3][i]})`); },
+    // live: a 2x2 picture of the corners stretched over the frame (the browser's smoothing is the same bilinear blend)
+    pix: (g, W, H, p) => { const t = tmpCanvas(); t.width = 2; t.height = 2; const tg = t.getContext('2d'), im = tg.createImageData(2, 2);
+      [p.c1, p.c2, p.c3, p.c4].forEach((c, i) => { im.data.set([...rgbOf(c), 255], i * 4); }); tg.putImageData(im, 0, 0);
+      g.save(); g.globalAlpha = p.opacity; g.imageSmoothingEnabled = true; g.drawImage(t, 0.5, 0.5, 1, 1, 0, 0, W, H); g.restore(); } },
+  ramp: { label: 'Ramp', cat: 'Generate', params: { shape: SEL('Ramp shape', [['linear', 'Linear'], ['radial', 'Radial']], 'linear'), sx: { label: 'Start across', min: 0, max: 100, step: 0.5, def: 50, unit: '%' }, sy: { label: 'Start down', min: 0, max: 100, step: 0.5, def: 0, unit: '%' }, c1: { label: 'Start colour', type: 'color', def: '#000000' }, ex: { label: 'End across', min: 0, max: 100, step: 0.5, def: 50, unit: '%' }, ey: { label: 'End down', min: 0, max: 100, step: 0.5, def: 100, unit: '%' }, c2: { label: 'End colour', type: 'color', def: '#ffffff' }, opacity: OPA },
+    ff: (p) => { const a = rgbOf(p.c1), b = rgbOf(p.c2), sx = `W*${f4(p.sx / 100)}`, sy = `H*${f4(p.sy / 100)}`, dx = `(W*${f4((p.ex - p.sx) / 100)})`, dy = `(H*${f4((p.ey - p.sy) / 100)})`;
+      const t = p.shape === 'radial' ? `clip(hypot(X-${sx},Y-${sy})/max(1,hypot(${dx},${dy})),0,1)` : `clip(((X-${sx})*${dx}+(Y-${sy})*${dy})/max(1,${dx}*${dx}+${dy}*${dy}),0,1)`;
+      return rgbGeq((ch, i) => `st(0,${t});${ch}(X,Y)*${f4(1 - p.opacity)}+${f4(p.opacity)}*(${a[i]}+${b[i] - a[i]}*ld(0))`); },
+    pix: (g, W, H, p) => { const sx = (W * p.sx) / 100, sy = (H * p.sy) / 100, ex = (W * p.ex) / 100, ey = (H * p.ey) / 100;
+      const gr = p.shape === 'radial' ? g.createRadialGradient(sx, sy, 0, sx, sy, Math.max(1, Math.hypot(ex - sx, ey - sy))) : g.createLinearGradient(sx, sy, ex, ey);
+      gr.addColorStop(0, p.c1); gr.addColorStop(1, p.c2); g.save(); g.globalAlpha = p.opacity; g.fillStyle = gr; g.fillRect(0, 0, W, H); g.restore(); } },
+  circle: { label: 'Circle', cat: 'Generate', params: { ...XY, radius: { label: 'Radius', min: 0, max: 100, step: 0.5, def: 15, unit: '%' }, feather: { label: 'Feather', min: 0, max: 400, step: 1, def: 4, unit: 'px' }, color: { label: 'Colour', type: 'color', def: '#ffffff' }, opacity: OPA, invert: SEL('Invert circle', [['off', 'Off'], ['on', 'On']], 'off') },
+    ff: (p, { W }) => { const a = `clip((W*${f4(p.radius / 100)}-hypot(X-W*${f4(p.x / 100)},Y-H*${f4(p.y / 100)}))/${f4(Math.max(1, (p.feather * W) / 1920))}+0.5,0,1)`; return paint(p.color, `${p.invert === 'on' ? `(1-${a})` : a}*${f4(p.opacity)}`); },
+    pix: (g, W, H, p) => { const cx = (W * p.x) / 100, cy = (H * p.y) / 100, r = (W * p.radius) / 100, f = Math.max(0.5, (p.feather * W) / 1920 / 2), gr = g.createRadialGradient(cx, cy, Math.max(0, r - f), cx, cy, r + f), on = p.invert === 'on';
+      gr.addColorStop(0, rgba(p.color, on ? 0 : 1)); gr.addColorStop(1, rgba(p.color, on ? 1 : 0)); g.save(); g.globalAlpha = p.opacity; g.fillStyle = gr; g.fillRect(0, 0, W, H); g.restore(); } },
+  ellipse: { label: 'Ellipse', cat: 'Generate', params: { ...XY, w: { label: 'Width', min: 1, max: 150, step: 0.5, def: 40, unit: '%' }, h: { label: 'Height', min: 1, max: 150, step: 0.5, def: 50, unit: '%' }, thick: { label: 'Thickness', min: 1, max: 400, step: 1, def: 30, unit: 'px' }, soft: { label: 'Softness', min: 0, max: 100, step: 1, def: 15, unit: '%' }, color: { label: 'Colour', type: 'color', def: '#ffffff' }, opacity: OPA },
+    // a ring: how far a pixel is from the ellipse's line, in pixels, against half the thickness
+    ff: (p, { W }) => { const rx = `(W*${f4(p.w / 200)})`, ry = `(H*${f4(p.h / 200)})`, t = Math.max(1, (p.thick * W) / 1920) / 2, sf = Math.max(0.5, (t * p.soft) / 100);
+      return paint(p.color, `clip((${f4(t)}-abs(hypot((X-W*${f4(p.x / 100)})/${rx},(Y-H*${f4(p.y / 100)})/${ry})-1)*min(${rx},${ry}))/${f4(sf)}+0.5,0,1)*${f4(p.opacity)}`); },
+    pix: (g, W, H, p) => { g.save(); g.globalAlpha = p.opacity; g.strokeStyle = p.color; g.lineWidth = Math.max(1, (p.thick * W) / 1920); g.beginPath(); g.ellipse((W * p.x) / 100, (H * p.y) / 100, (W * p.w) / 200, (H * p.h) / 200, 0, 0, 2 * Math.PI); g.stroke(); g.restore(); } },
+  checker: { label: 'Checkerboard', cat: 'Generate', params: { size: { label: 'Square size', min: 4, max: 600, step: 1, def: 120, unit: 'px' }, color: { label: 'Colour', type: 'color', def: '#ffffff' }, opacity: OPA },
+    ff: (p, { W }) => { const s = f4(Math.max(2, (p.size * W) / 1920)); return paint(p.color, `mod(floor(X/${s})+floor(Y/${s}),2)*${f4(p.opacity)}`); },
+    pix: (g, W, H, p) => { const s = Math.max(2, (p.size * W) / 1920); g.save(); g.globalAlpha = p.opacity; g.fillStyle = p.color;
+      for (let y = 0, j = 0; y < H; y += s, j++) for (let x = 0, i = 0; x < W; x += s, i++) if ((i + j) % 2) g.fillRect(x, y, s, s); g.restore(); } },
+  grid: { label: 'Grid', cat: 'Generate', params: { size: { label: 'Cell size', min: 8, max: 600, step: 1, def: 160, unit: 'px' }, border: { label: 'Border', min: 1, max: 60, step: 1, def: 3, unit: 'px' }, color: { label: 'Colour', type: 'color', def: '#ffffff' }, opacity: OPA },
+    ff: (p, { W }) => { const s = f4(Math.max(2, (p.size * W) / 1920)), b = f4(Math.max(1, (p.border * W) / 1920)); return paint(p.color, `max(lt(mod(X,${s}),${b}),lt(mod(Y,${s}),${b}))*${f4(p.opacity)}`); },
+    pix: (g, W, H, p) => { const s = Math.max(2, (p.size * W) / 1920), b = Math.max(1, (p.border * W) / 1920); g.save(); g.globalAlpha = p.opacity; g.fillStyle = p.color;
+      for (let x = 0; x < W; x += s) g.fillRect(x, 0, b, H); for (let y = 0; y < H; y += s) g.fillRect(0, y, W, b); g.restore(); } },
+  flare: { label: 'Lens Flare', cat: 'Generate', params: { x: { label: 'Flare centre across', min: 0, max: 100, step: 0.5, def: 25, unit: '%' }, y: { label: 'Flare centre down', min: 0, max: 100, step: 0.5, def: 25, unit: '%' }, bright: { label: 'Flare brightness', min: 10, max: 300, step: 1, def: 100, unit: '%' }, color: { label: 'Colour', type: 'color', def: '#ffe2b0' } },
+    // a bright glow at the centre and three ghosts on the line through the middle of the frame (added light)
+    ff: (p) => { const c = rgbOf(p.color), b = p.bright / 100, fx = p.x / 100, fy = p.y / 100, spot = (u, v, r, k) => `${f4(k)}*exp(-pow(hypot(X-W*${f4(u)},Y-H*${f4(v)})/(W*${f4(r)}),2))`;
+      const ghosts = [[0.6, 0.03, 0.25], [1.3, 0.05, 0.18], [1.7, 0.08, 0.12]].map(([t, r, k]) => spot(fx + (0.5 - fx) * t, fy + (0.5 - fy) * t, r, k * b));
+      return rgbGeq((ch, i) => `clip(${ch}(X,Y)+${c[i]}*(${spot(fx, fy, 0.12, 1.2 * b)}+${ghosts.join('+')}),0,255)`); },
+    pix: (g, W, H, p) => { const b = p.bright / 100, fx = (W * p.x) / 100, fy = (H * p.y) / 100, spot = (x, y, r, k) => { const gr = g.createRadialGradient(x, y, 0, x, y, r * 2); gr.addColorStop(0, rgba(p.color, Math.min(1, k))); gr.addColorStop(1, rgba(p.color, 0)); g.fillStyle = gr; g.fillRect(x - r * 2, y - r * 2, r * 4, r * 4); };
+      g.save(); g.globalCompositeOperation = 'lighter'; spot(fx, fy, W * 0.12, 1.2 * b);
+      for (const [t, r, k] of [[0.6, 0.03, 0.25], [1.3, 0.05, 0.18], [1.7, 0.08, 0.12]]) spot(fx + (W / 2 - fx) * t, fy + (H / 2 - fy) * t, W * r, k * b); g.restore(); } },
+
+  // ---------- Image Control ----------
+  cbrgb: { label: 'Color Balance (RGB)', cat: 'Image Control', params: { r: { label: 'Red', min: 0, max: 200, step: 1, def: 100 }, g: { label: 'Green', min: 0, max: 200, step: 1, def: 100 }, b: { label: 'Blue', min: 0, max: 200, step: 1, def: 100 } },
+    ff: (p) => `colorchannelmixer=rr=${f4(p.r / 100)}:gg=${f4(p.g / 100)}:bb=${f4(p.b / 100)}`,
+    css: (p) => ({ filter: svgFx(fid('cb', p.r, p.g, p.b), `<feColorMatrix type="matrix" values="${f4(p.r / 100)} 0 0 0 0 0 ${f4(p.g / 100)} 0 0 0 0 0 ${f4(p.b / 100)} 0 0 0 0 0 1 0"/>`) }) },
+  colorreplace: { reads: true, label: 'Color Replace', cat: 'Image Control', params: { target: { label: 'Target colour', type: 'color', def: '#d62828' }, color: { label: 'Replace colour', type: 'color', def: '#2a6fdb' }, match: { label: 'Similarity', min: 0.02, max: 0.6, step: 0.01, def: 0.25 }, soft: { label: 'Softness', min: 0, max: 0.5, step: 0.01, def: 0.05 } },
+    ff: (p) => { const [h, s] = rgb2hsl(...rgbOf(p.color)); return recolor(p.target, p.match, p.soft, `colorize=hue=${Math.round(h)}:saturation=${f4(s)}:lightness=0.5:mix=1`); },
+    pix: (g, W, H, p) => { const [h, s] = rgb2hsl(...rgbOf(p.color)); recolorPix(g, W, H, p.target, p.match, p.soft, (h0, s0, l) => [h, s, l]); } },
+  gamma: { label: 'Gamma Correction', cat: 'Image Control', params: { g: { label: 'Gamma (10 = none; higher is darker)', min: 1, max: 28, step: 0.5, def: 10 } },
+    ff: (p) => lutAll(`255*pow(val/255,${f4(p.g / 10)})`),
+    css: (p) => ({ filter: svgCt(fid('gm', p.g), () => `type="gamma" amplitude="1" exponent="${f4(p.g / 10)}" offset="0"`) }) },
+
+  // ---------- Keying (V2 overlays: keyed in the final pass, like Green screen) ----------
+  lumakey: { label: 'Luma Key', cat: 'Keying', v2only: true, params: { thr: { label: 'Brightness to key', min: 0, max: 1, step: 0.01, def: 0 }, tol: { label: 'Tolerance', min: 0, max: 1, step: 0.01, def: 0.15 }, soft: { label: 'Softness', min: 0, max: 1, step: 0.01, def: 0.1 } },
+    ff: () => 'null', key: (p) => `format=yuva420p,lumakey=threshold=${f4(p.thr)}:tolerance=${f4(p.tol)}:softness=${f4(p.soft)}`,
+    pix: (g, W, H, p) => { const im = g.getImageData(0, 0, W, H), d = im.data;
+      for (let i = 0; i < d.length; i += 4) { const x = Math.abs(lumOf(d[i], d[i + 1], d[i + 2]) - p.thr); if (x <= p.tol) d[i + 3] = 0; else if (p.soft > 0 && x < p.tol + p.soft) d[i + 3] = Math.round(d[i + 3] * ((x - p.tol) / p.soft)); }
+      g.putImageData(im, 0, 0); } },
+  colorkey: { label: 'Color Key', cat: 'Keying', v2only: true, params: { color: { label: 'Key colour', type: 'color', def: '#00ff00' }, similarity: { label: 'Colour tolerance', min: 0.01, max: 0.6, step: 0.01, def: 0.2 }, blend: { label: 'Edge feather', min: 0, max: 0.3, step: 0.01, def: 0.05 } },
+    ff: () => 'null', key: (p) => `format=rgba,colorkey=${hx(p.color)}:${f4(p.similarity)}:${f4(p.blend)},format=yuva420p`,
+    pix: (g, W, H, p) => { const [kr, kg, kb] = rgbOf(p.color), bl = Math.max(0.001, p.blend), im = g.getImageData(0, 0, W, H), d = im.data;
+      for (let i = 0; i < d.length; i += 4) { const x = Math.sqrt((d[i] - kr) ** 2 + (d[i + 1] - kg) ** 2 + (d[i + 2] - kb) ** 2) / 441.7; if (x < p.similarity) d[i + 3] = 0; else if (x < p.similarity + bl) d[i + 3] = Math.round(d[i + 3] * ((x - p.similarity) / bl)); }
+      g.putImageData(im, 0, 0); } },
+
+  // ---------- Noise & Grain ----------
+  noise: { label: 'Noise', cat: 'Noise & Grain', params: { amount: { label: 'Amount of noise', min: 0, max: 100, step: 1, def: 20, unit: '%' }, color: SEL('Colour noise', [['on', 'On'], ['off', 'Off (mono)']], 'on') },
+    ff: (p) => { const s = Math.round(p.amount); return p.color === 'off' ? `noise=c0s=${s}:c0f=t+u` : `noise=alls=${s}:allf=t+u`; }, css: (p) => ({ overlay: grainCss(Math.min(1, p.amount / 60)), grain: true }) },
+  median: { label: 'Median', cat: 'Noise & Grain', params: { radius: { label: 'Radius', min: 1, max: 30, step: 1, def: 3, unit: 'px' } },
+    ff: (p, { W }) => `median=radius=${Math.max(1, Math.min(127, Math.round((p.radius * W) / 1920)))}`, css: (p, k) => ({ filter: `blur(${f4(p.radius * k * 0.4)}px)` }) },
+  dust: { label: 'Dust & Scratches', cat: 'Noise & Grain', params: { radius: { label: 'Radius', min: 1, max: 10, step: 1, def: 2, unit: 'px' }, thr: { label: 'Threshold', min: 0, max: 255, step: 1, def: 12 } },
+    // pixels that differ from their neighbourhood's median by more than the threshold take the median
+    ff: (p, { W }) => ({ graph: (a, b) => `[${a}]split[${b}o][${b}c];[${b}c]median=radius=${Math.max(1, Math.round((p.radius * W) / 1920))}[${b}m];[${b}o][${b}m]blend=all_expr='if(gt(abs(A-B),${Math.round(p.thr)}),B,A)'[${b}]` }) },
+  noisehls: { label: 'Noise HLS', cat: 'Noise & Grain', params: { hue: { label: 'Hue noise', min: 0, max: 100, step: 1, def: 0, unit: '%' }, light: { label: 'Lightness noise', min: 0, max: 100, step: 1, def: 20, unit: '%' }, sat: { label: 'Saturation noise', min: 0, max: 100, step: 1, def: 0, unit: '%' } },
+    ff: (p) => { const l = Math.round(p.light * 0.8), c = Math.round(Math.max(p.hue, p.sat) * 0.6); return `noise=c0s=${l}:c0f=t+u${c ? `:c1s=${c}:c1f=t+u:c2s=${c}:c2f=t+u` : ''}`; },
+    css: (p) => ({ overlay: grainCss(Math.min(1, p.light / 60)), grain: true }) },
+
+  // ---------- Perspective ----------
+  bevel: { label: 'Bevel Edges', cat: 'Perspective', params: { size: { label: 'Edge thickness', min: 1, max: 120, step: 1, def: 16, unit: 'px' }, light: { label: 'Light intensity', min: 0, max: 1, step: 0.05, def: 0.4 } },
+    ff: (p, { W }) => { const s = Math.max(1, Math.round((p.size * W) / 1920)), a = f4(p.light * 0.8);
+      return [`drawbox=x=0:y=0:w=iw:h=${s}:t=fill:color=white@${a}`, `drawbox=x=0:y=0:w=${s}:h=ih:t=fill:color=white@${a}`, `drawbox=x=0:y=ih-${s}:w=iw:h=${s}:t=fill:color=black@${a}`, `drawbox=x=iw-${s}:y=0:w=${s}:h=ih:t=fill:color=black@${a}`].join(','); },
+    css: (p, k) => { const s = Math.max(1, p.size * k).toFixed(1), a = f4(p.light * 0.8);
+      return { overlay: [['bottom', 255], ['right', 255], ['top', 0], ['left', 0]].map(([d, v]) => `linear-gradient(to ${d}, rgba(${v},${v},${v},${a}) ${s}px, rgba(0,0,0,0) ${s}px)`).join(', ') }; } },
+
+  // ---------- Stylize ----------
+  emboss: { label: 'Emboss', cat: 'Stylize', params: { dir: { label: 'Direction', min: 0, max: 360, step: 1, def: 45, unit: '°' }, relief: { label: 'Relief', min: 1, max: 10, step: 1, def: 3 } },
+    ff: (p) => `convolution=0m='${embossK(p.dir, p.relief, 0).join(' ')}':0rdiv=1:0bias=128:1m='0 0 0 0 0 0 0 0 0':1rdiv=1:1bias=128:2m='0 0 0 0 0 0 0 0 0':2rdiv=1:2bias=128`,
+    css: (p) => ({ filter: svgFx(fid('em', p.dir, p.relief), `<feColorMatrix type="saturate" values="0"/><feConvolveMatrix order="3" kernelMatrix="${embossK(p.dir, p.relief, 0).join(' ')}" divisor="1" bias="0.5" preserveAlpha="true"/>`) }) },
+  coloremboss: { label: 'Color Emboss', cat: 'Stylize', params: { dir: { label: 'Direction', min: 0, max: 360, step: 1, def: 45, unit: '°' }, relief: { label: 'Relief', min: 1, max: 10, step: 1, def: 2 } },
+    ff: (p) => `convolution=0m='${embossK(p.dir, p.relief, 1).join(' ')}':0rdiv=1:0bias=0:1m='0 0 0 0 1 0 0 0 0':1rdiv=1:2m='0 0 0 0 1 0 0 0 0':2rdiv=1`,
+    css: (p) => ({ filter: svgFx(fid('cem', p.dir, p.relief), `<feConvolveMatrix order="3" kernelMatrix="${embossK(p.dir, p.relief, 1).join(' ')}" divisor="1" preserveAlpha="true"/>`) }) },
+  findedges: { label: 'Find Edges', cat: 'Stylize', params: { invert: SEL('Invert (dark background)', [['off', 'Off'], ['on', 'On']], 'off'), blend: { label: 'Blend with original', min: 0, max: 1, step: 0.05, def: 0 } },
+    ff: (p) => { const e = `hue=s=0,edgedetect=low=0.05:high=0.2:mode=wires:planes=1${p.invert === 'on' ? '' : ',negate'}`;
+      return p.blend > 0 ? { graph: (a, b) => `[${a}]split[${b}o][${b}c];[${b}c]${e}[${b}e];[${b}e][${b}o]blend=all_mode=normal:all_opacity=${f4(p.blend)},format=yuv420p[${b}]` } : e; },
+    css: (p) => ({ filter: svgFx(fid('fe', p.invert, p.blend), `<feConvolveMatrix in="SourceGraphic" order="3" kernelMatrix="-1 -1 -1 -1 8 -1 -1 -1 -1" divisor="1" preserveAlpha="true" result="e"/>${p.invert === 'on' ? '' : '<feComponentTransfer in="e" result="e"><feFuncR type="table" tableValues="1 0"/><feFuncG type="table" tableValues="1 0"/><feFuncB type="table" tableValues="1 0"/></feComponentTransfer>'}<feComposite in="SourceGraphic" in2="e" operator="arithmetic" k1="0" k2="${f4(p.blend)}" k3="${f4(1 - p.blend)}" k4="0"/>`) }) },
+  posterize: { label: 'Posterize', cat: 'Stylize', params: { levels: { label: 'Level', min: 2, max: 32, step: 1, def: 6 } },
+    ff: (p) => { const N = Math.round(p.levels); return lutAll(`floor(val*${N}/256)*255/${N - 1}`); },
+    css: (p) => { const N = Math.round(p.levels); return { filter: svgCt(fid('po', N), () => `type="discrete" tableValues="${Array.from({ length: N }, (_, i) => f4(i / (N - 1))).join(' ')}"`) }; } },
+  solarize: { label: 'Solarize', cat: 'Stylize', params: { thr: { label: 'Threshold', min: 0, max: 255, step: 1, def: 128 } },
+    ff: (p) => lutAll(`if(gt(val,${Math.round(p.thr)}),255-val,val)`),
+    css: (p) => ({ filter: svgCt(fid('so', p.thr), () => tbl((x) => (x * 255 > p.thr ? 1 - x : x), 129)) }) },
+  threshold: { label: 'Threshold', cat: 'Stylize', params: { level: { label: 'Level', min: 0, max: 255, step: 1, def: 128 } },
+    ff: (p) => `hue=s=0,${lutAll(`if(gt(val,${Math.round(p.level)}),255,0)`)}`,
+    css: (p) => ({ filter: svgCt(fid('th', p.level), '<feColorMatrix type="saturate" values="0"/>', () => tbl((x) => (x * 255 > p.level ? 1 : 0), 256).replace('type="table"', 'type="discrete"')) }) },
+  replicate: { label: 'Replicate', cat: 'Stylize', params: { count: { label: 'Count', min: 2, max: 16, step: 1, def: 2 } },
+    ff: (p) => { const N = Math.round(p.count); return warp(`p(mod(X*${N},W),mod(Y*${N},H))`); },
+    pix: (g, W, H, p, { cv }) => { const N = Math.round(p.count), t = tmpCanvas(); t.width = W; t.height = H; t.getContext('2d').drawImage(cv, 0, 0);
+      g.clearRect(0, 0, W, H); for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) g.drawImage(t, (i * W) / N, (j * H) / N, W / N, H / N); } },
+
+  // ---------- Transform ----------
+  edgefeather: { label: 'Edge Feather', cat: 'Transform', params: { amount: { label: 'Amount', min: 0, max: 500, step: 1, def: 80, unit: 'px' } },
+    ff: (p, { W }) => shade(`clip(min(min(X,W-1-X),min(Y,H-1-Y))/${f4(Math.max(1, (p.amount * W) / 1920))},0,1)`),
+    css: (p, k) => { const s = Math.max(0.5, p.amount * k).toFixed(1); return { overlay: ['bottom', 'right', 'top', 'left'].map((d) => `linear-gradient(to ${d}, rgba(0,0,0,1), rgba(0,0,0,0) ${s}px)`).join(', ') }; } },
+
+  // ---------- Transition (static wipes; the wiped part is black - on V2 the shot below shows only through the real transitions) ----------
+  linwipe: { label: 'Linear Wipe', cat: 'Transition', params: { done: { label: 'Transition completion', min: 0, max: 100, step: 0.5, def: 50, unit: '%' }, angle: { label: 'Wipe angle', min: 0, max: 360, step: 1, def: 90, unit: '°' }, feather: { label: 'Feather', min: 0, max: 400, step: 1, def: 0, unit: 'px' } },
+    // the position of a pixel along the wipe's direction, 0..1 across the frame, against the completion
+    ff: (p, { W }) => { const a = (p.angle * Math.PI) / 180, dx = f4(Math.sin(a)), dy = f4(-Math.cos(a)), L = `(abs(W*${dx})+abs(H*${dy}))`, F = f4(Math.max(1, (p.feather * W) / 1920));
+      return shade(`clip((((X-W/2)*${dx}+(Y-H/2)*${dy})/${L}+0.5-${f4(p.done / 100)})*${L}/${F}+0.5,0,1)`); },
+    css: (p, k) => { const c = p.done; return { overlay: `linear-gradient(${p.angle}deg, rgba(0,0,0,1) ${c}%, rgba(0,0,0,0) calc(${c}% + ${Math.max(0.5, p.feather * k).toFixed(1)}px))` }; } },
+  radwipe: { label: 'Radial Wipe', cat: 'Transition', params: { done: { label: 'Transition completion', min: 0, max: 100, step: 0.5, def: 50, unit: '%' }, start: { label: 'Start angle', min: 0, max: 360, step: 1, def: 0, unit: '°' }, dir: SEL('Wipe', [['cw', 'Clockwise'], ['ccw', 'Counterclockwise']], 'cw') },
+    ff: (p) => { const a = `mod(atan2(X-W/2,H/2-Y)-${f4((p.start * Math.PI) / 180)}+4*PI,2*PI)/(2*PI)`; return shade(`gte(${p.dir === 'ccw' ? `1-${a}` : a},${f4(p.done / 100)})`); },
+    css: (p) => ({ overlay: p.dir === 'ccw' ? `conic-gradient(from ${p.start}deg, rgba(0,0,0,0) ${(360 - p.done * 3.6).toFixed(1)}deg, rgba(0,0,0,1) 0)` : `conic-gradient(from ${p.start}deg, rgba(0,0,0,1) ${(p.done * 3.6).toFixed(1)}deg, rgba(0,0,0,0) 0)` }) },
+  blinds: { label: 'Venetian Blinds', cat: 'Transition', params: { done: { label: 'Transition completion', min: 0, max: 100, step: 0.5, def: 50, unit: '%' }, angle: { label: 'Direction', min: 0, max: 180, step: 1, def: 0, unit: '°' }, width: { label: 'Width', min: 4, max: 600, step: 1, def: 80, unit: 'px' } },
+    ff: (p, { W }) => { const a = (p.angle * Math.PI) / 180, w = f4(Math.max(2, (p.width * W) / 1920)); return shade(`gte(mod(X*${f4(Math.sin(a))}+Y*${f4(Math.cos(a))}+100*${w},${w})/${w},${f4(p.done / 100)})`); },
+    css: (p, k) => { const w = Math.max(2, p.width * k); return { overlay: `repeating-linear-gradient(${180 - p.angle}deg, rgba(0,0,0,1) 0 ${((w * p.done) / 100).toFixed(2)}px, rgba(0,0,0,0) ${((w * p.done) / 100).toFixed(2)}px ${w.toFixed(2)}px)` }; } },
+  blockdiss: { label: 'Block Dissolve', cat: 'Transition', params: { done: { label: 'Transition completion', min: 0, max: 100, step: 0.5, def: 50, unit: '%' }, bw: { label: 'Block width', min: 1, max: 400, step: 1, def: 24, unit: 'px' }, bh: { label: 'Block height', min: 1, max: 400, step: 1, def: 24, unit: 'px' } },
+    // each block has a fixed random number (a hash of its row and column); blocks below the completion go
+    ff: (p, { W }) => { const bw = f4(Math.max(1, (p.bw * W) / 1920)), bh = f4(Math.max(1, (p.bh * W) / 1920));
+      return shade(`st(0,sin(floor(X/${bw})*12.9898+floor(Y/${bh})*78.233)*43758.5453);gte(ld(0)-floor(ld(0)),${f4(p.done / 100)})`); } },
+
+  // ---------- Utility ----------
+  cineon: { label: 'Cineon Converter', cat: 'Utility', params: { black: { label: '10 bit black point', min: 0, max: 400, step: 1, def: 95 }, white: { label: '10 bit white point', min: 500, max: 1023, step: 1, def: 685 }, gamma: { label: 'Gamma', min: 0.1, max: 4, step: 0.05, def: 1.7 } },
+    // log (film scan) to linear light, shown with the display gamma
+    ff: (p) => { const k = 0.002 / 0.6, gn = 1 / (1 - Math.pow(10, (p.black - p.white) * k)); return lutAll(`255*pow(clip(pow(10,(val*1023/255-${p.white})*${f4(k)})*${f4(gn)}-${f4(gn - 1)},0,1),${f4(1 / p.gamma)})`); },
+    css: (p) => { const k = 0.002 / 0.6, gn = 1 / (1 - Math.pow(10, (p.black - p.white) * k)); return { filter: svgCt(fid('cin', p.black, p.white, p.gamma), () => tbl((x) => Math.pow(Math.min(1, Math.max(0, Math.pow(10, (x * 1023 - p.white) * k) * gn - (gn - 1))), 1 / p.gamma), 65)) }; } },
+
+  // ---------- Video ----------
+  timecode: { label: 'Timecode', cat: 'Video', params: { pos: SEL('Position', TXT_POS, 'bc'), size: { label: 'Size', min: 12, max: 160, step: 1, def: 48, unit: 'px' }, bg: { label: 'Background opacity', min: 0, max: 1, step: 0.05, def: 0.6 } },
+    // the source's own time (clip in-point + time into the clip at its speed), HH:MM:SS:FF at the output frame rate
+    ff: (p, ctx) => burnText(tcText(+ctx.clip?.in || 0, +ctx.clip?.speed || 1, Math.round(ctx.F || 30)), p, ctx, true),
+    pix: (g, W, H, p, { rel = 0, fps = 30, c }) => burnPix(g, W, tcAt((+c?.in || 0) + rel * (+c?.speed || 1), Math.round(fps)), p) },
+  clipname: { label: 'Clip Name', cat: 'Video', params: { pos: SEL('Position', TXT_POS, 'bl'), size: { label: 'Size', min: 12, max: 160, step: 1, def: 40, unit: 'px' }, bg: { label: 'Background opacity', min: 0, max: 1, step: 0.05, def: 0.6 } },
+    ff: (p, ctx) => burnText(ctx.name || 'Clip', p, ctx), pix: (g, W, H, p, { name }) => burnPix(g, W, name || 'Clip', p) },
+};
+// every parameter filled in (numbers as numbers) before an effect's ff / css / pix / key sees it
+function withDefaults(d) {
+  const fill = (p) => Object.fromEntries(Object.entries(d.params).map(([k, x]) => [k, typeof x.def === 'number' ? n(p?.[k], x.def) : p?.[k] ?? x.def]));
+  const o = { ...d, ff: (p, ctx = {}) => d.ff(fill(p), ctx) };
+  if (d.css) o.css = (p, k = 0.3) => d.css(fill(p), k);
+  if (d.pix) o.pix = (g, W, H, p, info = {}) => d.pix(g, W, H, fill(p), info);
+  if (d.key) o.key = (p) => d.key(fill(p));
+  return o;
+}
+for (const [k, d] of Object.entries(MORE)) VFX[k] = withDefaults(d);
 export const VFX_CATS = [...new Set(Object.values(VFX).map((x) => x.cat))];
 export const defaultsOf = (type) => Object.fromEntries(Object.entries(VFX[type]?.params || {}).map(([k, d]) => [k, d.def]));
 export const newEffect = (type) => ({ id: uid(), type, on: true, p: defaultsOf(type) });

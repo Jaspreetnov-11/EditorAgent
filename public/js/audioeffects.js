@@ -176,6 +176,8 @@ export const AFX = {
     live: (ctx, p) => { const aps = [1, 2, 3, 4].map(() => biquad(ctx, 'allpass', 800, 0.7)); const osc = ctx.createOscillator(), og = gain(ctx, 600 * (0.3 + n(p.decay, 0.4))); osc.frequency.value = n(p.speed, 0.5); osc.connect(og); aps.forEach((a) => og.connect(a.frequency)); osc.start(); return dryWet(ctx, chain(ctx, aps), n(p.mix, 0.7)); } },
 
   // ---------- Noise Reduction/Restoration ----------
+  adaptivenr: { label: 'Adaptive Noise Reduction', cat: 'Noise Reduction/Restoration', hint: 'learns the noise as it plays', params: { a: R('Reduce noise by', 0, 40, 1, 20, ' dB'), nf: R('Noise floor', -80, -20, 1, -50, ' dB') },
+    ff: (p) => `afftdn=nr=${Math.max(0.01, n(p.a, 20))}:nf=${n(p.nf, -50)}:tn=1:ad=0.5` },
   declick: { label: 'Automatic Click Remover', cat: 'Noise Reduction/Restoration', params: { s: R('Sensitivity', 0, 1, 0.05, 0.5) },
     ff: (p) => `adeclick=w=55:o=75:a=2:t=${(8 - 6 * n(p.s, 0.5)).toFixed(1)}` },
   dehummer: { label: 'DeHummer', cat: 'Noise Reduction/Restoration', params: { f: SEL('Mains hum', [['50', '50 Hz (India, Europe)'], ['60', '60 Hz (US)']], '50'), h: R('Harmonics', 1, 8, 1, 4), red: R('Reduction', 0, 60, 1, 30, ' dB') },

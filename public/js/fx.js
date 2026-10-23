@@ -58,6 +58,92 @@ function fxAt(type, rel, D) {
   return out;
 }
 
+// ---------------- transitions: Premiere's shapes FFmpeg's xfade has no name for ----------------
+// xfade=transition=custom: P runs 1 -> 0 over the transition (1 = all A, the outgoing shot), A / B = this pixel of the
+// two shots, a0(x, y) / b0(x, y)... = a pixel of plane 0 / 1 / 2; X, Y, W, H are in the plane's own pixels.
+// (No st() / ld(): xfade runs one expression on several threads, which share those registers - the picture breaks up.)
+const at = (s, x, y) => `if(eq(PLANE,0),${s}0(${x},${y}),if(eq(PLANE,1),${s}1(${x},${y}),${s}2(${x},${y})))`;
+const ANG = 'atan2(X-W/2,H/2-Y)'; // the angle from 12 o'clock, clockwise
+const ROW7 = 'mod(floor(Y/(H/7)),2)', CELL = 'mod(floor(X/(W/8))+floor(Y/(H/8)),2)';
+const RND = 'sin(floor(X/(W/16))*12.9898+floor(Y/(H/9))*78.233)*43758.5453'; // a fixed random number per block (fraction below)
+const SX = 'if(lt(X,W/2),X+(1-P)*W/2,X-(1-P)*W/2)', SY = 'if(lt(Y,H/2),Y+(1-P)*H/2,Y-(1-P)*H/2)', BX = `if(${ROW7},X+P*W,X-P*W)`;
+const FS = 'abs(2*P-1)', FX = `(W/2+(X-W/2)/max(${FS},0.001))`;
+export const XFADE_EXPR = {
+  adddissolve: 'if(eq(PLANE,0),min(255,16+max(0,A-16)*min(1,2*P)+max(0,B-16)*min(1,2*(1-P))),A*P+B*(1-P))',
+  nonadddissolve: 'if(eq(PLANE,0),max(A*min(1,2*P),B*min(1,2*(1-P))),A*P+B*(1-P))',
+  iriscross: 'if(max(lt(abs(X/W-0.5),(1-P)/2)*lt(abs(Y/H-0.5),1-P),lt(abs(Y/H-0.5),(1-P)/2)*lt(abs(X/W-0.5),1-P)),B,A)',
+  irisdiamond: 'if(lt(abs(X/W-0.5)+abs(Y/H-0.5),1-P),B,A)',
+  clockwipe: `if(lt(mod(${ANG}+2*PI,2*PI)/(2*PI),1-P),B,A)`,
+  wedgewipe: `if(lt(abs(${ANG})/PI,1-P),B,A)`,
+  pinwheel: `if(lt(mod(${ANG}+2*PI,PI/4)/(PI/4),1-P),B,A)`,
+  inset: 'if(lt(X/W,1-P)*lt(Y/H,1-P),B,A)',
+  venetian: 'if(lt(mod(Y,H/10)/(H/10),1-P),B,A)',
+  bandwipe: `if(lt(if(${ROW7},1-X/W,X/W),1-P),B,A)`,
+  checkerwipe: `if(lt(mod(X,W/8)/(W/8),2*(1-P)-${CELL}),B,A)`,
+  checkerboard: `if(lt(mod(Y,H/8)/(H/8),2*(1-P)-${CELL}),B,A)`,
+  randomblocks: `if(lt(${RND}-floor(${RND}),1-P),B,A)`,
+  // A in four quarters, each moving out to its corner
+  centersplit: `if(eq(lt(X,W/2),lt(${SX},W/2))*eq(lt(Y,H/2),lt(${SY},H/2)),${at('a', SX, SY)},B)`,
+  // bands of B sliding in from alternate sides
+  bandslide: `if(between(${BX},0,W-1),${at('b', BX, 'Y')},A)`,
+  // A squeezed to a line, then B opened from it (black behind)
+  flipover: `if(lt(abs(X-W/2),${FS}*W/2),if(gt(P,0.5),${at('a', FX, 'Y')},${at('b', FX, 'Y')}),if(PLANE,128,16))`,
+};
+// the xfade options of a transition type
+export const xfadeOf = (type) => (XFADE_EXPR[type] ? `transition=custom:expr='${XFADE_EXPR[type]}'` : `transition=${type}`);
+
+// 🖥 The monitor's live look of a transition, q = 0..1 through it (the render's xfade is the exact one):
+// { show: [[x%, y%], ...] where the incoming shot is seen (one polygon; null = all of it), cur / prev: { tx, ty (% moves),
+// sx (horizontal squeeze), op (opacity) } } - or null: shown as a dissolve. ar = the frame's width / height.
+const rect = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+// several shapes as one polygon: each joined to the corner by a line out and the same line back (no area)
+const joined = (shapes) => shapes.filter((s) => s.length).flatMap((s) => [[0, 0], ...s, s[0], [0, 0]]);
+const fan = (a0, a1, ar, steps = 24) => { const R = 300 * Math.max(ar, 1), pts = [[50, 50]];
+  for (let i = 0; i <= steps; i++) { const a = ((a0 + ((a1 - a0) * i) / steps) * Math.PI) / 180; pts.push([50 + (Math.sin(a) * R) / ar, 50 - Math.cos(a) * R]); }
+  return pts; };
+const circleAt = (r, ar) => Array.from({ length: 48 }, (_, i) => { const a = (i / 48) * 2 * Math.PI, R = r * Math.hypot(ar, 1); return [50 + (Math.cos(a) * R * 100) / ar, 50 + Math.sin(a) * R * 100]; });
+export function trLive(type, q, ar = 16 / 9) {
+  q = Math.min(1, Math.max(0, q));
+  const r = 1 - q, P = (x) => +(x * 100).toFixed(3);
+  switch (type) {
+    case 'wipeleft': return { show: rect(P(r), 0, 100, 100) };
+    case 'wiperight': return { show: rect(0, 0, P(q), 100) };
+    case 'wipeup': return { show: rect(0, P(r), 100, 100) };
+    case 'wipedown': return { show: rect(0, 0, 100, P(q)) };
+    case 'vertopen': return { show: rect(P(r / 2), 0, 100 - P(r / 2), 100) };
+    case 'horzopen': return { show: rect(0, P(r / 2), 100, 100 - P(r / 2)) };
+    case 'vertclose': return { show: joined([rect(0, 0, P(q / 2), 100), rect(100 - P(q / 2), 0, 100, 100)]) };
+    case 'horzclose': return { show: joined([rect(0, 0, 100, P(q / 2)), rect(0, 100 - P(q / 2), 100, 100)]) };
+    case 'circleopen': return { show: circleAt(q / 2, ar) };
+    case 'inset': return { show: rect(0, 0, P(q), P(q)) };
+    case 'irisdiamond': return { show: [[50, 50 - P(q)], [50 + P(q), 50], [50, 50 + P(q)], [50 - P(q), 50]] };
+    case 'iriscross': { const a = P(q / 2), b = Math.min(50, P(q));
+      return { show: [[50 - a, 50 - b], [50 + a, 50 - b], [50 + a, 50 - a], [50 + b, 50 - a], [50 + b, 50 + a], [50 + a, 50 + a], [50 + a, 50 + b], [50 - a, 50 + b], [50 - a, 50 + a], [50 - b, 50 + a], [50 - b, 50 - a], [50 - a, 50 - a]] }; }
+    case 'clockwipe': return { show: fan(0, 360 * q, ar, 48) };
+    case 'wedgewipe': return { show: fan(-180 * q, 180 * q, ar) };
+    case 'pinwheel': return { show: Array.from({ length: 8 }, (_, k) => fan(45 * k, 45 * k + 45 * q, ar, 4)).flat() };
+    case 'venetian': return { show: joined(Array.from({ length: 10 }, (_, i) => rect(0, i * 10, 100, i * 10 + P(q / 10)))) };
+    case 'bandwipe': return { show: joined(Array.from({ length: 7 }, (_, i) => (i % 2 ? rect(100 - P(q), (i * 100) / 7, 100, ((i + 1) * 100) / 7) : rect(0, (i * 100) / 7, P(q), ((i + 1) * 100) / 7)))) };
+    case 'checkerwipe': case 'checkerboard': {
+      const cells = [];
+      for (let j = 0; j < 8; j++) for (let i = 0; i < 8; i++) { const f = Math.min(1, Math.max(0, 2 * q - ((i + j) % 2))); if (f > 0) cells.push(type === 'checkerwipe' ? rect(i * 12.5, j * 12.5, i * 12.5 + 12.5 * f, j * 12.5 + 12.5) : rect(i * 12.5, j * 12.5, i * 12.5 + 12.5, j * 12.5 + 12.5 * f)); }
+      return { show: cells.length ? joined(cells) : [[0, 0], [0, 0], [0, 0]] }; }
+    // moves: push (both move), slide / cover (the new shot moves in over the old), reveal (the old moves away)
+    case 'slideleft': return { cur: { tx: P(r) }, prev: { tx: -P(q) } };
+    case 'slideright': return { cur: { tx: -P(r) }, prev: { tx: P(q) } };
+    case 'slideup': return { cur: { ty: P(r) }, prev: { ty: -P(q) } };
+    case 'slidedown': return { cur: { ty: -P(r) }, prev: { ty: P(q) } };
+    case 'coverleft': return { cur: { tx: P(r) }, show: rect(P(r), 0, 100, 100) };
+    case 'coverright': return { cur: { tx: -P(r) }, show: rect(0, 0, P(q), 100) };
+    case 'coverup': return { cur: { ty: P(r) }, show: rect(0, P(r), 100, 100) };
+    case 'coverdown': return { cur: { ty: -P(r) }, show: rect(0, 0, 100, P(q)) };
+    case 'revealleft': return { prev: { tx: -P(q) }, show: rect(P(r), 0, 100, 100) };
+    case 'flipover': return q < 0.5 ? { cur: { op: 0 }, prev: { sx: 1 - 2 * q } } : { cur: { sx: 2 * q - 1 }, prev: { op: 0 } };
+    default: return null;
+  }
+}
+export const polyCss = (pts, evenodd = false) => `polygon(${evenodd ? 'evenodd, ' : ''}${pts.map(([x, y]) => `${+x.toFixed(3)}% ${+y.toFixed(3)}%`).join(', ')})`;
+
 // ---------------- sound design ----------------
 export const SFX_LABELS = { whoosh: 'Whoosh', swish: 'Swish', boom: 'Boom', impact: 'Impact', riser: 'Riser', reverse: 'Reverse swell', glitch: 'Glitch', tick: 'Tick', punch: 'Punch' };
 const WHIP_TR = new Set(['hblur', 'slideleft', 'slideright', 'slideup', 'slidedown', 'smoothleft', 'smoothright', 'wipeleft', 'wiperight', 'squeezeh', 'coverleft', 'coverright', 'zoomin']);
