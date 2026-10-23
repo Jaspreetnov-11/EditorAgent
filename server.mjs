@@ -3153,6 +3153,55 @@ const routes = {
     await handOver(name); // (⚙ by its project worker)
     return { name, clips, missing: [...missing].slice(0, 50), missingCount: missing.size, notes: x.notes };
   },
+  // ✏ a project gets a new name: its folder is renamed where it is (same drive / NAS folder) and everything that knows it
+  // by its name follows - its place, its Home folder, the media inside its folder, its render queue entries and client
+  // review links, Home's summary. Refused while anyone has it open or a render / job of it runs (like a move). Body { name }
+  'POST /api/projects/rename': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req), L = live.get(name);
+    if (req.who?.role === 'viewer') throw err(403, 'Viewers cannot rename projects');
+    if (!String(b.name || '').trim()) throw err(400, 'Type the new name');
+    const to = safeName(String(b.name).trim());
+    if (to === name) return { name, renamed: false };
+    if (allProjects().some((n) => n !== name && n.toLowerCase() === to.toLowerCase())) throw err(409, `A project called "${to}" is there already - pick another name`);
+    await askOwner(name, 'release'); // (⚙ its worker saves and lets go of it - refused while someone has it open)
+    const people = L ? [...new Set([...L.subs.values()].map((x) => x.who.name))] : [];
+    if (people.length) throw err(409, `Open right now by ${people.join(', ')} - ask them to close it first`);
+    if (projectBusy(name) || rq.items.some((x) => x.project === name && ['waiting', 'rendering'].includes(x.state))) throw err(409, 'A render or job of this project is running or waiting - wait for it to finish');
+    const from = path.resolve(projDir(name)), dest = path.join(path.dirname(from), to);
+    if (dest.toLowerCase() !== from.toLowerCase() && fs.existsSync(dest)) throw err(409, `${dest} is there already - pick another name`);
+    if (L) { clearTimeout(L.timer); L.timer = null; liveWrite(name, L, true); }
+    live.delete(name); mediaCache.delete(name);
+    const dir = from.toLowerCase() + path.sep;
+    for (const st of openStreams) if (String(st.file || '').toLowerCase().startsWith(dir)) st.destroy();
+    // (Windows / the NAS: a file of it still open for a moment - a thumbnail being sent - is tried again for a few seconds)
+    for (let k = 0; ; k++) {
+      try { await fs.promises.rename(from, dest); break; }
+      catch (e) {
+        if (k < 12 && ['EPERM', 'EBUSY', 'EACCES'].includes(e.code)) { await new Promise((ok) => setTimeout(ok, 400)); continue; }
+        throw err(409, `Could not rename its folder (${e.code || e.message}) - close any window or player that has one of its files open, then try again`);
+      }
+    }
+    if (projectPlaces()[name]) { setPlace(name, null); setPlace(to, dest); } // (a project saved outside Projects: its new place)
+    // the files kept inside its folder (imports, voice-overs, takes) are pointed at the new folder; its own name inside
+    const mf = path.join(dest, 'media.json'), md = readJSON(mf, null);
+    if (md) { let n = 0; for (const m of md.items || []) if (m?.path && m.path.toLowerCase().startsWith(dir)) { m.path = path.join(dest, m.path.slice(dir.length)); n++; } if (n) writeJSON(mf, md); }
+    const pjf = path.join(dest, 'project.json'), pj = readJSON(pjf, null);
+    if (pj && (!pj.name || pj.name === name)) { pj.name = to; writeJSON(pjf, pj); }
+    const pf = projectFolders(); if (pf.map[name]) { pf.map[to] = pf.map[name]; delete pf.map[name]; writeJSON(FOLDERS_FILE, pf); } // (its Home folder)
+    // its finished / failed renders in the queue and its client review links keep working under the new name
+    const oldUrl = `/pf/${encodeURIComponent(name)}/`, newUrl = `/pf/${encodeURIComponent(to)}/`;
+    let q2 = false;
+    for (const x of rq.items) if (x.project === name) {
+      x.project = to; q2 = true;
+      if (x.url) x.url = x.url.replace(oldUrl, newUrl);
+      if (x.jobFile && x.jobFile.toLowerCase().startsWith(dir)) x.jobFile = path.join(dest, x.jobFile.slice(dir.length));
+    }
+    if (q2) saveQueue();
+    if (reviews) { const ls = reviews.ofProject(name); for (const l of ls) l.project = to; if (ls.length) reviews.save(); }
+    summaryCache.delete(name); keepSummaries(); placeSeen.delete(name); placeSeen.delete(to); helperOf.delete(name);
+    await handOver(to); // (⚙ its new worker takes it - workers keep projects by name)
+    return { name: to, folder: dest, renamed: true };
+  },
   // 🚚 move a project to another folder (an editor's own folder on the NAS): copied there, the copy checked (same files,
   // same bytes), then the old folder removed. Files the project keeps inside itself (imports, voice-overs) are pointed
   // at the new place. Refused while anyone has it open or a render / job of it runs. Body { place } (the parent folder)
@@ -5508,7 +5557,7 @@ const routes = {
 // Requests about a project that still belong to the main process: they use the render queue, publish / batch, the
 // people library, project places / folders or the sessions log (shared by all projects). The project's worker saves
 // first (flush), so what is read from disk is the latest; delete / move ask the worker to let go of it (release).
-const MAIN_ROUTES = new Set(['POST /api/projects/move', 'POST /api/projects/delete', 'GET /api/presence', 'POST /api/queue', 'POST /api/publish', 'POST /api/styles/learn',
+const MAIN_ROUTES = new Set(['POST /api/projects/move', 'POST /api/projects/rename', 'POST /api/projects/delete', 'GET /api/presence', 'POST /api/queue', 'POST /api/publish', 'POST /api/styles/learn',
   'POST /api/library/template', 'GET /api/batch', 'POST /api/batch', 'POST /api/batch/cancel', 'POST /api/batch/clear']);
 const JOB_ROUTES = /^\/api\/(job|jobs\/skip|claude\/events|claude\/stop)$/;
 // which worker a request goes to (0 = this main process)

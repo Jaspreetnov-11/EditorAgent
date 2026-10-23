@@ -344,6 +344,32 @@ test('⭐ a render queued on the server PC itself goes first; Urgent cannot move
   for (const a of added) await api('POST', `/api/queue/cancel?id=${a.id}`).catch(() => {});
 });
 
+test('✏ rename a project: its folder, its own files and the list follow; a taken name or an open project is refused', async () => {
+  if (!ON) return 'skip';
+  await api('POST', '/api/projects', { name: 'Old Name' });
+  const own = path.join(tmp, 'Projects', 'Old Name', 'imports', 'take.mp4');
+  ff(['-f', 'lavfi', '-i', 'testsrc2=s=320x180:r=25:d=1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', own]);
+  await api('POST', '/api/import?p=Old%20Name', { files: [own] });
+  await api('POST', '/api/projects', { name: 'Taken' });
+  let refused = null;
+  try { await api('POST', '/api/projects/rename?p=Old%20Name', { name: 'taken' }); } catch (e) { refused = e.message; }
+  assert(/already/.test(refused || ''), `a taken name is refused (${refused})`);
+  // open (someone is in it): refused
+  const ac = new AbortController();
+  fetch(`${B}/api/live?p=Old%20Name&client=t9`, { signal: ac.signal }).then((r) => r.body.getReader().read()).catch(() => {});
+  await sleep(500);
+  refused = null;
+  try { await api('POST', '/api/projects/rename?p=Old%20Name', { name: 'New Name' }); } catch (e) { refused = e.message; }
+  ac.abort(); await sleep(500);
+  assert(/Open right now/.test(refused || ''), `an open project is refused (${refused})`);
+  const r = await api('POST', '/api/projects/rename?p=Old%20Name', { name: 'New Name' });
+  same(r.name, 'New Name');
+  assert(!fs.existsSync(path.join(tmp, 'Projects', 'Old Name')) && fs.existsSync(path.join(tmp, 'Projects', 'New Name', 'project.json')), 'the folder has the new name');
+  const names = (await api('GET', '/api/projects')).map((x) => x.name);
+  assert(names.includes('New Name') && !names.includes('Old Name'), `the list has only the new name: ${names}`);
+  same((await api('GET', '/api/media?p=New%20Name')).items[0]?.path, path.join(tmp, 'Projects', 'New Name', 'imports', 'take.mp4'));
+});
+
 test('stop the test editor and remove its folder', async () => {
   if (!ON) return 'skip';
   srv?.kill();

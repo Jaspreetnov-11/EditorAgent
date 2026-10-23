@@ -51,6 +51,8 @@ export async function renderHome(el, openProject) {
     if (ht) { homeTag = homeTag === ht.dataset.htag ? '' : ht.dataset.htag; return filterCards(el); }
     const pt = e.target.closest('[data-ptag]');
     if (pt) { e.stopPropagation(); return tagProject(pt.dataset.ptag, () => renderHome(el, openProject)); }
+    const ren = e.target.closest('[data-ren]');
+    if (ren) { e.stopPropagation(); return renameProject(ren.dataset.ren, () => renderHome(el, openProject)); }
     const del = e.target.closest('[data-del]');
     if (del) { e.stopPropagation(); return deleteProject(del.dataset.del, () => renderHome(el, openProject)); }
     const mv = e.target.closest('[data-move]');
@@ -78,7 +80,7 @@ export async function renderHome(el, openProject) {
         <div class="proj-th" style="${p.thumb ? `background-image:url('${p.thumb}')` : ''}"><span class="badge">${esc(p.aspect || '')}</span></div>
         <div class="proj-info"><b>${esc(p.name)}</b>${tagsOf(p).length ? `<span class="proj-tags">${tagChips(tagsOf(p))}</span>` : ''}${inF(p) && cur === 'all' ? `<small class="pf-tag">${esc(pf.folders.find((f) => f.id === inF(p))?.name || '')}</small>` : ''}<small>${p.duration ? `${fmt(p.duration)} · ` : ''}${p.clips} clips · ${p.media} media</small>${p.place ? `<small class="mono" title="Saved in ${esc(p.place)}">${esc(p.place)}</small>` : ''}
         <small>${new Date(p.modified).toLocaleString()}</small></div>
-        <div class="proj-btns"><button class="icon-btn" data-ptag="${esc(p.name)}" title="Tags (labels to find it by - client, kind of work, status…)" aria-label="Tags of ${esc(p.name)}">🏷</button><button class="icon-btn" data-move="${esc(p.name)}" title="Move to a folder (or drag the card onto a folder above)" aria-label="Move ${esc(p.name)} to a folder">${icon('folderMove')}</button><button class="icon-btn" data-folder="${esc(p.name)}" title="Open project folder" aria-label="Open folder of ${esc(p.name)}">${icon('folder')}</button>${owner ? `<button class="icon-btn proj-del" data-del="${esc(p.name)}" title="Delete project (to the Recycle Bin, or for good)" aria-label="Delete ${esc(p.name)}">${icon('trash')}</button>` : ''}</div></div>`).join('');
+        <div class="proj-btns"><button class="icon-btn" data-ptag="${esc(p.name)}" title="Tags (labels to find it by - client, kind of work, status…)" aria-label="Tags of ${esc(p.name)}">🏷</button>${me.role !== 'viewer' ? `<button class="icon-btn" data-ren="${esc(p.name)}" title="Rename project" aria-label="Rename ${esc(p.name)}">✏</button>` : ''}<button class="icon-btn" data-move="${esc(p.name)}" title="Move to a folder (or drag the card onto a folder above)" aria-label="Move ${esc(p.name)} to a folder">${icon('folderMove')}</button><button class="icon-btn" data-folder="${esc(p.name)}" title="Open project folder" aria-label="Open folder of ${esc(p.name)}">${icon('folder')}</button>${owner ? `<button class="icon-btn proj-del" data-del="${esc(p.name)}" title="Delete project (to the Recycle Bin, or for good)" aria-label="Delete ${esc(p.name)}">${icon('trash')}</button>` : ''}</div></div>`).join('');
     if (owner) api('GET', '/api/projects/deleted').then((d) => { const b = $('[data-a="deleted"]', el); if (b) { b.hidden = false; b.textContent = `Recycle Bin${d.length ? ` (${d.length})` : ''}`; } }).catch(() => {});
     $$('.proj[data-open]', grid).forEach((c) => {
       c.addEventListener('keydown', (e) => { if (e.key === 'Enter') openProject(c.dataset.open); });
@@ -253,6 +255,20 @@ export function newProjectDialog(openProject) {
 const size = (n) => (n >= 1073741824 ? `${(n / 1073741824).toFixed(1)} GB` : `${Math.max(1, Math.round(n / 1048576))} MB`);
 
 // 🗑 delete: the folder moves to the Recycle Bin (restorable), or - ticked - is deleted for good. The footage is never touched.
+// ✏ a new name for a project (POST /api/projects/rename): its folder is renamed where it is; refused while it is open
+async function renameProject(name, refresh) {
+  const dlg = modal('Rename project', `<label class="fld"><span>New name</span><input data-name value="${esc(name)}" maxlength="120" style="width:100%"></label>
+    <p class="muted small">The project's folder gets the new name too, where it is. Everyone has to close the project first.</p>
+    <div class="dv-actions"><button class="primary" data-action="go">Rename</button><button data-close>Cancel</button></div>`, { width: 460, onAction: async (a) => {
+    if (a !== 'go') return;
+    const to = $('[data-name]', dlg.el).value.trim();
+    if (!to || to === name) return dlg.close();
+    try { const r = await api('POST', `/api/projects/rename?p=${enc(name)}`, { name: to }); dlg.close(); toast(`Renamed to ${r.name}`); refresh(); }
+    catch (e) { toast(e.message, 'err'); }
+  } });
+  const inp = $('[data-name]', dlg.el); inp.focus(); inp.select();
+  inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('[data-action="go"]', dlg.el).click(); } });
+}
 async function deleteProject(name, refresh) {
   const choice = await new Promise((done) => {
     const dlg = modal('Delete project', `<p>Delete <b>${esc(name)}</b>?</p>
