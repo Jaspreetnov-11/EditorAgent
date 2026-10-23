@@ -11,7 +11,7 @@ import { api, enc } from './api.js';
 import { $, $$, h, esc, toast } from './ui.js';
 import { renderHome, openXmlFile } from './home.js';
 import { mountPool, refreshMedia, uploadFiles } from './mediapool.js';
-import { mountTimeline, centerTracks, splitAtPlayhead, trimAtPlayhead, deleteSelected, duplicateSelected, addTitle, setTool, setZoom, fitZoom, setTrackZoom, trackZoom, unlinkSelected, markRange, clearRange, rangeMark, liftExtract } from './timeline.js';
+import { mountTimeline, centerTracks, splitAtPlayhead, trimAtPlayhead, deleteSelected, duplicateSelected, addTitle, setTool, setZoom, fitZoom, setTrackZoom, trackZoom, resetTrackView, unlinkSelected, markRange, clearRange, rangeMark, liftExtract } from './timeline.js';
 import { mountViewer, toggle, shuttle, seek, isPlaying, isPlayingProgram, viewerMode, pause, setMode, sourceKey, toggleFullscreen, editTextClip } from './player.js';
 import { mountInspector, deleteSelectedKeys } from './inspector.js';
 import { mountFxPanel } from './fxpanel.js';
@@ -366,7 +366,8 @@ async function openProject(name) {
     safely('Render queue', pollQueue); // renders still running / waiting in the background queue
     safely('Phone notes', watchPhoneNotes); // notes sent from a phone (📱 review)
     emit('change', {}); emit('save');
-    setTimeout(() => { fitZoom(); centerTracks(); }, 50); // (V1 / A1 in the middle of the tracks)
+    // 📐 every project opens the same way: default track heights, the whole edit in view, V1 / A1 in the middle
+    setTimeout(() => { resetTrackView(); fitZoom(); centerTracks(); }, 50);
   } catch (e) { console.error('openProject: a step failed - the project stays open', e); toast(`Something in this project could not be shown (${e.message}) - the rest works`, 'err'); }
 }
 

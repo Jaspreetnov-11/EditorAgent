@@ -29,7 +29,8 @@ import { typeTimecode, replaceEdit, groupSelected, ungroupSelected, addClipMarke
 
 // row heights: the main story is tallest; voice-over and music get room for their waveforms
 // track heights: drag the bottom edge of a track header (double-click = back to normal); kept in this browser
-const ROW_DEF = (id) => (id === 'V1' ? 66 : trackKind(id) === 'video' ? 46 : id === 'A1' || id === 'A2' ? 44 : 36);
+// (📐 the office default: every project opens with these - V1 66, the other video tracks 48, voice-over and music 62)
+const ROW_DEF = (id) => (id === 'V1' ? 66 : trackKind(id) === 'video' ? 48 : id === 'A1' || id === 'A2' ? 62 : 44);
 let rowSizes = (() => { try { return JSON.parse(localStorage.getItem('ve-track-h') || '{}'); } catch { return {}; } })();
 // ⇕ vertical zoom (Premiere: Alt + wheel over the track headers, Ctrl+= / Ctrl+- taller / shorter, Shift+- / Shift+=
 // minimise / expand all): one factor on every track's height, kept in this browser
@@ -41,6 +42,13 @@ export function setTrackZoom(z) {
   render(); drawWaves();
 }
 export const trackZoom = () => vZoom;
+// 📐 a project opens with the default track heights and vertical zoom (resizing still works while editing; the next
+// project opens clean again - the same on every PC)
+export function resetTrackView() {
+  rowSizes = {}; vZoom = 1;
+  try { localStorage.removeItem('ve-track-h'); localStorage.setItem('ve-track-vz', '1'); } catch {}
+  render(); drawWaves();
+}
 function setRowH(id, h) {
   if (h) rowSizes[id] = Math.round(Math.max(24, Math.min(240, h / vZoom))); else delete rowSizes[id];
   try { localStorage.setItem('ve-track-h', JSON.stringify(rowSizes)); } catch {}
