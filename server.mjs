@@ -773,6 +773,19 @@ async function runMedia(proj, tool, args, { inputs = [], outs = [], lane = 'ligh
   }
   return helperOnly ? null : run(tool, args, { onLine });
 }
+// 🖥 a render2 job (nest, batch, QC, review copy, reels…): on the project's helper PC when one is free for a whole
+// render right now, else here - the same answer as run()
+async function renderJob(proj, jobFile, { onLine, duration } = {}) {
+  const r = await runMedia(proj, 'render', [jobFile], { lane: 'render', tag: path.basename(jobFile), waitSec: 5, duration, onLine, helperOnly: true });
+  return r || run(process.execPath, [path.join(ROOT, 'engine', 'render2.mjs'), jobFile], { onLine });
+}
+// 🖥 one of the editor's Python tools (engine/<script>) on a helper PC that has what it needs (PY_NEEDS: torch = PyTorch
+// on an NVIDIA card), else here. Tools that need the editor's own model files stay here.
+const PY_NEEDS = { 'matte.py': ['torch', 'cv2'], 'track.py': ['cv2'], 'planar.py': ['cv2'] };
+async function runPy(proj, script, args, { inputs = [], outs = [], lane = 'heavy', waitSec = 5, limitSec = 3600, onLine } = {}) {
+  const r = PY_NEEDS[script] ? await runMedia(proj, 'py', [script, ...args], { inputs, outs, lane, tag: script, waitSec, limitSec, onLine, helperOnly: true }) : null;
+  return r || run(PYTHON, [path.join(ROOT, 'engine', script), ...args], { onLine });
+}
 async function ffprobe(file, proj = null) {
   const r = await runMedia(proj, 'ffprobe', ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', file], { inputs: [file] });
   if (r.code !== 0) { ffprobe.lastErr = r.stderr; return null; }
@@ -2005,7 +2018,7 @@ async function runBatchItem(it) {
       if (srt) pj.subtitles = { file: srt.name, style: {} };
     }
     const { jobFile, out } = prepareRender(name, { project: pj, preset: o.preset || 'whatsapp', filename: path.parse(m.name).name, aspect, whole: true }, { write: false, jobFile: P(name, 'cache', 'queue', `batch-${it.id}.json`) });
-    const r = await run(process.execPath, [path.join(ROOT, 'engine', 'render2.mjs'), jobFile], { onLine: (l) => { const x = /\[(\d+)\/(\d+)\]/.exec(l); if (x) { it.progress = Math.round((+x[1] / +x[2]) * 100); it.stage = l.trim(); } } });
+    const r = await renderJob(name, jobFile, { onLine: (l) => { const x = /\[(\d+)\/(\d+)\]/.exec(l); if (x) { it.progress = Math.round((+x[1] / +x[2]) * 100); it.stage = l.trim(); } } });
     fs.rmSync(jobFile, { force: true });
     if (r.code !== 0) throw new Error(r.stderr.trim().split(/\r?\n/).pop());
     return { output: out, url: `/pf/${encodeURIComponent(name)}/renders/${encodeURIComponent(out)}` };
@@ -2229,19 +2242,28 @@ const farmWorkers = () => [...farm.workers.values()].filter((w) => Date.now() - 
 const farmToken = () => { let t = farmCfg().token; if (!t) { t = crypto.randomBytes(12).toString('hex'); saveFarm({ token: t }); } return t; };
 const farmView = () => ({ on: !!farm.server, port: FARM_PORT, token: farm.server ? farmToken() : null,
   urls: farm.server ? lanHosts().map((ip) => `http://${ip}:${FARM_PORT}`) : [],
-  workers: farmWorkers().map(({ id, name, host, busy, done, failed, slots, specs, helped }) => ({ id, name, host, busy, done, failed, slots, specs: specs || null, helped: helped || 0,
+  workers: farmWorkers().map(({ id, name, host, busy, done, failed, slots, specs, helped, load, paused }) => ({ id, name, host, busy, done, failed, slots, specs: specs || null, helped: helped || 0, load: load || 0, paused: !!paused,
     projects: specs ? [...helperOf].filter(([, h]) => h === id).map(([p]) => p).sort() : [] })),
-  pins: farmCfg().pins || {}, waiting: farm.waiting.length, running: [...farm.tasks.values()].filter((t) => t.state === 'taken').length });
+  pins: farmCfg().pins || {}, nasMax: nasMax(), waiting: farm.waiting.length, running: [...farm.tasks.values()].filter((t) => t.state === 'taken').length });
 // a task to a worker that is waiting for one (or to the next one that asks): the same lane (a helper's long / short
 // runs), and a project's run only to that project's helper
+// 🛡 the NAS (hard disks) is shared by every PC: at most nasMax long runs that read it (preview copies, renders, AI) are
+// out at once - more would only make all of them slower. The rest wait their turn (or are done here when they may not wait).
+const NAS_LANES = new Set(['heavy', 'render', 'ai']);
+const nasMax = () => Math.max(1, Math.min(64, +farmCfg().nasMax || 6));
 function farmPump() {
+  let nasBusy = 0;
+  for (const t of farm.tasks.values()) if (t.state === 'taken' && NAS_LANES.has(t.lane || 'heavy')) nasBusy++;
   for (let i = 0; i < farm.waiting.length; i++) {
     const t = farm.waiting[i];
     if (t.state !== 'waiting') { farm.waiting.splice(i--, 1); continue; }
+    const nas = NAS_LANES.has(t.lane || 'heavy');
+    if (nas && nasBusy >= nasMax()) continue;
     const k = farm.polls.findIndex((p) => p.lane === (t.lane || 'heavy') && (!t.helper || p.w.id === t.helper));
     if (k < 0) continue;
     const p = farm.polls.splice(k, 1)[0];
     farm.waiting.splice(i--, 1);
+    if (nas) nasBusy++;
     clearTimeout(p.timer);
     t.state = 'taken'; t.worker = p.w.id; t.takenAt = Date.now(); p.w.busy = (p.w.busy || 0) + 1;
     // taken but never finished (the worker computer went off): the shot is rendered here
@@ -2263,16 +2285,18 @@ function farmPump() {
 const LANES = ['light', 'heavy', 'render', 'ai'];
 const helperOf = new Map(); // project -> helper id (kept while that PC is on)
 const helperPCs = () => farmWorkers().filter((w) => w.specs);
-const helperSlots = () => { const hs = farm.server ? helperPCs() : []; return { heavy: hs.reduce((n, w) => n + (w.slots || 1), 0), light: hs.length * 2, ai: hs.filter((w) => w.specs.whisper).length, render: hs.filter((w) => w.specs.render).length }; };
+const helperSlots = () => { const hs = farm.server ? helperPCs().filter((w) => !w.paused) : []; return { heavy: hs.reduce((n, w) => n + (w.slots || 1), 0), light: hs.length * 2, ai: hs.filter((w) => w.specs.whisper || w.specs.torch).length, render: hs.filter((w) => w.specs.render).length }; };
 // what a run needs on the PC: FFprobe, Whisper on an NVIDIA card, or the editor's code (a whole render)
 const NEEDS = { ffprobe: 'ffprobe', transcribe: 'whisper' };
+const toolNeeds = (tool, args) => (tool === 'py' ? PY_NEEDS[args?.[0]] : NEEDS[tool]) || null;
 async function helperRun({ proj, tool, args, inputs = [], outs = [], lane = 'light', tag = '', waitSec = 10, limitSec = 120, duration, onLine }) {
   if (tool === 'render') { // (a whole render: args [job file] - Export and the monitor's preview)
     const p = helperRender({ proj, jobFile: args?.[0], duration, label: tag, onLine });
     return p && !(await p) ? { code: 0, stdout: '', stderr: '' } : null;
   }
-  if (!farm.server || !['ffmpeg', 'ffprobe', 'transcribe'].includes(tool) || !proj) return null;
-  const h = pickHelper(String(proj), helperPCs(), helperOf, farmCfg().pins || {}, NEEDS[tool] || null);
+  if (!farm.server || !['ffmpeg', 'ffprobe', 'transcribe', 'py'].includes(tool) || !proj) return null;
+  if (tool === 'py' && !PY_NEEDS[args?.[0]]) return null; // (only the listed tools)
+  const h = pickHelper(String(proj), helperPCs(), helperOf, farmCfg().pins || {}, toolNeeds(tool, args));
   if (!h) return null;
   let sizes;
   try { sizes = inputs.map((f) => fs.statSync(f).size); } catch { return null; }
@@ -2286,6 +2310,13 @@ async function helperRun({ proj, tool, args, inputs = [], outs = [], lane = 'lig
   if (e) return null;
   const w = farm.workers.get(h.id); if (w) w.helped = (w.helped || 0) + 1; // (its record is made again at each hello)
   return t.result;
+}
+// the worker.mjs helpers should run: a PC with another one restarts, and its launcher fetches this one
+let workerV = null;
+function workerVersion() {
+  const f = path.join(ROOT, 'engine', 'worker.mjs');
+  try { const mt = fs.statSync(f).mtimeMs; if (workerV?.mt !== mt) workerV = { mt, v: crypto.createHash('sha1').update(fs.readFileSync(f)).digest('hex').slice(0, 12) }; } catch { return null; }
+  return workerV.v;
 }
 // the editor's code a helper keeps a copy of (engine/worker.mjs syncs it): the render engine and what it imports, the
 // transcriber, and the editor's own LUTs (a whole render reads them). By size and time - only what changed is fetched.
@@ -2360,6 +2391,7 @@ function farmEnd(t, e) {
   farm.waiting = farm.waiting.filter((x) => x !== t);
   setTimeout(() => farm.tasks.delete(t.id), 60000);
   t.finish(e);
+  setImmediate(farmPump);
 }
 function startFarm() {
   if (farm.server) return Promise.resolve();
@@ -2381,9 +2413,9 @@ function startFarm() {
         const old = farm.workers.get(id);
         // (🖥 a helper PC also says what it is - an older worker.mjs only renders shots)
         const sp = b.specs && typeof b.specs === 'object' ? { cores: Math.max(1, Math.min(512, +b.specs.cores || 1)), cpu: String(b.specs.cpu || '').slice(0, 80), ramGB: Math.max(0, Math.min(4096, +b.specs.ramGB || 0)),
-          gpu: String(b.specs.gpu || '').slice(0, 80), nvenc: !!b.specs.nvenc, ffprobe: !!b.specs.ffprobe, render: !!b.specs.render, whisper: !!b.specs.whisper } : null;
-        farm.workers.set(id, { ...old, id, name: String(b.name || 'Worker').slice(0, 40), host: req.socket.remoteAddress, slots: Math.max(1, Math.min(8, +b.slots || 1)), specs: sp, seen: Date.now(), busy: old?.busy || 0, done: old?.done || 0, failed: old?.failed || 0 });
-        return send(res, 200, { id, ffmpeg: true });
+          gpu: String(b.specs.gpu || '').slice(0, 80), nvenc: !!b.specs.nvenc, ffprobe: !!b.specs.ffprobe, render: !!b.specs.render, whisper: !!b.specs.whisper, torch: !!b.specs.torch, cv2: !!b.specs.cv2 } : null;
+        farm.workers.set(id, { ...old, id, name: String(b.name || 'Worker').slice(0, 40), host: req.socket.remoteAddress, slots: Math.max(1, Math.min(8, +b.slots || 1)), specs: sp, load: Math.max(0, Math.min(100, Math.round(+b.load || 0))), paused: !!b.paused, seen: Date.now(), busy: old?.busy || 0, done: old?.done || 0, failed: old?.failed || 0 });
+        return send(res, 200, { id, ffmpeg: true, v: workerVersion() }); // (v: a helper with another worker.mjs restarts to fetch this one)
       }
       if (req.method === 'GET' && u.pathname === '/farm/next') {
         const w = farm.workers.get(u.searchParams.get('w'));
@@ -3508,7 +3540,7 @@ const routes = {
     writeJSON(jobFile, j);
     return startTask('nest', async (job) => {
       job.stage = `Rendering "${sname}"…`;
-      const r = await run(process.execPath, [path.join(ROOT, 'engine', 'render2.mjs'), jobFile], { onLine: (l) => { const m = /\[(\d+)\/(\d+)\]/.exec(l); if (m) job.progress = Math.round((+m[1] / +m[2]) * 90); } });
+      const r = await renderJob(name, jobFile, { onLine: (l) => { const m = /\[(\d+)\/(\d+)\]/.exec(l); if (m) job.progress = Math.round((+m[1] / +m[2]) * 90); } });
       fs.rmSync(jobFile, { force: true });
       if (r.code !== 0) { fs.rmSync(`${out}.part.mp4`, { force: true }); throw new Error(`Could not render "${sname}": ${r.stderr.trim().split(/\r?\n/).pop()}`); }
       fs.renameSync(`${out}.part.mp4`, out);
@@ -3780,7 +3812,7 @@ const routes = {
     const tc = [Math.floor(t / 3600), Math.floor((t % 3600) / 60), Math.floor(t % 60), Math.floor((t % 1) * F)].map((x) => String(x).padStart(2, '0')).join('-');
     return startTask('frame', async (job) => {
       job.stage = 'Making the frame…';
-      const r = await run(process.execPath, [path.join(ROOT, 'engine', 'render2.mjs'), jobFile]);
+      const r = await renderJob(name, jobFile);
       if (r.code !== 0 || !fs.existsSync(mp4)) throw new Error(`The frame could not be made: ${String(r.stderr || r.stdout).trim().split(/\r?\n/).pop()}`);
       const dir = P(name, 'output', 'frames'); fs.mkdirSync(dir, { recursive: true });
       const base = safeName(`${seqOf(pj).name || name} ${tc}`);
@@ -3864,7 +3896,7 @@ const routes = {
     fs.mkdirSync(path.dirname(out), { recursive: true });
     return startTask('matte', async (job) => {
       job.stage = 'Finding the subject (AI)…';
-      const r = await run(PYTHON, [path.join(ROOT, 'engine', 'matte.py'), analysisFile(name, m), String(t0), String(t1), `${out}.part.mp4`, '--fps', String(fps), '--quality', quality], {
+      const r = await runPy(name, 'matte.py', [analysisFile(name, m), String(t0), String(t1), `${out}.part.mp4`, '--fps', String(fps), '--quality', quality], { inputs: [analysisFile(name, m)], outs: [`${out}.part.mp4`], lane: 'ai',
         onLine: (l) => { const x = /\[(\d+)\/(\d+)\]/.exec(l); if (x) job.progress = Math.round((+x[1] / +x[2]) * 100); } });
       if (r.code !== 0 || !fs.existsSync(`${out}.part.mp4`)) { fs.rmSync(`${out}.part.mp4`, { force: true }); throw new Error(`Could not cut out the subject: ${r.stderr.trim().split(/\r?\n/).pop()}`); }
       fs.renameSync(`${out}.part.mp4`, out);
@@ -4492,7 +4524,7 @@ const routes = {
     const { jobFile, out } = prepareRender(name, { ...b, preview: true });
     return startTask('loudness', async (job) => {
       job.log.push('[1/2] Mixing a preview…'); job.progress = 5;
-      const r = await run(process.execPath, [path.join(ROOT, 'engine', 'render2.mjs'), jobFile], { onLine: (l) => { const m = /\[(\d+)\/(\d+)\]/.exec(l); if (m) job.progress = Math.round((+m[1] / +m[2]) * 80); } });
+      const r = await renderJob(name, jobFile, { onLine: (l) => { const m = /\[(\d+)\/(\d+)\]/.exec(l); if (m) job.progress = Math.round((+m[1] / +m[2]) * 80); } });
       if (r.code !== 0) throw new Error(`Preview mix failed: ${r.stderr.slice(-300)}`);
       job.log.push('[2/2] Measuring loudness…'); job.progress = 85;
       const m = await run('ffmpeg', ['-hide_banner', '-nostats', '-i', P(name, 'renders', out), '-vn', '-af', 'ebur128=peak=true', '-f', 'null', '-']);
@@ -4519,7 +4551,7 @@ const routes = {
     return startTask('qc', async (job) => {
       if (!file) {
         job.stage = 'Making a preview of the edit…'; job.progress = 2;
-        const r = await run(process.execPath, [path.join(ROOT, 'engine', 'render2.mjs'), jobFile], { onLine: (l) => { const m = /\[(\d+)\/(\d+)\]/.exec(l); if (m) job.progress = Math.round((+m[1] / +m[2]) * 45); } });
+        const r = await renderJob(name, jobFile, { onLine: (l) => { const m = /\[(\d+)\/(\d+)\]/.exec(l); if (m) job.progress = Math.round((+m[1] / +m[2]) * 45); } });
         if (r.code !== 0) throw new Error(`Preview failed: ${r.stderr.slice(-300)}`);
         file = P(name, 'renders', out);
       }
@@ -4641,6 +4673,7 @@ const routes = {
     if (b.newToken) { saveFarm({ token: crypto.randomBytes(12).toString('hex') }); for (const t of farm.tasks.values()) farmEnd(t, new Error('Token changed')); farm.workers.clear(); }
     if (b.on === true) { await startFarm(); saveFarm({ on: true }); }
     if (b.on === false) { stopFarm(); saveFarm({ on: false }); }
+    if (Number.isInteger(b.nasMax) && b.nasMax >= 1 && b.nasMax <= 64) { saveFarm({ nasMax: b.nasMax }); farmPump(); } // (🛡 long runs reading the NAS at once)
     // 🖥 a project kept on one helper PC (by its name), or given back to the automatic choice (pc '')
     if (b.pin && typeof b.pin.project === 'string') {
       const pins = { ...(farmCfg().pins || {}) }, pr = needProject(b.pin.project), pc = String(b.pin.pc || '').slice(0, 40);
@@ -4892,7 +4925,7 @@ const routes = {
     const t0 = Math.max(0, +b.t0 || 0), t1 = Math.min(m.duration || 1e9, +b.t1 || m.duration || 0);
     return startTask('track', async (job) => {
       job.stage = 'Following it through the shot…'; job.progress = 10;
-      const r = await run(PYTHON, [path.join(ROOT, 'engine', 'track.py'), analysisFile(name, m), String(t0), String(t1), ...[bx.x, bx.y, bx.w, bx.h].map((v) => String(+v)), '--fps', '15']);
+      const r = await runPy(name, 'track.py', [analysisFile(name, m), String(t0), String(t1), ...[bx.x, bx.y, bx.w, bx.h].map((v) => String(+v)), '--fps', '15'], { inputs: [analysisFile(name, m)], lane: 'light', waitSec: 3, limitSec: 600 });
       if (r.code !== 0) throw new Error(`Tracking failed: ${r.stderr.slice(-300)}`);
       const out = JSON.parse(r.stdout.trim().split(/\r?\n/).pop());
       if (out.error) throw new Error(out.error);
@@ -4911,7 +4944,7 @@ const routes = {
     if (te - ts > 300) throw err(400, 'That shot is longer than 5 minutes - cut it shorter first');
     return startTask('track', async (job) => {
       job.stage = 'Tracking the surface through the shot…'; job.progress = 10;
-      const r = await run(PYTHON, [path.join(ROOT, 'engine', 'planar.py'), analysisFile(name, m), String(ts), String(t0), String(te), ...qd.map(String), '--fps', '25']);
+      const r = await runPy(name, 'planar.py', [analysisFile(name, m), String(ts), String(t0), String(te), ...qd.map(String), '--fps', '25'], { inputs: [analysisFile(name, m)], limitSec: 1800 });
       if (r.code !== 0) throw new Error(`Planar tracking failed: ${r.stderr.slice(-300)}`);
       const out = JSON.parse(r.stdout.trim().split(/\r?\n/).pop());
       if (out.error) throw new Error(out.error);
@@ -5208,7 +5241,7 @@ const routes = {
       for (const [k, x] of made.entries()) {
         job.stage = `Rendering ${x.project} (${k + 1}/${made.length})`; job.log.push(job.stage);
         const { jobFile, out } = prepareRender(x.project, { preset: 'reel', filename: x.project, tag: false, whole: true });
-        const r = await run(process.execPath, [path.join(ROOT, 'engine', 'render2.mjs'), jobFile],
+        const r = await renderJob(x.project, jobFile,
           { onLine: (l) => { const p = /\[(\d+)\/(\d+)\]/.exec(l); if (p) job.progress = Math.round(((k + +p[1] / +p[2]) / made.length) * 100); } });
         if (r.code !== 0) { x.error = r.stderr.trim().split('\n').pop(); job.log.push(`  failed: ${x.error}`); continue; }
         x.output = out; x.url = `/pf/${encodeURIComponent(x.project)}/renders/${encodeURIComponent(out)}`;

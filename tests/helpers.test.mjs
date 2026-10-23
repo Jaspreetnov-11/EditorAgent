@@ -32,6 +32,14 @@ test('a run that needs FFprobe is done on the editor when the project\'s PC has 
   eq(pickHelper('p', [pc('a', 8, { ffprobe: false })], as).id, 'a');
 });
 
+test('a PC in use by its own user takes nothing; a run needing several things goes only where all are', () => {
+  const as = new Map(), hs = [pc('a', 24, { torch: true, cv2: true }), pc('b', 8, { cv2: true })];
+  eq(pickHelper('p', hs, as, {}, ['torch', 'cv2']).id, 'a');
+  hs[0].paused = true;
+  eq(pickHelper('p', hs, as, {}, 'cv2').id, 'b', 'the busy PC\'s project went to the other one');
+  eq(pickHelper('p', hs, as, {}, ['torch', 'cv2']), null, 'no other PC has a GPU: done on the editor');
+});
+
 test('the editor\'s own files become placeholders - every place they appear', () => {
   const f = 'Z:\\Shoot\\A.MXF', o = 'Z:\\P\\cache\\strips\\1.jpg';
   eq(toTaskArgs(['-ss', '1', '-i', f, '-ss', '2', '-i', f, '-y', o], [f], [o]), ['-ss', '1', '-i', '{{IN0}}', '-ss', '2', '-i', '{{IN0}}', '-y', '{{OUT0}}']);

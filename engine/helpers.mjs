@@ -9,11 +9,12 @@ export function helperScore(sp = {}) {
 }
 
 // the PC for a project: a pinned one (when it is on), else the one it already has (when it is on), else the PC with
-// the least projects for its strength. helpers: [{ id, name, specs }], assigned: Map project -> helper id,
-// pins: { project: PC name }. need: 'ffprobe' when the run needs FFprobe on that PC.
+// the least projects for its strength. helpers: [{ id, name, specs, paused }], assigned: Map project -> helper id,
+// pins: { project: PC name }. need: what the run needs on that PC - one name or a list ('ffprobe', ['torch', 'cv2']).
+// A PC whose own user is busy on it (paused) takes nothing: its projects go to the others meanwhile.
 export function pickHelper(proj, helpers, assigned, pins = {}, need = null) {
-  const can = (h) => h.specs && (!need || h.specs[need]);
-  const on = helpers.filter((h) => h.specs);
+  const can = (h) => [].concat(need || []).every((k) => h.specs[k]);
+  const on = helpers.filter((h) => h.specs && !h.paused);
   if (!on.length) return null;
   const pin = pins[proj] && on.find((h) => h.name === pins[proj]);
   const cur = assigned.get(proj), had = cur && on.find((h) => h.id === cur);

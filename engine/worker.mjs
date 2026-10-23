@@ -13,6 +13,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // (this file is fetched on its own by each PC - /farm/worker.mjs - so it imports nothing of the editor's)
 // the editor's {{INn}} / {{OUTn}} (engine/helpers.mjs toTaskArgs) swapped for where this PC reads / writes each file
@@ -56,9 +57,43 @@ if (!works(FFMPEG, ['-hide_banner', '-version'])) {
 const NVENC = works(FFMPEG, ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=black:s=256x256:d=0.1', '-frames:v', '1', '-c:v', 'h264_nvenc', '-f', 'null', '-']);
 const gpu = (() => { const r = spawnSync('nvidia-smi', ['--query-gpu=name', '--format=csv,noheader'], { encoding: 'utf8', windowsHide: true, timeout: 10000 }); return r.status === 0 ? r.stdout.trim().split(/\r?\n/)[0] : ''; })();
 // 🎙 Whisper on an NVIDIA card (Python with faster-whisper and CUDA - 'Setup AI on this PC.bat'): this PC transcribes too
+// (and PyTorch on the GPU / OpenCV: cutting out the subject, tracking - engine/*.py from the editor's code copy)
 const PY = opt('python', ['python', 'py'].find((b) => works(b, ['--version'])) || '');
-const whisper = !!PY && (() => { const r = spawnSync(PY, ['-c', 'import faster_whisper, ctranslate2; print(ctranslate2.get_cuda_device_count())'], { encoding: 'utf8', windowsHide: true, timeout: 60000 }); return r.status === 0 && +r.stdout.trim() > 0; })();
-const SPECS = { cores: os.cpus().length, cpu: os.cpus()[0]?.model.trim() || '', ramGB: Math.round(os.totalmem() / 2 ** 30), gpu, nvenc: NVENC, ffprobe: works(FFPROBE, ['-hide_banner', '-version']), render: false, whisper };
+const PROBE = [
+  'import importlib.util as u, json',
+  "r = {m: bool(u.find_spec(m)) for m in ('cv2', 'torch', 'torchvision', 'faster_whisper', 'ctranslate2')}",
+  "if r['torch']:",
+  '    import torch',
+  "    r['cuda'] = torch.cuda.is_available()",
+  "if r['ctranslate2']:",
+  '    import ctranslate2',
+  "    r['ct2cuda'] = ctranslate2.get_cuda_device_count() > 0",
+  'print(json.dumps(r))',
+].join('\n');
+const pyHas = (() => { if (!PY) return {}; const r = spawnSync(PY, ['-c', PROBE], { encoding: 'utf8', windowsHide: true, timeout: 120000 }); try { return r.status === 0 ? JSON.parse(r.stdout.trim().split(/\r?\n/).pop()) : {}; } catch { return {}; } })();
+const whisper = !!(pyHas.faster_whisper && pyHas.ct2cuda);
+const SPECS = { cores: os.cpus().length, cpu: os.cpus()[0]?.model.trim() || '', ramGB: Math.round(os.totalmem() / 2 ** 30), gpu, nvenc: NVENC, ffprobe: works(FFPROBE, ['-hide_banner', '-version']), render: false, whisper,
+  torch: !!(pyHas.torch && pyHas.torchvision && pyHas.cuda && pyHas.cv2), cv2: !!pyHas.cv2 };
+const AI = whisper || SPECS.torch;
+
+// 🖥 when this PC's own user is busy on it (the CPU above 80% while it runs nothing for the editor), it stops taking work
+// until the PC is quiet again; the editor gives its projects to other PCs meanwhile. --no-pause: a PC only for helping.
+const NOPAUSE = argv.includes('--no-pause');
+let mine = 0, load = 0, paused = false, hot = 0, cool = 0;
+const cpuNow = () => { let idle = 0, total = 0; for (const c of os.cpus()) { for (const v of Object.values(c.times)) total += v; idle += c.times.idle; } return { idle, total }; };
+let cpuPrev = cpuNow();
+setInterval(() => {
+  const n = cpuNow(), d = n.total - cpuPrev.total;
+  load = d > 0 ? Math.round(100 * (1 - (n.idle - cpuPrev.idle) / d)) : 0; cpuPrev = n;
+  if (NOPAUSE) return;
+  if (load > 80 && !mine) { cool = 0; if (++hot >= 2 && !paused) { paused = true; log('⏸ this PC is busy with its own work - helping again when it is quiet'); hello().catch(() => {}); } }
+  else if (load < 50) { hot = 0; if (paused && ++cool >= 3) { paused = false; log('▶ quiet again - helping'); hello().catch(() => {}); } }
+  else hot = 0;
+}, 5000).unref();
+// 🔄 the editor runs a newer worker.mjs: once nothing is running, stop - the launcher fetches the new one and starts it
+const MYV = crypto.createHash('sha1').update(fs.readFileSync(fileURLToPath(import.meta.url))).digest('hex').slice(0, 12);
+let stale = false;
+const quitIfStale = () => { if (stale && !mine) { log('a newer helper is out - restarting to fetch it'); process.exit(3); } };
 const SLOTS = Math.max(1, Math.min(8, +opt('slots', Math.max(1, Math.floor(SPECS.cores / 6)) + (NVENC ? 1 : 0)) || 1));
 const LIGHT = 2; // reading new footage: short runs, kept apart from the long ones so a new file's thumbnail never waits on a preview copy
 
@@ -104,9 +139,10 @@ function reporter(id, kill) {
 }
 
 async function hello() {
-  const r = await post('/farm/hello', { id: ID, name: NAME, slots: SLOTS, light: LIGHT, specs: SPECS });
+  const r = await post('/farm/hello', { id: ID, name: NAME, slots: SLOTS, light: LIGHT, specs: SPECS, load, paused });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+  if (j.v && j.v !== MYV) { stale = true; quitIfStale(); }
   ID = j.id; try { fs.writeFileSync(ID_FILE, ID); } catch {}
 }
 
@@ -117,6 +153,7 @@ function exec(exe, args, cwd, onLine, o = {}) {
     const p = spawn(exe, args, { cwd, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' } });
     try { os.setPriority(p.pid, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch {} // (what it starts runs at that priority too)
     o.started?.(p);
+    mine++; p.on('close', () => { mine--; quitIfStale(); });
     let out = '', err = '', part = '', epart = '';
     if (o.both && onLine) p.stderr.on('data', (d) => { const ls = (epart + d).split(/\r\n|\r|\n/); epart = ls.pop(); ls.forEach(onLine); });
     p.stdout.on('data', (d) => {
@@ -167,13 +204,16 @@ async function doTool(t) {
     });
     let args = fromTaskArgs(t.args, ins, outs.map((o) => o.file));
     // 🎙 transcribing: the editor's transcriber from this PC's copy of its code, its lines shown in the editor's job
-    const ai = t.tool === 'transcribe';
+    const ai = t.tool === 'transcribe' || t.tool === 'py';
+    const script = t.tool === 'py' ? String(t.args[0] || '') : null;
+    if (script !== null && !/^[a-z0-9_]+\.py$/.test(script)) throw new Error(`not one of the editor's tools: ${script}`);
+    if (script) args = args.slice(1);
     if (ai && !(await syncCode())) throw new Error('no copy of the editor\'s code');
     let proc = null, last = 0;
     const rep = ai ? reporter(t.id, () => proc?.kill()) : null;
     const onLine = ai ? rep.line : t.tag === 'proxy' ? (l) => { if (/^out_time_ms=/.test(l) && Date.now() - last > 2000) { last = Date.now(); post(`/farm/progress/${t.id}`, { line: l }).catch(() => {}); } } : null;
     const exe = ai ? PY : t.tool === 'ffprobe' ? FFPROBE : FFMPEG;
-    if (ai) args = [path.join(CODE, 'engine', 'transcribe.py'), ...args];
+    if (ai) args = [path.join(CODE, 'engine', script || 'transcribe.py'), ...args];
     const o = { both: ai, started: (p) => { proc = p; } };
     let r = null;
     const hw = t.tag === 'proxy' && NVENC ? nvencArgs(args) : null;
@@ -228,6 +268,7 @@ async function doRender(t) {
 // one slot: ask for work (the editor holds the request up to 25s), do it, ask again
 async function slot(lane) {
   for (;;) {
+    if (paused || stale) { await sleep(5000); continue; }
     try {
       const r = await fetch(`${url('/farm/next')}?w=${encodeURIComponent(ID)}&lane=${lane}`, { headers: H });
       if (r.status === 204) continue;
@@ -242,9 +283,9 @@ async function slot(lane) {
 for (;;) {
   try { SPECS.render = await syncCode(); await hello(); break; } catch (e) { log(`cannot reach the editor at ${BASE}: ${e.message} - trying again in 5s`); await sleep(5000); }
 }
-log(`🖥 ${NAME} is helping the editor at ${BASE}: ${SPECS.cores} cores, ${SPECS.ramGB} GB${gpu ? `, ${gpu}${NVENC ? ' (NVIDIA encoder)' : ''}` : ''} - ${SLOTS} long job${SLOTS > 1 ? 's' : ''} + ${LIGHT} short ones at a time${SPECS.render ? ', whole renders' : ''}${whisper ? ', transcribing (Whisper on the GPU)' : ''}. Keep this window open.`);
+log(`🖥 ${NAME} is helping the editor at ${BASE}: ${SPECS.cores} cores, ${SPECS.ramGB} GB${gpu ? `, ${gpu}${NVENC ? ' (NVIDIA encoder)' : ''}` : ''} - ${SLOTS} long job${SLOTS > 1 ? 's' : ''} + ${LIGHT} short ones at a time${SPECS.render ? ', whole renders' : ''}${whisper ? ', transcribing (Whisper on the GPU)' : ''}${SPECS.torch ? ', AI cut-outs (GPU)' : ''}${SPECS.cv2 ? ', tracking' : ''}. Keep this window open.`);
 if (!SPECS.ffprobe) log(`⚠ FFprobe not found (${FFPROBE}) - new footage is read on the editor instead`);
 // stay known to the editor even while idle (each wait for work counts too)
-setInterval(() => hello().catch(() => {}), 20000);
+setInterval(() => hello().catch(() => {}), 10000);
 await Promise.all([...Array.from({ length: SLOTS }, () => slot('heavy')), ...Array.from({ length: LIGHT }, () => slot('light')),
-  ...(SPECS.render ? [slot('render')] : []), ...(whisper ? [slot('ai')] : [])]);
+  ...(SPECS.render ? [slot('render')] : []), ...(AI ? [slot('ai')] : [])]);
