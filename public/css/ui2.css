@@ -754,3 +754,16 @@ html.ui2 .sm-stage.zoomed .sm-frame { margin: 6px auto; }
 html.ui2 .srcmon:not(.sm-has) :is(.sm-row, .sm-zoom) :is(button, select) { opacity: .35; pointer-events: none; }
 @container (max-width: 360px) { html.ui2 .sm-ctrl .sm-gap { width: 4px; } html.ui2 .sm-zsel { display: none; } }
 html.ui2 .sm-range { top: 15px; height: 4px; } html.ui2 .sm-range[hidden] { display: none; }
+/* ✂ trim handles never cover a short clip: at most 22% of its width each (10px on wide clips), so its middle can always
+   be taken and moved - on a 20px clip the two 10px handles were the whole clip, and every press trimmed instead.
+   With a tool that does not trim (Pen, Razor, Slip, Slide, Track Select, Zoom, Extend) the press goes to the clip. */
+.timeline .clip .trim { width: clamp(3px, 22%, 10px); }
+.timeline:is([data-tool="pen"], [data-tool="blade"], [data-tool="slip"], [data-tool="slide"], [data-tool="trackfwd"], [data-tool="trackback"], [data-tool="zoom"], [data-tool="extend"]) .clip .trim { pointer-events: none; }
+html.ui2 .sm-rul { padding: 3px 5px; color: var(--muted); } html.ui2 .sm-rul.on { color: var(--accent); }
+/* two monitors: the Source / Program line carries Accurate preview, so the Program monitor's own head goes (no empty bar) */
+html.ui2 .edit-grid.ws-monsrc .viewer .vw-head { display: none; }
+html.ui2 .mon-dock .vw-acc { margin: 4px 6px 4px auto; padding: 2px 10px; font-size: 11.5px; color: var(--text); border: 1px solid var(--line-2); border-radius: 6px; }
+html.ui2 .mon-dock .vw-acc:hover { border-color: var(--accent); color: var(--accent); }
+.mon-dock .vw-acc { letter-spacing: 0; }
+html.ui2 .edit-grid .mon-dock button.vw-acc { margin-left: auto !important; margin-right: 6px !important; align-self: center; }
+html.ui2 .sm-loop.on { color: var(--accent); }

@@ -20,11 +20,16 @@ const ON_LAN = /^(localhost$|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.t
 // ⚡ Playback, like Premiere's Playback Resolution (the monitor's Fast / Full): Fast - the default - plays the 1080p preview
 // copy when there is one (light to stream from the NAS to every PC at once, quick to scrub); Full plays the camera file
 // itself (sharpest, heavy: a 4K HEVC drone file is ~100 Mbit/s for each PC that plays it - 20-30 PCs made it all slow)
-let playback = (() => { try { return localStorage.getItem('ve-playback') === 'full' ? 'full' : 'fast'; } catch { return 'fast'; } })();
+// Premiere's 1/1 · 1/2 · 1/4: 'full' (1/1) the camera files; 'fast' (1/2) the 1080p preview copies; 'quarter' (1/4) the
+// preview copies always, and the monitor's own layers (colour, keying, graphics) drawn at half their size - quickest, softest
+let playback = (() => { try { const v = localStorage.getItem('ve-playback'); return v === 'full' || v === 'quarter' ? v : 'fast'; } catch { return 'fast'; } })();
+// how big the monitor draws its canvases at this playback resolution (1 = as before)
+const resK = () => (playback === 'quarter' ? 0.5 : 1);
 export const playbackMode = () => playback;
 // (and 4K H.264, which only got the preview copy for being big)
 const direct = (m) => ON_LAN && m?.kind === 'video' && m.status === 'ready' && m.proxy !== 'none' && /\.(mp4|mov|m4v)$/i.test(m.path || '')
   && !(playback === 'fast' && m.proxy === 'ready' && ((m.proxyH || 0) >= 1080 || (m.width || 0) * (m.height || 0) > 1920 * 1080))
+  && !(playback === 'quarter' && m.proxy === 'ready')
   // (a 4K file in Fast plays its preview copy even while that is still the old 540p one - its 1080p copy is being made;
   // five keyed 4K drone layers decoded at once made the monitor stutter)
   && ((m.vcodec === 'hevc' && HEVC[m.pixfmt]) || (m.vcodec === 'h264' && /^yuvj?420p$/.test(m.pixfmt || '')));
@@ -68,6 +73,7 @@ export function mountViewer(el) {
     </div>
     <span class="vw-title" id="vwTitle"></span>
     <span class="grow"></span>
+    <button class="small vw-acc" data-act="accurate" title="Render the exact result with FFmpeg (its quality: the wrench menu)">Preview</button>
   </div>
   <div class="vw-stage" id="vwStage">
     <div class="vw-frame" id="vwFrame">
@@ -98,10 +104,7 @@ export function mountViewer(el) {
   </div>
   <div class="vw-row">
     <span class="tc big" id="vwTC">00:00:00:00</span>
-    <select class="small vw-zoom" data-vzoom title="Zoom level, like Premiere's: Fit shows the whole frame. The mouse wheel over the picture zooms in / out where the mouse is (Alt + wheel scales the selected clip); middle-drag or the scrollbars move around"><option value="fit">Fit</option>${ZOOMS.map((z) => `<option value="${z}">${Math.round(z * 100)}%</option>`).join('')}</select>
     <span class="grow"></span>
-    <select class="small vw-pb" data-pb title="Playback: Fast plays the light 1080p preview copies (quick to load and scrub, easy on the NAS when the whole office works); Full plays the camera files themselves where the browser can (sharpest, much heavier)"><option value="fast">Fast</option><option value="full">Full</option></select>
-    <button class="icon-btn vw-wrench" data-act="menu" title="Settings: safe margins, rulers, Accurate preview" aria-label="Settings">${monIco('wrench')}</button>
     <span class="tc" id="vwDur"></span>
   </div>
   <div class="vw-ruler" id="vwRuler" title="Drag to move through the edit"><div class="vr-ticks"></div><div class="vr-ph"><i></i></div></div>
@@ -121,7 +124,13 @@ export function mountViewer(el) {
     <i class="vw-gap"></i>
     <button class="icon-btn prog-only" data-k="lift" title="Lift (;): take In to Out out of the timeline, leave a gap" aria-label="Lift">${monIco('lift')}</button>
     <button class="icon-btn prog-only" data-k="extract" title="Extract ('): take In to Out out of the timeline and close the gap" aria-label="Extract">${monIco('extract')}</button>
+    <i class="vw-gap"></i>
+    <select class="small vw-zoom" data-vzoom title="Zoom level, like Premiere's: Fit shows the whole frame. The mouse wheel over the picture zooms in / out where the mouse is (Alt + wheel scales the selected clip); middle-drag or the scrollbars move around"><option value="fit">Fit</option>${ZOOMS.map((z) => `<option value="${z}">${Math.round(z * 100)}%</option>`).join('')}</select>
+    <select class="small vw-pb" data-pb title="Playback resolution, like Premiere's: 1/1 plays the camera files themselves where the browser can (sharpest, heaviest); 1/2 plays the light 1080p preview copies (quick, easy on the NAS when the whole office works); 1/4 plays the preview copies and draws colour, keying and graphics at a lower size (quickest, softest)"><option value="quarter">1/4</option><option value="fast">1/2</option><option value="full">1/1</option></select>
+    <button class="icon-btn vw-guides" data-act="guides" title="Guides: title / action safe margins" aria-label="Guides">${monIco('safe')}</button>
+    <button class="icon-btn vw-rul" data-act="rulers" title="Rulers: frame pixels along the top and left of the picture. Drag a guide out of a ruler, drag it back to remove it; right-click a ruler: clear guides" aria-label="Rulers">${monIco('ruler')}</button>
     <button class="icon-btn" data-act="frame" title="Export Frame (Ctrl+Shift+E): this frame as a PNG, exactly as the export makes it" aria-label="Export Frame">${ic('camera')}</button>
+    <button class="icon-btn vw-wrench" data-act="menu" title="Accurate preview quality" aria-label="Settings">${monIco('wrench')}</button>
     <span class="src-only" hidden>
       <button class="small accent" data-act="insert" title="Insert into V1 at the playhead (,)">Insert</button>
       <button class="small" data-act="append" title="Add to the end of V1">Append</button>
@@ -144,7 +153,7 @@ export function mountViewer(el) {
     if (!a) return;
     ({ play: toggle, start: () => seek(0), end: () => seek(curDuration()), back: () => step(-1), fwd: () => step(1),
       in: () => mark('in'), out: () => mark('out'), insert: () => sourceTo('insert'), append: () => sourceTo('append'), overlay: () => sourceTo('overlay'),
-      goin: () => goMark('in'), goout: () => goMark('out'), menu: () => settingsMenu(e.target.closest('button')),
+      rulers: () => rul?.toggle(), guides: toggleGuides, goin: () => goMark('in'), goout: () => goMark('out'), menu: () => settingsMenu(e.target.closest('button')),
       accurate: () => emit('accuratePreview'), frame: () => import('./editing.js').then((x) => x.exportFrame()) })[a]?.();
   });
   $('#srcBar', el).addEventListener('pointerdown', (e) => {
@@ -155,7 +164,10 @@ export function mountViewer(el) {
   });
   new ResizeObserver(sizeFrame).observe($('#vwStage', el));
   // 📏 rulers (monruler.js): the stage makes room for them, so the picture is fitted inside what is left
-  rul = monitorRulers({ key: 'program', host: el, stage: $('#vwStage', el), frame, size: () => (S.project ? frameWH() : null), onToggle: sizeFrame });
+  { const dock = document.querySelector('.mon-dock');
+    if (dock && !dock.querySelector('.vw-acc')) { const b = h('<button class="small vw-acc" title="Render the exact result with FFmpeg (its quality: the Program monitor\'s wrench menu)">Preview</button>'); b.onclick = () => emit('accuratePreview'); dock.appendChild(b); } }
+  rul = monitorRulers({ key: 'program', host: el, stage: $('#vwStage', el), frame, size: () => (S.project ? frameWH() : null), onToggle: () => { sizeFrame(); syncRul(); } });
+  syncRul();
   { const pb = $('[data-pb]', el); pb.value = playback; pb.onchange = () => { playback = pb.value; try { localStorage.setItem('ve-playback', playback); } catch {} if (mode === 'program') drawProgram(S.playhead, false); else loadSource(); }; }
   // ⏱ Program monitor's time ruler (like Premiere's): timecodes along the whole edit; drag anywhere on it to scrub
   const vr = $('#vwRuler', el);
@@ -457,7 +469,8 @@ export function pause() {
   if (!root) return; // viewer not mounted yet (e.g. on the Home screen)
   if (mode === 'source') { els.lyA.pause(); setPlayingUI(false); return; }
   playing = false; S.progPlaying = false; cancelFrame(raf);
-  for (const v of [els.lyA, els.lyB, els.lyOv]) v.pause();
+  for (const v of [els.lyA, els.lyB, els.lyOv, els.lyRend]) v?.pause(); // (🟩 the Accurate preview video too - it kept playing after a stop)
+  for (const sl of ovSlots.values()) if (sl.el.tagName === 'VIDEO') sl.el.pause();
   for (const a of audioPool.values()) a.pause();
   setPlayingUI(false);
 }
@@ -570,7 +583,7 @@ function gradeLayer(src, c, opacity) {
   } else if (!col.lut && grader.lutName) grader.setLut(null);
   const w = src.videoWidth || src.naturalWidth, hh = src.videoHeight || src.naturalHeight;
   if (!w) return;
-  const cv = els.lyGrade, k = Math.min(1, 1280 / w);
+  const cv = els.lyGrade, k = Math.min(1, (1280 * resK()) / w);
   if (cv.width !== Math.round(w * k)) { cv.width = Math.round(w * k); cv.height = Math.round(hh * k); }
   grader.setSource(src); grader.setGrade(col);
   if (!grader.draw()) return;
@@ -622,20 +635,18 @@ function placeRuler(t) {
   ph.style.left = `${x}%`; ph.hidden = x < 0 || x > 100;
 }
 const zv = () => zb?.get() || [0, 1];
+const syncRul = () => $('.vw-rul', root)?.classList.toggle('on', !!rul?.on());
+function toggleGuides() { const g = $('#lyGuides', root); g.hidden = !g.hidden; $('.vw-guides', root)?.classList.toggle('on', !g.hidden); }
 // Go to In / Out: the timeline's (the Go to In / Out commands), or the clip's in Source mode
 function goMark(w) {
   if (mode === 'source') { const mk = S.sourceMarks[srcId] || {}; return seek(mk[w] ?? (w === 'in' ? 0 : curDuration())); }
   emit('command', w === 'in' ? 'goIn' : 'goOut');
 }
-// 🔧 the wrench: what used to sit in the head (safe margins, rulers, Accurate preview and its quality)
+// 🔧 the wrench: the Accurate preview's quality (Guides, Rulers and Preview have their own buttons)
 function settingsMenu(btn) {
   let pq = 'hq'; try { pq = localStorage.getItem('ve-preview-q') === 'fast' ? 'fast' : 'hq'; } catch {}
-  const g = $('#lyGuides', root), setQ = (v) => { try { localStorage.setItem('ve-preview-q', v); } catch {} };
+  const setQ = (v) => { try { localStorage.setItem('ve-preview-q', v); } catch {} };
   wrenchMenu(btn, [
-    { label: 'Safe margins (title / action)', on: !g.hidden, act: () => { g.hidden = !g.hidden; } },
-    { label: 'Show rulers', on: !!rul?.on(), act: () => rul?.toggle() },
-    '-',
-    { label: 'Accurate preview', act: () => emit('accuratePreview') },
     { label: 'Accurate preview at 1080p (sharp)', on: pq === 'hq', act: () => setQ('hq') },
     { label: 'Accurate preview at Fast 720p (quicker)', on: pq === 'fast', act: () => setQ('fast') },
   ]);
@@ -769,7 +780,7 @@ function pixFx(el, c, after = el, rel) {
   if (!sw || !sh) return cv;
   // 🟩 Green screen and Mirror only: done on the graphics card (keyGpu) - the pixels never come to the processor
   const gpu = fx.every((e) => e.type === 'chromakey' || e.type === 'mirror') && keyGl() !== null;
-  const key = !gpu && fx.find((e) => e.type === 'chromakey' || VFX[e.type]?.key || VFX[e.type]?.reads), W = Math.min(key ? 640 : 1280, Math.round((frame?.clientWidth || 640) * Math.min(2, devicePixelRatio || 1))), [FW, FH] = ASPECTS[S.project.settings.aspect] || [16, 9], H = Math.round((W * FH) / FW);
+  const key = !gpu && fx.find((e) => e.type === 'chromakey' || VFX[e.type]?.key || VFX[e.type]?.reads), W = Math.max(2, Math.round(Math.min(key ? 640 : 1280, (frame?.clientWidth || 640) * Math.min(2, devicePixelRatio || 1)) * resK())), [FW, FH] = ASPECTS[S.project.settings.aspect] || [16, 9], H = Math.round((W * FH) / FW);
   if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
   const g = cv.getContext('2d', { willReadFrequently: !!key });
   // object-fit (contain / cover) and object-position, like the element
@@ -1081,7 +1092,7 @@ function drawOverlays(t, isPlay) {
       if (c.type === 'graphic') {
         // 📊 the same drawing the render bakes, at the viewer's size
         const el = ovSlot(c).el, [FW, FH] = ASPECTS[S.project.settings.aspect] || [1920, 1080];
-        const cw = Math.max(2, Math.round((frame?.clientWidth || 640) * Math.min(2, devicePixelRatio || 1))), ch = Math.round((cw * FH) / FW);
+        const cw = Math.max(2, Math.round((frame?.clientWidth || 640) * Math.min(2, devicePixelRatio || 1) * resK())), ch = Math.round((cw * FH) / FW);
         if (el.width !== cw || el.height !== ch) { el.width = cw; el.height = ch; }
         const ctx = el.getContext('2d'); ctx.setTransform(cw / FW, 0, 0, ch / FH, 0, 0);
         if (typing?.id === c.id) ctx.clearRect(0, 0, FW, FH); // (being typed: the typing box shows it)

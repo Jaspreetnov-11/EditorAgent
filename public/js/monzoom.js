@@ -76,6 +76,8 @@ const MI = {
   goin: '<path d="M4 3v10"/><path d="M12 4 7 8l5 4"/>', goout: '<path d="M12 3v10"/><path d="M4 4l5 4-5 4"/>',
   lift: '<path d="M2 13h3.5M10.5 13h3.5"/><path d="M8 11V3"/><path d="M5.5 5.5 8 3l2.5 2.5"/>',
   extract: '<path d="M2 13h12"/><path d="M8 10V3"/><path d="M5.5 5.5 8 3l2.5 2.5"/>',
+  ruler: '<path d="M2 2h12v4H6v8H2z"/><path d="M5 2v2M8 2v2M11 2v2M2 5h2M2 8h2M2 11h2"/>',
+  safe: '<rect x="1.5" y="3" width="13" height="10" rx="1"/><rect x="4" y="5.5" width="8" height="5" stroke-dasharray="1.6 1.4"/>',
   wrench: '<path d="M10.5 2.5a3 3 0 0 0-3.2 4L2.8 11a1.3 1.3 0 0 0 1.9 1.9l4.5-4.5a3 3 0 0 0 4-3.2l-1.8 1.8-1.7-.4-.4-1.7z"/>',
 };
 export const monIco = (k) => `<svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${MI[k]}</svg>`;

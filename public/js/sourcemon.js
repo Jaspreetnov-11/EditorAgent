@@ -10,7 +10,7 @@ import { $, esc, toast } from './ui.js';
 import { placeMedia, targets } from './timeline.js';
 import { uploadFiles, refreshMedia } from './mediapool.js';
 import { monitorRulers } from './monruler.js';
-import { timeTicks, toView, fromView, zoomBar, wrenchMenu } from './monzoom.js';
+import { timeTicks, toView, fromView, zoomBar } from './monzoom.js';
 
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 let root = null, id = null, active = false, virt = 0, recent = [], raf = 0, rul = null, zb = null, zoom = 'fit';
@@ -56,7 +56,6 @@ export function mountSourceMonitor(host) {
       <button class="icon-btn sm-tk on" data-tk="v" draggable="true" title="Video - click to take it or not; drag onto the timeline = video only" aria-label="Video">${ico('vid')}</button><button class="icon-btn sm-tk on" data-tk="a" draggable="true" title="Audio - click to take it or not; drag onto the timeline = audio only" aria-label="Audio">${ico('aud')}</button>
     </span>
     <span class="grow"></span>
-    <button class="icon-btn sm-wrench" data-sm="menu" title="Settings: rulers, loop" aria-label="Settings">${ico('wrench')}</button>
     <span class="sm-sel tc" title="In → Out length"></span>
   </div>
   <div class="sm-bar" title="Click or drag to move">
@@ -76,7 +75,9 @@ export function mountSourceMonitor(host) {
     <button class="icon-btn" data-sm="overlay" title="Overwrite: place over the edit on V2 at the playhead (.)" aria-label="Overwrite">${ico('overwrite')}</button>
     <button class="icon-btn" data-sm="append" title="Append: add at the end of V1" aria-label="Append">${ico('append')}</button>
     <i class="sm-gap"></i>
+    <button class="icon-btn sm-rul" data-sm="rulers" title="Rulers: the clip's pixels along the top and left of the picture. Drag a guide out of a ruler, drag it back to remove it; right-click a ruler: clear guides" aria-label="Rulers">${ico('ruler')}</button>
     <button class="icon-btn" data-sm="frame" title="Export Frame: this frame of the clip as a PNG, at its full size" aria-label="Export Frame">${ico('camera')}</button>
+    <button class="icon-btn sm-loop" data-sm="loop" title="Loop playback" aria-label="Loop playback">${ico('loop')}</button>
   </div>`;
   el.v = root.querySelector('video'); el.img = root.querySelector('img'); el.strip = root.querySelector('.sm-strip');
   el.empty = root.querySelector('.sm-empty'); el.msg = root.querySelector('.sm-msg'); el.bar = root.querySelector('.sm-bar');
@@ -90,10 +91,7 @@ export function mountSourceMonitor(host) {
   root.addEventListener('click', (e) => {
     const a = e.target.closest('[data-sm]')?.dataset.sm; if (!a) return;
     ({ close, in: () => mark('in'), out: () => mark('out'), goin: () => seekTo(marks().in ?? 0), goout: () => seekTo(marks().out ?? dur()),
-      back: () => stepF(-1), fwd: () => stepF(1), play: toggle, menu: () => wrenchMenu(root.querySelector('.sm-wrench'), [
-        { label: 'Show rulers', on: !!rul?.on(), act: () => rul?.toggle() },
-        { label: 'Loop playback', on: el.v.loop, act: () => { el.v.loop = !el.v.loop; try { localStorage.setItem('ve-src-loop', el.v.loop ? '1' : ''); } catch {} } },
-      ]), frame: exportFrame, insert: () => put('insert'), overlay: () => put('overlay'), append: () => put('append') })[a]?.();
+      back: () => stepF(-1), fwd: () => stepF(1), play: toggle, rulers: () => rul?.toggle(), loop: () => { el.v.loop = !el.v.loop; syncLoop(); try { localStorage.setItem('ve-src-loop', el.v.loop ? '1' : ''); } catch {} }, frame: exportFrame, insert: () => put('insert'), overlay: () => put('overlay'), append: () => put('append') })[a]?.();
   });
   el.pick.addEventListener('change', () => { if (el.pick.value) open(el.pick.value); });
   // scrubbing
@@ -147,8 +145,10 @@ export function mountSourceMonitor(host) {
   el.zsel = root.querySelector('.sm-zsel');
   el.zsel.addEventListener('change', () => { zoom = el.zsel.value === 'fit' ? 'fit' : +el.zsel.value; fit(); });
   try { el.v.loop = localStorage.getItem('ve-src-loop') === '1'; } catch {}
+  syncLoop();
   // 📏 rulers in the clip's own pixels (monruler.js)
-  rul = monitorRulers({ key: 'source', host: root, stage: root.querySelector('.sm-stage'), frame: el.frame, size: () => { const m = media(); if (!m?.width) return null; return Math.abs(m.rotation || 0) === 90 ? [m.height, m.width] : [m.width, m.height]; }, onToggle: fit });
+  rul = monitorRulers({ key: 'source', host: root, stage: root.querySelector('.sm-stage'), frame: el.frame, size: () => { const m = media(); if (!m?.width) return null; return Math.abs(m.rotation || 0) === 90 ? [m.height, m.width] : [m.width, m.height]; }, onToggle: () => { fit(); syncRul(); } });
+  syncRul();
 }
 
 // files from outside: uploaded into the project, then the first one opens here once the editor has read it
@@ -211,6 +211,8 @@ function fit() {
   rul?.draw();
 }
 export const toggleRulers = () => rul?.toggle();
+const syncLoop = () => root?.querySelector('.sm-loop')?.classList.toggle('on', !!el.v?.loop);
+const syncRul = () => root?.querySelector('.sm-rul')?.classList.toggle('on', !!rul?.on());
 // the time ruler under the picture: marks and timecodes for the part the zoom bar shows
 function ticks() {
   const d = dur(), box = root.querySelector('.sm-ticks'); if (!d) { box.innerHTML = ''; return; }
@@ -308,6 +310,7 @@ function ico(k) {
     in: '<path d="M6 3H4v10h2"/><path d="M9 8h4"/>', out: '<path d="M10 3h2v10h-2"/><path d="M3 8h4"/>',
     goin: '<path d="M4 3v10"/><path d="M12 4 7 8l5 4"/>', goout: '<path d="M12 3v10"/><path d="M4 4l5 4-5 4"/>',
     ruler: '<path d="M2 2h12v4H6v8H2z"/><path d="M5 2v2M8 2v2M11 2v2M2 5h2M2 8h2M2 11h2"/>',
+    loop: '<path d="M3 8.5V7a3 3 0 0 1 3-3h6.5"/><path d="M10.5 2 12.5 4l-2 2"/><path d="M13 7.5V9a3 3 0 0 1-3 3H3.5"/><path d="M5.5 14l-2-2 2-2"/>',
     wrench: '<path d="M10.5 2.5a3 3 0 0 0-3.2 4L2.8 11a1.3 1.3 0 0 0 1.9 1.9l4.5-4.5a3 3 0 0 0 4-3.2l-1.8 1.8-1.7-.4-.4-1.7z"/>',
     insert: '<path d="M2 11h12"/><path d="M8 3v5"/><path d="M5.5 5.5 8 8l2.5-2.5"/><path d="M2 13.5h4M10 13.5h4"/>',
     overwrite: '<rect x="2" y="10" width="12" height="4" rx=".5"/><path d="M8 2v5"/><path d="M5.5 4.5 8 7l2.5-2.5"/>',

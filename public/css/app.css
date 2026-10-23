@@ -1587,3 +1587,24 @@ canvas.mruler { cursor: copy; }
 .vw-ctrl { justify-content: center; }
 .vw-ctrl .vw-gap { width: 10px; flex: none; }
 .vw-ctrl [hidden] { display: none !important; }
+.vw-rul { padding: 3px 5px; color: var(--muted); } .vw-rul.on { color: var(--accent); }
+.vw-guides.on { color: var(--accent); }
+/* the monitors' small dropdowns are see-through; their open lists get the panel colour so every choice reads */
+:is(.vw-row, .sm-row) select option { background: var(--panel-2, #22262f); color: var(--text, #e6e8ed); }
+:is(.vw-row, .sm-row) select:focus { border-color: var(--line-2); color: var(--text); }
+/* guides (title / action safe margins): grey and easy to see on any picture */
+.guides i { border: 1.5px dashed rgba(205, 205, 210, .85); filter: drop-shadow(0 0 1px rgba(0, 0, 0, .9)); }
+.mr-g.h { background: linear-gradient(transparent 2px, #00000099 2px 3px, #d2d2d6 3px 5px, #00000099 5px 6px, transparent 6px); height: 8px; margin-top: -4px; }
+.mr-g.v { background: linear-gradient(90deg, transparent 2px, #00000099 2px 3px, #d2d2d6 3px 5px, #00000099 5px 6px, transparent 6px); width: 8px; margin-left: -4px; }
+/* one line of buttons under the Program monitor, even when it is narrow */
+.vw-ctrl { column-gap: 1px; padding-left: 4px; padding-right: 4px; }
+.vw-ctrl .icon-btn:not(.play) { padding: 4px; min-width: 0; }
+.vw-ctrl .vw-gap { width: 8px; }
+.vw-ctrl .play { margin: 0 4px; }
+/* Fit and 1/4 · 1/2 · 1/1 sit in the play row; the timecode row above it goes (the timeline shows the time) - more picture */
+html.ui2 .viewer .vw-row { display: none; }
+.vw-ctrl select { width: auto; flex: none; font-size: 11px; padding: 1px 2px; background: transparent; border-color: transparent; color: var(--muted); }
+.vw-ctrl select:hover, .vw-ctrl select:focus { border-color: var(--line-2); color: var(--text); }
+.vw-ctrl select option { background: var(--panel-2, #22262f); color: var(--text, #e6e8ed); }
+.vw-ctrl { container-type: inline-size; }
+@container (max-width: 560px) { .vw-ctrl [data-k="marker"], .vw-ctrl [data-act="goin"], .vw-ctrl [data-act="goout"] { display: none; } }

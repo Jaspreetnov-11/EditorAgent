@@ -1,7 +1,7 @@
 // 🎚 Audio Meters at the right of the timeline, like Premiere's: the master's left and right level while it plays
 // (player.js masterLevels - after every track fader, what the speakers get), a peak-hold line on each bar that waits
 // 1.5 s and then falls, a red light at the top when the sound reaches 0 dB (click it to reset) and the dB scale.
-import { masterLevels } from './player.js';
+import { masterLevels, isPlayingProgram } from './player.js';
 
 const FLOOR = -60, TICKS = [0, -6, -12, -18, -24, -30, -36, -42, -48, -54], HOLD = 1500;
 const y01 = (db) => Math.max(0, Math.min(1, (db - FLOOR) / -FLOOR)); // 0 at -60 dB, 1 at 0 dB
@@ -49,7 +49,7 @@ export function mountMasterMeter(host) {
   }
   function tick(now) {
     const dt = Math.min(100, now - last); last = now;
-    const L = masterLevels();
+    const L = isPlayingProgram() ? masterLevels() : null; // (stopped: silence - nothing left over from a paused layer shows)
     const lv = L || [{ peak: FLOOR }, { peak: FLOOR }];
     lv.forEach((m, i) => meterStep(ch[i], Math.max(FLOOR, m.peak), now, dt));
     draw();
