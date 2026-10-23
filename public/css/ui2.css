@@ -731,3 +731,26 @@ html.ui2 .pool-tabs .ptabs button { padding: 6px 5px; min-width: 0; flex: 1 1 au
 .tl-heads .th.audio .tbtn, html.ui2 .tl-heads .th.audio .tbtn { width: 16px; }
 .tl-heads .th.audio .th-btns { gap: 0; }
 .tl-heads .th.audio .th-name { gap: 4px; }
+
+/* 🎬 Source monitor laid out like Premiere's (Limelight look): info row, time ruler, zoom bar, one centred row of buttons */
+html.ui2 .sm-row { display: flex; align-items: center; gap: 6px; padding: 4px 10px 2px; flex: none; min-width: 0; }
+html.ui2 .sm-row .sm-tc { min-width: 0; }
+html.ui2 .sm-zsel { width: auto; flex: none; font-size: 11px; padding: 1px 4px; background: transparent; border-color: transparent; color: var(--muted); }
+html.ui2 .sm-zsel:hover { border-color: var(--line-2); color: var(--text); }
+html.ui2 .sm-row .sm-take { margin: 0; gap: 2px; }
+html.ui2 .sm-row .sm-tk { padding: 3px 5px; border-color: transparent; }
+html.ui2 .sm-row .sm-tk.on { border-color: var(--accent-line, var(--accent)); }
+html.ui2 .sm-wrench { padding: 3px 5px; color: var(--muted); }
+html.ui2 .sm-row .sm-sel { min-width: 0; }
+html.ui2 .sm-bar { overflow: hidden; height: 24px; border-bottom: 0; }
+html.ui2 .sm-ticks b, html.ui2 .sm-ticks i { position: absolute; bottom: 0; width: 1px; background: #45423d; }
+html.ui2 .sm-ticks i { height: 4px; } html.ui2 .sm-ticks b { height: 9px; background: #6d685e; }
+html.ui2 .sm-ticks span { position: absolute; top: 2px; margin-left: 3px; font: 10px/1 ui-monospace, Consolas, monospace; color: var(--faint); white-space: nowrap; pointer-events: none; }
+html.ui2 .sm-head-mark::before { top: 0; }
+html.ui2 .sm-ctrl { justify-content: center; flex-wrap: wrap; row-gap: 2px; border-radius: 0 0 var(--r) var(--r); }
+html.ui2 .sm-ctrl .sm-gap { width: 10px; flex: none; }
+html.ui2 .sm-stage.zoomed { display: block; overflow: auto; }
+html.ui2 .sm-stage.zoomed .sm-frame { margin: 6px auto; }
+html.ui2 .srcmon:not(.sm-has) :is(.sm-row, .sm-zoom) :is(button, select) { opacity: .35; pointer-events: none; }
+@container (max-width: 360px) { html.ui2 .sm-ctrl .sm-gap { width: 4px; } html.ui2 .sm-zsel { display: none; } }
+html.ui2 .sm-range { top: 15px; height: 4px; } html.ui2 .sm-range[hidden] { display: none; }

@@ -10,9 +10,13 @@ import { $, esc, toast } from './ui.js';
 import { placeMedia, targets } from './timeline.js';
 import { uploadFiles, refreshMedia } from './mediapool.js';
 import { monitorRulers } from './monruler.js';
+import { timeTicks, toView, fromView, zoomBar, wrenchMenu } from './monzoom.js';
 
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
-let root = null, id = null, active = false, virt = 0, recent = [], raf = 0, rul = null;
+let root = null, id = null, active = false, virt = 0, recent = [], raf = 0, rul = null, zb = null, zoom = 'fit';
+const ZOOMS = [0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 4];
+// the time ruler shows [view[0], view[1]] of the clip (the zoom / scroll bar under it)
+const view = () => zb?.get() || [0, 1];
 const el = {};
 const media = () => S.mediaById[id];
 const playable = () => { const m = media(); return !!m && m.kind !== 'image' && m.playable; };
@@ -34,7 +38,7 @@ export function mountSourceMonitor(host) {
     <span class="sm-label">Source</span>
     <select class="sm-pick" aria-label="Open clip"><option value="">(no clip)</option></select>
     <span class="grow"></span>
-    <button class="icon-btn sm-rul" data-sm="rulers" title="Rulers (like Premiere's Show Rulers): the clip's pixels along the top and left. Drag a guide out of a ruler, drag it back to remove it; right-click a ruler: clear guides" aria-label="Rulers">${ico('ruler')}</button>
+    <span class="muted small sm-info"></span>
     <button class="icon-btn sm-close" data-sm="close" title="Close this clip" aria-label="Close clip">✕</button>
   </div>
   <div class="sm-stage">
@@ -44,12 +48,22 @@ export function mountSourceMonitor(host) {
       <div class="sm-msg" hidden></div>
     </div>
   </div>
+  <div class="sm-row">
+    <span class="tc sm-tc" title="Where the playhead is in this clip">00:00:00:00</span>
+    <select class="small sm-zsel" title="Zoom level: Fit shows the whole frame" aria-label="Zoom level"><option value="fit">Fit</option>${ZOOMS.map((z) => `<option value="${z}">${Math.round(z * 100)}%</option>`).join('')}</select>
+    <span class="grow"></span>
+    <span class="sm-take" title="What Insert / Overwrite / Append and dragging the picture take - like Premiere's source patching. Drag one onto the timeline to take only that part.">
+      <button class="icon-btn sm-tk on" data-tk="v" draggable="true" title="Video - click to take it or not; drag onto the timeline = video only" aria-label="Video">${ico('vid')}</button><button class="icon-btn sm-tk on" data-tk="a" draggable="true" title="Audio - click to take it or not; drag onto the timeline = audio only" aria-label="Audio">${ico('aud')}</button>
+    </span>
+    <span class="grow"></span>
+    <button class="icon-btn sm-wrench" data-sm="menu" title="Settings: rulers, loop" aria-label="Settings">${ico('wrench')}</button>
+    <span class="sm-sel tc" title="In → Out length"></span>
+  </div>
   <div class="sm-bar" title="Click or drag to move">
     <div class="sm-ticks"></div><div class="sm-range"></div><div class="sm-in"></div><div class="sm-out"></div><div class="sm-head-mark"></div>
   </div>
+  <div class="sm-zoom"></div>
   <div class="sm-ctrl">
-    <span class="tc sm-tc">00:00:00:00</span>
-    <span class="grow"></span>
     <button class="icon-btn" data-sm="in" title="Mark In (I)">${ico('in')}</button>
     <button class="icon-btn" data-sm="out" title="Mark Out (O)">${ico('out')}</button>
     <button class="icon-btn" data-sm="goin" title="Go to In (Shift+I)">${ico('goin')}</button>
@@ -57,18 +71,12 @@ export function mountSourceMonitor(host) {
     <button class="icon-btn sm-play" data-sm="play" title="Play / pause (Space)" aria-label="Play">${ico('play')}</button>
     <button class="icon-btn" data-sm="fwd" title="Forward 1 frame (→)">${ico('fwd')}</button>
     <button class="icon-btn" data-sm="goout" title="Go to Out (Shift+O)">${ico('goout')}</button>
-    <span class="grow"></span>
-    <span class="sm-sel tc" title="In → Out length"></span>
-  </div>
-  <div class="sm-actions">
-    <span class="sm-take" title="What Insert / Overlay / Append and dragging the picture take - like Premiere's source patching. Drag one chip onto the timeline to take only that part.">
-      <button class="sm-tk on" data-tk="v" draggable="true" title="Video - click to take it or not; drag = video only">${ico('vid')}V</button><button class="sm-tk on" data-tk="a" draggable="true" title="Audio - click to take it or not; drag = audio only">${ico('aud')}A</button>
-    </span>
-    <button class="small accent" data-sm="insert" title="Insert at the playhead on V1 - later clips move along (,)">Insert</button>
-    <button class="small" data-sm="overlay" title="Place over the edit on V2 at the playhead (.)">Overlay</button>
-    <button class="small" data-sm="append" title="Add at the end of V1">Append</button>
-    <span class="grow"></span>
-    <span class="muted small sm-info"></span>
+    <i class="sm-gap"></i>
+    <button class="icon-btn" data-sm="insert" title="Insert at the playhead on V1 - later clips move along (,)" aria-label="Insert">${ico('insert')}</button>
+    <button class="icon-btn" data-sm="overlay" title="Overwrite: place over the edit on V2 at the playhead (.)" aria-label="Overwrite">${ico('overwrite')}</button>
+    <button class="icon-btn" data-sm="append" title="Append: add at the end of V1" aria-label="Append">${ico('append')}</button>
+    <i class="sm-gap"></i>
+    <button class="icon-btn" data-sm="frame" title="Export Frame: this frame of the clip as a PNG, at its full size" aria-label="Export Frame">${ico('camera')}</button>
   </div>`;
   el.v = root.querySelector('video'); el.img = root.querySelector('img'); el.strip = root.querySelector('.sm-strip');
   el.empty = root.querySelector('.sm-empty'); el.msg = root.querySelector('.sm-msg'); el.bar = root.querySelector('.sm-bar');
@@ -82,14 +90,17 @@ export function mountSourceMonitor(host) {
   root.addEventListener('click', (e) => {
     const a = e.target.closest('[data-sm]')?.dataset.sm; if (!a) return;
     ({ close, in: () => mark('in'), out: () => mark('out'), goin: () => seekTo(marks().in ?? 0), goout: () => seekTo(marks().out ?? dur()),
-      back: () => stepF(-1), fwd: () => stepF(1), play: toggle, rulers: () => rul?.toggle(), insert: () => put('insert'), overlay: () => put('overlay'), append: () => put('append') })[a]?.();
+      back: () => stepF(-1), fwd: () => stepF(1), play: toggle, menu: () => wrenchMenu(root.querySelector('.sm-wrench'), [
+        { label: 'Show rulers', on: !!rul?.on(), act: () => rul?.toggle() },
+        { label: 'Loop playback', on: el.v.loop, act: () => { el.v.loop = !el.v.loop; try { localStorage.setItem('ve-src-loop', el.v.loop ? '1' : ''); } catch {} } },
+      ]), frame: exportFrame, insert: () => put('insert'), overlay: () => put('overlay'), append: () => put('append') })[a]?.();
   });
   el.pick.addEventListener('change', () => { if (el.pick.value) open(el.pick.value); });
   // scrubbing
   el.bar.addEventListener('pointerdown', (e) => {
     if (!id) return;
     el.bar.setPointerCapture(e.pointerId);
-    const go = (ev) => { const b = el.bar.getBoundingClientRect(); seekTo(clamp((ev.clientX - b.left) / b.width, 0, 1) * dur()); };
+    const go = (ev) => { const b = el.bar.getBoundingClientRect(), [a, z] = view(); seekTo(clamp(fromView(clamp((ev.clientX - b.left) / b.width, 0, 1), a, z), 0, 1) * dur()); };
     go(e); el.v.pause();
     const up = () => { el.bar.removeEventListener('pointermove', go); el.bar.removeEventListener('pointerup', up); };
     el.bar.addEventListener('pointermove', go); el.bar.addEventListener('pointerup', up);
@@ -131,9 +142,13 @@ export function mountSourceMonitor(host) {
   on('openSource', (x) => { if (!srcMonOn()) return; typeof x === 'object' && x ? open(x.id, x.t) : open(x); });
   on('media', () => { if (id && !media()) close(); else if (id) { load(false); } });
   new ResizeObserver(fit).observe(root.querySelector('.sm-stage'));
+  new ResizeObserver(() => { ticks(); ui(); }).observe(el.bar);
+  zb = zoomBar(root.querySelector('.sm-zoom'), () => { ticks(); ui(); });
+  el.zsel = root.querySelector('.sm-zsel');
+  el.zsel.addEventListener('change', () => { zoom = el.zsel.value === 'fit' ? 'fit' : +el.zsel.value; fit(); });
+  try { el.v.loop = localStorage.getItem('ve-src-loop') === '1'; } catch {}
   // 📏 rulers in the clip's own pixels (monruler.js)
-  rul = monitorRulers({ key: 'source', host: root, stage: root.querySelector('.sm-stage'), frame: el.frame, size: () => { const m = media(); if (!m?.width) return null; return Math.abs(m.rotation || 0) === 90 ? [m.height, m.width] : [m.width, m.height]; }, onToggle: () => { fit(); syncRul(); } });
-  syncRul();
+  rul = monitorRulers({ key: 'source', host: root, stage: root.querySelector('.sm-stage'), frame: el.frame, size: () => { const m = media(); if (!m?.width) return null; return Math.abs(m.rotation || 0) === 90 ? [m.height, m.width] : [m.width, m.height]; }, onToggle: fit });
 }
 
 // files from outside: uploaded into the project, then the first one opens here once the editor has read it
@@ -150,6 +165,7 @@ export function open(mid, at = null) {
   id = mid; active = true; root.classList.add('sm-active');
   recent = [mid, ...recent.filter((x) => x !== mid)].slice(0, 12);
   virt = at ?? marks().in ?? 0;
+  zb?.set([0, 1]); zoom = 'fit'; if (el.zsel) el.zsel.value = 'fit';
   load(at !== null);
   emit('sourceShown');
 }
@@ -189,24 +205,27 @@ function fit() {
   const st = root?.querySelector('.sm-stage'); if (!st) return;
   const m = media(), pad = rul?.pad() || 0, W = st.clientWidth - 12 - pad, H = st.clientHeight - 12 - pad;
   let w = m?.width || 16, h = m?.height || 9; if (Math.abs(m?.rotation || 0) === 90) [w, h] = [h, w];
-  const k = Math.min(W / w, H / h);
+  const k = zoom === 'fit' ? Math.min(W / w, H / h) : zoom;
+  st.classList.toggle('zoomed', zoom !== 'fit' && !!m);
   el.frame.style.width = `${Math.max(0, Math.floor(w * k))}px`; el.frame.style.height = `${Math.max(0, Math.floor(h * k))}px`;
   rul?.draw();
 }
-const syncRul = () => root?.querySelector('.sm-rul')?.classList.toggle('on', !!rul?.on());
 export const toggleRulers = () => rul?.toggle();
-// a light ruler under the scrub bar (about 10 marks)
+// the time ruler under the picture: marks and timecodes for the part the zoom bar shows
 function ticks() {
   const d = dur(), box = root.querySelector('.sm-ticks'); if (!d) { box.innerHTML = ''; return; }
-  const step = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600].find((s) => d / s <= 12) || 1200;
-  box.innerHTML = Array.from({ length: Math.floor(d / step) + 1 }, (_, i) => `<i style="left:${((i * step) / d) * 100}%"></i>`).join('');
+  const [a, z] = view(), w = el.bar.clientWidth || 300;
+  box.innerHTML = timeTicks(d, a, z, w, fps()).map((x) => {
+    const l = toView(x.t / d, a, z).toFixed(3);
+    return x.major ? `<b style="left:${l}%"></b><span style="left:${l}%">${fmtTC(x.t, fps())}</span>` : `<i style="left:${l}%"></i>`;
+  }).join('');
 }
 function ui() {
   const m = media(), d = dur(), t = m?.kind === 'image' ? 0 : time(), mk = id ? marks() : {};
-  const pct = (x) => `${d ? (clamp(x, 0, d) / d) * 100 : 0}%`;
+  const [va, vz] = view(), pct = (x) => `${d ? toView(clamp(x, 0, d) / d, va, vz) : 0}%`;
   root.querySelector('.sm-head-mark').style.left = pct(t);
   const a = mk.in ?? 0, b = mk.out ?? d;
-  const r = root.querySelector('.sm-range'); r.style.left = pct(a); r.style.width = d ? `${((b - a) / d) * 100}%` : '0';
+  const r = root.querySelector('.sm-range'); r.hidden = mk.in === undefined && mk.out === undefined; r.style.left = pct(a); r.style.width = d ? `${((b - a) / d / (vz - va)) * 100}%` : '0';
   root.querySelector('.sm-in').style.left = pct(a); root.querySelector('.sm-in').hidden = mk.in === undefined;
   root.querySelector('.sm-out').style.left = pct(b); root.querySelector('.sm-out').hidden = mk.out === undefined;
   el.tc.textContent = fmtTC(t, fps());
@@ -221,6 +240,21 @@ function seekTo(t) {
   t = clamp(t, 0, dur());
   if (playable()) el.v.currentTime = t; else { virt = t; strip(); }
   ui();
+}
+// 📷 Export Frame (Source): the frame shown, at the clip's own size, as a PNG download
+function exportFrame() {
+  const m = media(); if (!m) return toast('First open a clip here from Media (double-click)', 'err');
+  const src = m.kind === 'image' ? el.img : el.v, w = src.videoWidth || src.naturalWidth, h = src.videoHeight || src.naturalHeight;
+  if (!w || !h || el.v.hidden && m.kind !== 'image') return toast('The picture is not ready yet (preview copy is being made)', 'err');
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  try { c.getContext('2d').drawImage(src, 0, 0, w, h); } catch { return toast('Could not read this frame', 'err'); }
+  c.toBlob((b) => {
+    if (!b) return toast('Could not read this frame', 'err');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+    a.download = `${m.name.replace(/\.[^.]+$/, '')} ${fmtTC(time(), fps()).replace(/:/g, '-')}.png`;
+    a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    toast(`Frame saved (${w}×${h})`);
+  }, 'image/png');
 }
 function stepF(n) { if (!id) return; el.v.pause(); seekTo(time() + n / fps()); }
 export function toggle() {
@@ -274,6 +308,11 @@ function ico(k) {
     in: '<path d="M6 3H4v10h2"/><path d="M9 8h4"/>', out: '<path d="M10 3h2v10h-2"/><path d="M3 8h4"/>',
     goin: '<path d="M4 3v10"/><path d="M12 4 7 8l5 4"/>', goout: '<path d="M12 3v10"/><path d="M4 4l5 4-5 4"/>',
     ruler: '<path d="M2 2h12v4H6v8H2z"/><path d="M5 2v2M8 2v2M11 2v2M2 5h2M2 8h2M2 11h2"/>',
+    wrench: '<path d="M10.5 2.5a3 3 0 0 0-3.2 4L2.8 11a1.3 1.3 0 0 0 1.9 1.9l4.5-4.5a3 3 0 0 0 4-3.2l-1.8 1.8-1.7-.4-.4-1.7z"/>',
+    insert: '<path d="M2 11h12"/><path d="M8 3v5"/><path d="M5.5 5.5 8 8l2.5-2.5"/><path d="M2 13.5h4M10 13.5h4"/>',
+    overwrite: '<rect x="2" y="10" width="12" height="4" rx=".5"/><path d="M8 2v5"/><path d="M5.5 4.5 8 7l2.5-2.5"/>',
+    append: '<path d="M2 11h7"/><path d="M12 4v7"/><path d="M9.5 8.5 12 11l2.5-2.5"/>',
+    camera: '<rect x="2" y="4.5" width="12" height="9" rx="1.5"/><circle cx="8" cy="9" r="2.5"/><path d="M6 4.5 7 3h2l1 1.5"/>',
     vid: '<rect x="2" y="4" width="12" height="8" rx="1"/><path d="M5 4v8M11 4v8"/>', aud: '<path d="M2 8h1M5 5v6M8 3v10M11 6v4M14 8h.5"/>',
   };
   return `<svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[k]}</svg>`;

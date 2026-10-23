@@ -1563,3 +1563,28 @@ canvas.mruler { cursor: copy; }
 #tlHeads .th.pp.audio .tbtn[data-tst="mute"], #tlHeads .th.pp.audio .tbtn.solo { font-weight: 700; }
 @container (max-width: 150px) { #tlHeads .th.pp.audio .tbtn.rec, #tlHeads .th.pp.audio .tbtn.tkey { display: none; } }
 @container (max-width: 118px) { #tlHeads .th.pp.audio .tbtn.sync { display: none; } }
+
+/* 🎚 a monitor's zoom / scroll bar under its time ruler (monzoom.js), and the wrench's menu */
+.mz-bar { position: relative; height: 12px; margin: 1px 15px 3px; flex: none; border-radius: 6px; background: #ffffff08; cursor: pointer; touch-action: none; user-select: none; }
+.mz-thumb { position: absolute; top: 3px; bottom: 3px; background: #ffffff1f; border-radius: 3px; cursor: grab; }
+.mz-thumb:active { cursor: grabbing; }
+.mz-h { position: absolute; top: 50%; width: 11px; height: 11px; margin-top: -5.5px; border-radius: 50%; box-sizing: border-box; background: var(--panel-3, #2a2f3a); border: 1.5px solid var(--muted, #8a92a3); cursor: ew-resize; }
+.mz-h.l { left: -5px; } .mz-h.r { right: -6px; }
+.mz-bar:hover .mz-h, .mz-bar.mz-zoomed .mz-h { border-color: var(--accent); }
+.mz-menu { position: fixed; z-index: 9999; min-width: 180px; padding: 4px; background: var(--panel-2, #22262f); border: 1px solid var(--line-2, #3a4150); border-radius: 8px; box-shadow: 0 12px 30px -10px #000; display: flex; flex-direction: column; }
+.mz-menu button { display: flex; align-items: center; justify-content: flex-start; width: 100%; gap: 6px; text-align: left; background: none; border: 0; border-radius: 5px; padding: 5px 8px; color: var(--text); font-size: 12px; cursor: pointer; }
+.mz-menu button:hover { background: var(--panel-3, #2a2f3a); }
+.mz-menu .mz-chk { width: 12px; color: var(--accent); }
+.mz-menu hr { border: 0; border-top: 1px solid var(--line, #2c313c); margin: 4px 2px; }
+
+/* 🎬 Program monitor laid out like Premiere's (our look): info row (timecode, Fit · Fast/Full, wrench, length), time
+   ruler, its zoom bar, one centred row of buttons */
+.vw-row { display: flex; align-items: center; gap: 6px; padding: 4px 10px 2px; flex: none; min-width: 0; }
+.vw-row select { width: auto; flex: none; font-size: 11px; padding: 1px 4px; background: transparent; border-color: transparent; color: var(--muted); }
+.vw-row select:hover { border-color: var(--line-2); color: var(--text); }
+.vw-wrench { padding: 3px 5px; color: var(--muted); }
+.vw-row #vwDur { color: var(--faint, var(--muted)); font-size: 12px; white-space: nowrap; }
+.vw-zoombar[hidden] { display: none; }
+.vw-ctrl { justify-content: center; }
+.vw-ctrl .vw-gap { width: 10px; flex: none; }
+.vw-ctrl [hidden] { display: none !important; }

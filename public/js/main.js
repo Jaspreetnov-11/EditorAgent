@@ -493,6 +493,8 @@ const ACTIONS = {
     window.dispatchEvent(new Event('resize'));
   },
 };
+// a monitor button runs the same command as its key (Mark In / Out, Lift, Extract, Add marker… - player.js)
+on('command', (id) => { if (ACTIONS[id]?.() === false) toast('Select something first'); });
 // leaving full screen (Esc, Ctrl+` or the browser): the full-screen panel goes back to its place
 document.addEventListener('fullscreenchange', () => {
   if (document.fullscreenElement) return;

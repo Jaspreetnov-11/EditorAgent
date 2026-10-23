@@ -46,9 +46,10 @@ import { maskAlpha, movedMask, unmovedMask, maskKey } from './shapemask.js';
 import { captionAt, capTracks, capStack } from './captions.js';
 import { monitorDrag } from './toolgroups.js';
 import { monitorRulers } from './monruler.js';
+import { timeTicks, toView, fromView, zoomBar, wrenchMenu, monIco } from './monzoom.js';
 import { fitMap, framingOf, srcSize, boxAt, srcTimeAt, pinAt, quadMatrix, orderQuad } from './tracking.js';
 
-let root, frame, els = {}, mode = 'program', srcId = null, grader = null, rul = null;
+let root, frame, els = {}, mode = 'program', srcId = null, grader = null, rul = null, zb = null;
 export const sourceMediaId = () => srcId; // (the file open in the Source monitor - ✂ Make Subclip)
 let lookFilter = ''; // the film look, roughly (CSS); added to every picture layer in program mode
 let playing = false, wall0 = 0, t0 = 0, raf = 0;
@@ -67,12 +68,6 @@ export function mountViewer(el) {
     </div>
     <span class="vw-title" id="vwTitle"></span>
     <span class="grow"></span>
-    <select class="small vw-zoom" data-vzoom title="Zoom level, like Premiere's: Fit shows the whole frame. The mouse wheel over the picture zooms in / out where the mouse is (Alt + wheel scales the selected clip); middle-drag or the scrollbars move around"><option value="fit">Fit</option>${ZOOMS.map((z) => `<option value="${z}">${Math.round(z * 100)}%</option>`).join('')}</select>
-    <select class="small vw-pb" data-pb title="Playback: Fast plays the light 1080p preview copies (quick to load and scrub, easy on the NAS when the whole office works); Full plays the camera files themselves where the browser can (sharpest, much heavier)"><option value="fast">Fast</option><option value="full">Full</option></select>
-    <button class="tog small" data-act="guides" title="Title/action-safe guides">Guides</button>
-    <button class="tog small" data-act="rulers" title="Rulers (like Premiere's Show Rulers): frame pixels along the top and left. Drag a guide out of a ruler, drag it back to remove it; right-click a ruler: clear guides">Rulers</button>
-    <select class="small vw-pq" data-pq title="Accurate preview quality: 1080p from the camera files (sharp), or Fast 720p from the small proxy copies (much quicker - for checking timing)"><option value="hq">1080p</option><option value="fast">Fast 720p</option></select>
-    <button class="small" data-act="accurate" title="Render the exact result with FFmpeg (quality: the choice next to it)">Accurate preview</button>
   </div>
   <div class="vw-stage" id="vwStage">
     <div class="vw-frame" id="vwFrame">
@@ -101,28 +96,37 @@ export function mountViewer(el) {
       <div class="vw-stab" id="vwStab" hidden></div>
     </div>
   </div>
+  <div class="vw-row">
+    <span class="tc big" id="vwTC">00:00:00:00</span>
+    <select class="small vw-zoom" data-vzoom title="Zoom level, like Premiere's: Fit shows the whole frame. The mouse wheel over the picture zooms in / out where the mouse is (Alt + wheel scales the selected clip); middle-drag or the scrollbars move around"><option value="fit">Fit</option>${ZOOMS.map((z) => `<option value="${z}">${Math.round(z * 100)}%</option>`).join('')}</select>
+    <span class="grow"></span>
+    <select class="small vw-pb" data-pb title="Playback: Fast plays the light 1080p preview copies (quick to load and scrub, easy on the NAS when the whole office works); Full plays the camera files themselves where the browser can (sharpest, much heavier)"><option value="fast">Fast</option><option value="full">Full</option></select>
+    <button class="icon-btn vw-wrench" data-act="menu" title="Settings: safe margins, rulers, Accurate preview" aria-label="Settings">${monIco('wrench')}</button>
+    <span class="tc" id="vwDur"></span>
+  </div>
   <div class="vw-ruler" id="vwRuler" title="Drag to move through the edit"><div class="vr-ticks"></div><div class="vr-ph"><i></i></div></div>
+  <div class="vw-zoombar" id="vwZoom"></div>
   <div class="vw-src" id="vwSrc" hidden>
     <div class="src-bar" id="srcBar"><div class="src-range" id="srcRange"></div><div class="src-head" id="srcHead"></div></div>
   </div>
   <div class="vw-ctrl">
-    <span class="tc big" id="vwTC">00:00:00:00</span>
-    <span class="grow"></span>
-    <button class="icon-btn" data-act="start" title="Go to start (Home)">${ic('start')}</button>
+    <button class="icon-btn" data-k="marker" title="Add marker (M)" aria-label="Add marker">${monIco('marker')}</button>
+    <button class="icon-btn" data-k="markIn" title="Mark In (I)" aria-label="Mark In">${monIco('in')}</button>
+    <button class="icon-btn" data-k="markOut" title="Mark Out (O)" aria-label="Mark Out">${monIco('out')}</button>
+    <button class="icon-btn" data-act="goin" title="Go to In (Shift+I)" aria-label="Go to In">${monIco('goin')}</button>
     <button class="icon-btn" data-act="back" title="Back 1 frame (←)">${ic('prev')}</button>
     <button class="icon-btn play" data-act="play" title="Play / pause (Space)" aria-label="Play">${ic('play')}</button>
     <button class="icon-btn" data-act="fwd" title="Forward 1 frame (→)">${ic('next')}</button>
-    <button class="icon-btn" data-act="end" title="Go to end (End)">${ic('end')}</button>
+    <button class="icon-btn" data-act="goout" title="Go to Out (Shift+O)" aria-label="Go to Out">${monIco('goout')}</button>
+    <i class="vw-gap"></i>
+    <button class="icon-btn prog-only" data-k="lift" title="Lift (;): take In to Out out of the timeline, leave a gap" aria-label="Lift">${monIco('lift')}</button>
+    <button class="icon-btn prog-only" data-k="extract" title="Extract ('): take In to Out out of the timeline and close the gap" aria-label="Extract">${monIco('extract')}</button>
     <button class="icon-btn" data-act="frame" title="Export Frame (Ctrl+Shift+E): this frame as a PNG, exactly as the export makes it" aria-label="Export Frame">${ic('camera')}</button>
-    <span class="grow"></span>
     <span class="src-only" hidden>
-      <button class="small" data-act="in" title="Mark In (I)">In</button>
-      <button class="small" data-act="out" title="Mark Out (O)">Out</button>
       <button class="small accent" data-act="insert" title="Insert into V1 at the playhead (,)">Insert</button>
       <button class="small" data-act="append" title="Add to the end of V1">Append</button>
       <button class="small" data-act="overlay" title="Place on V2 at the playhead (.)">Overlay</button>
     </span>
-    <span class="tc" id="vwDur"></span>
   </div>`;
   frame = $('#vwFrame', el);
   for (const k of ['lyA', 'lyB', 'lyImg', 'lyCard', 'lyText', 'lyOv', 'lyOvImg', 'lyOvText', 'lyLogo', 'lyBlur', 'vwMsg', 'lyGrade', 'lyFx', 'lyOvStack', 'lyCap', 'lyMask', 'lyFxm', 'lyMaskUi', 'lyFxo', 'vwStab', 'lyRend']) els[k] = $(`#${k}`, el);
@@ -135,11 +139,12 @@ export function mountViewer(el) {
   $$('[data-mode]', el).forEach((b) => (b.onclick = () => setMode(b.dataset.mode)));
   el.addEventListener('click', (e) => {
     const a = e.target.closest('[data-act]')?.dataset.act;
+    const k = e.target.closest('[data-k]')?.dataset.k;
+    if (k) return emit('command', k);
     if (!a) return;
     ({ play: toggle, start: () => seek(0), end: () => seek(curDuration()), back: () => step(-1), fwd: () => step(1),
       in: () => mark('in'), out: () => mark('out'), insert: () => sourceTo('insert'), append: () => sourceTo('append'), overlay: () => sourceTo('overlay'),
-      guides: () => { const g = $('#lyGuides'); g.hidden = !g.hidden; e.target.closest('button').classList.toggle('on', !g.hidden); },
-      rulers: () => rul?.toggle(),
+      goin: () => goMark('in'), goout: () => goMark('out'), menu: () => settingsMenu(e.target.closest('button')),
       accurate: () => emit('accuratePreview'), frame: () => import('./editing.js').then((x) => x.exportFrame()) })[a]?.();
   });
   $('#srcBar', el).addEventListener('pointerdown', (e) => {
@@ -150,21 +155,20 @@ export function mountViewer(el) {
   });
   new ResizeObserver(sizeFrame).observe($('#vwStage', el));
   // 📏 rulers (monruler.js): the stage makes room for them, so the picture is fitted inside what is left
-  rul = monitorRulers({ key: 'program', host: el, stage: $('#vwStage', el), frame, size: () => (S.project ? frameWH() : null), onToggle: () => { sizeFrame(); syncRulBtn(); } });
-  syncRulBtn();
+  rul = monitorRulers({ key: 'program', host: el, stage: $('#vwStage', el), frame, size: () => (S.project ? frameWH() : null), onToggle: sizeFrame });
   { const pb = $('[data-pb]', el); pb.value = playback; pb.onchange = () => { playback = pb.value; try { localStorage.setItem('ve-playback', playback); } catch {} if (mode === 'program') drawProgram(S.playhead, false); else loadSource(); }; }
-  { const pq = $('[data-pq]', el); try { pq.value = localStorage.getItem('ve-preview-q') === 'fast' ? 'fast' : 'hq'; } catch {} pq.onchange = () => { try { localStorage.setItem('ve-preview-q', pq.value); } catch {} }; }
   // ⏱ Program monitor's time ruler (like Premiere's): timecodes along the whole edit; drag anywhere on it to scrub
   const vr = $('#vwRuler', el);
   vr.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
     e.preventDefault(); try { vr.setPointerCapture(e.pointerId); } catch {}
-    const go = (ev) => { const b = vr.getBoundingClientRect(); emit('seek', clamp((ev.clientX - b.left) / b.width, 0, 1) * duration()); };
+    const go = (ev) => { const b = vr.getBoundingClientRect(), [za, zz] = zv(); emit('seek', clamp(fromView(clamp((ev.clientX - b.left) / b.width, 0, 1), za, zz), 0, 1) * duration()); };
     go(e);
     const up = () => { vr.removeEventListener('pointermove', go); vr.removeEventListener('pointerup', up); };
     vr.addEventListener('pointermove', go); vr.addEventListener('pointerup', up);
   });
   new ResizeObserver(drawRuler).observe(vr);
+  zb = zoomBar($('#vwZoom', el), () => drawRuler());
   on('change', drawRuler);
   bindDirectMove();
   bindTypeTool();
@@ -292,7 +296,6 @@ function sizeFrame() {
   frame.style.setProperty('--fh', `${h * k}px`);
   rul?.draw();
 }
-const syncRulBtn = () => $('[data-act="rulers"]', root)?.classList.toggle('on', !!rul?.on());
 export const toggleRulers = () => rul?.toggle();
 
 export function setMode(m) {
@@ -301,7 +304,8 @@ export function setMode(m) {
   mode = m;
   $$('[data-mode]', root).forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mode === m)));
   $('#vwSrc', root).hidden = m !== 'source';
-  $('#vwRuler', root).hidden = m !== 'program';
+  $('#vwRuler', root).hidden = m !== 'program'; $('#vwZoom', root).hidden = m !== 'program';
+  $('.prog-only', root).forEach((b) => { b.hidden = m !== 'program'; });
   $('.src-only', root).hidden = m !== 'source';
   hideAll();
   sizeFrame();
@@ -598,15 +602,15 @@ function ovSlot(c) {
 let rulerKey = '';
 function drawRuler(t) {
   const el = $('#vwRuler', root); if (!el || !S.project) return;
-  const D = Math.max(1, duration()), w = el.clientWidth || 1, key = `${D.toFixed(2)}|${w}|${S.project.settings.fps}`;
+  const D = Math.max(1, duration()), w = el.clientWidth || 1, key = `${D.toFixed(2)}|${w}|${S.project.settings.fps}|${zv().join(',')}`;
   if (key !== rulerKey) {
     rulerKey = key;
-    const want = (D * 90) / w, step = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800].find((x) => x >= want) || 3600, minor = step / 5;
-    const tc = (t) => fmtTC(t, S.project.settings.fps).replace(/:\d\d$/, ''); // (hh:mm:ss, like Premiere's)
+    const [za, zz] = zv(), tc = (t) => fmtTC(t, S.project.settings.fps).replace(/:\d\d$/, ''); // (hh:mm:ss, like Premiere's)
+    const ticks = timeTicks(D, za, zz, w, S.project.settings.fps), fine = ticks.some((x) => x.major && Math.abs(x.t - Math.round(x.t)) > 1e-6);
     let h = '';
-    for (let t = 0; t <= D + 1e-6; t += minor) {
-      const major = Math.abs(t / step - Math.round(t / step)) < 1e-6, x = ((t / D) * 100).toFixed(3);
-      h += major ? `<b style="left:${x}%"></b>${t < D - step * 0.4 || t === 0 ? `<span style="left:${x}%">${tc(t)}</span>` : ''}` : `<i style="left:${x}%"></i>`;
+    for (const x of ticks) {
+      const l = toView(x.t / D, za, zz).toFixed(3);
+      h += x.major ? `<b style="left:${l}%"></b><span style="left:${l}%">${fine ? fmtTC(x.t, S.project.settings.fps) : tc(x.t)}</span>` : `<i style="left:${l}%"></i>`;
     }
     $('.vr-ticks', el).innerHTML = h;
   }
@@ -614,7 +618,27 @@ function drawRuler(t) {
 }
 function placeRuler(t) {
   const ph = root && $('#vwRuler .vr-ph', root); if (!ph) return;
-  ph.style.left = `${clamp(t / Math.max(1, duration()), 0, 1) * 100}%`;
+  const [za, zz] = zv(), x = toView(clamp(t / Math.max(1, duration()), 0, 1), za, zz);
+  ph.style.left = `${x}%`; ph.hidden = x < 0 || x > 100;
+}
+const zv = () => zb?.get() || [0, 1];
+// Go to In / Out: the timeline's (the Go to In / Out commands), or the clip's in Source mode
+function goMark(w) {
+  if (mode === 'source') { const mk = S.sourceMarks[srcId] || {}; return seek(mk[w] ?? (w === 'in' ? 0 : curDuration())); }
+  emit('command', w === 'in' ? 'goIn' : 'goOut');
+}
+// 🔧 the wrench: what used to sit in the head (safe margins, rulers, Accurate preview and its quality)
+function settingsMenu(btn) {
+  let pq = 'hq'; try { pq = localStorage.getItem('ve-preview-q') === 'fast' ? 'fast' : 'hq'; } catch {}
+  const g = $('#lyGuides', root), setQ = (v) => { try { localStorage.setItem('ve-preview-q', v); } catch {} };
+  wrenchMenu(btn, [
+    { label: 'Safe margins (title / action)', on: !g.hidden, act: () => { g.hidden = !g.hidden; } },
+    { label: 'Show rulers', on: !!rul?.on(), act: () => rul?.toggle() },
+    '-',
+    { label: 'Accurate preview', act: () => emit('accuratePreview') },
+    { label: 'Accurate preview at 1080p (sharp)', on: pq === 'hq', act: () => setQ('hq') },
+    { label: 'Accurate preview at Fast 720p (quicker)', on: pq === 'fast', act: () => setQ('fast') },
+  ]);
 }
 
 // T ---------------- the Type tool: write straight on the Program monitor (like Premiere) ----------------
