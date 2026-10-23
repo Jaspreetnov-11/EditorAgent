@@ -8,6 +8,7 @@ import { $, $$, h, esc, toast, modal, fmtSize } from './ui.js';
 import { placeMedia } from './timeline.js';
 import { openSmart, TAGS, dupIds } from './smart.js';
 import { openBatch } from './batch.js';
+import { tagColor, editTags } from './tags.js';
 
 const pools = [];
 let poolSel = new Set(), filter = 'all', query = '', bin = '', pollTimer = null, tag = '';
@@ -144,7 +145,7 @@ export function mountPool(el, { big = false } = {}) {
     const menu = h(`<div class="ctx" role="menu">
       <button data-c="src">Open in source viewer</button><button data-c="append">Add to end of timeline</button>
       <button data-c="logo"${m.kind !== 'image' ? ' hidden' : ''}>Use as logo</button><hr>
-      <button data-c="newseq"${m.kind === 'audio' ? ' hidden' : ''}>New sequence from clip${poolSel.size > 1 ? `s (${poolSel.size})` : ''}</button><button data-c="subclip"${m.kind === 'video' || m.kind === 'audio' ? '' : ' hidden'}>Make subclip (Source In - Out)</button><button data-c="label">Label colour…</button><button data-c="interpret"${m.kind === 'video' ? '' : ' hidden'}>Interpret footage (frame rate)…</button><hr><button data-c="tobin">Move to folder…</button><button data-c="copydir">Copy folder path</button>${IS_EDITOR_PC ? '<button data-c="reveal">Reveal in Explorer</button>' : ''}<button data-c="path">Show file location</button><button data-c="redo">Re-read file</button><hr>
+      <button data-c="newseq"${m.kind === 'audio' ? ' hidden' : ''}>New sequence from clip${poolSel.size > 1 ? `s (${poolSel.size})` : ''}</button><button data-c="subclip"${m.kind === 'video' || m.kind === 'audio' ? '' : ' hidden'}>Make subclip (Source In - Out)</button><button data-c="label">Label colour…</button><button data-c="tags">Tags…</button><button data-c="interpret"${m.kind === 'video' ? '' : ' hidden'}>Interpret footage (frame rate)…</button><hr><button data-c="tobin">Move to folder…</button><button data-c="copydir">Copy folder path</button>${IS_EDITOR_PC ? '<button data-c="reveal">Reveal in Explorer</button>' : ''}<button data-c="path">Show file location</button><button data-c="redo">Re-read file</button><hr>
       <button data-c="remove">Delete from project <kbd>Del</kbd></button></div>`);
     document.body.append(menu);
     menu.style.left = `${Math.min(e.clientX, innerWidth - 220)}px`; menu.style.top = `${Math.min(e.clientY, innerHeight - 240)}px`;
@@ -170,6 +171,7 @@ export function mountPool(el, { big = false } = {}) {
       if (c === 'subclip') makeSubclip(m.id);
       if (c === 'newseq') import('./sequences.js').then((x) => x.newSequenceFromClip([...poolSel]));
       if (c === 'label') pickLabel([...poolSel]);
+      if (c === 'tags') tagMedia([...poolSel]);
       if (c === 'interpret') interpretFootage([...poolSel]);
       if (c === 'copydir') copyFolderPath(m.id);
       if (c === 'path') modal('File location', `<p class="mono">${esc(m.path)}</p>${m.error ? `<p class="warn">${esc(m.error)}</p>` : ''}`);
@@ -190,9 +192,12 @@ function mName(m) {
   return s ? `${s.name}` : m.name;
 }
 
-const tagOk = (m, dups) => !tag || (tag === '!bad' ? !!m.bad?.length : tag === '!dup' ? dups.has(m.id) : m.tags?.includes(tag));
+const hasUtag = (m, t) => !!m.utags?.some((x) => x.toLowerCase() === t);
+const tagOk = (m, dups) => !tag || (tag === '!bad' ? !!m.bad?.length : tag === '!dup' ? dups.has(m.id) : tag.startsWith('u:') ? hasUtag(m, tag.slice(2)) : m.tags?.includes(tag));
+// (🏷 #name in the search box: only files with that tag of yours)
+const queryOk = (m) => !query || (query[0] === '#' ? hasUtag(m, query.slice(1).trim()) : m.name.toLowerCase().includes(query) || (m.bin || '').toLowerCase().includes(query) || m.tags?.some((t) => t.startsWith(query)) || m.utags?.some((t) => t.toLowerCase().includes(query)));
 const visible = () => { const dups = dupIds(); return S.media.filter((m) => (filter === 'all' || m.kind === filter) && (!bin || (m.bin || '') === bin || (m.bin || '').startsWith(`${bin}/`))
-  && tagOk(m, dups) && (!query || m.name.toLowerCase().includes(query) || (m.bin || '').toLowerCase().includes(query) || m.tags?.some((t) => t.startsWith(query)))); };
+  && tagOk(m, dups) && queryOk(m)); };
 
 const POOL_STEP = 400;
 function render(p) { return guarded(null, 'Media', () => renderNow(p)); }
@@ -209,12 +214,13 @@ function renderNow(p) {
   const q = S.queue, busy = q.quick + q.proxy;
   $('[data-q]', el).textContent = busy ? `Preparing ${q.quick ? `${q.quick} file${q.quick > 1 ? 's' : ''}` : ''}${q.quick && q.proxy ? ' · ' : ''}${q.proxy ? `${q.proxy} preview cop${q.proxy > 1 ? 'ies' : 'y'}` : ''}…` : `${S.media.length} items`;
   // shot tags (after a 🧠 Smart scan): only the tags some clip has, with how many
-  const dups = dupIds(), tagged = S.media.filter((m) => m.tags);
+  const dups = dupIds(), tagged = S.media.filter((m) => m.tags), mine = myTags();
   const tc = $('[data-tags]', el);
-  tc.hidden = !tagged.length;
-  if (tagged.length) {
+  tc.hidden = !tagged.length && !mine.length;
+  if (tagged.length || mine.length) {
     const count = (t) => tagged.filter((m) => m.tags.includes(t)).length, nb = S.media.filter((m) => m.bad?.length).length, nd = S.media.filter((m) => dups.has(m.id)).length;
-    tc.innerHTML = TAGS.filter(([t]) => count(t)).map(([t, l]) => `<button class="chip${tag === t ? ' on' : ''}" data-tag="${t}">${l} ${count(t)}</button>`).join('')
+    tc.innerHTML = mine.map(([t, k]) => `<button class="chip utag${tag === `u:${t.toLowerCase()}` ? ' on' : ''}" data-tag="u:${esc(t.toLowerCase())}" style="--tc:${tagColor(t)}" title="Your tag - click to show only these files">${esc(t)} ${k}</button>`).join('')
+      + TAGS.filter(([t]) => count(t)).map(([t, l]) => `<button class="chip${tag === t ? ' on' : ''}" data-tag="${t}">${l} ${count(t)}</button>`).join('')
       + (nb ? `<button class="chip warnchip${tag === '!bad' ? ' on' : ''}" data-tag="!bad" title="Too dark, soft, shaky or very short">${nb}</button>` : '')
       + (nd ? `<button class="chip${tag === '!dup' ? ' on' : ''}" data-tag="!dup" title="Near-identical clips">⧉ ${nd}</button>` : '');
   }
@@ -233,10 +239,10 @@ function renderNow(p) {
       const st = m.status !== 'ready' ? `<span class="mi-st"${m.status === 'error' && m.error ? ` title="${esc(m.error)}"` : ''}>${m.status === 'offline' ? 'Offline' : m.status === 'error' ? 'Cannot read' : 'Reading…'}</span>`
         : m.kind === 'video' && m.proxy !== 'ready' && m.proxy !== 'none' ? `<span class="mi-st">${m.proxy === 'error' ? 'No preview' : `Preview ${m.proxyPct || 0}%`}</span>` : '';
       const res = m.width >= 3800 ? '4K' : m.width >= 2500 ? '2.7K' : m.height >= 1080 || m.width >= 1920 ? 'HD' : '';
-      return `<div class="mi${poolSel.has(m.id) ? ' sel' : ''}${m.status === 'offline' ? ' off' : ''}${m.label ? ' lab' : ''}" data-id="${m.id}" draggable="true"${m.label ? ` style="--lab:${m.label}"` : ''} title="${esc(mName(m))}${m.bin ? `\n${esc(m.bin)}` : ''}${m.tags ? `\n${esc(m.tags.join(' · '))}` : ''}${m.bad ? `\n${esc(m.bad.join(', '))}` : ''}">
+      return `<div class="mi${poolSel.has(m.id) ? ' sel' : ''}${m.status === 'offline' ? ' off' : ''}${m.label ? ' lab' : ''}" data-id="${m.id}" draggable="true"${m.label ? ` style="--lab:${m.label}"` : ''} title="${esc(mName(m))}${m.bin ? `\n${esc(m.bin)}` : ''}${m.tags ? `\n${esc(m.tags.join(' · '))}` : ''}${m.utags ? `\n🏷 ${esc(m.utags.join(', '))}` : ''}${m.bad ? `\n${esc(m.bad.join(', '))}` : ''}">
         <div class="mi-th k-${m.kind}" ${m.urls.thumb ? `style="background-image:url('${m.urls.thumb}')" data-thumb="${m.urls.thumb}"` : m.urls.wave ? `style="background-image:url('${m.urls.wave}');background-size:100% 70%"` : ''} ${m.urls.strip ? `data-strip="${m.urls.strip}"` : ''}>
           ${!m.urls.thumb && !m.urls.wave ? `<span class="mi-ic">${m.kind === 'audio' ? '♪' : '▣'}</span>` : ''}
-          ${m.subOf ? `<span class="mi-d" title="Subclip ${fmt(m.subIn)} - ${fmt(m.subOut)} of its file">${fmt(m.subOut - m.subIn)}</span>` : m.duration && m.kind !== 'image' ? `<span class="mi-d">${fmt(m.duration)}</span>` : ''}${res ? `<span class="mi-r">${res}</span>` : ''}${used ? '<span class="mi-u" title="Used in the timeline">●</span>' : ''}${st}
+          ${m.subOf ? `<span class="mi-d" title="Subclip ${fmt(m.subIn)} - ${fmt(m.subOut)} of its file">${fmt(m.subOut - m.subIn)}</span>` : m.duration && m.kind !== 'image' ? `<span class="mi-d">${fmt(m.duration)}</span>` : ''}${res ? `<span class="mi-r">${res}</span>` : ''}${used ? '<span class="mi-u" title="Used in the timeline">●</span>' : ''}${m.utags ? `<span class="mi-tg">${m.utags.slice(0, 6).map((t) => `<i style="background:${tagColor(t)}" title="${esc(t)}"></i>`).join('')}</span>` : ''}${st}
         </div>
         <div class="mi-n">${m.bad ? '<b class="warn">⚠</b> ' : ''}${dups.has(m.id) ? '<b class="muted">⧉</b> ' : ''}${esc(mName(m))}</div></div>`;
     }).join('') || '<div class="pool-empty">Nothing matches</div>';
@@ -418,6 +424,25 @@ export function interpretFootage(ids) {
     if (n) commit('Interpret footage');
     toast(fps ? `Plays as ${fps} fps${n ? ` - ${n} clip${n > 1 ? 's' : ''} on the timelines follow` : ''}` : 'Back to as shot');
   };
+}
+
+// 🏷 your own tags (keywords) - every tag in use with how many files have it, most used first
+function myTags() {
+  const n = new Map();
+  for (const m of S.media) for (const t of m.utags || []) { const k = t.toLowerCase(), x = n.get(k); n.set(k, [x?.[0] || t, (x?.[1] || 0) + 1]); }
+  return [...n.values()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+}
+// 🏷 Tags… on the selected files: the tags they all have can be changed / removed, new ones go on every file
+export async function tagMedia(ids) {
+  const ms = ids.map((id) => S.mediaById[id]).filter(Boolean); if (!ms.length) return;
+  const common = (ms[0].utags || []).filter((t) => ms.every((m) => hasUtag(m, t.toLowerCase())));
+  const next = await editTags(common, { title: ms.length > 1 ? `Tags of ${ms.length} files` : `Tags of ${ms[0].name}`, suggest: myTags().map((x) => x[0]) }); if (!next) return;
+  const keep = new Set(next.map((t) => t.toLowerCase()));
+  try {
+    await api('POST', `/api/media/tags?p=${enc(S.proj)}`, { ids: ms.map((m) => m.id), add: next, remove: common.filter((t) => !keep.has(t.toLowerCase())) });
+    await refreshMedia();
+    toast(`🏷 ${ms.length > 1 ? `${ms.length} files` : ms[0].name}: ${next.length ? next.join(', ') : 'no tags'}`);
+  } catch (e) { toast(e.message, 'err'); }
 }
 
 // 🏷 Label colour on the selected files (Premiere's labels): a stripe on the tile, kept in the project

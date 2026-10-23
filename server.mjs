@@ -130,7 +130,8 @@ function templateTask(src, orig, id, { name = '', fps = 30, by = '', temp = fals
 }
 const pick = (o, ks) => Object.fromEntries(ks.filter((k) => o && k in o).map((k) => [k, o[k]]));
 // 🏷 tags on media, projects and templates: short free-text labels, each once (case ignored), at most 20
-const cleanTags = (list) => [...new Map((Array.isArray(list) ? list : []).map((t) => String(t ?? '').replace(/\s+/g, ' ').trim().slice(0, 32)).filter(Boolean).map((t) => [t.toLowerCase(), t])).values()].slice(0, 20);
+const cleanTags = (list) => (Array.isArray(list) ? list : []).map((t) => String(t ?? '').replace(/\s+/g, ' ').trim().slice(0, 32)).filter(Boolean)
+  .filter((t, i, a) => a.findIndex((x) => x.toLowerCase() === t.toLowerCase()) === i).slice(0, 20); // (the first spelling stays)
 const SFX = path.join(ROOT, 'SFX'); // sound effects: the built-in library (made once) + your own files dropped in here
 let sfxReady = null;
 const sfxMade = () => (sfxReady ||= ensureSfx(SFX).catch((e) => logCrash('sfx library', e)));
@@ -1436,7 +1437,7 @@ function projectSummary(name) {
   const first = pj.tracks?.V1?.find((c) => byId[c.mediaId]?.thumb) || null;
   const thumbM = first ? byId[first.mediaId] : items.find((m) => m.thumb);
   return { name, folder: projDir(name), aspect: pj.settings?.aspect, modified: fs.statSync(P(name, 'project.json')).mtimeMs,
-    media: items.length, clips: Object.values(pj.tracks || {}).flat().length, duration: +duration.toFixed(1),
+    media: items.length, clips: Object.values(pj.tracks || {}).flat().length, duration: +duration.toFixed(1), tags: Array.isArray(pj.tags) ? pj.tags : [],
     thumb: thumbM ? `/pm/${encodeURIComponent(name)}/${thumbM.id}/thumb` : null };
 }
 
@@ -3058,6 +3059,17 @@ const routes = {
   },
   // 📁 folders on Home to sort projects into (only a grouping: the project folders on disk stay where they are)
   'GET /api/project-folders': () => projectFolders(),
+  // 🏷 a project's tags (in its project.json, through the live path - an open timeline gets them at once): { tags }
+  'POST /api/project/tags': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), tags = cleanTags((await readJson(req)).tags), L = liveOf(name);
+    const ops = [{ o: 'set', p: ['tags'], v: tags.length ? tags : undefined }];
+    applyOps(L.pj, ops);
+    const e = { rev: ++L.rev, client: 'tags', name: req.who?.name || 'Owner', label: 'Project tags', ops };
+    L.log.push(e); if (L.log.length > 2000) L.log.splice(0, L.log.length - 2000);
+    liveWrite(name, L, true);
+    liveSend(L, { type: 'ops', ...e });
+    return { tags };
+  },
   'POST /api/project-folders': async (req) => {
     const b = await readJson(req), folders = [], ids = new Set(), map = {};
     for (const f of (Array.isArray(b.folders) ? b.folders : []).slice(0, 300)) {
@@ -4387,6 +4399,22 @@ const routes = {
     for (const m of mediaDb(name).items) if (ids.has(m.id)) { if (lab) m.label = lab; else delete m.label; n++; }
     saveMedia(name, true);
     return { labelled: n };
+  },
+  // 🏷 your own tags on files (m.utags - m.tags are the Smart scan's): { ids, add?: [..], remove?: [..], set?: [..] };
+  // everyone with the project open sees them at once
+  'POST /api/media/tags': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req), ids = new Set(b.ids || []);
+    const rm = new Set(cleanTags(b.remove).map((t) => t.toLowerCase())), add = cleanTags(b.add);
+    let n = 0;
+    for (const m of mediaDb(name).items) {
+      if (!ids.has(m.id)) continue;
+      const next = cleanTags(Array.isArray(b.set) ? b.set : [...(m.utags || []).filter((t) => !rm.has(t.toLowerCase())), ...add]);
+      if (next.length) m.utags = next; else delete m.utags;
+      n++;
+    }
+    saveMedia(name, true);
+    { const L = live.get(name); if (L) liveSend(L, { type: 'notice', media: true }); }
+    return { tagged: n };
   },
   'POST /api/media/bin': async (req, res, u) => {
     const name = needProject(q(u, 'p')), b = await readJson(req), ids = new Set(b.ids || []);

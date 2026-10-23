@@ -90,7 +90,7 @@ test('🎞 a MOGRT uploaded into the Library: its rendered video with transparen
 test('🎞 template tags and name are kept; in a project it is a media item that plays its own preview with transparency', async () => {
   if (!ON) return 'skip';
   const u = await api('POST', '/api/library/graphics/update', { id: tpl.id, name: 'LT', tags: ['Logo', ' intro ', 'logo', ''] });
-  same([u.name, u.tags], ['LT', ['logo', 'intro']]);
+  same([u.name, u.tags], ['LT', ['Logo', 'intro']]);
   const m = await api('POST', `/api/library/graphics/use?p=${P}`, { id: tpl.id });
   same([m.status, m.alpha, m.template.id, m.bin, m.proxy], ['ready', true, tpl.id, 'Templates', 'none']);
   assert(m.path.startsWith(path.join(tmp, 'Projects', NAME, 'imports', 'templates')), 'its copy is in the project folder (helper PCs render from there)');
@@ -135,8 +135,63 @@ test('🎨 color match to any reference: a still uploaded into Media › Colour 
   same(e?.status, 400);
 });
 
+// the project's live stream (what another editor with it open receives) until a message passes ok(), or null
+async function liveMessage(ok, start, ms = 8000) {
+  const ac = new AbortController(), r = await fetch(`${B}/api/live?p=${P}&client=watcher&since=0`, { signal: ac.signal }), rd = r.body.getReader();
+  let buf = '', found = null;
+  const t = setTimeout(() => ac.abort(), ms);
+  await sleep(300); start();
+  try {
+    while (!found) {
+      const { value, done } = await rd.read(); if (done) break;
+      buf += Buffer.from(value).toString('utf8');
+      for (const line of buf.split('\n')) if (line.startsWith('data: ')) { try { const m = JSON.parse(line.slice(6)); if (ok(m)) { found = m; break; } } catch {} }
+    }
+  } catch {}
+  clearTimeout(t); ac.abort();
+  return found;
+}
+
+test('🏷 media tags: added, removed, kept in media.json; editors with the project open are told at once', async () => {
+  if (!ON) return 'skip';
+  const blue = media.find((m) => m.name === 'Blue.mp4'), red = media.find((m) => m.name === 'Red.mp4');
+  const tell = await liveMessage((m) => m.type === 'notice' && m.media, () => api('POST', `/api/media/tags?p=${P}`, { ids: [blue.id, red.id], add: ['Drone', 'Day 1', 'drone '] }));
+  assert(tell, 'the open project heard about it');
+  await api('POST', `/api/media/tags?p=${P}`, { ids: [red.id], remove: ['DAY 1'], add: ['Client: MyGov'] });
+  const items = (await api('GET', `/api/media?p=${P}`)).items;
+  same(items.find((m) => m.id === blue.id).utags, ['Drone', 'Day 1']);
+  same(items.find((m) => m.id === red.id).utags, ['Drone', 'Client: MyGov']);
+  const saved = JSON.parse(fs.readFileSync(path.join(tmp, 'Projects', NAME, 'media.json'), 'utf8')).items;
+  same(saved.find((m) => m.id === red.id).utags, ['Drone', 'Client: MyGov'], 'saved with the media list');
+  await api('POST', `/api/media/tags?p=${P}`, { ids: [blue.id], set: [] });
+  assert(!(await api('GET', `/api/media?p=${P}`)).items.find((m) => m.id === blue.id).utags, 'no tags left: none kept');
+});
+
+test('🏷 project tags: in project.json, on Home, and an open timeline gets them at once', async () => {
+  if (!ON) return 'skip';
+  const heard = await liveMessage((m) => m.type === 'ops' && m.label === 'Project tags', () => api('POST', `/api/project/tags?p=${P}`, { tags: ['MyGov', 'Reel', ' reel '] }));
+  same(heard?.ops, [{ o: 'set', p: ['tags'], v: ['MyGov', 'Reel'] }]);
+  same((await api('GET', `/api/project?p=${P}`)).tags, ['MyGov', 'Reel']);
+  same(JSON.parse(fs.readFileSync(path.join(tmp, 'Projects', NAME, 'project.json'), 'utf8')).tags, ['MyGov', 'Reel']);
+  let home = null;
+  for (let i = 0; i < 20 && !home?.tags?.length; i++) { home = (await api('GET', '/api/projects')).find((p) => p.name === NAME); await sleep(250); }
+  same(home.tags, ['MyGov', 'Reel'], 'Home lists them');
+  await api('POST', `/api/project/tags?p=${P}`, { tags: [] });
+  assert(!('tags' in (await api('GET', `/api/project?p=${P}`))), 'all taken off: gone from the project');
+});
+
 test('🎞 stop the library test editor and remove its folder', async () => {
   if (!ON) return 'skip';
   srv?.kill(); await sleep(800);
   try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
+});
+
+test('🏷 tags in the browser: the same cleaning as the server, a colour per tag name whatever its case', async () => {
+  const { cleanTags, parseTags, tagColor, tagChips } = await import('../public/js/tags.js');
+  same(cleanTags(['Logo', ' intro ', 'logo', '', null, 'a'.repeat(40)]), ['Logo', 'intro', 'a'.repeat(32)]);
+  same(parseTags('drone, Day 1; #client'), ['drone', 'Day 1', 'client']);
+  same(cleanTags(Array.from({ length: 30 }, (_, i) => `t${i}`)).length, 20);
+  same(tagColor('Drone'), tagColor('drone'));
+  assert(/^#[0-9a-f]{6}$/.test(tagColor('x')), 'a colour');
+  assert(tagChips(['<b>']).includes('&lt;b&gt;'), 'tag names are escaped');
 });

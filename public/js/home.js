@@ -10,6 +10,24 @@ const NAS = 'Z:\\', DEFAULT_PLACE = 'Z:\\Editor Projects'; // 💾 new projects 
 const FOLDER_SVG = '<svg class="pf-ic" viewBox="0 0 48 40" aria-hidden="true"><path class="pf-back" d="M4 6a3 3 0 0 1 3-3h11l4 4h19a3 3 0 0 1 3 3v24a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3z"/><path class="pf-front" d="M4 14a3 3 0 0 1 3-3h34a3 3 0 0 1 3 3v20a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3z"/></svg>';
 import { openTeam } from './team.js';
 import { openSessions } from './sessionsui.js';
+import { tagChips, tagColor, editTags } from './tags.js';
+
+// 🏷 project tags: search box + tag chips above the grid (kept while Home is open); a tag just changed here is shown at
+// once (the list from the server catches up a moment later)
+let homeQ = '', homeTag = '';
+const tagNow = new Map(); // project -> { tags, at }
+const tagsOf = (p) => { const x = tagNow.get(p.name); return x && Date.now() - x.at < 60000 ? x.tags : p.tags || []; };
+function filterCards(el) {
+  const q = homeQ.trim().toLowerCase(), byTag = q[0] === '#' ? q.slice(1).trim() : '';
+  let shown = 0;
+  $$('.proj[data-open]', el).forEach((c) => {
+    const tags = JSON.parse(c.dataset.tags || '[]').map((t) => t.toLowerCase());
+    const ok = (!homeTag || tags.includes(homeTag)) && (!q || (byTag ? tags.includes(byTag) : c.dataset.open.toLowerCase().includes(q) || tags.some((t) => t.includes(q))));
+    c.hidden = !ok; if (ok) shown++;
+  });
+  $$('[data-htag]', el).forEach((b) => b.classList.toggle('on', b.dataset.htag === homeTag));
+  const none = $('.home-none', el); if (none) none.hidden = shown > 0 || (!q && !homeTag);
+}
 
 export async function renderHome(el, openProject) {
   el.innerHTML = `<div class="home">
@@ -19,6 +37,7 @@ export async function renderHome(el, openProject) {
       <div class="home-actions"><button class="small" data-a="team" hidden title="Admin: people who can sign in from other computers - names, passwords, roles (Owner / Editor / Viewer), shared folders, render farm">Team &amp; users</button><button class="small" data-a="sessions" hidden title="Who worked in the editor, when and for how long - the last 30 days">Sessions</button><button class="link small" data-a="deleted" hidden>Recycle Bin</button><button class="small home-refresh" data-a="refresh" title="Refresh: load the editor again (newest version) - always here">Refresh</button><button class="primary big" data-a="new">+ New project</button></div>
     </div>
     <div class="pf-bar" id="pfBar"></div>
+    <div class="home-find"><input type="search" id="homeQ" placeholder="Search projects or #tag" aria-label="Search projects"><div class="chips" id="homeTags"></div></div>
     <div class="proj-grid" id="projGrid"><div class="muted">Loading…</div></div>
   </div>`;
   el.onclick = async (e) => {
@@ -28,6 +47,10 @@ export async function renderHome(el, openProject) {
     if (e.target.closest('[data-a="deleted"]')) return deletedDialog(() => renderHome(el, openProject));
     if (e.target.closest('[data-a="team"]')) return openTeam(); // 👥 admin: users, passwords, roles
     if (e.target.closest('[data-a="sessions"]')) return openSessions(); // 📊 who worked how long
+    const ht = e.target.closest('[data-htag]');
+    if (ht) { homeTag = homeTag === ht.dataset.htag ? '' : ht.dataset.htag; return filterCards(el); }
+    const pt = e.target.closest('[data-ptag]');
+    if (pt) { e.stopPropagation(); return tagProject(pt.dataset.ptag, () => renderHome(el, openProject)); }
     const del = e.target.closest('[data-del]');
     if (del) { e.stopPropagation(); return deleteProject(del.dataset.del, () => renderHome(el, openProject)); }
     const mv = e.target.closest('[data-move]');
@@ -51,23 +74,41 @@ export async function renderHome(el, openProject) {
     $('#projRoot', el).textContent = health.projectsFolder;
     const grid = $('#projGrid', el);
     grid.innerHTML = `<button class="proj new" data-a="new"><span>+</span><b>New project</b><small>Save it in any folder - Z:, D: or a shared PC</small></button>` +
-      list.map((p) => `<div class="proj" data-open="${esc(p.name)}" draggable="true" tabindex="0" role="button" aria-label="Open ${esc(p.name)}">
+      list.map((p) => `<div class="proj" data-open="${esc(p.name)}" data-tags="${esc(JSON.stringify(tagsOf(p)))}" draggable="true" tabindex="0" role="button" aria-label="Open ${esc(p.name)}">
         <div class="proj-th" style="${p.thumb ? `background-image:url('${p.thumb}')` : ''}"><span class="badge">${esc(p.aspect || '')}</span></div>
-        <div class="proj-info"><b>${esc(p.name)}</b>${inF(p) && cur === 'all' ? `<small class="pf-tag">${esc(pf.folders.find((f) => f.id === inF(p))?.name || '')}</small>` : ''}<small>${p.duration ? `${fmt(p.duration)} · ` : ''}${p.clips} clips · ${p.media} media</small>${p.place ? `<small class="mono" title="Saved in ${esc(p.place)}">${esc(p.place)}</small>` : ''}
+        <div class="proj-info"><b>${esc(p.name)}</b>${tagsOf(p).length ? `<span class="proj-tags">${tagChips(tagsOf(p))}</span>` : ''}${inF(p) && cur === 'all' ? `<small class="pf-tag">${esc(pf.folders.find((f) => f.id === inF(p))?.name || '')}</small>` : ''}<small>${p.duration ? `${fmt(p.duration)} · ` : ''}${p.clips} clips · ${p.media} media</small>${p.place ? `<small class="mono" title="Saved in ${esc(p.place)}">${esc(p.place)}</small>` : ''}
         <small>${new Date(p.modified).toLocaleString()}</small></div>
-        <div class="proj-btns"><button class="icon-btn" data-move="${esc(p.name)}" title="Move to a folder (or drag the card onto a folder above)" aria-label="Move ${esc(p.name)} to a folder">${icon('folderMove')}</button><button class="icon-btn" data-folder="${esc(p.name)}" title="Open project folder" aria-label="Open folder of ${esc(p.name)}">${icon('folder')}</button>${owner ? `<button class="icon-btn proj-del" data-del="${esc(p.name)}" title="Delete project (to the Recycle Bin, or for good)" aria-label="Delete ${esc(p.name)}">${icon('trash')}</button>` : ''}</div></div>`).join('');
+        <div class="proj-btns"><button class="icon-btn" data-ptag="${esc(p.name)}" title="Tags (labels to find it by - client, kind of work, status…)" aria-label="Tags of ${esc(p.name)}">🏷</button><button class="icon-btn" data-move="${esc(p.name)}" title="Move to a folder (or drag the card onto a folder above)" aria-label="Move ${esc(p.name)} to a folder">${icon('folderMove')}</button><button class="icon-btn" data-folder="${esc(p.name)}" title="Open project folder" aria-label="Open folder of ${esc(p.name)}">${icon('folder')}</button>${owner ? `<button class="icon-btn proj-del" data-del="${esc(p.name)}" title="Delete project (to the Recycle Bin, or for good)" aria-label="Delete ${esc(p.name)}">${icon('trash')}</button>` : ''}</div></div>`).join('');
     if (owner) api('GET', '/api/projects/deleted').then((d) => { const b = $('[data-a="deleted"]', el); if (b) { b.hidden = false; b.textContent = `Recycle Bin${d.length ? ` (${d.length})` : ''}`; } }).catch(() => {});
     $$('.proj[data-open]', grid).forEach((c) => {
       c.addEventListener('keydown', (e) => { if (e.key === 'Enter') openProject(c.dataset.open); });
       c.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/ve-project', c.dataset.open); e.dataTransfer.effectAllowed = 'move'; document.body.classList.add('pf-dragging'); });
       c.addEventListener('dragend', () => document.body.classList.remove('pf-dragging'));
     });
+    // 🏷 every tag on the projects shown, most used first, in its colour; click one to see only those projects
+    const counts = new Map();
+    for (const p of list) for (const t of tagsOf(p)) { const k = t.toLowerCase(), x = counts.get(k); counts.set(k, [x?.[0] || t, (x?.[1] || 0) + 1]); }
+    if (homeTag && !counts.has(homeTag)) homeTag = '';
+    $('#homeTags', el).innerHTML = [...counts.entries()].sort((a, b) => b[1][1] - a[1][1] || a[1][0].localeCompare(b[1][0])).map(([k, [t, n]]) => `<button class="chip utag" data-htag="${esc(k)}" style="--tc:${tagColor(t)}">${esc(t)} ${n}</button>`).join('');
+    grid.insertAdjacentHTML('beforeend', '<div class="muted home-none" hidden>No project matches - clear the search or the tag.</div>');
+    const qi = $('#homeQ', el); qi.value = homeQ;
+    qi.oninput = () => { homeQ = qi.value; filterCards(el); };
+    filterCards(el);
     if (cur !== 'all' && !list.length) grid.insertAdjacentHTML('beforeend', '<div class="muted pf-empty">No projects in this folder yet - drag a project card onto the folder above, or use on a card.</div>');
   } catch (e) {
     // signed out (the session ended): straight to the sign-in page from here, instead of a dead end
     const out = /sign in/i.test(e.message);
     $('#projGrid', el).innerHTML = `<div class="err">Could not load projects: ${esc(e.message)}</div><p>${out ? '<button class="primary" data-a="signin">Sign in</button> ' : ''}<button data-a="refresh">Refresh</button></p>`;
   }
+}
+
+// 🏷 a project's tags: saved in its project.json (an open timeline gets them at once)
+async function tagProject(name, refresh) {
+  const card = document.querySelector(`.proj[data-open="${CSS.escape(name)}"]`), cur = JSON.parse(card?.dataset.tags || '[]');
+  const all = [...document.querySelectorAll('.proj[data-tags]')].flatMap((c) => JSON.parse(c.dataset.tags || '[]'));
+  const next = await editTags(cur, { title: `Tags of ${name}`, suggest: all }); if (!next) return;
+  try { const r = await api('POST', `/api/project/tags?p=${enc(name)}`, { tags: next }); tagNow.set(name, { tags: r.tags, at: Date.now() }); refresh(); }
+  catch (e) { toast(e.message, 'err'); }
 }
 
 // ---------------- 📁 folders on Home ----------------

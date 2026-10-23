@@ -127,7 +127,7 @@ export function openCustomTemplates() {
     const ren = e.target.closest('[data-ren]')?.dataset.ren, tg = e.target.closest('[data-tag]')?.dataset.tag, del = e.target.closest('[data-del]')?.dataset.del;
     const t = list.find((x) => x.id === (ren || tg || del));
     if (ren) { const n = prompt('Name:', t.name); if (n?.trim()) { await api('POST', '/api/library/graphics/update', { id: ren, name: n.trim() }); load(); } return; }
-    if (tg) { const tags = await editTags(t.tags || [], e.target.closest('[data-tag]')); if (tags) { await api('POST', '/api/library/graphics/update', { id: tg, tags }); load(); } return; }
+    if (tg) { const tags = await editTags(t.tags || [], { title: `Tags of ${t.name}`, suggest: list.flatMap((x) => x.tags || []) }); if (tags) { await api('POST', '/api/library/graphics/update', { id: tg, tags }); load(); } return; }
     if (del) { if (confirm(`Delete "${t.name}" from the Library for everyone?\n\nProjects that already use it keep their copy.`)) { await api('POST', '/api/library/graphics/delete', { id: del }); load(); } return; }
     const pick = e.target.closest('[data-ctpl]')?.dataset.ctpl;
     if (pick) placeTemplate(pick);
