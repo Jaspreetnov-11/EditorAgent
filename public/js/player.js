@@ -323,7 +323,7 @@ export function setMode(m) {
   $$('[data-mode]', root).forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mode === m)));
   $('#vwSrc', root).hidden = m !== 'source';
   $('#vwRuler', root).hidden = m !== 'program'; $('#vwZoom', root).hidden = m !== 'program';
-  $('.prog-only', root).forEach((b) => { b.hidden = m !== 'program'; });
+  $$('.prog-only', root).forEach((b) => { b.hidden = m !== 'program'; });
   $('.src-only', root).hidden = m !== 'source';
   hideAll();
   sizeFrame();
@@ -1156,7 +1156,7 @@ function drawRendered(t, isPlay) {
   else { if (!v.paused) v.pause(); if (Math.abs(v.currentTime - want) > 0.5 / (S.project.settings.fps || 30)) v.currentTime = want; }
 }
 function drawProgramNow(t, isPlay) {
-  if (!S.project || mode !== 'program') return;
+  if (!S.project || mode !== 'program' || !root?.isConnected) return; // (no monitor on the page yet / any more: nothing to draw)
   applyMix(); autoMix(t); // (🎚 track volume keyframes at this frame)
   const L = layout(), ts = S.project.trackState;
   $('#vwTC').textContent = fmtTime(t, S.project.settings); // (⚙ Display format)
