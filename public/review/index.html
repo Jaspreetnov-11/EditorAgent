@@ -6,14 +6,17 @@
 <link rel="icon" type="image/png" href="/img/favicon.png?v=4">
 <title>Limelight Review</title>
 <style>
-  :root { --bg: #0d0f13; --panel: #1a1d24; --panel-2: #22262f; --line: #2c313c; --text: #e6e8ed; --muted: #8a92a3; --accent: #ff9933; --green: #36c27e; color-scheme: dark; }
+  /* Limelight Black: charcoal, the logo's yellow, Helvetica type */
+  :root { --bg: #050505; --panel: #111113; --panel-2: #17171a; --line: rgba(255,255,255,.08); --text: #f7f7f8; --muted: #9b9ba1; --accent: #ffc21a; --green: #36c27e; color-scheme: dark; }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 "Segoe UI", "Nirmala UI", system-ui, sans-serif; padding: 12px 16px calc(24px + env(safe-area-inset-bottom)); }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 "Helvetica Now Text", "Helvetica Neue", Helvetica, Arial, "Nirmala UI", sans-serif; padding: 12px 16px calc(24px + env(safe-area-inset-bottom)); }
   h1 { font-size: 17px; margin: 4px 0 12px; display: flex; align-items: center; gap: 8px; }
-  h1 i { width: 12px; height: 12px; border-radius: 50%; background: conic-gradient(var(--accent) 0 33%, #fff 0 66%, var(--green) 0); }
+  h1 img { height: 22px; width: auto; display: block; }
+  h1 span { color: var(--muted); font-weight: 500; font-size: 15px; }
   select, input, textarea, button { font: inherit; color: inherit; }
   select, input, textarea { width: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; }
-  button { background: var(--accent); color: #1b1206; border: 0; border-radius: 8px; padding: 10px 14px; font-weight: 600; }
+  button { background: linear-gradient(180deg, #ffd85a, #ffc21a 60%, #f4ad00); color: #111; border: 0; border-radius: 10px; padding: 10px 14px; font-weight: 650; }
+  select:focus, input:focus, textarea:focus { outline: none; border-color: rgba(255,194,26,.6); }
   label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
   video { width: 100%; max-height: 62vh; background: #000; border-radius: 8px; margin-top: 12px; display: block; }
   .row { display: flex; gap: 8px; align-items: flex-end; }
@@ -29,7 +32,7 @@
 </style>
 </head>
 <body>
-<h1><i></i>Limelight Review</h1>
+<h1><img src="/img/limelight-wordmark-white.png" alt="limelight"><span>Review</span></h1>
 <label for="proj">Project</label>
 <select id="proj"></select>
 <label for="ren">Video</label>
