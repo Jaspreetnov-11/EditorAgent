@@ -516,16 +516,20 @@ function drawHeads(TR, ts) {
   headsKey = key;
   headsEl.innerHTML = `<div class="th-ruler"></div>` + TR.map((t) => {
     const st = ts[t.id] || {};
-    return `<div class="th ${t.kind}${st.lock ? ' locked' : ''}${rowH(t.id) < 44 ? ' tiny' : ''}${rowH(t.id) < 30 ? ' mini' : ''}" style="height:${rowH(t.id)}px" data-track="${t.id}" title="Right-click: rename, add or delete a track">
-      <div class="th-name"${t.kind === 'video' ? '' : ` title="${esc(t.label)}"`}>${t.kind === 'video' ? '' : `<button class="th-tg${tg.a === t.id ? ' on' : ''}" data-tg="${t.id}" title="Target: Insert / Overwrite from the Source monitor go to ${t.name} (click again: off)">A</button>`}<b>${t.name}</b>${t.kind === 'video' ? (st.name ? `<span>${esc(st.name)}</span>` : '') : `<span>${esc(t.label)}</span>`}</div>
+    // 🎛 laid out like Premiere's track header: lock, the track name (audio: blue = the Insert / Overwrite target - click
+    // it), sync lock, then eye / M S mic; the track's own name shows under it when the track is tall enough
+    const label = t.kind === 'video' ? st.name || '' : t.label || '';
+    return `<div class="th pp ${t.kind}${st.lock ? ' locked' : ''}${rowH(t.id) < 44 ? ' tiny' : ''}${rowH(t.id) < 30 ? ' mini' : ''}" style="height:${rowH(t.id)}px" data-track="${t.id}" title="Right-click: rename, add or delete a track">
       <div class="th-btns">
+        <button class="tbtn lk${st.lock ? ' on' : ''}" data-tst="lock" title="Lock track">${ICON.lock}</button>
+        ${t.kind === 'audio' ? `<button class="th-tname${tg.a === t.id ? ' on' : ''}" data-tg="${t.id}" title="${esc(label ? `${label} - ` : '')}Target: Insert / Overwrite from the Source monitor go to ${t.name} (click again: off)">${t.name}</button>` : `<b class="th-tname">${t.name}</b>`}
+        ${t.id !== 'V1' ? `<button class="tbtn sync${st.sync ? ' on' : ''}" data-tst="sync" title="Sync Lock: when the main story ripples (Ripple delete, Q / W, Insert, ripple trim, Paste Insert, Trim mode) the clips on ${t.name} after that point move along with it">${ic('sync')}</button>` : '<i class="tbtn-gap"></i>'}
         ${t.kind === 'video' ? `<button class="tbtn${st.hide ? ' on' : ''}" data-tst="hide" title="Hide track">${st.hide ? ICON.eyeOff : ICON.eye}</button>` : ''}
         <button class="tbtn${st.mute ? ' on' : ''}" data-tst="mute" title="${t.kind === 'video' ? 'Mute clip sound' : 'Mute track'}">M</button>
         ${t.kind === 'audio' ? `<button class="tbtn solo${st.solo ? ' on' : ''}" data-tst="solo" title="Solo Track: hear only the soloed tracks">S</button><button class="tbtn rec" data-rec="${t.id}" title="Voice-over record: 3-2-1, then the edit plays and your voice goes onto ${t.name} from the playhead (click again or Esc to stop)">${ic('mic')}</button>` : ''}
         ${t.kind === 'audio' || t.id === 'V1' ? `<button class="tbtn tkey${st.volKeys?.length ? ' on' : ''}" data-tkey="${t.id}" title="Track volume keyframe at the playhead (${st.volKeys?.length || 0} now) - drag the dots on the track's yellow line, double-click one to remove it">${ic('diamond')}</button>` : ''}
-        ${t.id !== 'V1' ? `<button class="tbtn sync${st.sync ? ' on' : ''}" data-tst="sync" title="Sync Lock: when the main story ripples (Ripple delete, Q / W, Insert, ripple trim, Paste Insert, Trim mode) the clips on ${t.name} after that point move along with it">${ic('sync')}</button>` : ''}
-        <button class="tbtn${st.lock ? ' on' : ''}" data-tst="lock" title="Lock track">${ICON.lock}</button>
       </div>
+      ${label ? `<span class="th-label">${esc(label)}</span>` : ''}
       <div class="th-resize" data-rowh="${t.id}" title="Drag to make ${t.name} taller / shorter (double-click: normal)"></div>
           </div>`;
   }).join('');

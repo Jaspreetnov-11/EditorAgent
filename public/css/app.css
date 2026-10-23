@@ -1525,3 +1525,18 @@ html.ui2 .tl-row .clip.lab .clip-lbl, .tl-row .clip.lab .clip-lbl { background: 
 /* the headers scroll exactly as far as the tracks (the tracks' horizontal scrollbar made them stop short: scrolled to
    the bottom, every header sat 20 px below its track) */
 .tl-heads::after { content: ''; display: block; height: 160px; }
+
+/* 🎛 Track headers in Premiere’s order, in the Limelight look: lock · name (audio: yellow = Insert / Overwrite target) · sync · eye / M S mic */
+#tlHeads .th.pp { display: flex; flex-direction: column; justify-content: center; align-items: stretch; gap: 2px; padding: 0 4px 0 9px; }
+#tlHeads .th.pp .th-btns { display: flex; align-items: center; gap: 2px; min-width: 0; }
+#tlHeads .th.pp .tbtn { flex: none; }
+#tlHeads .th.pp .tbtn-gap { flex: none; width: 18px; }
+#tlHeads .th-tname { flex: none; min-width: 26px; height: 20px; padding: 0 5px; margin: 0 2px; display: inline-grid; place-items: center; border: 0; border-radius: 4px;
+  font: 600 10.5px/1 var(--ui-font, system-ui, sans-serif); letter-spacing: .02em; color: var(--text, #e8e6e3); background: #1a1a1e; box-shadow: 0 0 0 1px var(--hair-2, #ffffff1a) inset; cursor: default; }
+#tlHeads button.th-tname { cursor: pointer; }
+#tlHeads button.th-tname:hover { background: #222227; }
+#tlHeads .th-tname.on, #tlHeads .th-tname.on:hover { background: var(--y-grad, var(--accent, #f5c518)); color: #111; box-shadow: none; }
+#tlHeads .th.pp.locked .th-tname { opacity: .55; }
+#tlHeads .th-label { padding-left: 22px; font-size: 10px; color: var(--faint, #8a857c); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.1; }
+#tlHeads .th.pp.tiny .th-label { display: none; }
+#tlHeads .th.pp.mini .th-btns > :not([data-tst="hide"]):not([data-tst="lock"]):not(.th-tname) { display: none; }
