@@ -16,8 +16,14 @@ const HEVC = (() => {
   try { const v = document.createElement('video'); return { yuv420p: !!v.canPlayType('video/mp4; codecs="hvc1.1.6.L153.B0"'), yuv420p10le: !!v.canPlayType('video/mp4; codecs="hvc1.2.4.L153.B0"') }; } catch { return {}; }
 })();
 const ON_LAN = /^(localhost$|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(location.hostname);
+// ⚡ Playback, like Premiere's Playback Resolution (the monitor's Fast / Full): Fast - the default - plays the 1080p preview
+// copy when there is one (light to stream from the NAS to every PC at once, quick to scrub); Full plays the camera file
+// itself (sharpest, heavy: a 4K HEVC drone file is ~100 Mbit/s for each PC that plays it - 20-30 PCs made it all slow)
+let playback = (() => { try { return localStorage.getItem('ve-playback') === 'full' ? 'full' : 'fast'; } catch { return 'fast'; } })();
+export const playbackMode = () => playback;
 // (and 4K H.264, which only got the preview copy for being big)
 const direct = (m) => ON_LAN && m?.kind === 'video' && m.status === 'ready' && m.proxy !== 'none' && /\.(mp4|mov|m4v)$/i.test(m.path || '')
+  && !(playback === 'fast' && m.proxy === 'ready' && (m.proxyH || 0) >= 1080)
   && ((m.vcodec === 'hevc' && HEVC[m.pixfmt]) || (m.vcodec === 'h264' && /^yuvj?420p$/.test(m.pixfmt || '')));
 export const canPlay = (m) => !!m && (m.playable || direct(m));
 export const playUrl = (m) => (direct(m) ? m.urls.play.replace(/\/play$/, '/orig') : m.urls.play);
@@ -58,6 +64,7 @@ export function mountViewer(el) {
     <span class="vw-title" id="vwTitle"></span>
     <span class="grow"></span>
     <select class="small vw-zoom" data-vzoom title="Zoom level, like Premiere's: Fit shows the whole frame. The mouse wheel over the picture zooms in / out where the mouse is (Alt + wheel scales the selected clip); middle-drag or the scrollbars move around"><option value="fit">Fit</option>${ZOOMS.map((z) => `<option value="${z}">${Math.round(z * 100)}%</option>`).join('')}</select>
+    <select class="small vw-pb" data-pb title="Playback: Fast plays the light 1080p preview copies (quick to load and scrub, easy on the NAS when the whole office works); Full plays the camera files themselves where the browser can (sharpest, much heavier)"><option value="fast">Fast</option><option value="full">Full</option></select>
     <button class="tog small" data-act="guides" title="Title/action-safe guides">Guides</button>
     <select class="small vw-pq" data-pq title="Accurate preview quality: 1080p from the camera files (sharp), or Fast 720p from the small proxy copies (much quicker - for checking timing)"><option value="hq">1080p</option><option value="fast">Fast 720p</option></select>
     <button class="small" data-act="accurate" title="Render the exact result with FFmpeg (quality: the choice next to it)">Accurate preview</button>
@@ -136,6 +143,7 @@ export function mountViewer(el) {
     window.addEventListener('pointermove', go); window.addEventListener('pointerup', up);
   });
   new ResizeObserver(sizeFrame).observe($('#vwStage', el));
+  { const pb = $('[data-pb]', el); pb.value = playback; pb.onchange = () => { playback = pb.value; try { localStorage.setItem('ve-playback', playback); } catch {} if (mode === 'program') drawProgram(S.playhead, false); else loadSource(); }; }
   { const pq = $('[data-pq]', el); try { pq.value = localStorage.getItem('ve-preview-q') === 'fast' ? 'fast' : 'hq'; } catch {} pq.onchange = () => { try { localStorage.setItem('ve-preview-q', pq.value); } catch {} }; }
   // ⏱ Program monitor's time ruler (like Premiere's): timecodes along the whole edit; drag anywhere on it to scrub
   const vr = $('#vwRuler', el);

@@ -29,7 +29,10 @@ function nvencArgs(args) {
   out[v + 1] = `scale_cuda=-2:${m[1]}:format=yuv420p`;
   out[c] = 'h264_nvenc';
   const p = out.indexOf('-preset'); if (p >= 0) out[p + 1] = 'p4';
-  const q = out.indexOf('-crf'); if (q >= 0) out.splice(q, 2, '-rc', 'vbr', '-cq', String(+out[q + 1] + 1), '-b:v', '0');
+  // (a capped bitrate: "-cq 19 -b:v 0" made 31-35 Mbit/s 1080p copies - 6x the CPU ones - and every editor streams them from
+  // the NAS while scrubbing; no B-frames, so a jump lands on its frame at once)
+  const q = out.indexOf('-crf'), lite = q >= 0 && +out[q + 1] >= 24;
+  if (q >= 0) out.splice(q, 2, '-rc', 'vbr', '-cq', lite ? '28' : '23', '-b:v', lite ? '2M' : '6M', '-maxrate', lite ? '3M' : '9M', '-bufsize', lite ? '4M' : '12M', '-bf', '0');
   out.splice(i, 0, '-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda');
   return out;
 }

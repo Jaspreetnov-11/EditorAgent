@@ -948,14 +948,22 @@ const liteQueued = new Set(); // projects whose light copies were asked for sinc
 // per project and server start). Files the monitor plays itself (HEVC, H.264 - see player.js) are left as they are.
 const upQueued = new Set();
 const playsItself = (m) => (m.vcodec === 'hevc' && /^yuv420p(10le)?$/.test(m.pixfmt || '')) || (m.vcodec === 'h264' && /^yuvj?420p$/.test(m.pixfmt || ''));
+// ⚡ and a preview copy heavier than PROXY_MAX (the GPU ones made on 23 Oct 2026 were 31-35 Mbit/s) is made again, lighter -
+// read as the file's size over its length, without waiting (a NAS read never holds up the editor)
+const PROXY_MAX = 24e6;
 function upgradeProxies(proj) {
   if (upQueued.has(proj)) return;
   upQueued.add(proj);
   const used = usedMediaIds(proj);
   for (const m of mediaDb(proj).items) {
     // (a proxyUp left from a server stopped half way is taken up again: this runs once per start)
-    if (!used.has(m.id) || m.kind !== 'video' || m.proxy !== 'ready' || (m.proxyH || 0) >= PROXY_H || playsItself(m)) continue;
-    m.proxyUp = 'queued'; proxyQ.push({ proj, id: m.id });
+    if (!used.has(m.id) || m.kind !== 'video' || m.proxy !== 'ready' || m.proxyUp) continue;
+    if ((m.proxyH || 0) < PROXY_H && !playsItself(m)) { m.proxyUp = 'queued'; proxyQ.push({ proj, id: m.id }); continue; }
+    if (!(m.duration > 1)) continue;
+    fs.promises.stat(P(proj, 'cache', 'proxies', `${m.id}.mp4`)).then((st) => {
+      if ((st.size * 8) / m.duration <= PROXY_MAX || m.proxy !== 'ready' || m.proxyUp) return;
+      m.proxyUp = 'queued'; proxyQ.push({ proj, id: m.id }); pump();
+    }).catch(() => {});
   }
   pump();
 }

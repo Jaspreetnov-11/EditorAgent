@@ -2,10 +2,13 @@
 import { test, assert, eq } from './harness.mjs';
 import { helperScore, pickHelper, toTaskArgs, gpuProxyArgs } from '../engine/helpers.mjs';
 
-test('⚡ a preview copy on the NVIDIA card: GPU decode + scale_cuda + NVENC, same size and quality setting', () => {
+test('⚡ a preview copy on the NVIDIA card: GPU decode + scale_cuda + NVENC, same size, a capped bitrate (no 35 Mbit/s copies)', () => {
   const a = ['-hide_banner', '-y', '-i', 'in.mp4', '-map', '0:v:0', '-vf', "scale=-2:'min(ih,1080)',format=yuv420p", '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-g', '12', 'out.mp4'];
   eq(gpuProxyArgs(a), ['-hide_banner', '-y', '-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda', '-i', 'in.mp4', '-map', '0:v:0', '-vf', "scale_cuda=-2:'min(ih,1080)':format=yuv420p",
-    '-c:v', 'h264_nvenc', '-preset', 'p4', '-rc', 'vbr', '-cq', '19', '-b:v', '0', '-g', '12', 'out.mp4']);
+    '-c:v', 'h264_nvenc', '-preset', 'p4', '-rc', 'vbr', '-cq', '23', '-b:v', '6M', '-maxrate', '9M', '-bufsize', '12M', '-bf', '0', '-g', '12', 'out.mp4']);
+  // the light copy (crf 26): about 2 Mbit/s
+  const lite = gpuProxyArgs(a.map((x) => (x === '18' ? '26' : x)));
+  eq(lite.slice(lite.indexOf('-rc'), lite.indexOf('-bf') + 2), ['-rc', 'vbr', '-cq', '28', '-b:v', '2M', '-maxrate', '3M', '-bufsize', '4M', '-bf', '0']);
   eq(gpuProxyArgs(['-i', 'x', '-vf', 'crop=10:10', '-c:v', 'libx264', 'o.mp4']), null, 'not a preview copy');
 });
 
