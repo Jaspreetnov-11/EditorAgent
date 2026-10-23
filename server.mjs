@@ -755,9 +755,9 @@ function helpersOn() {
   }
   return helperAsk || Promise.resolve(helperCaps);
 }
-async function runMedia(proj, tool, args, { inputs = [], outs = [], lane = 'light', tag = '', waitSec = 10, limitSec = 120, onLine, helperOnly = false } = {}) {
+async function runMedia(proj, tool, args, { inputs = [], outs = [], lane = 'light', tag = '', waitSec = 10, limitSec = 120, duration, onLine, helperOnly = false } = {}) {
   if (proj && (await helpersOn())[lane] > 0) {
-    const ask = { proj, tool, args, inputs, outs, lane, tag, waitSec, limitSec };
+    const ask = { proj, tool, args, inputs, outs, lane, tag, waitSec, limitSec, duration };
     let r = null;
     if (!IS_WORKER) r = await helperRun({ ...ask, onLine }).catch(() => null);
     else try {
@@ -1047,7 +1047,8 @@ function startJob(kind, cmd, args, onDone, meta = {}) {
   };
   if (!helper) { here(); return job; }
   (async () => {
-    const r = await runMedia(helper.proj, helper.tool, args.slice(1), { inputs: helper.inputs, outs: helper.outs, lane: 'ai', tag: kind, waitSec: 5, limitSec: 6 * 3600,
+    const r = await runMedia(helper.proj, helper.tool, args.slice(1), { inputs: helper.inputs || [], outs: helper.outs || [], lane: helper.tool === 'render' ? 'render' : 'ai', tag: helper.label || kind,
+      waitSec: 5, limitSec: 6 * 3600, duration: helper.duration,
       onLine: (l) => onData(Buffer.from(`${l}\n`)), helperOnly: true });
     if (r) { job.log.push('(done on a helper PC)'); end(0); } else here();
   })().catch(() => here());
@@ -2262,10 +2263,14 @@ function farmPump() {
 const LANES = ['light', 'heavy', 'render', 'ai'];
 const helperOf = new Map(); // project -> helper id (kept while that PC is on)
 const helperPCs = () => farmWorkers().filter((w) => w.specs);
-const helperSlots = () => { const hs = farm.server ? helperPCs() : []; return { heavy: hs.reduce((n, w) => n + (w.slots || 1), 0), light: hs.length * 2, ai: hs.filter((w) => w.specs.whisper).length }; };
+const helperSlots = () => { const hs = farm.server ? helperPCs() : []; return { heavy: hs.reduce((n, w) => n + (w.slots || 1), 0), light: hs.length * 2, ai: hs.filter((w) => w.specs.whisper).length, render: hs.filter((w) => w.specs.render).length }; };
 // what a run needs on the PC: FFprobe, Whisper on an NVIDIA card, or the editor's code (a whole render)
 const NEEDS = { ffprobe: 'ffprobe', transcribe: 'whisper' };
-async function helperRun({ proj, tool, args, inputs = [], outs = [], lane = 'light', tag = '', waitSec = 10, limitSec = 120, onLine }) {
+async function helperRun({ proj, tool, args, inputs = [], outs = [], lane = 'light', tag = '', waitSec = 10, limitSec = 120, duration, onLine }) {
+  if (tool === 'render') { // (a whole render: args [job file] - Export and the monitor's preview)
+    const p = helperRender({ proj, jobFile: args?.[0], duration, label: tag, onLine });
+    return p && !(await p) ? { code: 0, stdout: '', stderr: '' } : null;
+  }
   if (!farm.server || !['ffmpeg', 'ffprobe', 'transcribe'].includes(tool) || !proj) return null;
   const h = pickHelper(String(proj), helperPCs(), helperOf, farmCfg().pins || {}, NEEDS[tool] || null);
   if (!h) return null;
@@ -2297,18 +2302,19 @@ function codeManifest() {
   return codeList;
 }
 
-// 🖥 a whole render from the render queue on the project's helper PC, when that PC has the editor's code and is free for
-// it right now. The helper checks it sees every file the render needs (the footage on the NAS, the project's folder),
-// runs the render engine there and writes the finished file straight into the project's renders folder. The editor's
-// own LUTs come with its code copy (@code). Its lines arrive like a render here; a failure gives the render back here.
-const rqHelp = new Map(); // queue id -> farm task
-function renderOnHelper(it, onLine, finish) {
-  if (!farm.server || it.noHelper) return false;
-  const h = pickHelper(it.project, helperPCs(), helperOf, farmCfg().pins || {}, 'render');
-  if (!h || !farm.polls.some((p) => p.w.id === h.id && p.lane === 'render')) return false; // (not free for a render right now)
+// 🖥 a whole render (render2.mjs job file) on the project's helper PC, when that PC has the editor's code and is free for
+// it right now - from the render queue (renderOnHelper), Export and the monitor's preview (startJob). The helper checks
+// it sees every file the render needs (the footage on the NAS, the project's folder), runs the render engine there and
+// writes the finished file straight into the project's renders folder. The editor's own LUTs come with its code copy
+// (@code). Its lines arrive like a render here. Answers null when no helper is free now (render it here), else a promise
+// of null (done) or the error (then render it here too); o.task gets the farm task (to stop it).
+function helperRender({ proj, jobFile, duration = 60, label = '', onLine, task }) {
+  if (!farm.server || !proj) return null;
+  const h = pickHelper(String(proj), helperPCs(), helperOf, farmCfg().pins || {}, 'render');
+  if (!h || !farm.polls.some((p) => p.w.id === h.id && p.lane === 'render')) return null; // (not free for a render right now)
   let job;
-  try { job = readJSON(it.jobFile, null); } catch { job = null; }
-  if (!job?.output) return false;
+  try { job = readJSON(jobFile, null); } catch { job = null; }
+  if (!job?.output) return null;
   const pjText = JSON.stringify(job.project), luts = {}, need = [];
   for (const [n, f] of Object.entries(job.luts || {})) {
     if (!pjText.includes(JSON.stringify(n))) continue; // (only the LUTs this timeline uses)
@@ -2318,13 +2324,22 @@ function renderOnHelper(it, onLine, finish) {
   }
   for (const m of Object.values(job.media || {})) { let size = null; try { size = fs.statSync(m.path).size; } catch {} need.push({ path: m.path, size }); }
   if (job.subtitlesPath) need.push({ path: job.subtitlesPath });
-  const t = { id: crypto.randomBytes(6).toString('hex'), kind: 'render', label: `${it.project}: ${it.out}`, lane: 'render', helper: h.id, proj: it.project,
+  const t = { id: crypto.randomBytes(6).toString('hex'), kind: 'render', label: `${proj}: ${label || path.basename(job.output)}`, lane: 'render', helper: h.id, proj,
     job: { ...job, luts, farm: null }, need, dirs: [path.dirname(job.output), job.segCache ? path.dirname(job.segCache) : null].filter(Boolean),
-    out: job.output, onLine, state: 'waiting', limitMs: Math.max(1800, (it.duration || 60) * 120) * 1000 };
-  t.finish = (e) => { rqHelp.delete(it.id); finish(e, h.name); };
-  farm.tasks.set(t.id, t); farm.waiting.push(t); rqHelp.set(it.id, t); farmPump();
-  if (t.state !== 'taken') { rqHelp.delete(it.id); t.finish = () => {}; farmEnd(t, new Error('not taken')); return false; } // (the PC asked for something else meanwhile)
-  it.on = h.name;
+    out: job.output, onLine, state: 'waiting', limitMs: Math.max(1800, (duration || 60) * 120) * 1000, pc: h.name };
+  const done = new Promise((ok) => { t.finish = ok; });
+  farm.tasks.set(t.id, t); farm.waiting.push(t); farmPump();
+  if (t.state !== 'taken') { t.finish = () => {}; farmEnd(t, new Error('not taken')); return null; } // (the PC asked for something else meanwhile)
+  task?.(t);
+  return done;
+}
+// a render from the render queue on its project's helper (finish(error, PC name) when it ends)
+const rqHelp = new Map(); // queue id -> farm task
+function renderOnHelper(it, onLine, finish) {
+  if (it.noHelper) return false;
+  const p = helperRender({ proj: it.project, jobFile: it.jobFile, duration: it.duration, label: it.out, onLine, task: (t) => { rqHelp.set(it.id, t); it.on = t.pc; } });
+  if (!p) return false;
+  p.then((e) => { const pc = rqHelp.get(it.id)?.pc; rqHelp.delete(it.id); finish(e, pc); });
   return true;
 }
 // a helper that went off with work taken, or waiting for it: that work is done here (a preview copy would otherwise wait
@@ -3473,9 +3488,11 @@ const routes = {
   'POST /api/render': async (req, res, u) => {
     const name = needProject(q(u, 'p'));
     const b = await readJson(req);
-    const { jobFile, out, preview } = prepareRender(name, b);
+    const { jobFile, out, preview, duration } = prepareRender(name, b);
+    // (🖥 on the project's helper PC when one is free for a render right now, else here)
     return startJob(preview ? 'preview' : 'render', process.execPath, [path.join(ROOT, 'engine', 'render2.mjs'), jobFile],
-      () => { if (!preview) fs.rmSync(jobFile, { force: true }); return { output: out, url: `/pf/${encodeURIComponent(name)}/renders/${encodeURIComponent(out)}?t=${Date.now()}` }; }, { project: name });
+      () => { if (!preview) fs.rmSync(jobFile, { force: true }); return { output: out, url: `/pf/${encodeURIComponent(name)}/renders/${encodeURIComponent(out)}?t=${Date.now()}` }; },
+      { project: name, helper: { proj: name, tool: 'render', label: out, duration } });
   },
   // ⤵ Nest: a sequence becomes one clip of another. It is rendered (its own frame shape, 1080p, loudness left as it is)
   // into imports/sequences/<id>.mp4 and added to the media pool (bin "Sequences"); m.seqOf / m.seqHash remember which
