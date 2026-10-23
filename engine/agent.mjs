@@ -167,10 +167,24 @@ export async function runAgent(ctx) {
       if (b.code === 0) eng = JSON.parse(fs.readFileSync(ejson, 'utf8'));
       else report.warnings.push('Could not translate the voice-over - matching used the original words');
     }
-    // align English segments to the original ones by time (translation can merge/split sentences)
-    voSegs = orig.segments.filter((s) => s.text.trim()).map((s, i) => {
-      const en = eng.segments.filter((e) => e.end > s.start && e.start < s.end).map((e) => e.text).join(' ').trim() || s.text;
-      return { id: `s${i}`, start: s.start, end: s.end, text: s.text, en };
+    // align English segments to the original ones by time (translation can merge/split sentences): each English segment
+    // goes to the one line it overlaps most - a mere touch at the edges used to add the line before's English to the next,
+    // so from the middle of a long VO the pictures were chosen for the previous sentence. A line left without any takes
+    // the English nearest in time.
+    const lines = orig.segments.filter((s) => s.text.trim());
+    const ov = (e, s) => Math.max(0, Math.min(e.end, s.end) - Math.max(e.start, s.start));
+    const got = lines.map(() => []);
+    for (const e of eng === orig ? [] : eng.segments) {
+      if (!e.text?.trim()) continue;
+      let best = -1, bo = 0;
+      lines.forEach((s, k) => { const o = ov(e, s); if (o > bo) { bo = o; best = k; } });
+      if (best >= 0) got[best].push(e.text.trim());
+    }
+    const mid = (x) => (x.start + x.end) / 2;
+    voSegs = lines.map((s, i) => {
+      let en = got[i].join(' ').trim();
+      if (!en && eng !== orig && eng.segments.length) en = eng.segments.reduce((a, b) => (Math.abs(mid(b) - mid(s)) < Math.abs(mid(a) - mid(s)) ? b : a)).text.trim();
+      return { id: `s${i}`, start: s.start, end: s.end, text: s.text, en: en || s.text };
     });
     if (!voSegs.length) report.warnings.push('No speech found in the voice-over file');
     if (wantSubs && !heard && fs.existsSync(srtFile)) fs.copyFileSync(srtFile, srtCache);

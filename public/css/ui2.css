@@ -660,3 +660,74 @@ html.ui2 .mo-num { color: #8fc1ff; }
 .lwi-hit { display: grid; grid-template-columns: minmax(0, 1fr) 62px 56px 26px; gap: 5px; align-items: center; }
 .lwi-hit input, .lwi-hit select { min-width: 0; width: 100%; }
 .lwi-btn { align-self: end; }
+
+/* 🧰 Tools tab (before Media): the top bar's buttons as labelled tiles in groups */
+.tools { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 10px 14px; display: flex; flex-direction: column; gap: 14px; }
+.tl-group h4 { margin: 0 0 6px 2px; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.tl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 6px; }
+.tools .tl-tile { position: relative; display: flex; align-items: center; gap: 9px; width: 100%; max-width: none; min-height: 46px; padding: 7px 10px; text-align: left; border-radius: 7px;
+  background: var(--panel-2, #1a1916); border: 1px solid var(--line); color: var(--text); font-size: 12px; cursor: pointer; }
+.tools .tl-tile[hidden] { display: none; }
+.tools .tl-tile:hover:not(:disabled) { background: var(--panel-3); border-color: var(--line-2); }
+.tools .tl-tile .ico { width: 18px; height: 18px; flex: none; opacity: .9; }
+.tools .tl-txt { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.tools .tl-txt b { font-weight: 600; }
+.tools .tl-txt small { color: var(--muted); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tools .tl-tile.accent { border-color: var(--accent-line, #d4a24c66); background: var(--accent-soft, #d4a24c1c); }
+.tools .tl-tile.accent .ico, .tools .tl-tile.accent b { color: var(--accent-2, #f0c674); }
+.tools .tl-tile.sf-btn[data-state="warn"] .ico { color: #e8b34b; }
+.tools .tl-tile.sf-btn[data-state="bad"] .ico { color: #ff5d5d; }
+/* ⇪ Reload and Export at the right end of the menu bar (File · Edit · …) */
+.menubar .mb-sp { flex: 1; }
+.menubar .mb-reload, .menubar .mb-export { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 10px; margin-left: 6px; font-size: 11.5px; border-radius: 4px; }
+.menubar .mb-reload { background: none; border: 1px solid var(--line-2); color: var(--text); }
+.menubar .mb-reload:hover { background: var(--panel-3); }
+.menubar .mb-reload .ico, .menubar .mb-export .ico { width: 13px; height: 13px; }
+/* (five tabs now - Tools, Media, Effects, CC, 📝 - fit the panel: less padding each, and they may shrink) */
+html.ui2 .pool-tabs .ptabs button { padding: 6px 5px; min-width: 0; flex: 1 1 auto; }
+.pool-tabs .ptabs button { min-width: 0; }
+/* one line on top: the menus, then the project (name · sequence · saved), then jobs, people, who is signed in, Reload,
+   Export - all kept to the menu bar's own 24px (the old 46px top bar is gone) */
+.menubar { gap: 0; }
+.menubar .mb-proj { display: inline-flex; align-items: center; gap: 8px; min-width: 0; margin-left: 14px; padding-left: 12px; border-left: 1px solid var(--line); height: 16px; }
+.menubar .pname, html.ui2 .menubar .pname { font-size: 12px; font-weight: 600; margin: 0; max-width: 22vw; }
+.menubar .seqbtn, html.ui2 .menubar .seqbtn { height: 18px; line-height: 16px; padding: 0 7px; font-size: 11px; border-radius: 4px; background: transparent; border: 1px solid var(--line-2); color: var(--muted); max-width: 180px; }
+.menubar .seqbtn:hover { color: var(--text); }
+.menubar .save, html.ui2 .menubar .save { font-size: 10.5px; white-space: nowrap; }
+.menubar .jobchip, html.ui2 .menubar .jobchip:not(.qchip) { height: 18px !important; min-width: 0; padding: 0 8px; font-size: 10.5px; margin-left: 6px; }
+.menubar .people { margin: 0 4px 0 8px; }
+.menubar .people .pp { width: 18px; height: 18px; font-size: 8.5px; line-height: 15px; border-width: 1.5px; }
+.menubar .me { font-size: 11px; gap: 6px; margin-left: 8px; }
+.menubar .me .me-out { height: 18px; padding: 0 7px; font-size: 11px; border-radius: 4px; }
+.menubar .me .me-out svg { width: 11px; height: 11px; }
+.panel.panel-max { inset: 25px 0 40px 0 !important; }
+@media (max-width: 1100px) { .menubar .save, .menubar .me .me-name { display: none; } }
+
+/* 🎚 track headers, cleaner: no volume slider (the Audio page's mixer has the faders) - a coloured name badge and the
+   label on one line, a thin track-colour edge, even square buttons, "+ Video / + Audio" as light pills */
+.tl-heads .th { --tc2: #7aa7f0; grid-template-columns: minmax(0, 1fr) auto; gap: 0 6px; padding: 0 6px 0 9px; }
+.tl-heads .th.audio { --tc2: #6cc79a; }
+.tl-heads .th::before { content: ''; position: absolute; left: 0; top: 4px; bottom: 4px; width: 2px; border-radius: 2px; background: var(--tc2); opacity: .55; }
+.tl-heads .th-name { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.tl-heads .th-name b, html.ui2 .tl-heads .th-name b { flex: none; font: 600 10.5px/1 var(--mono, ui-monospace, monospace); color: var(--tc2); padding: 3px 5px; border-radius: 4px;
+  background: color-mix(in srgb, var(--tc2) 14%, transparent); border: 1px solid color-mix(in srgb, var(--tc2) 30%, transparent); }
+.tl-heads .th-name span, html.ui2 .tl-heads .th-name span { min-width: 0; font-size: 10.5px; color: var(--faint, #8a857c); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl-heads .th-tg { margin: 0; }
+.tl-heads .th-btns { gap: 1px; align-items: center; }
+.tl-heads .tbtn, html.ui2 .tl-heads .tbtn { width: 18px; height: 18px; padding: 0; display: inline-grid; place-items: center; border-radius: 4px; border: 1px solid transparent;
+  font-size: 9.5px; line-height: 1; color: var(--faint, #8a857c); background: transparent; filter: none; }
+.tl-heads .tbtn svg { width: 12px; height: 12px; }
+.tl-heads .tbtn:hover:not(:disabled) { background: var(--panel-3); color: var(--text); }
+.tl-heads .tbtn.on, html.ui2 .tl-heads .tbtn.on { color: var(--accent-2, #f0c674); background: var(--accent-soft, #d4a24c1c); border-color: var(--accent-line, #d4a24c66); }
+.tl-heads .th-btns .tbtn.solo.on { color: #111; background: #e8b923; border-color: #e8b923; }
+.tl-heads .th.locked .th-name { opacity: .55; }
+.tl-heads .th-add { gap: 5px; padding: 8px 6px 4px; }
+.tl-heads .th-add button { flex: 1; height: 22px; padding: 0 6px; font-size: 10.5px; border-radius: 99px; background: transparent; border: 1px dashed var(--line-2); color: var(--muted); }
+.tl-heads .th-add button:hover { border-style: solid; color: var(--text); background: var(--panel-3); }
+.tl-heads .th-vz { gap: 2px; padding: 2px 6px 8px; }
+.tl-heads .th-vz button { width: 20px; height: 20px; padding: 0; display: inline-grid; place-items: center; border-radius: 4px; background: transparent; border-color: transparent; color: var(--faint, #8a857c); }
+.tl-heads .th-vz button:hover { background: var(--panel-3); color: var(--text); }
+.tl-heads .th-vz input { height: 12px; }
+.tl-heads .th.audio .tbtn, html.ui2 .tl-heads .th.audio .tbtn { width: 16px; }
+.tl-heads .th.audio .th-btns { gap: 0; }
+.tl-heads .th.audio .th-name { gap: 4px; }

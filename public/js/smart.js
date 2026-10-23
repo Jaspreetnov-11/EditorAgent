@@ -12,7 +12,7 @@ import { placeMedia } from './timeline.js';
 export const TAGS = [['wide', 'Wide'], ['medium', 'Medium'], ['close-up', 'Close-up'], ['detail', 'Detail'], ['drone', 'Drone'], ['people', 'People'], ['crowd', 'Crowd'],
   ['outdoor', 'Outdoor'], ['indoor', 'Indoor'], ['sunset', 'Sunset'], ['night', 'Night'], ['text', 'Text']];
 let footage = { dups: [] };
-export const dupIds = () => new Set(footage.dups.flat());
+export const dupIds = () => new Set((footage.dups || []).flat());
 export const dupGroups = () => footage.dups; // ([[id, id, …], …] - groups of near-identical clips)
 export async function loadFootage() { try { footage = await api('GET', `/api/footage?p=${enc(S.proj)}`); } catch { footage = { dups: [] }; } emit('media'); }
 

@@ -58,43 +58,30 @@ const homeEl = $('#home'), editorEl = $('#editor');
 // (Labs took Audio's place in the page bar - the Audio page opens from Window > Audio)
 const PAGES = [['media', 'Media'], ['edit', 'Edit'], ['motion', 'Motion'], ['fusion', 'Fusion'], ['color', 'Color'], ['ai', 'Labs'], ['deliver', 'Deliver']];
 
+// 🧰 Tools tab (before Media): what used to crowd the top bar, as big labelled tiles in a few groups. Every tile keeps
+// its data-a, so the click handler below, the menus (runMenu 'a:') and whoAmI (Team / Mazbooti) find it as before.
+const TOOLS = [
+  ['AI se edit', [['agent', 'agent', 'Agent', 'Whole edit from footage, VO, music', 'Let the agent make the whole edit from your footage, voice-over and music', 'accent'],
+    ['reedit', 'reedit', 'Re-edit', 'New VO, music, pace or format', 'Change the voice-over, music, pace or format and let the agent rebuild this edit'],
+    ['assistant', 'assistant', 'Assistant', 'Type what to change', 'Type what to change, e.g. "music dheema karo", "make the colour warm", "remove the 3rd shot"…'],
+    ['report', 'report', 'Agent report', 'Which shot for which line', 'Report: which shot the agent chose for which line, and why']]],
+  ['History', [['undo', 'undo', 'Undo', 'Ctrl+Z', 'Undo (Ctrl+Z)'], ['redo', 'redo', 'Redo', 'Ctrl+Shift+Z', 'Redo (Ctrl+Shift+Z)'],
+    ['aiundo', 'aiundo', 'AI Undo', 'Before an Agent / Claude edit', 'Bring back the edit as it was before an Agent edit, Re-edit or Claude change (works after a refresh too)'],
+    ['versions', 'versions', 'Versions', 'Go back, or save with a name', 'Versions: go back to an earlier edit, or save this one with a name']]],
+  ['Project', [['brand', 'brand', 'Brand kit', 'Logo, colours, intro / outro', 'Brand kit (logo, colours, intro/outro) and project templates'],
+    ['mediamgr', 'media', 'Media manager', 'Relink, pack, clean up', 'Media manager: relink offline files, pack the project, clean up disk'],
+    ['activity', 'activity', 'Activity', 'Who changed what', 'Activity: who changed what on this project - take back one person\'s one change'],
+    ['zones', 'zones', 'Zones', 'Who owns which part', 'Zones: who owns which part of the timeline - warns before you change someone else\'s part'],
+    ['team', 'team', 'Team', 'Logins, roles, folders', 'Team: other computers in the office edit too (logins, roles, shared folders)', '', true],
+    ['safety', 'health', 'Mazbooti', 'Health, backup, standby PC', 'Mazbooti: health, nightly backup, standby PC', 'sf-btn', true]]],
+  ['Layout', [['workspace', 'zones', 'Workspace', '', 'Workspaces: Premiere Pro, DaVinci Resolve, Limelight or your own - resize, swap and save panel layouts', 'ws-btn'],
+    ['shortcuts', 'keyboard', 'Shortcuts', 'See and set every key', 'Keyboard shortcuts: see every key and set your own (Ctrl+Alt+K)']]],
+];
+const toolsHTML = () => `<div class="tools">${TOOLS.map(([group, list]) => `<section class="tl-group"><h4>${esc(group)}</h4><div class="tl-grid">${list.map(([a, ic, label, sub, title, cls = '', hide]) =>
+  `<button class="tl-tile ${cls}" data-a="${a}" title="${esc(title)}"${hide ? ' hidden' : ''}>${icon(ic)}<span class="tl-txt"><b>${esc(label)}</b><small${a === 'workspace' ? ' class="ws-name"' : ''}>${esc(a === 'workspace' ? currentWorkspace().name : sub)}</small></span></button>`).join('')}</div></section>`).join('')}</div>`;
+
 function shell() {
   editorEl.innerHTML = `
-  <header class="top">
-    <div class="tb-left">
-      <span class="pname" id="pName"></span><button class="seqbtn" data-a="seq" title="Sequences: several timelines in this project (film, teaser, reel…), nesting, versions">🎞 <span id="seqName"></span> ▾</button><span class="save" id="saveState"></span>
-    </div>
-    <div class="tb-right">
-      <span class="jobchip" id="jobChip" hidden></span>
-      <button class="jobchip qchip" id="queueChip" data-a="deliver" title="Render queue - open Export" hidden></button>
-      <span class="people" id="peopleChip" hidden></span>
-      <span class="me" id="meChip" hidden></span>
-      <div class="tgroup" role="group" aria-label="History">
-        <button class="icon-btn" data-a="undo" title="Undo (Ctrl+Z)" aria-label="Undo">${icon('undo')}</button>
-        <button class="icon-btn" data-a="redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">${icon('redo')}</button>
-        <button class="icon-btn ai-undo-btn" data-a="aiundo" title="↶ AI Undo: bring back the edit as it was before an Agent edit, Re-edit or Claude change (works after a refresh too)" aria-label="AI undo">${icon('aiundo')}</button>
-        <button class="icon-btn" data-a="versions" title="Versions: go back to an earlier edit, or save this one with a name" aria-label="Versions">${icon('versions')}</button>
-        <button class="icon-btn" data-a="refresh" title="Refresh: save, then load the editor again (newest version, panels fresh)" aria-label="Refresh">${icon('refresh')}</button>
-      </div>
-      <div class="tgroup" role="group" aria-label="Team and project">
-        <button class="icon-btn" data-a="team" title="Team: other computers in the office edit too (logins, roles, shared folders)" aria-label="Team" hidden>${icon('team')}</button>
-        <button class="icon-btn" data-a="activity" title="Activity: who changed what on this project - take back one person's one change" aria-label="Activity">${icon('activity')}</button>
-        <button class="icon-btn" data-a="zones" title="Zones: who owns which part of the timeline - warns before you change someone else's part" aria-label="Zones">${icon('zones')}</button>
-        <button class="icon-btn" data-a="mediamgr" title="Media manager: relink offline files, pack the project, clean up disk" aria-label="Media manager">${icon('media')}</button>
-        <button class="icon-btn sf-btn" data-a="safety" title="Mazbooti: health, nightly backup, standby PC" aria-label="Mazbooti" hidden>${icon('health')}</button>
-        <button class="icon-btn" data-a="brand" title="Brand kit (logo, colours, intro/outro) and project templates" aria-label="Brand kit">${icon('brand')}</button>
-        <button class="icon-btn" data-a="report" title="Report: which shot the agent chose for which line, and why" aria-label="Report">${icon('report')}</button>
-      </div>
-      <div class="tgroup" role="group" aria-label="AI">
-        <button class="accent" data-a="agent" title="Let the agent make the whole edit from your footage, voice-over and music">${icon('agent')}Agent</button>
-        <button data-a="reedit" title="Change the voice-over, music, pace or format and let the agent rebuild this edit">${icon('reedit')}Re-edit</button>
-        <button data-a="assistant" title="Type what to change, e.g. &quot;music dheema karo&quot;, &quot;make the colour warm&quot;, &quot;remove the 3rd shot&quot;…">${icon('assistant')}Assistant</button>
-      </div>
-      <button class="ws-btn" data-a="workspace" title="Workspaces: Premiere Pro, DaVinci Resolve, Limelight or your own - resize, swap and save panel layouts">${icon('zones')}<span class="ws-name">${esc(currentWorkspace().name)}</span> ▾</button>
-      <button data-a="shortcuts" title="Keyboard shortcuts: see every key and set your own (Ctrl+Alt+K)">Shortcuts</button>
-      <button class="primary" data-a="deliver">${icon('export')}Export</button>
-    </div>
-  </header>
   <main class="pages">
     <section class="page p-media" data-page="media" hidden>
       <div class="media-page"><div class="panel pool-big" id="poolBig"></div>
@@ -108,8 +95,8 @@ function shell() {
     </section>
     <section class="page p-edit" data-page="edit">
       <div class="edit-grid">
-        <div class="panel pool pool-tabs"><div class="ptabs" role="tablist"><button role="tab" data-ptab="media" aria-selected="true">Media</button><button role="tab" data-ptab="fx" aria-selected="false">Effects</button><button role="tab" data-ptab="cc" aria-selected="false" title="Captions">CC</button><button role="tab" data-ptab="notes" aria-selected="false" title="Notes at moments of the edit (Shift+M), versions and phone review">📝</button></div>
-          <div class="ptab-body" id="pool"></div><div class="ptab-body" id="fxPanel" hidden></div><div class="ptab-body" id="ccPanel" hidden></div><div class="ptab-body" id="notesPanel" hidden></div></div>
+        <div class="panel pool pool-tabs"><div class="ptabs" role="tablist"><button role="tab" data-ptab="tools" aria-selected="false" title="Agent, Assistant, undo, versions, team, brand kit, workspaces…">Tools</button><button role="tab" data-ptab="media" aria-selected="true">Media</button><button role="tab" data-ptab="fx" aria-selected="false">Effects</button><button role="tab" data-ptab="cc" aria-selected="false" title="Captions">CC</button><button role="tab" data-ptab="notes" aria-selected="false" title="Notes at moments of the edit (Shift+M), versions and phone review">📝</button></div>
+          <div class="ptab-body" id="toolsPanel" hidden>${toolsHTML()}</div><div class="ptab-body" id="pool"></div><div class="ptab-body" id="fxPanel" hidden></div><div class="ptab-body" id="ccPanel" hidden></div><div class="ptab-body" id="notesPanel" hidden></div></div>
         <div class="mon-dock" role="tablist" aria-label="Source / Program"><button role="tab" data-mon="src">Source</button><button role="tab" data-mon="prog">Program</button></div>
         <div class="panel viewer" id="viewer"></div>
         <div class="ui-dock" role="tablist" aria-label="Source / Effect Controls"><button role="tab" data-dock="src">Source</button><button role="tab" data-dock="ec">Effect Controls</button></div>
@@ -129,6 +116,10 @@ function shell() {
   <nav class="pagebar" aria-label="Pages">${PAGES.map(([k, l]) => `<button data-page-btn="${k}">${l}</button>`).join('')}
     <button class="brand pb-brand" data-a="home" title="All projects"><img class="logo-mark" src="/img/limelight-icon.png" alt=""><span class="wordmark">LIME<em>LIGHT</em><small>EDITOR</small></span></button></nav>`; // (🏠 the logo sits at the right end of the page bar - the top bar had no room for it)
   mountMenuBar(editorEl, runMenu); // ☰ File · Edit · Clip · Sequence · Markers · Graphics and Titles · View · Window · Help
+  // the top bar is gone: its buttons went to the 🧰 Tools tab, and the project's name, sequence, save state, jobs, who is
+  // signed in, Reload and ⇪ Export sit in the menu bar's one line (same ids, so the code filling them is unchanged)
+  editorEl.querySelector('.menubar').insertAdjacentHTML('beforeend', `<span class="mb-proj"><span class="pname" id="pName"></span><button class="seqbtn" data-a="seq" title="Sequences: several timelines in this project (film, teaser, reel…), nesting, versions">🎞 <span id="seqName"></span> ▾</button><span class="save" id="saveState"></span></span>
+    <span class="mb-sp"></span><span class="jobchip" id="jobChip" hidden></span><button class="jobchip qchip" id="queueChip" data-a="deliver" title="Render queue - open Export" hidden></button><span class="people" id="peopleChip" hidden></span><span class="me" id="meChip" hidden></span><button class="mb-reload" data-a="refresh" title="Reload: save, then load the editor again (newest version, panels fresh)">${icon('refresh')}Reload</button><button class="primary mb-export" data-a="deliver" title="Export: render the video, XML for Premiere / Resolve, publish">${icon('export')}Export</button>`);
   mountWorkspaces(editorEl.querySelector('.edit-grid')); // 🪟 workspaces: Premiere / Resolve / Limelight / your own layouts
   mountSourceMonitor($('#srcMon')); mountDock(editorEl.querySelector('.edit-grid')); mountMonDock(editorEl.querySelector('.edit-grid')); // 🎬 Premiere's two monitors (Studio look)
   editorEl.addEventListener('click', (e) => {
@@ -182,7 +173,7 @@ function shell() {
 function runMenu(r) {
   const [kind, x] = r.includes(':') ? r.split(':') : [r, ''];
   if (kind === 'k') { if (ACTIONS[x]?.() === false) toast('Select something first'); return; }
-  if (kind === 'a') return editorEl.querySelector(`header [data-a="${x}"]`)?.click();
+  if (kind === 'a') return editorEl.querySelector(`[data-a="${x}"]`)?.click(); // (🧰 the buttons are in the Tools tab now)
   if (kind === 'p') return showPage(x);
   const edit = () => { if (S.page !== 'edit') showPage('edit'); };
   if (r === 'audioout') return import('./audioout.js').then((x) => x.pickOutput());
@@ -200,7 +191,7 @@ function runMenu(r) {
 }
 function selectTab(t) {
   editorEl.querySelectorAll('[data-ptab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.ptab === t)));
-  $('#pool').hidden = t !== 'media'; $('#fxPanel').hidden = t !== 'fx'; $('#ccPanel').hidden = t !== 'cc'; $('#notesPanel').hidden = t !== 'notes';
+  $('#toolsPanel').hidden = t !== 'tools'; $('#pool').hidden = t !== 'media'; $('#fxPanel').hidden = t !== 'fx'; $('#ccPanel').hidden = t !== 'cc'; $('#notesPanel').hidden = t !== 'notes';
   if (t === 'cc') refreshCaps();
   if (t === 'notes') refreshNotes();
 }
@@ -221,12 +212,12 @@ async function whoAmI() {
   const sf = $('[data-a="safety"]');
   if (sf && S.me.local && S.me.role === 'owner' && sf.hidden) { sf.hidden = false; import('./safety.js').then((x) => x.watchSafety(sf)); }
   // 🖥 this is a standby PC's editor (the main one is down): say so, once per page
-  if (S.me.standby && !$('#sbBanner')) $('.top').after(h(`<div id="sbBanner" class="ro-banner sb" role="status">Standby editor on ${esc(S.me.standby)} - the main editor is down. Work as usual: everything saved here goes back to it when it is up again.</div>`));
+  if (S.me.standby && !$('#sbBanner')) $('.menubar').after(h(`<div id="sbBanner" class="ro-banner sb" role="status">Standby editor on ${esc(S.me.standby)} - the main editor is down. Work as usual: everything saved here goes back to it when it is up again.</div>`));
 }
 on('readonly', (x) => {
   let b = $('#roBanner');
   if (!S.readOnly) { b?.remove(); return; }
-  if (!b) { b = h('<div id="roBanner" class="ro-banner" role="status"></div>'); $('.top').after(b); }
+  if (!b) { b = h('<div id="roBanner" class="ro-banner" role="status"></div>'); $('.menubar').after(b); }
   b.textContent = S.me?.hold ? `The standby PC ${S.me.hold.host} is running the editor (since ${new Date(S.me.hold.since).toLocaleTimeString()}) - edit there. This editor takes over again about 2 minutes after it is back; reload then.`
     : S.me?.role === 'viewer' ? 'View only - you can watch and play, not change this project.'
     : S.lockHolder && S.lockHolder === S.me?.name ? 'Read only - this project is open in another tab or computer of yours. Close it there (editing opens up here within a minute).'

@@ -7,7 +7,12 @@ export async function api(method, url, body) {
     if (typeof body !== 'string') opts.headers = { 'Content-Type': 'application/json' };
   }
   const r = await fetch(url, opts);
-  const j = await r.json().catch(() => ({}));
+  // (an answer cut off on the way - a reload, the Wi-Fi dropping - used to come back as {} and break whatever read it:
+  // the Media panel lost its list. Now it is an error the caller shows.)
+  const text = await r.text().catch(() => null);
+  let j = {};
+  if (text) try { j = JSON.parse(text); } catch { if (r.ok) throw new Error('The editor\'s answer came back cut off - try again'); }
+  if (text === null && r.ok) throw new Error('The connection to the editor dropped - try again');
   if (r.status === 401) signedOut();
   if (!r.ok) throw new Error(j.error || r.statusText);
   return j;

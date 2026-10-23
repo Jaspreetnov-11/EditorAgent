@@ -282,10 +282,12 @@ function run(cmd, args, { onLine, cwd } = {}) {
 }
 // (a project on the NAS: replacing a file by renaming over it fails with EPERM whenever anything has it open for a
 // moment - a backup or mirror copy, a virus scan, another reader - and now and then just after. That failed the save
-// of a project's media list, so a voice-over take or an upload was lost. A few short tries, then it is written over in place.)
+// of a project's media list, so a voice-over take or an upload was lost. A few short tries, then it is written over in place.
+// Each process has its own .tmp: the editor and a project worker saving the same media.json at once shared one, and the
+// second rename found it gone - ENOENT, an uncaught crash.)
 const SLEEP = new Int32Array(new SharedArrayBuffer(4));
 const writeJSON = (file, obj) => {
-  const data = JSON.stringify(obj, null, 1), tmp = `${file}.tmp`;
+  const data = JSON.stringify(obj, null, 1), tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, data);
   for (let k = 0; k < 4; k++) {
     try { fs.renameSync(tmp, file); return; }
@@ -2377,7 +2379,8 @@ if (!IS_WORKER) { setInterval(checkDomain, 5 * 60 * 1000).unref?.(); setTimeout(
 const shortHost = () => (domainOk && teamWeb ? teamCfg().domain || process.env.TEAM_DOMAIN : os.hostname());
 const permaLink = () => (teamTls && domainOk ? `https://${tlsInfo.domain}/` : `http://${shortHost()}${teamWeb ? '' : `:${TEAM_PORT}`}/`);
 const shortcutFile = () => `[InternetShortcut]\r\nURL=${permaLink()}\r\nIconFile=${permaLink()}img/favicon.ico\r\nIconIndex=0\r\n`;
-function writeShortcut() { try { fs.writeFileSync(path.join(ROOT, 'Limelight Editor.url'), shortcutFile()); } catch {} } // (a copy here, to send to other PCs)
+// (a copy here, to send to other PCs - not from a test editor with its own data folder: that put its spare port in the real one)
+function writeShortcut() { if (process.env.VEDIT_DATA) return; try { fs.writeFileSync(path.join(ROOT, 'Limelight Editor.url'), shortcutFile()); } catch {} }
 const teamUrls = () => (teamServer ? [...(teamTls && domainOk ? [`https://${tlsInfo.domain}`] : []), ...(teamWeb ? [...new Set([`http://${shortHost()}`, `http://${os.hostname()}`])] : []), ...lanHosts().map((ip) => `http://${ip}:${TEAM_PORT}`)] : []);
 const teamView = () => { const t = teamCfg(); return { on: !!teamServer, port: TEAM_PORT, short: teamTls && domainOk ? `https://${tlsInfo.domain}` : teamWeb ? `http://${shortHost()}` : null, tls: tlsView(), domain: teamCfg().domain || null, domainOk, urls: teamUrls(), users: (t.users || []).map(({ name, role }) => ({ name, role })), libraries: t.libraries || [], editorsAnyFolder: !!t.editorsAnyFolder,
   online: [...new Set([...sessions.values()].map((x) => x.name))], locks: [...live.entries()].flatMap(([p, L]) => [...new Set([...L.subs.values()].map((x) => x.who.name))].map((n) => ({ project: p, name: n }))) }; };
@@ -3939,6 +3942,8 @@ const routes = {
   'PUT /api/publish/youtube': async (req) => {
     const b = await readJson(req), c = pubCfg();
     if (!String(b.clientId || '').includes('.apps.googleusercontent.com') || !b.clientSecret) throw err(400, 'Paste the OAuth Client ID (ends in .apps.googleusercontent.com) and its Client secret');
+    // (Google sends the browser back to localhost:3000 - from another PC that is that PC itself, and the sign-in was lost)
+    if (!samePC(req)) throw err(400, `Connect YouTube on the editing computer (${os.hostname()}) - Google sends the sign-in back to that computer only. After that everyone can publish to it.`);
     c.youtube = { clientId: b.clientId.trim(), clientSecret: b.clientSecret.trim() }; savePubCfg(c);
     const { youtubeAuthUrl } = await import('./engine/publish.mjs');
     return { authUrl: youtubeAuthUrl({ clientId: c.youtube.clientId, redirect: `${APP_URL}/oauth/youtube` }) };
@@ -3975,6 +3980,15 @@ const routes = {
     if (!b.targets?.length) throw err(400, 'Tick at least one place to publish');
     const made = b.targets.map((t) => {
       const later = t.publishAt && new Date(t.publishAt).getTime() > Date.now() + 60e3;
+    // (an account that is not connected used to be queued anyway and only fail later in the Uploads list)
+    const cfg = pubCfg();
+    for (const t of b.targets) {
+      const page = (cfg.meta?.pages || []).find((p) => p.id === t.pageId);
+      if (t.platform === 'youtube' && !cfg.youtube?.refreshToken) throw err(400, 'YouTube is not connected - connect it first (🚀 Publish > Accounts)');
+      if (t.platform === 'facebook' && !page) throw err(400, 'That Facebook Page is not connected - connect it first (🚀 Publish > Accounts)');
+      if (t.platform === 'instagram' && !page?.ig) throw err(400, 'That Instagram account is not connected - connect its Facebook Page with Instagram rights first (🚀 Publish > Accounts)');
+      if (!['youtube', 'facebook', 'instagram'].includes(t.platform)) throw err(400, `Unknown place to publish: ${t.platform}`);
+    }
       const it = { id: crypto.randomBytes(5).toString('hex'), project: name, render: path.basename(b.render), title: String(b.title).trim(), description: b.description || '', tags: b.tags || [],
         thumbnail: b.thumbnail || null, coverAt: +b.coverAt || 0, platform: t.platform, pageId: t.pageId || null, privacy: t.privacy || 'public', publishAt: later ? new Date(t.publishAt).toISOString() : null,
         shorts: !!b.shorts, state: later && t.platform === 'instagram' ? 'scheduled' : 'waiting', progress: 0, added: Date.now() };

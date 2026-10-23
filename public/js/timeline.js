@@ -517,8 +517,7 @@ function drawHeads(TR, ts) {
         <button class="tbtn${st.lock ? ' on' : ''}" data-tst="lock" title="Lock track">${ICON.lock}</button>
       </div>
       <div class="th-resize" data-rowh="${t.id}" title="Drag to make ${t.name} taller / shorter (double-click: normal)"></div>
-      ${t.kind === 'audio' || t.id === 'V1' ? `<div class="th-volrow" title="${t.id === 'V1' ? "Volume of the clips' own sound" : 'Track volume'}: drag (double-click = 100%)"><span class="th-vlbl">🔊</span><input class="th-vol" type="range" min="0" max="2" step="0.05" value="${st.volume ?? 1}" data-tvol="${t.id}" aria-label="${t.name} volume"><span class="th-vpct">${Math.round((st.volume ?? 1) * 100)}%</span></div>` : ''}
-    </div>`;
+          </div>`;
   }).join('');
   $$('[data-tst]', headsEl).forEach((b) => (b.onclick = () => {
     const id = b.closest('.th').dataset.track, k = b.dataset.tst;
@@ -547,15 +546,8 @@ function drawHeads(TR, ts) {
       window.addEventListener('pointerup', () => window.removeEventListener('pointermove', move), { once: true });
     };
   });
-  $$('[data-tvol]', headsEl).forEach((r) => {
-    const id = r.dataset.tvol, pct = r.nextElementSibling;
-    // (a track with no state yet - e.g. one just added - gets it here; it used to throw and the slider did nothing)
-    r.oninput = () => { ts[id] = { ...ts[id], volume: +r.value }; pct.textContent = `${Math.round(r.value * 100)}%`; emit('mix'); };
-    r.onchange = () => commit('Track volume', `tvol-${id}`);
-    r.ondblclick = () => { r.value = 1; r.oninput(); r.onchange(); };
-  });
 
-  headsEl.insertAdjacentHTML('beforeend', '<div class="th-add"><button class="small" data-addtrack="video" title="Add a video track on top">+ Video track</button><button class="small" data-addtrack="audio" title="Add an audio track at the bottom">+ Audio track</button></div>'
+  headsEl.insertAdjacentHTML('beforeend', '<div class="th-add"><button class="small" data-addtrack="video" title="Add a video track on top">+ Video</button><button class="small" data-addtrack="audio" title="Add an audio track at the bottom">+ Audio</button></div>'
     + `<div class="th-vz" title="Track height (vertical zoom) - also Alt + mouse wheel over these headers, Ctrl+= / Ctrl+-"><button class="small" data-vz="min" title="Minimise all tracks (Shift+-)">▁</button><button class="small" data-vz="-" aria-label="Shorter tracks">−</button><input type="range" data-vz="r" min="0" max="100" value="${Math.round(((Math.log(vZoom) - Math.log(0.4)) / (Math.log(5) - Math.log(0.4))) * 100)}" aria-label="Track height"><button class="small" data-vz="+" aria-label="Taller tracks">+</button><button class="small" data-vz="max" title="Expand all tracks (Shift+=)">▇</button></div>`);
   headsEl.querySelectorAll('[data-vz]').forEach((b) => {
     const k = b.dataset.vz;

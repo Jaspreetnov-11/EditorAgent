@@ -75,7 +75,7 @@ export function exportTimeline({ project, media, outDir, base, subtitlesPath, co
   const seq = rateOf(S.fps), fps = seq.tb * (seq.ntsc ? 1000 / 1001 : 1);
   const fr = (t) => Math.round(t * fps), secOf = (f) => f / fps;
   const P = placed(project, media), D = totalDuration(project, media);
-  const notes = new Set(), files = [], markers = [];
+  const notes = new Set(), files = [], markers = [], lutsUsed = new Set();
   let clipN = 0;
 
   // <file>: a placeholder now; when the XML is assembled the first one in document order gets the full description
@@ -131,7 +131,7 @@ export function exportTimeline({ project, media, outDir, base, subtitlesPath, co
     const blackKey = (e) => e.type === 'chromakey' && /^#?0{6}$/.test(String(e.p?.color || '#00ff00'));
     if (c.effects?.some((e) => e.on !== false && !blackKey(e))) notes.add('Video effects from the Effects panel (blur, black & white, glow, crop, green screen...) are not in the XML - add them again in your editor.');
     if (c.type === 'title' && (c.anim === 'words' || c.anim === 'build')) notes.add('Kinetic (word by word) titles come across as one still title PNG.');
-    if (color === 'none' && c.color && !isNeutral(c.color)) notes.add(`Colour grades/LUTs are not in the XML - re-grade in Lumetri / Resolve Color${c.color.lut ? ` (LUT used: ${c.color.lut}; it is in the LUTs folder)` : ''}.`);
+    if (color === 'none' && c.color && !isNeutral(c.color)) { notes.add('Colour grades/LUTs are not in the XML - re-grade in Lumetri / Resolve Color'); if (c.color.lut) lutsUsed.add(c.color.lut); }
     if (c.keys && Object.values(c.keys).some((k) => k?.length)) notes.add('Keyframed zoom / position / volume animations need to be redone (the clip starts where its still settings put it).');
     if (c.omask?.shape && (c.omask.shape !== 'rect' || c.omask.invert)) notes.add('Ellipse / inverted opacity masks are not in the XML - draw them again (Premiere: Opacity > mask; Resolve: Power Window). Rectangle masks come across as Crop.');
     if (c.fadeIn || c.fadeOut) notes.add('Clip fade-ins/outs need to be redone (cross dissolves between V1 clips are carried over).');
@@ -311,7 +311,8 @@ export function exportTimeline({ project, media, outDir, base, subtitlesPath, co
     fs.copyFileSync(subtitlesPath, path.join(outDir, sub)); files.push(sub);
     notes.add(`Subtitles are in ${sub} - import it as captions (Premiere: File > Import; Resolve: drag onto the timeline).`);
   }
-  const notesList = [...notes];
+  // (one line for the grades, whichever clips have a LUT - it used to come twice, with and without the LUT's name)
+  const notesList = [...notes].map((n) => (n.startsWith('Colour grades/LUTs') ? `${n}${lutsUsed.size ? ` (LUT${lutsUsed.size > 1 ? 's' : ''} used: ${[...lutsUsed].join(', ')}; in the LUTs folder)` : ''}.` : n));
   const readme = [
     `${base} - timeline for Premiere Pro / DaVinci Resolve`,
     '',

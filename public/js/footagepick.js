@@ -9,12 +9,15 @@ import { dupGroups } from './smart.js';
 const isFootage = (m) => (m.kind === 'video' || m.kind === 'image') && m.status === 'ready' && !m.seqOf;
 const SKIP_BIN = /^(rejects?|duplicates?|brand|stock)(\/|$)/i;
 const GRAPHIC = /(logo|watermark|end[\s_-]*(slate|slide|card|frame)|lower[\s_-]*third|title[\s_-]*card|thumbnail|icon|qr[\s_-]*code|background|\bbg\b)/i;
+const GRAPHIC_VIDEO = /(logo|watermark|end[\s_-]*(slate|slide|card|frame)|lower[\s_-]*third|title[\s_-]*card)/i; // (not "background": a moving background can be B-roll)
 
 // why a file is left out by default ('' = it is footage the agent may use)
 export function whyLeftOut(m) {
   if ((m.bin || '') && SKIP_BIN.test(m.bin)) return `in the "${m.bin.split('/')[0]}" folder`;
   if (m.bad?.length) return `flagged: ${m.bad[0]}`;
   if (m.kind === 'image' && GRAPHIC.test(m.name)) return 'a logo / graphic, not footage';
+  // (a logo animation or end slate as a video - "logo.mp4" - went in as a B-roll shot of a real VO edit)
+  if (m.kind === 'video' && GRAPHIC_VIDEO.test(m.name)) return 'a logo animation / graphic, not footage';
   if (m.kind === 'video' && (m.duration || 0) < 1) return 'shorter than a second';
   return '';
 }
