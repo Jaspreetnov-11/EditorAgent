@@ -113,24 +113,30 @@ export function mountViewer(el) {
     <div class="src-bar" id="srcBar"><div class="src-range" id="srcRange"></div><div class="src-head" id="srcHead"></div></div>
   </div>
   <div class="vw-ctrl">
-    <button class="icon-btn" data-k="marker" title="Add marker (M)" aria-label="Add marker">${monIco('marker')}</button>
-    <button class="icon-btn" data-k="markIn" title="Mark In (I)" aria-label="Mark In">${monIco('in')}</button>
-    <button class="icon-btn" data-k="markOut" title="Mark Out (O)" aria-label="Mark Out">${monIco('out')}</button>
-    <button class="icon-btn" data-act="goin" title="Go to In (Shift+I)" aria-label="Go to In">${monIco('goin')}</button>
-    <button class="icon-btn" data-act="back" title="Back 1 frame (←)">${ic('prev')}</button>
-    <button class="icon-btn play" data-act="play" title="Play / pause (Space)" aria-label="Play">${ic('play')}</button>
-    <button class="icon-btn" data-act="fwd" title="Forward 1 frame (→)">${ic('next')}</button>
-    <button class="icon-btn" data-act="goout" title="Go to Out (Shift+O)" aria-label="Go to Out">${monIco('goout')}</button>
-    <i class="vw-gap"></i>
-    <button class="icon-btn prog-only" data-k="lift" title="Lift (;): take In to Out out of the timeline, leave a gap" aria-label="Lift">${monIco('lift')}</button>
-    <button class="icon-btn prog-only" data-k="extract" title="Extract ('): take In to Out out of the timeline and close the gap" aria-label="Extract">${monIco('extract')}</button>
-    <i class="vw-gap"></i>
-    <select class="small vw-zoom" data-vzoom title="Zoom level, like Premiere's: Fit shows the whole frame. The mouse wheel over the picture zooms in / out where the mouse is (Alt + wheel scales the selected clip); middle-drag or the scrollbars move around"><option value="fit">Fit</option>${ZOOMS.map((z) => `<option value="${z}">${Math.round(z * 100)}%</option>`).join('')}</select>
-    <select class="small vw-pb" data-pb title="Playback resolution, like Premiere's: 1/1 plays the camera files themselves where the browser can (sharpest, heaviest); 1/2 plays the light 1080p preview copies (quick, easy on the NAS when the whole office works); 1/4 plays the preview copies and draws colour, keying and graphics at a lower size (quickest, softest)"><option value="quarter">1/4</option><option value="fast">1/2</option><option value="full">1/1</option></select>
-    <button class="icon-btn vw-guides" data-act="guides" title="Guides: title / action safe margins" aria-label="Guides">${monIco('safe')}</button>
-    <button class="icon-btn vw-rul" data-act="rulers" title="Rulers: frame pixels along the top and left of the picture. Drag a guide out of a ruler, drag it back to remove it; right-click a ruler: clear guides" aria-label="Rulers">${monIco('ruler')}</button>
-    <button class="icon-btn" data-act="frame" title="Export Frame (Ctrl+Shift+E): this frame as a PNG, exactly as the export makes it" aria-label="Export Frame">${ic('camera')}</button>
-    <button class="icon-btn vw-wrench" data-act="menu" title="Accurate preview quality" aria-label="Settings">${monIco('wrench')}</button>
+    <span class="vw-grp l">
+      <button class="icon-btn" data-k="marker" title="Add marker (M)" aria-label="Add marker">${monIco('marker')}</button>
+      <button class="icon-btn" data-k="markIn" title="Mark In (I)" aria-label="Mark In">${monIco('in')}</button>
+      <button class="icon-btn" data-k="markOut" title="Mark Out (O)" aria-label="Mark Out">${monIco('out')}</button>
+      <i class="vw-sep"></i>
+      <button class="icon-btn prog-only" data-k="lift" title="Lift (;): take In to Out out of the timeline, leave a gap" aria-label="Lift">${monIco('lift')}</button>
+      <button class="icon-btn prog-only" data-k="extract" title="Extract ('): take In to Out out of the timeline and close the gap" aria-label="Extract">${monIco('extract')}</button>
+    </span>
+    <span class="vw-grp c">
+      <button class="icon-btn" data-act="goin" title="Go to In (Shift+I)" aria-label="Go to In">${monIco('goin')}</button>
+      <button class="icon-btn" data-act="back" title="Back 1 frame (←)">${ic('prev')}</button>
+      <button class="icon-btn play" data-act="play" title="Play / pause (Space)" aria-label="Play">${ic('play')}</button>
+      <button class="icon-btn" data-act="fwd" title="Forward 1 frame (→)">${ic('next')}</button>
+      <button class="icon-btn" data-act="goout" title="Go to Out (Shift+O)" aria-label="Go to Out">${monIco('goout')}</button>
+    </span>
+    <span class="vw-grp r">
+      <select class="small vw-zoom" data-vzoom title="Zoom level, like Premiere's: Fit shows the whole frame. The mouse wheel over the picture zooms in / out where the mouse is (Alt + wheel scales the selected clip); middle-drag or the scrollbars move around"><option value="fit">Fit</option>${ZOOMS.map((z) => `<option value="${z}">${Math.round(z * 100)}%</option>`).join('')}</select>
+      <select class="small vw-pb" data-pb title="Playback resolution, like Premiere's: 1/1 plays the camera files themselves where the browser can (sharpest, heaviest); 1/2 plays the light 1080p preview copies (quick, easy on the NAS when the whole office works); 1/4 plays the preview copies and draws colour, keying and graphics at a lower size (quickest, softest)"><option value="quarter">1/4</option><option value="fast">1/2</option><option value="full">1/1</option></select>
+      <i class="vw-sep"></i>
+      <button class="icon-btn vw-guides" data-act="guides" title="Guides: title / action safe margins" aria-label="Guides">${monIco('safe')}</button>
+      <button class="icon-btn vw-rul" data-act="rulers" title="Rulers: frame pixels along the top and left of the picture. Drag a guide out of a ruler, drag it back to remove it; right-click a ruler: clear guides" aria-label="Rulers">${monIco('ruler')}</button>
+      <button class="icon-btn" data-act="frame" title="Export Frame (Ctrl+Shift+E): this frame as a PNG, exactly as the export makes it" aria-label="Export Frame">${ic('camera')}</button>
+      <button class="icon-btn vw-wrench" data-act="menu" title="Accurate preview quality" aria-label="Settings">${monIco('wrench')}</button>
+    </span>
     <span class="src-only" hidden>
       <button class="small accent" data-act="insert" title="Insert into V1 at the playhead (,)">Insert</button>
       <button class="small" data-act="append" title="Add to the end of V1">Append</button>
