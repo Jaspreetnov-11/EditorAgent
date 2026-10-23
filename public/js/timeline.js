@@ -77,6 +77,7 @@ export function mountTimeline(el) {
       <button data-act="mcomp" class="tl-letter" title="M · Motion comp: the selected video clip becomes a Motion comp - animate it in Motion (also on the clip's right-click)" aria-label="Motion comp"><b>M</b></button>
       <button data-act="mfusion" class="tl-letter" title="F · Fusion: open the selected video clip in Fusion - node effects (also on the clip's right-click)" aria-label="Fusion"><b>F</b></button>
       <button data-act="mlabs" class="tl-letter" title="L · Labs: edit the selected video clip in Labs - templates, AI (also on the clip's right-click)" aria-label="Labs"><b>L</b></button>
+      <button data-act="mgen" class="tl-letter" title="G · Generative: Generative Fill (remove / add things, reframe, enhance with AI) or Generative Extend (the clip carries on past its end) for the selected video clip" aria-label="Generative"><b>G</b></button>
       <span class="sep"></span>
       <button data-act="snap" class="tog" title="Snap (N): clips, cuts and the playhead pull into line when they come close - no tiny gaps, overlaps or one-frame flashes. Off: move a clip freely, frame by frame">${ICON.magnet}<span>Snap</span></button>
     </div>
@@ -155,6 +156,14 @@ export function mountTimeline(el) {
       const id = [...S.sel].find((x) => findClip(x)?.clip.type === 'video');
       if (!id) toast(`Select a video clip on the timeline first, then press ${a === 'mcomp' ? 'M' : a === 'mfusion' ? 'F' : 'L'}`, 'err');
       else if (a === 'mcomp') makeCompFromClip(id, findClip); else if (a === 'mfusion') fusionFromClip(id, findClip); else labsFromClip(id);
+    }
+    // G: the generative tools for the selected video clip - Generative Fill (Effect Controls) or Generative Extend
+    if (a === 'mgen') {
+      const id = [...S.sel].find((x) => findClip(x)?.clip.type === 'video');
+      if (!id) return toast('Select a video clip on the timeline first, then press G', 'err');
+      const r = btn.getBoundingClientRect();
+      ctxMenu({ clientX: r.left, clientY: r.bottom + 4, preventDefault() {} }, [['fill', 'Generative Fill - remove / add things, reframe, enhance'], ['extend', 'Generative Extend - carry on past its end (up to 1 s)']],
+        (k) => { if (k === 'fill') { S.sel = new Set([id]); emit('select'); emit('inspect', 'ai'); } else morphOrExtend(id, 'extend'); });
     }
     if (a === 'snap') { S.snap = !S.snap; syncBar(); }
     if (a === 'fit') fitZoom();
@@ -1284,7 +1293,8 @@ function slipSlide(e, id, track) {
   const head = (x) => (x.gap || !isM(x) ? Infinity : (x.in || 0) / (x.speed || 1));
   const shrink = (x) => Math.max(0, clipDur(x, S.mediaById) - (x.gap ? 0.04 : 0.2));
   let lo, hi;
-  if (slip) { lo = -((o.in || 0) / sp); hi = ((m?.duration ?? o.out ?? 0) - (o.out ?? m?.duration ?? 0)) / sp; }
+  // (Slip, like Premiere: the picture follows the mouse - dragged right, an earlier part of the file shows)
+  if (slip) { lo = -((m?.duration ?? o.out ?? 0) - (o.out ?? m?.duration ?? 0)) / sp; hi = (o.in || 0) / sp; }
   else if (track === 'V1') {
     if (!A || !B) return toast('Slide needs a clip on both sides of this one', 'err');
     if (rampPts(A) || rampPts(B)) return toast('A neighbour has a speed ramp - Slide would change it', 'err');
@@ -1295,19 +1305,31 @@ function slipSlide(e, id, track) {
     lo = before - me.start; hi = after - me.end;
   }
   root.classList.add('grabbing');
+  // while dragging, like Premiere: a readout at the mouse (how many frames, the new In / Out or the neighbours' new cut)
+  // and the monitor on the frame that changes (Slip: the clip's new first frame; Slide: its first frame at its new place)
+  const fps = S.project.settings.fps || 30, ph0 = S.playhead, tip = h('<div class="tl-sliptip"></div>'); document.body.append(tip);
+  const show = (ev, d) => {
+    const n = Math.round(d * fps), sg = n > 0 ? '+' : '', tc = (t) => fmtTC(Math.max(0, t), fps);
+    tip.textContent = slip ? `Slip ${sg}${n} fr · In ${tc(c.in || 0)} · Out ${tc(c.out ?? m?.duration ?? 0)}`
+      : `Slide ${sg}${n} fr${A && B ? ` · before ends ${tc(me.start + d)} · after starts ${tc(me.end + d)}` : ` · starts ${tc(me.start + d)}`}`;
+    Object.assign(tip.style, { left: `${ev.clientX + 14}px`, top: `${ev.clientY + 16}px` });
+    emit('seek', +(me.start + (slip ? 0 : d)).toFixed(3));
+  };
   const move = (ev) => {
-    const d = Math.min(hi, Math.max(lo, (ev.clientX - x0) / S.zoom));
-    if (slip) { c.in = +Math.max(0, (o.in || 0) + d * sp).toFixed(3); if (o.out !== undefined || m?.duration) c.out = +((o.out ?? m.duration) + d * sp).toFixed(3); emit('mix'); }
+    let d = Math.min(hi, Math.max(lo, (ev.clientX - x0) / S.zoom));
+    d = Math.round(d * fps) / fps; d = Math.min(hi, Math.max(lo, d)); // (whole frames)
+    if (slip) { c.in = +Math.max(0, (o.in || 0) - d * sp).toFixed(3); if (o.out !== undefined || m?.duration) c.out = +((o.out ?? m.duration) - d * sp).toFixed(3); emit('mix'); }
     else if (track === 'V1') {
       // the shot moves later by d: the one before is longer by d, the one after starts d later in its file (shorter)
       if (A) { if (A.gap) A.dur = +(clipDur(a0, S.mediaById) + d).toFixed(3); else if (A.type === 'video' || A.type === 'audio') A.out = +((a0.out ?? S.mediaById[A.mediaId]?.duration ?? 0) + d * (A.speed || 1)).toFixed(3); else A.dur = +(clipDur(a0, S.mediaById) + d).toFixed(3); }
       if (B) { if (B.gap) B.dur = +(clipDur(b0, S.mediaById) - d).toFixed(3); else if (B.type === 'video' || B.type === 'audio') B.in = +Math.max(0, (b0.in || 0) + d * (B.speed || 1)).toFixed(3); else B.dur = +(clipDur(b0, S.mediaById) - d).toFixed(3); }
     } else c.start = +((o.start || 0) + d).toFixed(3);
-    render();
+    render(); show(ev, d);
   };
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', () => {
-    window.removeEventListener('pointermove', move); root.classList.remove('grabbing');
+    window.removeEventListener('pointermove', move); root.classList.remove('grabbing'); tip.remove();
+    emit('seek', ph0); // (the playhead goes back where it was)
     if (JSON.stringify(c) !== JSON.stringify(o) || (A && JSON.stringify(A) !== JSON.stringify(a0)) || (B && JSON.stringify(B) !== JSON.stringify(b0))) commit(slip ? 'Slip' : 'Slide');
   }, { once: true });
 }

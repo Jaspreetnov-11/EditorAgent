@@ -339,3 +339,5 @@ html.ui2 .timeline .tl-bar .tl-tc { margin-left: auto; }
 .tl-bladeline { position: absolute; z-index: 6; width: 0; border-left: 2px dashed #fff; box-shadow: 0 0 0 1px #0006; margin-left: -1px; pointer-events: none; }
 .timeline.blade .tl-playhead, .timeline.blade .tl-playhead::before, .timeline.blade .tl-playhead::after { pointer-events: none; } /* (🔪 a Razor click on the playhead line cuts the clip there - the line used to take the click) */
 .timeline.blade .tl-playhead .ph-head { pointer-events: auto; }
+/* ↔ ⇆ Slip / Slide: the readout at the mouse while dragging (frames moved, new In / Out or the neighbours' cut) */
+.tl-sliptip { position: fixed; z-index: 10002; padding: 4px 8px; border-radius: 6px; background: #000c; border: 1px solid var(--line); color: #fff; font: 600 11.5px var(--mono, Consolas, monospace); pointer-events: none; white-space: nowrap; }
