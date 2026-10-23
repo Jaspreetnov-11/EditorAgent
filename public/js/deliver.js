@@ -305,11 +305,14 @@ function drawQueue() {
   el.innerHTML = list.map((j) => {
     const other = j.project !== S.proj ? ` <span class="muted">(${esc(j.project)})</span>` : '';
     const seq = j.seq ? ` <span class="tag">${esc(j.seq)}</span>` : '';
-    const acts = j.state === 'waiting' ? `<button class="link small" data-qmove="${j.id}" data-dir="-1" title="Render it earlier">↑</button><button class="link small" data-qmove="${j.id}" data-dir="1" title="Render it later">↓</button><button class="link small" data-qcancel="${j.id}" title="Take it out of the queue">✕</button>`
+    // ⭐ priority: started on the server PC (always first), ⚡ urgent (an editor's choice), else first come first served
+    const pri = j.priority === 2 ? ' <span class="tag" title="Started on the server PC - rendered first">⭐ Server PC</span>' : j.priority === 1 ? ' <span class="tag warn" title="Rendered before the normal ones">⚡ Urgent</span>' : '';
+    const urgent = j.state === 'waiting' && (j.priority || 0) < 2 ? `<button class="link small" data-qurgent="${j.id}" data-on="${j.priority === 1 ? 0 : 1}" title="${j.priority === 1 ? 'Back to normal' : 'Urgent: render it before the normal ones'}">${j.priority === 1 ? '⚡✕' : '⚡'}</button>` : '';
+    const acts = urgent + (j.state === 'waiting' ? `<button class="link small" data-qmove="${j.id}" data-dir="-1" title="Render it earlier">↑</button><button class="link small" data-qmove="${j.id}" data-dir="1" title="Render it later">↓</button><button class="link small" data-qcancel="${j.id}" title="Take it out of the queue">✕</button>`
       : j.state === 'rendering' ? `<button class="link small" data-qcancel="${j.id}" title="Stop this render">■ Stop</button>`
       : j.state === 'done' ? (/\.mp4$/i.test(j.out) && j.project === S.proj ? `<button class="link small" data-play="${esc(j.url)}" data-name="${esc(j.out)}" title="Watch">▶</button>` : '') + `<a href="${j.url}?download" download title="Download">⬇</a>`
-      : j.state === 'failed' ? `<button class="link small" data-qretry="${j.id}" title="Try again">⟳</button>` : '';
-    return `<div class="dv-q-item ${j.state}"><div class="dv-q-top"><span class="grow"><b>${esc(j.label)}</b>${seq}${other}</span><span class="muted small">${STATE[j.state]}</span>${acts}</div>
+      : j.state === 'failed' ? `<button class="link small" data-qretry="${j.id}" title="Try again">⟳</button>` : '');
+    return `<div class="dv-q-item ${j.state}"><div class="dv-q-top"><span class="grow"><b>${esc(j.label)}</b>${pri}${seq}${other}</span><span class="muted small">${STATE[j.state]}</span>${acts}</div>
       <div class="muted small mono">${esc(j.out)}</div>
       ${j.copiedTo ? `<div class="small good">also saved to ${esc(j.copiedTo)}</div>` : j.copyError ? `<div class="warn small">Could not copy to your folder: ${esc(j.copyError)}</div>` : j.saveTo && j.state !== 'done' ? `<div class="muted small">→ ${esc(j.saveTo)}</div>` : ''}
       ${j.state === 'rendering' ? `<div class="bar"><div style="width:${Math.max(2, j.progress)}%"></div></div><div class="muted small">${j.progress}% · ${esc(j.stage || '')}</div>` : ''}
@@ -317,6 +320,7 @@ function drawQueue() {
   }).join('') || '<div class="muted">Nothing in the queue. <b>Render video</b> adds the edit here; you can keep editing while it renders.</div>';
   $$('[data-qcancel]', el).forEach((b) => (b.onclick = async () => { await api('POST', `/api/queue/cancel?id=${b.dataset.qcancel}`); pollQueue(); }));
   $$('[data-qretry]', el).forEach((b) => (b.onclick = async () => { await api('POST', `/api/queue/retry?id=${b.dataset.qretry}`); pollQueue(); }));
+  $$('[data-qurgent]', el).forEach((b) => (b.onclick = async () => { try { await api('POST', `/api/queue/urgent?id=${b.dataset.qurgent}&on=${b.dataset.on}`); } catch (e) { toast(e.message, 'err'); } pollQueue(); }));
   $$('[data-qmove]', el).forEach((b) => (b.onclick = async () => { await api('POST', `/api/queue/move?id=${b.dataset.qmove}&dir=${b.dataset.dir}`); pollQueue(); }));
   $$('[data-play]', el).forEach((b) => (b.onclick = () => play(b.dataset.play, b.dataset.name)));
   const g = $('#dvGpu', root);

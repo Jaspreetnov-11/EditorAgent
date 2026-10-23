@@ -39,6 +39,7 @@ import { ensureSfx, listSfx, SFX_KINDS } from './engine/sfx.mjs';
 import { gyroflowExe, findLog, gyroSamples, stabilise, LOG_EXT as GF_LOG } from './engine/gyroflow.mjs';
 import { runNightly, mirrorLive, restoreProject, nights as backupNights, standbyState, liveDir, dayOf, safeDir } from './engine/safety.mjs';
 import { pickHelper, toTaskArgs } from './engine/helpers.mjs';
+import { byPriority, lineIndex } from './engine/priority.mjs';
 import * as QC from './engine/qc.mjs';
 import { archiveRoutes } from './engine/archive.mjs';
 import { startHealth, noteRequest, healthSeries } from './engine/health.mjs';
@@ -1086,7 +1087,10 @@ function takeSlot(job) {
   if (!SLOTS[kind]) return Promise.resolve(false);
   if (inUse[kind] < SLOTS[kind]) { inUse[kind]++; return Promise.resolve(true); }
   job.waiting = true;
-  return new Promise((ok) => { lines[kind].push({ job, ok }); lineNotes(kind); });
+  return new Promise((ok) => {
+    lines[kind].splice(lineIndex(lines[kind], job), 0, { job, ok }); // (⭐ server PC first)
+    lineNotes(kind);
+  });
 }
 function freeSlot(kind) {
   const next = lines[kind].shift();
@@ -1209,9 +1213,9 @@ const saveQueue = () => { try { writeJSON(QFILE, rq); } catch (e) { logCrash('re
 const killTree = (p) => { if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(p.pid), '/T', '/F'], { windowsHide: true }); else p.kill('SIGKILL'); };
 
 // 🖥 renders whose project has a helper PC free for one go there (several at once, one per PC); the rest run here one
-// after another as before. A render a helper could not do goes back in line for this computer (it.noHelper).
+// after another as before. ⭐ The highest priority goes first: started on the server PC, then urgent, then the rest. A render a helper could not do goes back in line for this computer (it.noHelper).
 function pumpQueue() {
-  for (const it of rq.items) {
+  for (const it of byPriority(rq.items)) { // (⭐ priority, then first come)
     if (it.state !== 'waiting') continue;
     if (!fs.existsSync(it.jobFile)) { it.state = 'failed'; it.error = 'Its timeline copy is missing - add it to the queue again'; saveQueue(); continue; }
     const read = renderReader(it);
@@ -1306,7 +1310,7 @@ function enqueueRender(name, list) {
     const seqName = b.seq ? seqView(saved, b.seq).seq?.name : saved.seq?.name;
     const pl = presetById(b.preset)?.label || 'Custom';
     const it = { id, project: name, seq: seqName || null, preset: b.preset, aspect: b.aspect, label: (b.aspect && !pl.includes(b.aspect) ? `${pl} · ${b.aspect}` : pl) + (range ? ' · In-Out' : ''),
-      out, jobFile, duration, state: 'waiting', progress: 0, added: Date.now(), ...(b.saveTo ? { saveTo: b.saveTo } : {}) };
+      out, jobFile, duration, state: 'waiting', progress: 0, added: Date.now(), priority: Math.max(0, Math.min(2, Math.round(+b.priority || 0))), ...(b.saveTo ? { saveTo: b.saveTo } : {}) };
     rq.items.push(it); made.push(it);
   }
   saveQueue();
@@ -2576,7 +2580,7 @@ function claudeChat(name, message, reset, who = null, seq = '') {
       ev({ k: 'wait', text: `Opus limit reached - carrying on with ${backup}…` });
       return claudeRun(exe, name, sfile, readJSON(sfile, {}).id ? 'Your usage limit stopped you partway through. Carry on from where you stopped and finish the task I gave you.' : String(message), model, job, ev, seq);
     }
-  }, { project: name, seq, events: [] });
+  }, { project: name, seq, events: [], fromServer: !!who?.fromServer });
 }
 function claudeRun(exe, name, sfile, message, model, job, ev, seq = '') {
   const sid = readJSON(sfile, {}).id || null;
@@ -2746,6 +2750,8 @@ function savePresence() {
 const ipOf = (req) => String(req.socket?.remoteAddress || '').replace(/^::ffff:/, '');
 // the request comes from this computer itself - also through the team link (the PC's own LAN address). One that came
 // through a tunnel / proxy (cloudflared on this PC also connects from 127.0.0.1) says where it really came from.
+// ⭐ work started on the server PC itself goes first (render queue, AI job lines); in a ⚙ project worker the main process says
+const fromServerPC = (req) => (IS_WORKER ? !!req.who?.samePC : samePC(req));
 function samePC(req) {
   if (req.who?.local) return true;
   const fwd = String(req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || '').split(',')[0].trim();
@@ -3961,7 +3967,7 @@ const routes = {
       const it = addMediaFile(name, out, { bin: 'AI fill', imported: true });
       saveMedia(name);
       return { mediaId: it?.id, file: path.basename(out), dur: +(t1 - t0).toFixed(3) };
-    }, { project: name });
+    }, { project: name, fromServer: fromServerPC(req) });
   },
   // ✨ AI Enhance (like Topaz): Real-ESRGAN (engine/enhance.py, GPU) cleans noise / compression, brings back detail and
   // can upscale the clip's piece [in, out]; a new file of the project (bin "AI enhance") takes the piece's place.
@@ -3990,7 +3996,7 @@ const routes = {
       const it = addMediaFile(name, out, { bin: 'AI enhance', imported: true });
       saveMedia(name);
       return { mediaId: it?.id, file: path.basename(out), dur: +(t1 - t0).toFixed(3) };
-    }, { project: name });
+    }, { project: name, fromServer: fromServerPC(req) });
   },
   'GET /api/matte/file': (req, res, u) => serveFile(req, res, P(needProject(q(u, 'p')), 'cache', 'mattes', path.basename(q(u, 'f') || '')), true),
   // 🧠 Smart scan: every video / photo gets shot tags (wide, close-up, drone, people…), and the scan finds near-identical
@@ -4375,7 +4381,8 @@ const routes = {
   'POST /api/queue': async (req, res, u) => {
     const name = needProject(q(u, 'p')), b = await readJson(req);
     if (!b.items?.length) throw err(400, 'Nothing to render');
-    return { added: enqueueRender(name, b.items.map((x) => ({ ...x, saveTo: saveToDir(req.who, x.saveTo) }))).map(queueView) };
+    const pri = (x) => (fromServerPC(req) ? 2 : x.urgent ? 1 : 0); // (⭐ the server PC's renders first)
+    return { added: enqueueRender(name, b.items.map((x) => ({ ...x, saveTo: saveToDir(req.who, x.saveTo), priority: pri(x) }))).map(queueView) };
   },
   // stop a running render / take a waiting one out
   'POST /api/queue/cancel': (req, res, u) => {
@@ -4394,7 +4401,15 @@ const routes = {
     saveQueue(); pumpQueue();
     return { ok: true };
   },
-  // move a waiting render up (dir -1) or down (+1)
+  // ⚡ mark a waiting render urgent (or normal again) - one started on the server PC stays first anyway
+  'POST /api/queue/urgent': (req, res, u) => {
+    const it = rq.items.find((x) => x.id === q(u, 'id'));
+    if (!it || it.state !== 'waiting') throw err(400, 'Only a waiting render can be moved up');
+    if ((it.priority || 0) < 2) it.priority = q(u, 'on') === '0' ? 0 : 1;
+    saveQueue(); pumpQueue();
+    return queueView(it);
+  },
+  // move a waiting render up (dir -1) or down (+1) - within its priority (⭐ the higher ones still go first)
   'POST /api/queue/move': (req, res, u) => {
     const i = rq.items.findIndex((x) => x.id === q(u, 'id')), d = +q(u, 'dir') || 0;
     const j = i + d;
@@ -4752,7 +4767,7 @@ const routes = {
     if (seq && !liveOf(name).pj.sequences?.[seq]) throw err(400, 'That sequence no longer exists');
     // one Claude at a time per sequence; people on other sequences of the same project can ask theirs meanwhile
     if ([...jobs.values()].some((j) => j.kind === 'claude' && j.status === 'running' && j.project === name && (j.seq || '') === seq)) throw err(409, 'Claude is still working on the last message for this sequence - wait or press Stop');
-    const job = claudeChat(name, b.message, !!b.reset, req.who, seq);
+    const job = claudeChat(name, b.message, !!b.reset, { ...req.who, fromServer: fromServerPC(req) }, seq);
     return { id: job.id };
   },
   'GET /api/claude/events': (req, res, u) => {
@@ -4841,7 +4856,7 @@ const routes = {
       r.report.warnings.unshift(`Added ${ids.length} stock clips (Pexels / Pixabay, free licence) for: ${queries.join(', ')} - they are in the Stock bin`);
       r.stockIds = o.stockIds;
       return r;
-    }, { project: name, opts }); // opts let a refreshed page finish the edit the same way
+    }, { project: name, opts, fromServer: fromServerPC(req) }); // opts let a refreshed page finish the edit the same way
   },
 
   // rule-based auto edit (reference-match mode of the agent); returns v2 tracks
@@ -5279,7 +5294,7 @@ function routeOf(method, u) {
 const fwdAgent = new http.Agent({ keepAlive: true, maxSockets: 512 });
 function forward(k, req, res, who) {
   const pr = http.request({ host: '127.0.0.1', port: workerPort(k), method: req.method, path: req.url, agent: fwdAgent,
-    headers: { ...req.headers, 'x-vedit-key': CL_KEY, 'x-vedit-who': Buffer.from(JSON.stringify(who)).toString('base64') } }, (wr) => {
+    headers: { ...req.headers, 'x-vedit-key': CL_KEY, 'x-vedit-who': Buffer.from(JSON.stringify({ ...who, samePC: samePC(req) })).toString('base64') } }, (wr) => {
     res.writeHead(wr.statusCode, wr.headers); wr.pipe(res);
   });
   pr.on('error', () => { if (!res.headersSent) send(res, 503, { error: 'This project\'s worker is restarting - try again in a few seconds' }); else res.destroy(); });

@@ -335,6 +335,15 @@ test('🚚 move a project to an editor\'s folder: copied, its own files pointed 
   same((await api('GET', '/api/media?p=Mover')).items[0]?.path, path.join(dest, 'Mover', 'imports', 'own.mp4'));
 });
 
+test('⭐ a render queued on the server PC itself goes first; Urgent cannot move it down', async () => {
+  if (!ON) return 'skip';
+  const { added } = await api('POST', `/api/queue?p=${P}`, { items: [{ preset: 'master', filename: 'prio-a' }, { preset: 'master', filename: 'prio-b', urgent: true }] });
+  same(added.map((x) => x.priority), [2, 2], 'this test talks to the editor from its own PC');
+  const waiting = (await api('GET', '/api/queue')).items.find((x) => added.some((a) => a.id === x.id) && x.state === 'waiting');
+  if (waiting) same((await api('POST', `/api/queue/urgent?id=${waiting.id}&on=0`)).priority, 2);
+  for (const a of added) await api('POST', `/api/queue/cancel?id=${a.id}`).catch(() => {});
+});
+
 test('stop the test editor and remove its folder', async () => {
   if (!ON) return 'skip';
   srv?.kill();
