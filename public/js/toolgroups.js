@@ -9,7 +9,6 @@ export const TOOL_GROUPS = [
     ['rolling', 'Rolling Edit Tool', 'N', '<b>' + ic('rolling') + '</b>', 'Drag a cut - one shot gets longer, the other shorter, nothing else moves'],
     ['rate', 'Rate Stretch Tool', 'R', '<b>' + ic('rate') + '</b>', "Drag a clip's end - its speed changes so the same shot fills the new length"],
     ['remix', 'Remix Tool', '', '<b>' + ic('music') + '</b>', "Drag a music clip's end to the length you need - the music is re-cut to fit, from its best part"]],
-  [['blade', 'Razor Tool', 'C', '@blade', 'Click a clip to cut it']],
   [['slip', 'Slip Tool', 'Y', '<b>' + ic('slip') + '</b>', 'Drag a clip - it shows an earlier / later part of its file; its place and length stay'],
     ['slide', 'Slide Tool', 'U', '<b>' + ic('slide') + '</b>', 'Drag a main-story clip between its neighbours - the one before gets longer, the one after shorter; nothing else moves']],
   [['pen', 'Pen Tool', 'P', '<b>' + ic('pen') + '</b>', 'Click on a clip to put a keyframe on its opacity (video) / volume (audio) line - higher = more'],

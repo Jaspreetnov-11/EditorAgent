@@ -58,7 +58,7 @@ const KIND = new Proxy({}, { get: (_, id) => trackKind(id) });
 // a row's top inside the timeline canvas (the insert marker and dragged clips are placed with it)
 const rowTop = (id) => { const r = rowsEl?.querySelector(`[data-track="${id}"]`), cv = $('#tlCanvas', root); return r && cv ? r.getBoundingClientRect().top - cv.getBoundingClientRect().top : 0; };
 let root, scroller, rowsEl, ruler, playheadEl, snapEl, headsEl;
-let drag = null;
+let drag = null, bladeEl = null; // (bladeEl: the Razor's dashed cut line)
 let lastDown = { id: null, t: 0, x: 0, y: 0 }, lastOpen = 0; // 🖱 our own double-click (two downs on one clip within 400 ms)
 
 export function mountTimeline(el) {
@@ -78,7 +78,7 @@ export function mountTimeline(el) {
       <button data-act="mfusion" class="tl-letter" title="F · Fusion: open the selected video clip in Fusion - node effects (also on the clip's right-click)" aria-label="Fusion"><b>F</b></button>
       <button data-act="mlabs" class="tl-letter" title="L · Labs: edit the selected video clip in Labs - templates, AI (also on the clip's right-click)" aria-label="Labs"><b>L</b></button>
       <span class="sep"></span>
-      <button data-act="snap" class="tog" title="Snapping on/off (N)">${ICON.magnet}<span>Snap</span></button>
+      <button data-act="snap" class="tog" title="Snap (N): clips, cuts and the playhead pull into line when they come close - no tiny gaps, overlaps or one-frame flashes. Off: move a clip freely, frame by frame">${ICON.magnet}<span>Snap</span></button>
     </div>
     <div class="tl-bar">
       <div class="tl-seqtabs" id="tlSeqTabs" role="tablist" aria-label="Sequences"></div>
@@ -125,9 +125,19 @@ export function mountTimeline(el) {
   });
   runActRef = (a, b) => runAct(a, b);
   bindActGroups(el);
+  // 🔪 Razor: a dashed line across the clip under the mouse, where the click will cut (snapped the same way)
+  rowsEl.addEventListener('pointermove', (e) => {
+    if (S.tool !== 'blade' || e.buttons) { if (bladeEl) bladeEl.hidden = true; return; }
+    const c = e.target.closest('.clip'); if (!c || c.classList.contains('t-gap')) { if (bladeEl) bladeEl.hidden = true; return; }
+    if (!bladeEl) { bladeEl = document.createElement('div'); bladeEl.className = 'tl-bladeline'; $('#tlCanvas', root).append(bladeEl); }
+    const t = snap(timeAt(e.clientX), snapPoints(new Set([c.dataset.id]))), r = c.getBoundingClientRect(), cv = $('#tlCanvas', root).getBoundingClientRect();
+    Object.assign(bladeEl.style, { left: `${t * S.zoom}px`, top: `${r.top - cv.top}px`, height: `${r.height}px` }); bladeEl.hidden = false;
+  });
+  rowsEl.addEventListener('pointerleave', () => { if (bladeEl) bladeEl.hidden = true; });
   function runAct(a, btn) {
     if (a === 'seq') seqMenu(btn);
     if (a === 'split') splitAtPlayhead();
+    if (a === 'razor') setTool('blade');
     if (a === 'trimStart') trimAtPlayhead('start');
     if (a === 'trimEnd') trimAtPlayhead('end');
     if (a === 'delete') deleteSelected();
@@ -228,6 +238,7 @@ function toolBtn(x, i) {
 // last one used), its corner / right-click / a long press lists the others. [act, label, key, icon(), tip]
 const ACT_GROUPS = {
   cut: [['split', 'Split at playhead', 'S', () => ICON.split, 'Split clips under the playhead (S)'],
+    ['razor', 'Razor tool', 'C', () => ICON.blade, 'Razor (C): click a clip where it should be cut - a dashed line shows the cut, it snaps to the playhead and other cuts (V: back to the Selection tool)'],
     ['trimStart', 'Trim front', 'Q', () => `<b>${ic('trimstart')}</b>`, 'Cut the front: remove everything before the playhead from the clip under it, the gap closes (Q)'],
     ['trimEnd', 'Trim back', 'W', () => `<b>${ic('trimend')}</b>`, 'Cut the back: remove everything after the playhead from the clip under it, the gap closes (W)']],
   clip: [['delete', 'Delete', 'Del', () => ICON.trash, 'Delete selected (Del)'], ['dup', 'Duplicate', 'Ctrl+D', () => ICON.copy, 'Duplicate (Ctrl+D)']],
@@ -301,6 +312,7 @@ function bindToolGroups(el) {
   });
 }
 export function setTool(t) {
+  if (t !== 'blade' && bladeEl) bladeEl.hidden = true;
   if (MANY_SELECT.has(t) && S.tool !== t) toast(`${t === 'trackfwd' ? 'Track Select Forward (A): a click selects that clip and everything after it' : 'Track Select Backward (Shift+A): a click selects that clip and everything before it'} on every track - press V for the Selection tool`);
   S.tool = t; syncBar(); root.classList.toggle('blade', t === 'blade'); root.dataset.tool = t; render(); }
 function syncBar() {
@@ -324,6 +336,7 @@ function syncBar() {
     const list = pickTabs([...list0].filter((x) => !closed.has(x.id)).sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))), team = sharedSeqId(), html = list.map((x) => `<button role="tab" class="tl-stab" data-stab="${esc(x.id)}" aria-selected="${x.open}" title="${esc(x.name)}${x.id === team ? ' (team main sequence)' : ''} - double-click to rename"><span>${esc(x.name)}</span>${list0.length - closed.size > 1 ? `<i class="stab-x" data-sclose="${esc(x.id)}" title="Close this tab (the sequence stays - ▾ opens it again)">✕</i>` : ''}</button>`).join('');
     if (tabs.__html !== html) { tabs.innerHTML = html; tabs.__html = html; const cur = tabs.querySelector('[aria-selected="true"]'); if (cur && (cur.offsetLeft < tabs.scrollLeft || cur.offsetLeft + cur.offsetWidth > tabs.scrollLeft + tabs.clientWidth)) tabs.scrollLeft = Math.max(0, cur.offsetLeft - 40); }
   }
+  root.querySelectorAll('[data-act="razor"]').forEach((b) => b.setAttribute('aria-pressed', String(S.tool === 'blade')));
   $('[data-act="snap"]', root).classList.toggle('on', S.snap);
 }
 

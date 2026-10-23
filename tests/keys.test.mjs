@@ -29,6 +29,7 @@ test('every preset key belongs to one command only, and only known commands', ()
 test('Premiere preset: the well-known keys', () => {
   const m = BUILTIN.premiere.map;
   // (📌 Delete leaves a gap so nothing else moves, Shift+Delete closes up - as in Premiere)
-  same([m.addEdit[0], m.razorTool[0], m.snap[0], m.rippleDelete[0], m.clear[0], m.fullscreen[0], m.shortcuts[0]], ['Ctrl+K', 'C', 'S', 'Shift+Delete', 'Delete', 'Ctrl+`', 'Ctrl+Alt+K']);
+  same([m.addEdit[0], m.razorTool[0], m.snap[0], m.rippleDelete[0], m.clear[0], m.fullscreen[0], m.shortcuts[0]], ['Ctrl+K', 'C', 'N', 'Shift+Delete', 'Delete', 'Ctrl+`', 'Ctrl+Alt+K']);
+  same([m.addEdit, m.rollingTool], [['Ctrl+K', 'S'], []]); // (the user: S splits at the playhead, N is snapping)
   assert(COMMANDS.every((c) => c.id in m), 'every command is in the Premiere preset (even if without a key)');
 });

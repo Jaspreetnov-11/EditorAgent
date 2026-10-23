@@ -333,3 +333,9 @@ html.ui2 .timeline .tl-bar .tl-tc { margin-left: auto; }
 #inspector .iactions.ia-icons { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 6px; }
 #inspector .iactions.ia-icons button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 #inspector .iactions.ia-icons svg { width: 14px; height: 14px; }
+
+/* 🔪 Razor: a blade cursor on the clips and a dashed line where the click will cut (timeline.js bladeEl), like Premiere */
+.timeline.blade .clip, .timeline.blade .tl-rows { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='26' viewBox='0 0 26 26'%3E%3Cg transform='rotate(-40 13 13)'%3E%3Crect x='4' y='9' width='18' height='8' rx='1.6' fill='%23fff' stroke='%23111' stroke-width='1.3'/%3E%3Crect x='9.5' y='11.8' width='7' height='2.4' rx='1.2' fill='%23111'/%3E%3Cpath d='M4 13h18' stroke='%23111' stroke-width='.6' stroke-dasharray='1.5 1.5'/%3E%3C/g%3E%3C/svg%3E") 13 13, crosshair; }
+.tl-bladeline { position: absolute; z-index: 6; width: 0; border-left: 2px dashed #fff; box-shadow: 0 0 0 1px #0006; margin-left: -1px; pointer-events: none; }
+.timeline.blade .tl-playhead, .timeline.blade .tl-playhead::before, .timeline.blade .tl-playhead::after { pointer-events: none; } /* (🔪 a Razor click on the playhead line cuts the clip there - the line used to take the click) */
+.timeline.blade .tl-playhead .ph-head { pointer-events: auto; }

@@ -45,14 +45,14 @@ const PREMIERE = {
   playStop: ['Space'], shuttleL: ['J'], shuttleStop: ['K'], shuttleR: ['L'], stepBack: ['Left'], stepFwd: ['Right'], stepBack5: ['Shift+Left'], stepFwd5: ['Shift+Right'],
   prevEdit: ['Up', 'PageUp'], nextEdit: ['Down', 'PageDown'], goStart: ['Home'], goEnd: ['End'], matchFrame: ['F'],
   markIn: ['I'], markOut: ['O'], goIn: ['Shift+I'], goOut: ['Shift+O'], clearInOut: ['Ctrl+Shift+X'], openXml: ['Ctrl+O'], speedDuration: ['Ctrl+R'], insert: [','], overwrite: ['.'],
-  selectTool: ['V'], razorTool: ['C'], typeTool: ['T'], rippleTool: ['B'], rollingTool: ['N'], rateTool: ['R'], penTool: ['P'], remixTool: [], slipTool: ['Y'], slideTool: ['U'], rectTool: [], ellipseTool: [], extendTool: [], zoomTool: ['Z'],
+  selectTool: ['V'], razorTool: ['C'], typeTool: ['T'], rippleTool: ['B'], rollingTool: [], rateTool: ['R'], penTool: ['P'], remixTool: [], slipTool: ['Y'], slideTool: ['U'], rectTool: [], ellipseTool: [], extendTool: [], zoomTool: ['Z'],
   trackFwdTool: ['A'], trackBackTool: ['Shift+A'], nudgeL: ['Alt+Left'], nudgeR: ['Alt+Right'], nudgeL5: ['Alt+Shift+Left'], nudgeR5: ['Alt+Shift+Right'], trackUp: ['Alt+Up'], trackDown: ['Alt+Down'],
   pasteInsert: ['Ctrl+Shift+V'], group: ['Ctrl+G'], ungroup: ['Ctrl+Shift+G'], trimMode: ['Shift+T'], replaceEdit: [], timecode: [], exportFrame: ['Ctrl+Shift+E'], closeGaps: [], nextGap: [], prevGap: [], clipMarker: [], rippleMarkers: [], history: [], autoReframe: [], seqSettings: [],
-  lift: [';'], extract: ["'"], addEdit: ['Ctrl+K'], addEditAll: ['Ctrl+Shift+K'], rippleTrimPrev: ['Q'], rippleTrimNext: ['W'],
+  lift: [';'], extract: ["'"], addEdit: ['Ctrl+K', 'S'], addEditAll: ['Ctrl+Shift+K'], rippleTrimPrev: ['Q'], rippleTrimNext: ['W'],
   // 📌 Delete leaves a gap, so every other clip stays exactly where it was put; Shift+Delete closes up (ripple) - like
   // Premiere. (For a while Delete closed up, and clips slid along whenever something before them was deleted.)
   clear: ['Delete', 'Backspace'], rippleDelete: ['Shift+Delete', 'Shift+Backspace'], duplicate: [], pasteAttr: ['Ctrl+Alt+V'], markersList: [], exportEdl: [], dupFrames: [], makeSubclip: ['Ctrl+U'], transition: ['Ctrl+D'],
-  selectAtPlayhead: ['D'], link: ['Ctrl+L'], enable: ['Shift+E'], audioGain: ['G'], snap: ['S'], nest: [],
+  selectAtPlayhead: ['D'], link: ['Ctrl+L'], enable: ['Shift+E'], audioGain: ['G'], snap: ['N'], nest: [],
   marker: ['M'], nextMarker: ['Shift+M'], prevMarker: ['Ctrl+Shift+M'], note: ['Alt+M'],
   zoomIn: ['='], zoomOut: ['-'], tracksTaller: ['Ctrl+='], tracksShorter: ['Ctrl+-'], tracksMin: ['Shift+-'], tracksMax: ['Shift+='], zoomFit: ['\\'], maximize: ['`'], fullscreen: ['Ctrl+`'], rulers: [],
 };
