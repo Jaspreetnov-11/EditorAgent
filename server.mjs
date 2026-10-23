@@ -1474,12 +1474,25 @@ function inThread(msg) {
     summaryThread(k).postMessage({ id, ...msg });
   });
 }
-// every project's summary, 6 read at a time (the NAS is shared by everyone)
+// every project's summary: the one already known comes at once and is looked at again in the background (Home shows a
+// change the next time - looking at 46 projects' files on the busy NAS first kept Home on "Loading…" for seconds); a
+// project not known yet is waited for, 6 read at a time (the NAS is shared by everyone)
+let summariesFresh = null;
+function refreshSummaries(names) {
+  summariesFresh ||= (async () => {
+    let next = 0;
+    await Promise.all(Array.from({ length: 6 }, async () => { for (let i; (i = next++) < names.length;) await projectSummaryAsync(names[i]).catch(() => null); }));
+  })().finally(() => { summariesFresh = null; });
+  return summariesFresh;
+}
 async function allSummaries() {
-  const names = allProjects(), out = new Array(names.length);
-  let next = 0;
-  await Promise.all(Array.from({ length: 6 }, async () => { for (let i; (i = next++) < names.length;) out[i] = await projectSummaryAsync(names[i]).catch(() => null); }));
-  return out.filter(Boolean);
+  const names = allProjects(), unknown = names.filter((n) => !summaryCache.has(n));
+  if (unknown.length) {
+    let next = 0;
+    await Promise.all(Array.from({ length: 6 }, async () => { for (let i; (i = next++) < unknown.length;) await projectSummaryAsync(unknown[i]).catch(() => null); }));
+  }
+  refreshSummaries(names).catch(() => {});
+  return names.map((n) => summaryCache.get(n)?.s).filter(Boolean);
 }
 
 function createProject({ name, aspect, fps, place }) {
