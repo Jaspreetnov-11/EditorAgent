@@ -590,7 +590,11 @@ const blank = (dur, label) => ({ file: path.join(wd, `seg${String(segN++).padSta
   main: ['-f', 'lavfi', '-i', `color=c=black:s=${W}x${H}:r=${F}:d=${dur.toFixed(3)}`, '-f', 'lavfi', '-t', dur.toFixed(3), '-i', 'anullsrc=r=48000:cl=stereo', '-map', '0:v', '-map', '1:a', '-t', dur.toFixed(3)] });
 const v1Segs = v1.map((x, i) => { const d = (frames(x.end) - frames(x.start)) / F; return outside(x) ? blank(d, `V1 clip ${i + 1}`) : segment(x.clip, `V1 clip ${i + 1}`, d); });
 const pinned = (c) => c.pin?.keys?.length > 0 && (c.type === 'video' || c.type === 'image'); // (▱ drawn straight in the final pass)
-const ovSegs = new Map(ovMedia.filter((x) => !outside(x) && !pinned(x.clip)).map((x, i) => [x, segment(x.clip, `${x.track} clip ${i + 1}`)]));
+// 🎞 a template / video with transparency on an overlay track (media.alpha): drawn straight from its file in the final
+// pass, so the shots below show through it. Its Motion, opacity and fades apply; with effects, a mask or a blend mode it
+// is made like any other overlay (no transparency).
+const alphaOv = (c) => c.type === 'video' && !!M(c.mediaId)?.alpha && !activeEffects(c).length && !c.omask?.shape && !c.blend && !blendOf(c) && !rampPts(c) && !c.reverse;
+const ovSegs = new Map(ovMedia.filter((x) => !outside(x) && !pinned(x.clip) && !alphaOv(x.clip)).map((x, i) => [x, segment(x.clip, `${x.track} clip ${i + 1}`)]));
 if (R) console.log(`  In-Out: ${R.in.toFixed(2)}s to ${R.out.toFixed(2)}s (${(R.out - R.in).toFixed(2)}s)`);
 {
   const all = [...v1Segs, ...ovSegs.values()], pending = [...all];
@@ -713,12 +717,33 @@ function pinnedOverlay(x, under, k) {
   return `vo${k}`;
 }
 
+function alphaOverlay(x, under, k) {
+  const c = x.clip, st = x.start, en = x.end, len = en - st, m = M(c.mediaId), i = n++, sp = c.speed || 1, tin = Math.max(0, +c.in || 0);
+  inputs.push('-ss', String(tin), '-t', (len * sp + 0.1).toFixed(3), '-i', m.path);
+  // Motion on a clear canvas (its black fills made clear), then opacity (static or keyframed) and fades on the alpha
+  const mot = transformFilters(c).map((f) => f.replace(/:black(?=$|:)/g, ':black@0').replace(/fillcolor=black(?=$|:)/g, 'fillcolor=black@0'));
+  const op = c.opacity ?? 1, f = [`setpts=(PTS-STARTPTS)/${sp}`, `fps=${F}`, 'format=yuva444p', `scale=${W}:${H}:force_original_aspect_ratio=decrease`, `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black@0`, 'setsar=1', ...mot];
+  if (c.keys?.opacity?.length) f.push(`format=yuva420p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='alpha(X,Y)*clip(${keysExpr(c.keys.opacity, 'T')},0,1)'`);
+  else if (op < 1) f.push(`format=rgba,colorchannelmixer=aa=${op}`);
+  if (c.fadeIn) f.push(`fade=t=in:st=0:d=${c.fadeIn}:alpha=1`);
+  if (c.fadeOut) f.push(`fade=t=out:st=${Math.max(0, len - c.fadeOut).toFixed(3)}:d=${c.fadeOut}:alpha=1`);
+  g.push(`[${i}:v]${f.join(',')},setpts=PTS-STARTPTS+${st.toFixed(3)}/TB[al${k}]`);
+  g.push(`[${under}][al${k}]overlay=eof_action=pass:format=auto:enable='between(t,${st.toFixed(3)},${en.toFixed(3)})',format=yuv420p[vo${k}]`);
+  if (m.hasAudio && !ts[x.track]?.mute && !c.mute && (c.volume ?? 1) > 0) {
+    const ms = Math.round(st * 1000);
+    g.push(`[${i}:a]asetpts=PTS-STARTPTS,${sp !== 1 ? `${speedAudio(c, sp)},` : ''}${fxOf(x.track)}${volumeFilter(c)},atrim=0:${len.toFixed(3)},adelay=${ms}|${ms},${AFMT}[v2a${k}]`);
+    speechLabels.push(`v2a${k}`);
+  }
+  return `vo${k}`;
+}
+
 // overlays in track order (V2 first, a higher track on top); adjustment layers act on what is below them
 ovl.forEach((x, k) => {
   const c = x.clip, st = x.start, en = x.end;
   if (c.type === 'adjust') { v = adjustLayer(c, v, st, en, k); return; }
   if (c.type !== 'video' && c.type !== 'image') return; // titles are drawn after the film look (below)
   if (pinned(c)) { if (!outside(x)) v = pinnedOverlay(x, v, k); return; }
+  if (alphaOv(c)) { if (!outside(x)) v = alphaOverlay(x, v, k); return; }
   const s = ovSegs.get(x);
   if (!s) return; // (outside In-Out: not made)
   const i = n++;

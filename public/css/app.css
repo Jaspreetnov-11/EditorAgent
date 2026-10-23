@@ -1470,3 +1470,21 @@ html.ui2 .tl-row .clip.lab .clip-lbl, .tl-row .clip.lab .clip-lbl { background: 
 .vw-frame.shape-cursor { cursor: crosshair; }
 .shape-ghost { position: absolute; z-index: 30; border: 1.5px dashed #fff; background: #ff993333; pointer-events: none; }
 .shape-ghost.round { border-radius: 50%; }
+/* 🎞 Custom templates (MOGRT / logo animations): a floating window, so tiles drag onto the timeline */
+.ctpl-win { position: fixed; inset: 60px auto auto 50%; transform: translateX(-50%); width: min(980px, calc(100vw - 32px)); z-index: 900; margin: 0; box-shadow: 0 12px 40px #000a; }
+.ctpl-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.ctpl-bar input[type=search] { min-width: 180px; }
+.ctpl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; max-height: 60vh; overflow: auto; }
+.ctpl-tile { display: grid; gap: 3px; padding: 6px; background: var(--panel-2); border-radius: 6px; cursor: pointer; position: relative; }
+.ctpl-tile:hover { outline: 1px solid var(--accent, #f39c12); }
+.ctpl-pic { position: relative; aspect-ratio: 16 / 9; border-radius: 4px; overflow: hidden; background: repeating-conic-gradient(#3a3d44 0 25%, #2a2c31 0 50%) 0 0 / 16px 16px; }
+.ctpl-pic img, .ctpl-pic video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.ctpl-kind { position: absolute; left: 4px; top: 4px; z-index: 1; font-size: 10px; padding: 1px 5px; border-radius: 3px; background: #000a; color: #fff; }
+.ctpl-acts { position: absolute; right: 6px; top: 6px; z-index: 2; display: none; gap: 2px; }
+.ctpl-tile:hover .ctpl-acts { display: flex; }
+.ctpl-acts .icon-btn { background: #000b; }
+.ctpl-limits { margin-top: 10px; }
+/* 🏷 tags: a coloured chip per tag */
+.tag-chip { display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; line-height: 1.5; padding: 0 6px; margin: 1px 3px 1px 0; border-radius: 9px; color: #fff; background: color-mix(in srgb, var(--tc) 55%, #0000); border: 1px solid var(--tc); white-space: nowrap; }
+.tag-chip b { cursor: pointer; font-weight: 700; opacity: .8; }
+.tag-chip b:hover { opacity: 1; }

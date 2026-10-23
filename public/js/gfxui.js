@@ -54,12 +54,16 @@ export function openGraphics() {
     <div class="gfx-grid">${all.filter(([, x]) => x.motion).map(tile).join('')}</div>
     <h4>Data graphics <span class="muted small">- numbers, charts, callouts</span></h4>
     <div class="gfx-grid">${all.filter(([, x]) => !x.motion).map(tile).join('')}</div>
-    <p class="muted small">Placed at the playhead on a free overlay track. Change words, colours and style in Effect Controls. What you see in the viewer is what renders.</p>`, { width: 1000 });
+    <p class="muted small">Placed at the playhead on a free overlay track. Change words, colours and style in Effect Controls. What you see in the viewer is what renders.</p>
+    <p class="small"><button class="link" data-ctpls>🎞 Custom templates - your own MOGRTs, logo animations and videos with transparency…</button></p>`, { width: 1000 });
   const preview = () => $$('[data-tpl]', dlg.el).forEach((el) => { const g = made(el.dataset.tpl), d = GFX[el.dataset.tpl].dur; drawGraphic(el.querySelector('canvas').getContext('2d'), W, H, g, Math.max(0.1, d * 0.62), d); });
   preview();
   // logos load a moment later: draw the tiles again then
   Promise.all(Object.keys(GFX).map((k) => gfxReady(made(k)))).then(() => { if (dlg.el.isConnected) preview(); });
-  dlg.el.addEventListener('click', (e) => { const b = e.target.closest('[data-tpl]'); if (!b) return; dlg.close(); addGraphic(b.dataset.tpl); });
+  dlg.el.addEventListener('click', (e) => {
+    if (e.target.closest('[data-ctpls]')) { dlg.close(); import('./customtpl.js').then((m) => m.openCustomTemplates()); return; }
+    const b = e.target.closest('[data-tpl]'); if (!b) return; dlg.close(); addGraphic(b.dataset.tpl);
+  });
 }
 
 export function addGraphic(tpl) {

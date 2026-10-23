@@ -43,6 +43,7 @@ import { pickHelper, toTaskArgs, gpuProxyArgs } from './engine/helpers.mjs';
 import { byPriority, lineIndex } from './engine/priority.mjs';
 import * as QC from './engine/qc.mjs';
 import { archiveRoutes } from './engine/archive.mjs';
+import * as GL from './engine/gfxlib.mjs';
 import { startHealth, noteRequest, healthSeries } from './engine/health.mjs';
 import { ReviewStore, Limiter, findLink, sameSecret, pwOk, pwCookie, cleanText, cleanName, cleanDraw, renderPath, expired, latest, clientView, ownerView, readLimited, newId, hashPw as rvHashPw, MAX_COMMENTS } from './engine/clientreview.mjs';
 
@@ -117,7 +118,19 @@ fs.mkdirSync(path.join(STOCK, 'online'), { recursive: true });
 // presets, brand kit and project templates, shared by every project
 const LIB = path.join(ROOT, 'Library');
 fs.mkdirSync(path.join(LIB, 'templates'), { recursive: true });
+// 🎞 custom templates (MOGRT / logo animations / videos with transparency, engine/gfxlib.mjs); a test editor keeps its own
+const GFXLIB = path.join(DATA === ROOT ? LIB : path.join(DATA, 'Library'), 'graphics');
+fs.mkdirSync(GFXLIB, { recursive: true });
+// a template's import (upload or path) as a job; a failed one leaves nothing behind
+function templateTask(src, orig, id, { name = '', fps = 30, by = '', temp = false } = {}) {
+  const dir = path.join(GFXLIB, id);
+  return startTask('template', (job) => GL.importTemplate({ src, origName: orig, dir, name: name || '', fps, by: by || '', onStage: (t) => { job.stage = t; job.log.push(t); } })
+    .catch(async (e) => { await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {}); throw e; })
+    .finally(() => (temp ? fs.promises.rm(src, { force: true }).catch(() => {}) : null)));
+}
 const pick = (o, ks) => Object.fromEntries(ks.filter((k) => o && k in o).map((k) => [k, o[k]]));
+// 🏷 tags on media, projects and templates: short free-text labels, each once (case ignored), at most 20
+const cleanTags = (list) => [...new Map((Array.isArray(list) ? list : []).map((t) => String(t ?? '').replace(/\s+/g, ' ').trim().slice(0, 32)).filter(Boolean).map((t) => [t.toLowerCase(), t])).values()].slice(0, 20);
 const SFX = path.join(ROOT, 'SFX'); // sound effects: the built-in library (made once) + your own files dropped in here
 let sfxReady = null;
 const sfxMade = () => (sfxReady ||= ensureSfx(SFX).catch((e) => logCrash('sfx library', e)));
@@ -871,7 +884,7 @@ async function processQuick(proj, id) {
     m.thumb = fs.existsSync(C('thumbs', `${id}.jpg`));
   }
   if (m.kind === 'video' && m.duration > 0) await makeStrip(m.path, m.duration, C('strips', `${id}.jpg`), proj).then((ok) => (m.strip = ok));
-  const proxy = needsProxy(m);
+  const proxy = needsProxy(m) && !m.alphaPlay; // (🎞 a template plays from its own preview copy with transparency)
   // Waveforms need the whole audio track; for big camera files read it from the small proxy later instead.
   if (m.hasAudio && !proxy) m.wave = await makeWave(m.path, C('waves', `${id}.png`), proj);
   m.status = 'ready';
@@ -1237,7 +1250,7 @@ function prepareRender(name, b, o = {}) {
     || Date.now() - (outReserved.get(`${name}/${f}`) || 0) < 6 * 3600e3;
   const fname = (v) => (ext ? `${base}_v${v}.${ext}` : `${base}_v${v} frames`);
   if (!preview) { let v = 1; while (taken(fname(v))) v++; out = fname(v); outReserved.set(`${name}/${out}`, Date.now()); }
-  const media = Object.fromEntries([...used].map((id) => [id, { path: byId[id].path, duration: byId[id].duration, hasAudio: byId[id].hasAudio, kind: byId[id].kind, width: byId[id].width, height: byId[id].height, rotation: byId[id].rotation, size: byId[id].size, mtime: byId[id].mtime, subOf: byId[id].subOf }]));
+  const media = Object.fromEntries([...used].map((id) => [id, { path: byId[id].path, duration: byId[id].duration, hasAudio: byId[id].hasAudio, kind: byId[id].kind, width: byId[id].width, height: byId[id].height, rotation: byId[id].rotation, size: byId[id].size, mtime: byId[id].mtime, subOf: byId[id].subOf, ...(byId[id].alpha ? { alpha: true } : {}) }])); // (🎞 alpha: drawn with its transparency)
   const jobFile = o.jobFile || P(name, 'cache', preview ? 'render-job-preview.json' : `render-job-${safeName(out)}.json`);
   fs.mkdirSync(path.dirname(jobFile), { recursive: true });
   const range = b.whole ? null : rangeOf(pj, totalDuration(pj, byId));
@@ -2280,7 +2293,7 @@ function startTeam() {
     // a user removed (or demoted) by the owner loses access at once
     const usr = s && (teamCfg().users || []).find((x) => x.name === s.name);
     if (!s || !usr) {
-      if (u.pathname.startsWith('/api/') || u.pathname.startsWith('/pm/') || u.pathname.startsWith('/pf/')) return send(res, 401, { error: 'Sign in again' });
+      if (/^\/(api|pm|pf|lg)\//.test(u.pathname)) return send(res, 401, { error: 'Sign in again' });
       if (/^\/(css|js|img)\//.test(u.pathname)) return serveFile(req, res, path.join(ROOT, 'public', path.normalize(decodeURIComponent(u.pathname)))); // (img: the logo on the sign-in page)
       if (/^\/(manifest\.webmanifest|sw\.js)$/.test(u.pathname)) return serveFile(req, res, path.join(ROOT, 'public', u.pathname.slice(1))); // (🖥 install as a Desktop app, from the sign-in page)
       return serveFile(req, res, path.join(ROOT, 'public', 'team', 'login.html'));
@@ -5123,6 +5136,55 @@ const routes = {
     return { name: tname };
   },
   'POST /api/library/template/delete': async (req) => { const b = await readJson(req); fs.rmSync(path.join(LIB, 'templates', `${safeName(b.name)}.json`), { force: true }); return { ok: true }; },
+  // 🎞 Custom templates (Library/graphics): MOGRTs, logo animations, videos with transparency, image sequences - kept
+  // once for everyone (engine/gfxlib.mjs). A MOGRT's After Effects comp is not rendered again: its rendered video is used.
+  'GET /api/library/graphics': () => GL.listTemplates(GFXLIB),
+  // the file itself is the body (?name=<file name>&title=&fps=) -> a job whose result is the new template
+  'POST /api/library/graphics/import': (req, res, u) => new Promise((ok, bad) => {
+    const id = GL.newTemplateId(), up = path.join(GFXLIB, `.up-${id}`), orig = path.basename(String(q(u, 'name') || 'template'));
+    if (!/\.(mogrt|zip|mov|mp4|m4v|webm|mkv|avi|mxf)$/i.test(orig)) { req.resume(); return bad(err(400, 'Pick a .mogrt, a video with transparency (.mov / .webm) or a .zip of PNG frames')); }
+    const out = fs.createWriteStream(up);
+    req.pipe(out);
+    req.on('error', (e) => { fs.promises.rm(up, { force: true }).catch(() => {}); bad(e); });
+    out.on('finish', () => ok(templateTask(up, orig, id, { name: q(u, 'title'), fps: +q(u, 'fps') || 30, by: req.who?.name, temp: true })));
+  }),
+  // a file or a folder of numbered frames already on this PC / the NAS: { path, name?, fps? }
+  'POST /api/library/graphics/import-path': async (req) => {
+    const b = await readJson(req), src = String(b.path || '').trim().replace(/^"|"$/g, '');
+    const st = src && await fs.promises.stat(src).catch(() => null);
+    if (!st) throw err(400, `Not found: ${src || '(no path)'}`);
+    return templateTask(src, path.basename(src), GL.newTemplateId(), { name: b.name, fps: +b.fps || 30, by: req.who?.name });
+  },
+  // { id, name?, tags?, notes? }
+  'POST /api/library/graphics/update': async (req) => {
+    const b = await readJson(req), f = path.join(GL.templateDir(GFXLIB, b.id), 'template.json');
+    const t = JSON.parse(await fs.promises.readFile(f, 'utf8').catch(() => { throw err(404, 'This template is no longer in the Library'); }));
+    if (typeof b.name === 'string' && b.name.trim()) t.name = b.name.trim().slice(0, 80);
+    if (Array.isArray(b.tags)) t.tags = cleanTags(b.tags);
+    if (typeof b.notes === 'string') t.notes = b.notes.slice(0, 500);
+    await fs.promises.writeFile(f, JSON.stringify(t, null, 1));
+    return t;
+  },
+  'POST /api/library/graphics/delete': async (req) => { const b = await readJson(req); await fs.promises.rm(GL.templateDir(GFXLIB, b.id), { recursive: true, force: true }); return { ok: true }; },
+  // into a project: its master copy goes into imports/templates/<id>/ (a render - here or on a helper PC - finds it there)
+  // and into Media (bin "Templates"); returns the media item once it is read
+  'POST /api/library/graphics/use': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req), dir = GL.templateDir(GFXLIB, b.id);
+    const t = JSON.parse(await fs.promises.readFile(path.join(dir, 'template.json'), 'utf8').catch(() => { throw err(404, 'This template is no longer in the Library'); }));
+    const to = P(name, 'imports', 'templates', t.id), file = path.join(to, `${safeName(t.name)}.mov`), play = path.join(to, 'preview.webm');
+    let it = mediaDb(name).items.find((m) => m.template?.id === t.id);
+    if (!it || !(await GL.exists(it.path))) {
+      await fs.promises.mkdir(to, { recursive: true });
+      if (!(await GL.exists(file))) await fs.promises.copyFile(path.join(dir, 'master.mov'), file);
+      it = addMediaFile(name, file, { bin: 'Templates' }) || mediaDb(name).items.find((m) => m.path.toLowerCase() === path.resolve(file).toLowerCase());
+    }
+    if (!(await GL.exists(play))) await fs.promises.copyFile(path.join(dir, 'preview.webm'), play);
+    Object.assign(it, { name: `🎞 ${t.name}`, alphaPlay: play, alpha: !!t.alpha, template: { id: t.id, name: t.name, kind: t.kind, fields: t.fields || [], blend: t.blend || null } });
+    saveMedia(name, true);
+    if (activeProject !== name) { activeProject = name; pump(); }
+    for (let i = 0; i < 120 && !['ready', 'error', 'offline'].includes(mediaItem(name, it.id)?.status); i++) await new Promise((ok) => setTimeout(ok, 250));
+    return publicMedia(name, mediaItem(name, it.id));
+  },
   // add one file by its path (brand logo / intro / outro) to a project's media; returns the media item when it is read
   'POST /api/media/addpath': async (req, res, u) => {
     const name = needProject(q(u, 'p')), b = await readJson(req);
@@ -5549,12 +5611,15 @@ async function handle(req, res, who) {
         return serveFile(req, res, f, true);
       }
       const file = { thumb: C('thumbs', `${it.id}.jpg`), strip: C('strips', `${it.id}.jpg`), wave: C('waves', `${it.id}.png`), orig: it.path,
-        play: it.kind === 'video' && it.proxy !== 'none' ? (it.proxy === 'ready' ? C('proxies', `${it.id}.mp4`) : null)
+        play: it.alphaPlay ? it.alphaPlay : it.kind === 'video' && it.proxy !== 'none' ? (it.proxy === 'ready' ? C('proxies', `${it.id}.mp4`) : null)
           // over the internet a heavy file plays from its light copy once made (ensureLite); here, the file itself
           : it.lite === 'ready' && !req.who?.local && fs.existsSync(C('proxies', `${it.id}.mp4`)) ? C('proxies', `${it.id}.mp4`) : it.path }[m[3]];
       if (!file) return send(res, 409, { error: 'proxy not ready yet' });
       return serveFile(req, res, file, m[3] !== 'play' && m[3] !== 'orig');
     }
+    // 🎞 a Library template's thumbnail / preview: /lg/<id>/<thumb.png|preview.webm>
+    m = /^\/lg\/([0-9a-f]{10})\/(thumb\.png|preview\.webm)$/.exec(u.pathname);
+    if (req.method === 'GET' && m) return serveFile(req, res, path.join(GFXLIB, m[1], m[2]), true);
     // project files: /pf/<project>/<renders|subs>/<file>
     m = /^\/pf\/([^/]+)\/(renders|subs|thumbnails|frames)\/(.+)$/.exec(u.pathname);
     if (req.method === 'GET' && m) return serveFile(req, res, P(needProject(decodeURIComponent(m[1])), ...(m[2] === 'thumbnails' || m[2] === 'frames' ? ['output', m[2]] : [m[2]]), path.basename(decodeURIComponent(m[3]))));

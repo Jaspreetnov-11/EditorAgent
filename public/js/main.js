@@ -41,6 +41,7 @@ import { mountMotion, showMotion, hideMotion, openCompClip } from './motionpage.
 import { mountFusion, showFusion, hideFusion, openFusionClip } from './fusionpage.js';
 import { mountMenuBar, openLogo, openBackups } from './menubar.js';
 import { openTemplates } from './titlesui.js';
+import { openCustomTemplates } from './customtpl.js';
 import { openAudioGain } from './audiogain.js';
 import { nudgeSelected, moveSelectedTrack, groupSelected, ungroupSelected, replaceEdit, typeTimecode, closeAllGaps, goGap, addClipMarker, exportFrame } from './editing.js';
 import { toggleTrimMode } from './trimmode.js';
@@ -190,6 +191,7 @@ function runMenu(r) {
   if (r === 'logo') return openLogo();
   if (r === 'backups') return openBackups();
   if (r === 'titles') return openTemplates();
+  if (r === 'customtpl') return openCustomTemplates();
   if (r === 'title') return addTitle();
   if (r === 'accurate') return emit('accuratePreview');
   if (r === 'fx' || r === 'cc') { edit(); return selectTab(r); }

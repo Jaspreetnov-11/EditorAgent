@@ -1787,6 +1787,7 @@ function fxZone(e, el) {
 }
 function onDragOver(e) {
   if ([...e.dataTransfer.types].includes('text/x-fx')) { const el = fxTarget(e); fxZone(e, el); if (el) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } return; }
+  if ([...e.dataTransfer.types].includes('text/x-template')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; return; } // (🎞 a custom template)
   if (![...e.dataTransfer.types].includes('text/x-media-id')) return;
   e.preventDefault();
   const tr = rowAt(e.clientY);
@@ -1809,6 +1810,9 @@ function onDrop(e) {
     const r = el.getBoundingClientRect();
     return dropFx(JSON.parse(fxs), el.dataset.id, (e.clientX - r.left) / Math.max(1, r.width));
   }
+  // 🎞 a custom template from its window: into the project, then onto the track it was dropped on (a free one for V1)
+  const tpl = e.dataTransfer.getData('text/x-template');
+  if (tpl) { e.preventDefault(); const tr = rowAt(e.clientY); if (tr && S.project.trackState[tr]?.lock) return toast(`${tr} is locked`); import('./customtpl.js').then((m) => m.placeTemplate(tpl, KIND[tr] === 'audio' ? null : tr, Math.max(0, timeAt(e.clientX)))); return; }
   const ids = (e.dataTransfer.getData('text/x-media-id') || '').split(',').filter(Boolean);
   $('#tlInsert').hidden = true;
   if (!ids.length) return;
