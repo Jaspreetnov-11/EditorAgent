@@ -23,7 +23,9 @@ let playback = (() => { try { return localStorage.getItem('ve-playback') === 'fu
 export const playbackMode = () => playback;
 // (and 4K H.264, which only got the preview copy for being big)
 const direct = (m) => ON_LAN && m?.kind === 'video' && m.status === 'ready' && m.proxy !== 'none' && /\.(mp4|mov|m4v)$/i.test(m.path || '')
-  && !(playback === 'fast' && m.proxy === 'ready' && (m.proxyH || 0) >= 1080)
+  && !(playback === 'fast' && m.proxy === 'ready' && ((m.proxyH || 0) >= 1080 || (m.width || 0) * (m.height || 0) > 1920 * 1080))
+  // (a 4K file in Fast plays its preview copy even while that is still the old 540p one - its 1080p copy is being made;
+  // five keyed 4K drone layers decoded at once made the monitor stutter)
   && ((m.vcodec === 'hevc' && HEVC[m.pixfmt]) || (m.vcodec === 'h264' && /^yuvj?420p$/.test(m.pixfmt || '')));
 export const canPlay = (m) => !!m && (m.playable || direct(m));
 export const playUrl = (m) => (direct(m) ? m.urls.play.replace(/\/play$/, '/orig') : m.urls.play);
@@ -720,6 +722,7 @@ export const editTextClip = (id) => { const c = findClipAny(id); if (c?.gfx?.tpl
 // playing but is hidden; the canvas beside it takes its place, size, Motion and filters. Exact: Accurate preview / render.
 const pixCanvas = new WeakMap(); // picture element -> its canvas
 const hexRgb = (hx) => { const v = parseInt(String(hx || '#00ff00').replace('#', '').padEnd(6, '0').slice(0, 6), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; };
+let pixStage = null; // (a graphics-card canvas the frame is made small on before its pixels are read - see pixFx)
 function pixFx(el, c, after = el, rel) {
   const fx = (c.effects || []).filter((e) => e.on !== false && !e.mask?.shape && inWindow(e, rel) && (e.type === 'mirror' || e.type === 'chromakey' || VFX[e.type]?.pix));
   let cv = pixCanvas.get(el);
@@ -730,34 +733,106 @@ function pixFx(el, c, after = el, rel) {
   const src = el._gradeHidden && !els.lyGrade.hidden ? els.lyGrade : el;
   const sw = src.videoWidth || src.naturalWidth || src.width, sh = src.videoHeight || src.naturalHeight || src.height;
   if (!sw || !sh) return cv;
-  const key = fx.find((e) => e.type === 'chromakey' || VFX[e.type]?.key || VFX[e.type]?.reads), W = Math.min(key ? 640 : 1280, Math.round((frame?.clientWidth || 640) * Math.min(2, devicePixelRatio || 1))), [FW, FH] = ASPECTS[S.project.settings.aspect] || [16, 9], H = Math.round((W * FH) / FW);
+  // 🟩 Green screen and Mirror only: done on the graphics card (keyGpu) - the pixels never come to the processor
+  const gpu = fx.every((e) => e.type === 'chromakey' || e.type === 'mirror') && keyGl() !== null;
+  const key = !gpu && fx.find((e) => e.type === 'chromakey' || VFX[e.type]?.key || VFX[e.type]?.reads), W = Math.min(key ? 640 : 1280, Math.round((frame?.clientWidth || 640) * Math.min(2, devicePixelRatio || 1))), [FW, FH] = ASPECTS[S.project.settings.aspect] || [16, 9], H = Math.round((W * FH) / FW);
   if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
   const g = cv.getContext('2d', { willReadFrequently: !!key });
-  g.clearRect(0, 0, W, H);
   // object-fit (contain / cover) and object-position, like the element
   const cover = getComputedStyle(src).objectFit === 'cover', s = cover ? Math.max(W / sw, H / sh) : Math.min(W / sw, H / sh);
   const pos = (src.style.objectPosition || '50% 50%').split(' ').map((p) => (parseFloat(p) || 50) / 100);
   const dw = sw * s, dh = sh * s;
-  g.drawImage(src, (W - dw) * pos[0], (H - dh) * (pos[1] ?? 0.5), dw, dh);
+  if (gpu) {
+    // (a frame not there yet - just after a jump - keeps the last keyed one up rather than showing the shot unkeyed)
+    if (keyGpu(src, W, H, [((W - dw) * pos[0]) / W, ((H - dh) * (pos[1] ?? 0.5)) / H, dw / W, dh / H], fx)) { g.clearRect(0, 0, W, H); g.drawImage(keyGl().canvas, 0, 0); }
+    return showPix(cv, src, el);
+  }
+  g.clearRect(0, 0, W, H);
+  if (key) {
+    // (a canvas whose pixels are read lives in memory, not on the graphics card: drawing a 4K video straight into it copied
+    // the whole camera frame back each time - 20-50 ms a layer, five keyed layers made playback stutter. The frame is made
+    // small on the graphics card first, and only that comes across)
+    const stg = pixStage || (pixStage = document.createElement('canvas'));
+    if (stg.width !== W || stg.height !== H) { stg.width = W; stg.height = H; }
+    const sg = stg.getContext('2d');
+    sg.clearRect(0, 0, W, H); sg.drawImage(src, (W - dw) * pos[0], (H - dh) * (pos[1] ?? 0.5), dw, dh);
+    g.drawImage(stg, 0, 0);
+  } else g.drawImage(src, (W - dw) * pos[0], (H - dh) * (pos[1] ?? 0.5), dw, dh);
   for (const e of fx) {
     if (e.type === 'mirror') { g.save(); g.translate(W, 0); g.scale(-1, 1); g.drawImage(cv, 0, 0, W / 2, H, 0, 0, W / 2, H); g.restore(); }
     if (e.type === 'chromakey') {
       const [kr, kg, kb] = hexRgb(e.p?.color), sim = +(e.p?.similarity ?? 0.15), bl = Math.max(0.001, +(e.p?.blend ?? 0.05));
       const im = g.getImageData(0, 0, W, H), d = im.data;
       for (let i = 0; i < d.length; i += 4) {
-        const dist = Math.sqrt((d[i] - kr) ** 2 + (d[i + 1] - kg) ** 2 + (d[i + 2] - kb) ** 2) / 441.7;
-        if (dist < sim) d[i + 3] = 0; else if (dist < sim + bl) d[i + 3] = Math.round(d[i + 3] * ((dist - sim) / bl));
+      // (squared distances: the square root only for the few pixels on the soft edge - five keyed layers a frame)
+      const in2 = (sim * 441.7) ** 2, out2 = ((sim + bl) * 441.7) ** 2;
+        const r = d[i] - kr, gg = d[i + 1] - kg, b = d[i + 2] - kb, q = r * r + gg * gg + b * b;
+        if (q >= out2) continue;
+        if (q < in2) d[i + 3] = 0; else d[i + 3] = Math.round(d[i + 3] * ((Math.sqrt(q) / 441.7 - sim) / bl));
       }
       g.putImageData(im, 0, 0);
     } else if (e.type !== 'mirror') VFX[e.type].pix(g, W, H, e.p || {}, { cv, rel, fps: S.project.settings.fps || 30, c, name: S.mediaById[c.mediaId]?.name });
   }
   cv.hidden = false;
+  return showPix(cv, src, el);
+}
+function showPix(cv, src, el) {
   for (const k of ['transform', 'opacity', 'clipPath', 'maskImage', 'webkitMaskImage', 'maskSize', 'webkitMaskSize', 'mixBlendMode']) cv.style[k] = src.style[k] || el.style[k];
   cv.style.filter = src === el ? el.style.filter : src.style.filter;
   src.style.visibility = 'hidden';
   return cv;
 }
 // 🖥 a transition drawn on the two V1 pictures: the moves on each, and the shape on whichever lies on top - the incoming
+// 🟩 Green screen (+ Mirror) on the graphics card: one shared WebGL canvas for every keyed layer (a context each would pass
+// the browser's ~16), whose result each layer copies into its own canvas - card to card. Same maths as the canvas version:
+// distance to the key colour (0-1 of the RGB cube's diagonal) under Similarity -> clear, within Blend -> partly clear.
+// null: no WebGL here - the canvas version is used.
+let keyGlState;
+const KEY_N = 4;
+function keyGl() {
+  if (keyGlState !== undefined) return keyGlState;
+  keyGlState = null;
+  const canvas = document.createElement('canvas'), gl = canvas.getContext('webgl', { premultipliedAlpha: false, preserveDrawingBuffer: true });
+  if (!gl) return null;
+  const sh = (t, s) => { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); return o; };
+  const p = gl.createProgram();
+  gl.attachShader(p, sh(gl.VERTEX_SHADER, 'attribute vec2 a;varying vec2 u;void main(){u=vec2(a.x*.5+.5,.5-a.y*.5);gl_Position=vec4(a,0.,1.);}'));
+  gl.attachShader(p, sh(gl.FRAGMENT_SHADER, `precision mediump float;varying vec2 u;uniform sampler2D t;uniform vec4 r;uniform float m;uniform int n;
+uniform vec3 kc[${KEY_N}];uniform vec2 kp[${KEY_N}];
+void main(){vec2 p=u;if(m>.5&&p.x>.5)p.x=1.-p.x;vec2 q=(p-r.xy)/r.zw;
+if(q.x<0.||q.y<0.||q.x>1.||q.y>1.){gl_FragColor=vec4(0.);return;}
+vec4 c=texture2D(t,q);float al=c.a;
+for(int i=0;i<${KEY_N};i++){if(i>=n)break;float d=distance(c.rgb,kc[i])/1.7320508;
+if(d<kp[i].x)al=0.;else if(d<kp[i].x+kp[i].y)al*=(d-kp[i].x)/kp[i].y;}
+gl_FragColor=vec4(c.rgb,al);}`));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) return null;
+  gl.useProgram(p);
+  gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+  const a = gl.getAttribLocation(p, 'a'); gl.enableVertexAttribArray(a); gl.vertexAttribPointer(a, 2, gl.FLOAT, false, 0, 0);
+  gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+  for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+  const U = (k) => gl.getUniformLocation(p, k);
+  keyGlState = { canvas, gl, r: U('r'), m: U('m'), n: U('n'), kc: U('kc'), kp: U('kp') };
+  canvas.addEventListener('webglcontextlost', () => { keyGlState = null; }); // (the canvas version from then on)
+  return keyGlState;
+}
+// rect: where the picture lies in the layer [x, y, w, h], 0-1 of it. false when the frame could not be taken (not loaded yet)
+function keyGpu(src, W, H, rect, fx) {
+  const k = keyGl(), gl = k?.gl;
+  if (!gl || (src.tagName === 'VIDEO' && src.readyState < 2)) return false;
+  if (k.canvas.width !== W || k.canvas.height !== H) { k.canvas.width = W; k.canvas.height = H; }
+  gl.viewport(0, 0, W, H);
+  try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src); } catch { return false; }
+  const keys = fx.filter((e) => e.type === 'chromakey').slice(0, KEY_N), kc = new Float32Array(KEY_N * 3), kp = new Float32Array(KEY_N * 2);
+  keys.forEach((e, i) => { hexRgb(e.p?.color).forEach((v, j) => { kc[i * 3 + j] = v / 255; }); kp[i * 2] = +(e.p?.similarity ?? 0.15); kp[i * 2 + 1] = Math.max(0.001, +(e.p?.blend ?? 0.05)); });
+  gl.uniform4fv(k.r, rect); gl.uniform1f(k.m, fx.some((e) => e.type === 'mirror') ? 1 : 0); gl.uniform1i(k.n, keys.length);
+  gl.uniform3fv(k.kc, kc); gl.uniform2fv(k.kp, kp);
+  gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  return true;
+}
 // shot seen through the shape, or the outgoing one seen around it (an even-odd polygon: the frame with the shape cut out)
 function trDraw(tr, pe, ce) {
   const curTop = !!(pe.compareDocumentPosition(ce) & Node.DOCUMENT_POSITION_FOLLOWING);

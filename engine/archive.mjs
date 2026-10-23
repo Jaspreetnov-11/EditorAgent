@@ -28,9 +28,10 @@ export function archiveRoutes({ DATA, PROJECTS, config, readJson, err, startTask
   let scanJob = null;
   const idOf = (f, st) => crypto.createHash('sha1').update(`${f.toLowerCase()}|${st.size}|${Math.round(st.mtimeMs)}`).digest('hex').slice(0, 16);
   const frameDir = (id) => path.join(dir, 'frames', id);
-  // every footage file under the roots (the editor's own folders skipped)
-  function* walk(root, depth = 0) {
-    let ents = []; try { ents = fs.readdirSync(root, { withFileTypes: true }); } catch { return; }
+  // every footage file under the roots (the editor's own folders skipped). Asynchronous: a whole NAS archive read with
+  // readdirSync / statSync held the main process - every PC's every request - for minutes.
+  async function* walk(root, depth = 0) {
+    let ents = []; try { ents = await fs.promises.readdir(root, { withFileTypes: true }); } catch { return; }
     for (const e of ents) {
       const f = path.join(root, e.name);
       if (e.isDirectory()) { if (!SKIP.test(e.name) && depth < 12) yield* walk(f, depth + 1); }
@@ -58,8 +59,8 @@ export function archiveRoutes({ DATA, PROJECTS, config, readJson, err, startTask
       scanJob = startTask('archive', async (job) => {
         const d = load(), seen = new Set(), todo = [];
         job.stage = 'Finding footage files…';
-        for (const root of d.roots) for (const f of walk(root)) {
-          let st; try { st = fs.statSync(f); } catch { continue; }
+        for (const root of d.roots) for await (const f of walk(root)) {
+          let st; try { st = await fs.promises.stat(f); } catch { continue; }
           if (st.size < 15e3) continue; // (icons, tiny stills)
           const id = idOf(f, st); seen.add(id);
           if (!d.items[id]?.frames) { d.items[id] = { path: f, size: st.size, mtime: Math.round(st.mtimeMs), kind: VIDEO.test(f) ? 'video' : 'image' }; todo.push(id); }
