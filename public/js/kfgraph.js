@@ -15,7 +15,7 @@ const SHORT = { linear: 'Linear', bezier: 'Bezier', auto: 'Auto', cont: 'Cont.',
 const KEYS = { easy: 'F9', easein: 'Shift+F9', easeout: 'Ctrl+Shift+F9' };
 const IP_NAME = Object.fromEntries(KEY_IPS);
 
-export const kgTwirl = (c, p) => (c.keys?.[p]?.length ? `<button class="kg-tw" data-kgtw="${p}" title="${open.has(p) ? 'Hide' : 'Show'} the value and velocity graphs">${open.has(p) ? '▾' : '▸'}</button>` : '');
+export const kgTwirl = (c, p) => (c.keys?.[p]?.length ? `<button class="kg-tw" data-kgtw="${p}" title="${open.has(p) ? 'Hide' : 'Show'} the value and velocity graphs">${open.has(p) ? '▾' : '›'}</button>` : '');
 export const kgRow = (c, p) => (c.keys?.[p]?.length && open.has(p) ? `<div class="kg" data-kg="${p}" tabindex="0">
     <div class="kg-side"><div class="kg-ip">${KEY_IPS.map(([k, l]) => `<button class="kg-b" data-kgset="${k}" title="${l}${KEYS[k] ? ` (${KEYS[k]})` : ''} - on the selected keyframe">${SHORT[k]}</button>`).join('')}</div>
     <small class="kg-info" data-kginfo>Click a keyframe in the graph</small><small class="kg-lab"><b>Value</b><b>Velocity</b></small></div>
@@ -167,7 +167,7 @@ function draw(el) {
   if (rel !== null && rel !== undefined && rel >= 0 && rel <= G.D) { g.fillStyle = '#ff4d4d'; g.fillRect(G.x(rel) - 0.5, 0, 1, G.H); }
   // the side: which interpolation the selected key has
   const info = el.querySelector('[data-kginfo]'), k = sel?.p === p ? keys[sel.j] : null;
-  if (info) info.textContent = k ? `◆ ${k.t.toFixed(2)}s · ${show(k.v)}${cx.unit(p)} · ${IP_NAME[k.ip] || (k.ease ? 'Old ease' : 'Linear')}` : 'Click a keyframe in the graph';
+  if (info) info.textContent = k ? `${k.t.toFixed(2)}s · ${show(k.v)}${cx.unit(p)} · ${IP_NAME[k.ip] || (k.ease ? 'Old ease' : 'Linear')}` : 'Click a keyframe in the graph';
   el.querySelectorAll('[data-kgset]').forEach((b) => { b.disabled = !k; b.classList.toggle('on', !!k && (k.ip || 'linear') === b.dataset.kgset); });
   cx.root.querySelectorAll('.kl-k.kg-sel').forEach((d) => d.classList.remove('kg-sel'));
   if (sel) cx.root.querySelector(`[data-kp="${sel.p}"] .kl-k[data-kj="${sel.j}"]`)?.classList.add('kg-sel');

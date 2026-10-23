@@ -1,5 +1,6 @@
 // Color page (Resolve-style): graded viewer with before/after split, scopes, clip strip,
 // Lift/Gamma/Gain/Offset wheels, RGB + hue curves (Lumetri), primaries, LUTs, auto colour, shot match, copy/paste/apply-to-all.
+import { ic } from './lineicons.js';
 import { S, on, emit, commit, layout } from './store.js';
 import { api, enc, watchJob, upload } from './api.js';
 import { fmt, fmtTC } from './model.js';
@@ -23,8 +24,8 @@ const WHEELS = [
 ];
 const PRIM = [
   { k: 'exposure', label: 'Exposure', min: -3, max: 3, step: 0.01, def: 0, unit: 'stops' },
-  { k: 'temp', label: 'Temperature', min: -1, max: 1, step: 0.01, def: 0, unit: 'cool ↔ warm' },
-  { k: 'tint', label: 'Tint', min: -1, max: 1, step: 0.01, def: 0, unit: 'green ↔ magenta' },
+  { k: 'temp', label: 'Temperature', min: -1, max: 1, step: 0.01, def: 0, unit: 'cool – warm' },
+  { k: 'tint', label: 'Tint', min: -1, max: 1, step: 0.01, def: 0, unit: 'green – magenta' },
   { k: 'contrast', label: 'Contrast', min: 0.3, max: 2.5, step: 0.01, def: 1 },
   { k: 'pivot', label: 'Pivot', min: 0.1, max: 0.9, step: 0.005, def: 0.435 },
   { k: 'saturation', label: 'Saturation', min: 0, max: 2.5, step: 0.01, def: 1 },
@@ -39,7 +40,7 @@ export function mountColor(el) {
         <button class="small tog" data-ca="bypass" title="Show without grade (hold B)">Bypass</button></div>
       <div class="cp-stage" id="cpStage"><canvas id="cpCanvas"></canvas><div class="cp-msg" id="cpMsg" hidden></div>
         <input type="range" class="cp-splitter" id="cpSplit" min="0.02" max="0.98" step="0.001" value="0.5" hidden aria-label="Split position"></div>
-      <div class="cp-scrub"><button class="icon-btn" data-ca="play" aria-label="Play">▶</button><input type="range" id="cpPos" min="0" max="1" step="0.001" value="0.3" aria-label="Position in clip"><span class="tc" id="cpTC"></span></div>
+      <div class="cp-scrub"><button class="icon-btn" data-ca="play" aria-label="Play">${ic('play')}</button><input type="range" id="cpPos" min="0" max="1" step="0.001" value="0.3" aria-label="Position in clip"><span class="tc" id="cpTC"></span></div>
     </div>
     <div class="panel cp-scopes">
       <div class="cp-head"><div class="segbtns">${[['waveform', 'Waveform'], ['parade', 'Parade'], ['vector', 'Vector'], ['histogram', 'Histogram']].map(([k, l]) => `<button data-scope="${k}">${l}</button>`).join('')}</div></div>
@@ -48,8 +49,8 @@ export function mountColor(el) {
     <div class="panel cp-strip" id="cpStrip"></div>
     <div class="panel cp-tools">
       <h3>Auto colour</h3>
-      <button class="accent wide" data-ca="auto">✨ Auto colour this clip</button>
-      <button class="wide" data-ca="autoAll">✨ Auto colour all clips</button>
+      <button class="accent wide" data-ca="auto">Auto colour this clip</button>
+      <button class="wide" data-ca="autoAll">Auto colour all clips</button>
       <label class="fld"><span>Strength <i id="cpStrV">80%</i></span><input type="range" id="cpStr" min="0.2" max="1" step="0.05" value="0.8"></label>
       <label class="chk"><input type="checkbox" id="cpLog" checked> Detect LOG footage and add a LUT</label>
       <h3>LUT</h3>
@@ -178,7 +179,7 @@ function play() {
   if (curClip()?.type !== 'video') return;
   const { a, b } = span();
   if (video.currentTime >= b - 0.05) video.currentTime = a;
-  video.play(); playing = true; $('[data-ca="play"]', root).textContent = '❚❚';
+  video.play(); playing = true; $('[data-ca="play"]', root).innerHTML = ic('pause');
   const loop = () => {
     if (!playing) return;
     if (video.currentTime >= b) video.currentTime = a; // loop the clip
@@ -189,7 +190,7 @@ function play() {
   };
   loop();
 }
-function pause() { playing = false; cancelAnimationFrame(raf); clearTimeout(raf); video?.pause(); const b = root && $('[data-ca="play"]', root); if (b) b.textContent = '▶'; }
+function pause() { playing = false; cancelAnimationFrame(raf); clearTimeout(raf); video?.pause(); const b = root && $('[data-ca="play"]', root); if (b) b.innerHTML = ic('play'); }
 
 const fetchCube = async (name) => { if (!lutCache.has(name)) lutCache.set(name, parseCube(await (await fetch(`/api/lut/file?p=${enc(S.proj)}&name=${enc(name)}`)).text())); return lutCache.get(name); };
 async function applyGrade() {
@@ -216,7 +217,7 @@ function renderStrip() {
     const m = S.mediaById[x.clip.mediaId];
     return `<button class="cs${x.clip.id === clipId ? ' on' : ''}" data-clip="${x.clip.id}" title="${esc(m?.name || '')}">
       <span class="cs-th" style="${m?.urls.thumb ? `background-image:url('${m.urls.thumb}')` : ''}"></span>
-      <span class="cs-n">${String(i + 1).padStart(2, '0')} <i>${x.track}</i>${isNeutral(x.clip.color) ? '' : '<b title="Graded">●</b>'}${x.clip.color?.lut ? '<b title="LUT">L</b>' : ''}</span></button>`;
+      <span class="cs-n">${String(i + 1).padStart(2, '0')} <i>${x.track}</i>${isNeutral(x.clip.color) ? '' : '<b title="Graded">' + ic('dot') + '</b>'}${x.clip.color?.lut ? '<b title="LUT">L</b>' : ''}</span></button>`;
   }).join('') : '<div class="muted pad">No video clips on the timeline yet.</div>';
   $$('[data-clip]', el).forEach((b) => (b.onclick = () => { clipId = b.dataset.clip; S.sel = new Set([clipId]); emit('select'); loadClip(); refresh(); }));
 }
@@ -340,7 +341,7 @@ function renderWheels() {
   const c = curClip()?.color || {}, el = $('#cpWheels', root);
   if (!el.dataset.built) {
     el.innerHTML = `<div class="cp-wtabs" role="tablist">${[['wheels', 'Wheels', 'Lift / Gamma / Gain / Offset'], ['rgb', 'Curves', 'RGB curves (Lumetri)'], ['hue', 'Hue', 'Hue saturation curves (Lumetri)']].map(([k, l, t]) => `<button data-wpane="${k}" title="${t}">${l}</button>`).join('')}</div>` + WHEELS.map((w) => `<div class="wh" data-w="${w.k}">
-      <div class="wh-top"><b>${w.label}</b><span class="muted">${w.hint}</span><button class="icon-btn reset" data-wreset="${w.k}" title="Reset ${w.label}">↺</button></div>
+      <div class="wh-top"><b>${w.label}</b><span class="muted">${w.hint}</span><button class="icon-btn reset" data-wreset="${w.k}" title="Reset ${w.label}">${ic('reset')}</button></div>
       <canvas class="wh-c" width="150" height="150" aria-label="${w.label} colour wheel"></canvas>
       <input type="range" class="wh-y" min="${w.min}" max="${w.max}" step="${w.step}" aria-label="${w.label} master">
       <div class="wh-v"></div></div>`).join('') + '<div class="cp-curve" data-pane="rgb" hidden></div><div class="cp-curve" data-pane="hue" hidden></div>';
@@ -426,7 +427,7 @@ function renderPrim() {
   if (!el.dataset.built) {
     el.innerHTML = `<h3>Primaries</h3>${PRIM.map((p) => `<label class="pr"><span>${p.label}${p.unit ? ` <i>${p.unit}</i>` : ''}</span>
       <input type="range" data-p="${p.k}" min="${p.min}" max="${p.max}" step="${p.step}"><input type="number" class="pr-n" data-pn="${p.k}" step="${p.step}">
-      <button class="icon-btn reset" data-preset="${p.k}" title="Reset">↺</button></label>`).join('')}`;
+      <button class="icon-btn reset" data-preset="${p.k}" title="Reset">${ic('reset')}</button></label>`).join('')}`;
     el.dataset.built = '1';
     $$('[data-p]', el).forEach((r) => {
       r.addEventListener('input', () => { const c2 = curClip(); if (!c2) return; c2.color = { ...(c2.color || {}), [r.dataset.p]: +r.value }; $(`[data-pn="${r.dataset.p}"]`, el).value = r.value; liveGrade(); });

@@ -29,7 +29,7 @@ export function mountText(el) {
       <button class="small" data-presets title="One-click clean-ups and highlights">Presets ▾</button>
       <button class="small" data-fill title="Cut every um / aa / hmm">Remove fillers</button>
       <span class="sep"></span>
-      <button class="small tog" data-mark title="Mark mode: Delete strikes words through instead of cutting; cut them all together with Apply">✎ Mark mode</button>
+      <button class="small tog" data-mark title="Mark mode: Delete strikes words through instead of cutting; cut them all together with Apply">Mark mode</button>
       <button class="small" data-apply hidden>Apply marks</button><button class="small" data-clearm hidden>Clear marks</button>
       <button class="small danger" data-del title="Cut the selected words out of the video (Delete)">Cut selection</button>
     </div>
@@ -54,7 +54,7 @@ export function mountText(el) {
   $('[data-fill]', el).onclick = () => apply(fillerCuts(words), 'Remove fillers', (n) => `${n} filler${n === 1 ? '' : 's'}`);
   $('[data-presets]', el).onclick = (e) => presetMenu(e.currentTarget);
   $('[data-del]', el).onclick = () => cutSelection(false);
-  $('[data-mark]', el).onclick = (e) => { markMode = !markMode; e.currentTarget.classList.toggle('on', markMode); toast(markMode ? '✎ Mark mode: select words and press Delete to strike them; Apply cuts them all' : 'Mark mode off: Delete cuts right away'); };
+  $('[data-mark]', el).onclick = (e) => { markMode = !markMode; e.currentTarget.classList.toggle('on', markMode); toast(markMode ? 'Mark mode: select words and press Delete to strike them; Apply cuts them all' : 'Mark mode off: Delete cuts right away'); };
   $('[data-apply]', el).onclick = applyMarks;
   $('[data-clearm]', el).onclick = () => { marks.clear(); draw(); };
   doc.addEventListener('keydown', (e) => {

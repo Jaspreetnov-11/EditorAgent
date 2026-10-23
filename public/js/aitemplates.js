@@ -11,20 +11,20 @@ const fx = (type, p = {}) => ({ ...newEffect(type), p: { ...newEffect(type).p, .
 
 // each: { id, icon, label, sub, video?: needs moving footage, make(D) -> { keys, ramp, smooth, cutFx, effects } }
 export const TEMPLATES = [
-  { id: 'crashin', icon: '💥', label: 'Crash zoom in', sub: 'Fast punch into the subject', make: (D) => ({ keys: { 'transform.zoom': [k(0, 1), k(Math.min(0.35, D * 0.3), 1.55, 'in'), k(D, 1.6)] }, cutFx: { type: 'punch' }, effects: [fx('dblur', { length: 12 })] }) },
-  { id: 'crashout', icon: '🌌', label: 'Crash zoom out (reveal)', sub: 'Starts tight, snaps out to the wide', make: (D) => ({ keys: { 'transform.zoom': [k(0, 1.7), k(Math.min(0.45, D * 0.35), 1, 'out')] }, cutFx: { type: 'whip' } }) },
-  { id: 'dolly', icon: '🎥', label: 'Slow dolly in', sub: 'Smooth cinematic push', make: (D) => ({ keys: { 'transform.zoom': [k(0, 1), k(D, 1.14, 'io')] }, effects: [fx('vignette', { amount: 0.35 })] }) },
-  { id: 'drone', icon: '🚁', label: 'Drone pull-back', sub: 'Rises and pulls away', make: (D) => ({ keys: { 'transform.zoom': [k(0, 1.3), k(D, 1, 'io')], 'transform.y': [k(0, 4), k(D, 0, 'io')] } }) },
-  { id: 'arc', icon: '🌀', label: 'Arc / orbit', sub: 'Drifts sideways with a slight tilt', make: (D) => ({ keys: { 'transform.zoom': [k(0, 1.18), k(D, 1.18)], 'transform.x': [k(0, -5), k(D, 5, 'io')], 'transform.rotation': [k(0, -2), k(D, 2, 'io')] } }) },
-  { id: 'roll', icon: '🔄', label: 'Barrel roll', sub: 'Spins into the shot', make: (D) => ({ keys: { 'transform.rotation': [k(0, -180), k(Math.min(0.6, D * 0.4), 0, 'out')], 'transform.zoom': [k(0, 1.6), k(Math.min(0.6, D * 0.4), 1.05, 'out')] }, effects: [fx('dblur', { length: 10 })] }) },
-  { id: 'bullet', icon: '⏱', label: 'Bullet time', sub: 'Fast → almost frozen → fast', video: true, make: () => ({ ramp: 'bullet', smooth: true, cutFx: { type: 'flash' } }) },
-  { id: 'hero', icon: '🦸', label: 'Hero slow-mo', sub: 'Slows to a crawl, with a push in', video: true, make: (D) => ({ ramp: 'hero', smooth: true, keys: { 'transform.zoom': [k(0, 1), k(D, 1.1, 'io')] } }) },
-  { id: 'quake', icon: '📳', label: 'Earthquake / impact', sub: 'Hard camera shake on the cut', make: () => ({ cutFx: { type: 'shake', dur: 0.9 }, effects: [fx('rgbsplit', { amount: 4 })] }) },
-  { id: 'glitch', icon: '📼', label: 'Glitch hit', sub: 'Digital glitch + RGB split', make: () => ({ cutFx: { type: 'glitch' }, effects: [fx('rgbsplit', { amount: 6 })] }) },
-  { id: 'burn', icon: '🎞', label: 'Film burn memory', sub: 'Old-film look with a burn in', make: () => ({ cutFx: { type: 'burn' }, effects: [fx('oldfilm', { amount: 0.6 })] }) },
-  { id: 'flashpop', icon: '🌟', label: 'Flash pop', sub: 'White flash and a glow', make: (D) => ({ cutFx: { type: 'flash' }, effects: [fx('glow', { amount: 0.35 })], keys: { 'transform.zoom': [k(0, 1.12), k(Math.min(0.3, D * 0.3), 1, 'out')] } }) },
-  { id: 'trails', icon: '👻', label: 'Motion trails', sub: 'Dreamy echoes behind movement', video: true, make: () => ({ effects: [fx('echo', { frames: 5, decay: 0.65 }), fx('glow', { amount: 0.25 })] }) },
-  { id: 'strobe', icon: '⚡', label: 'Party strobe', sub: 'Flashes on the beat (0.4 s)', make: () => ({ effects: [fx('strobe', { every: 0.4 })], cutFx: { type: 'strobe' } }) },
+  { id: 'crashin', icon: 'zoomin', label: 'Crash zoom in', sub: 'Fast punch into the subject', make: (D) => ({ keys: { 'transform.zoom': [k(0, 1), k(Math.min(0.35, D * 0.3), 1.55, 'in'), k(D, 1.6)] }, cutFx: { type: 'punch' }, effects: [fx('dblur', { length: 12 })] }) },
+  { id: 'crashout', icon: 'zoomout', label: 'Crash zoom out (reveal)', sub: 'Starts tight, snaps out to the wide', make: (D) => ({ keys: { 'transform.zoom': [k(0, 1.7), k(Math.min(0.45, D * 0.35), 1, 'out')] }, cutFx: { type: 'whip' } }) },
+  { id: 'dolly', icon: 'video', label: 'Slow dolly in', sub: 'Smooth cinematic push', make: (D) => ({ keys: { 'transform.zoom': [k(0, 1), k(D, 1.14, 'io')] }, effects: [fx('vignette', { amount: 0.35 })] }) },
+  { id: 'drone', icon: 'drone', label: 'Drone pull-back', sub: 'Rises and pulls away', make: (D) => ({ keys: { 'transform.zoom': [k(0, 1.3), k(D, 1, 'io')], 'transform.y': [k(0, 4), k(D, 0, 'io')] } }) },
+  { id: 'arc', icon: 'orbit', label: 'Arc / orbit', sub: 'Drifts sideways with a slight tilt', make: (D) => ({ keys: { 'transform.zoom': [k(0, 1.18), k(D, 1.18)], 'transform.x': [k(0, -5), k(D, 5, 'io')], 'transform.rotation': [k(0, -2), k(D, 2, 'io')] } }) },
+  { id: 'roll', icon: 'rotate', label: 'Barrel roll', sub: 'Spins into the shot', make: (D) => ({ keys: { 'transform.rotation': [k(0, -180), k(Math.min(0.6, D * 0.4), 0, 'out')], 'transform.zoom': [k(0, 1.6), k(Math.min(0.6, D * 0.4), 1.05, 'out')] }, effects: [fx('dblur', { length: 10 })] }) },
+  { id: 'bullet', icon: 'clock', label: 'Bullet time', sub: 'Fast → almost frozen → fast', video: true, make: () => ({ ramp: 'bullet', smooth: true, cutFx: { type: 'flash' } }) },
+  { id: 'hero', icon: 'hourglass', label: 'Hero slow-mo', sub: 'Slows to a crawl, with a push in', video: true, make: (D) => ({ ramp: 'hero', smooth: true, keys: { 'transform.zoom': [k(0, 1), k(D, 1.1, 'io')] } }) },
+  { id: 'quake', icon: 'shake', label: 'Earthquake / impact', sub: 'Hard camera shake on the cut', make: () => ({ cutFx: { type: 'shake', dur: 0.9 }, effects: [fx('rgbsplit', { amount: 4 })] }) },
+  { id: 'glitch', icon: 'glitch', label: 'Glitch hit', sub: 'Digital glitch + RGB split', make: () => ({ cutFx: { type: 'glitch' }, effects: [fx('rgbsplit', { amount: 6 })] }) },
+  { id: 'burn', icon: 'film', label: 'Film burn memory', sub: 'Old-film look with a burn in', make: () => ({ cutFx: { type: 'burn' }, effects: [fx('oldfilm', { amount: 0.6 })] }) },
+  { id: 'flashpop', icon: 'sparkle', label: 'Flash pop', sub: 'White flash and a glow', make: (D) => ({ cutFx: { type: 'flash' }, effects: [fx('glow', { amount: 0.35 })], keys: { 'transform.zoom': [k(0, 1.12), k(Math.min(0.3, D * 0.3), 1, 'out')] } }) },
+  { id: 'trails', icon: 'echo', label: 'Motion trails', sub: 'Dreamy echoes behind movement', video: true, make: () => ({ effects: [fx('echo', { frames: 5, decay: 0.65 }), fx('glow', { amount: 0.25 })] }) },
+  { id: 'strobe', icon: 'bolt', label: 'Party strobe', sub: 'Flashes on the beat (0.4 s)', make: () => ({ effects: [fx('strobe', { every: 0.4 })], cutFx: { type: 'strobe' } }) },
 ];
 export const templateById = (id) => TEMPLATES.find((t) => t.id === id);
 

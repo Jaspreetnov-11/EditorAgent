@@ -1,4 +1,5 @@
 // App shell: Home (projects) and the editor pages Media · Edit · Color · Audio · Deliver.
+import { ic } from './lineicons.js';
 import { reportError } from './errlog.js';
 import { applyLook, icon, mountDock, mountMonDock } from './ui2.js';
 import { mountWorkspaces, openWorkspaceMenu, current as currentWorkspace } from './workspaces.js';
@@ -95,7 +96,7 @@ function shell() {
     </section>
     <section class="page p-edit" data-page="edit">
       <div class="edit-grid">
-        <div class="panel pool pool-tabs"><div class="ptabs" role="tablist"><button role="tab" data-ptab="tools" aria-selected="false" title="Agent, Assistant, undo, versions, team, brand kit, workspaces…">Tools</button><button role="tab" data-ptab="media" aria-selected="true">Media</button><button role="tab" data-ptab="fx" aria-selected="false">Effects</button><button role="tab" data-ptab="cc" aria-selected="false" title="Captions">CC</button><button role="tab" data-ptab="notes" aria-selected="false" title="Notes at moments of the edit (Shift+M), versions and phone review">📝</button></div>
+        <div class="panel pool pool-tabs"><div class="ptabs" role="tablist"><button role="tab" data-ptab="tools" aria-selected="false" title="Agent, Assistant, undo, versions, team, brand kit, workspaces…">Tools</button><button role="tab" data-ptab="media" aria-selected="true">Media</button><button role="tab" data-ptab="fx" aria-selected="false">Effects</button><button role="tab" data-ptab="cc" aria-selected="false" title="Captions">CC</button><button role="tab" data-ptab="notes" aria-selected="false" title="Notes at moments of the edit (Shift+M), versions and phone review">${ic('note')}</button></div>
           <div class="ptab-body" id="toolsPanel" hidden>${toolsHTML()}</div><div class="ptab-body" id="pool"></div><div class="ptab-body" id="fxPanel" hidden></div><div class="ptab-body" id="ccPanel" hidden></div><div class="ptab-body" id="notesPanel" hidden></div></div>
         <div class="mon-dock" role="tablist" aria-label="Source / Program"><button role="tab" data-mon="src">Source</button><button role="tab" data-mon="prog">Program</button></div>
         <div class="panel viewer" id="viewer"></div>
@@ -114,11 +115,11 @@ function shell() {
     <section class="page" data-page="deliver" id="deliverPage" hidden></section>
   </main>
   <nav class="pagebar" aria-label="Pages">${PAGES.map(([k, l]) => `<button data-page-btn="${k}">${l}</button>`).join('')}
-    <button class="brand pb-brand" data-a="home" title="All projects"><img class="logo-mark" src="/img/limelight-icon.png" alt=""><span class="wordmark">LIME<em>LIGHT</em><small>EDITOR</small></span></button></nav>`; // (🏠 the logo sits at the right end of the page bar - the top bar had no room for it)
+    <button class="brand pb-brand" data-a="home" title="All projects"><img class="brand-logo" src="/img/limelight-wordmark-white.png" alt="limelight"></button></nav>`; // (🏠 the logo sits at the right end of the page bar - the top bar had no room for it)
   mountMenuBar(editorEl, runMenu); // ☰ File · Edit · Clip · Sequence · Markers · Graphics and Titles · View · Window · Help
   // the top bar is gone: its buttons went to the 🧰 Tools tab, and the project's name, sequence, save state, jobs, who is
   // signed in, Reload and ⇪ Export sit in the menu bar's one line (same ids, so the code filling them is unchanged)
-  editorEl.querySelector('.menubar').insertAdjacentHTML('beforeend', `<span class="mb-proj"><span class="pname" id="pName"></span><button class="seqbtn" data-a="seq" title="Sequences: several timelines in this project (film, teaser, reel…), nesting, versions">🎞 <span id="seqName"></span> ▾</button><span class="save" id="saveState"></span></span>
+  editorEl.querySelector('.menubar').insertAdjacentHTML('beforeend', `<span class="mb-proj"><span class="pname" id="pName"></span><button class="seqbtn" data-a="seq" title="Sequences: several timelines in this project (film, teaser, reel…), nesting, versions"><span id="seqName"></span> ▾</button><span class="save" id="saveState"></span></span>
     <span class="mb-sp"></span><span class="jobchip" id="jobChip" hidden></span><button class="jobchip qchip" id="queueChip" data-a="deliver" title="Render queue - open Export" hidden></button><span class="people" id="peopleChip" hidden></span><span class="me" id="meChip" hidden></span><button class="mb-reload" data-a="refresh" title="Reload: save, then load the editor again (newest version, panels fresh)">${icon('refresh')}Reload</button><button class="primary mb-export" data-a="deliver" title="Export: render the video, XML for Premiere / Resolve, publish">${icon('export')}Export</button>`);
   mountWorkspaces(editorEl.querySelector('.edit-grid')); // 🪟 workspaces: Premiere / Resolve / Limelight / your own layouts
   mountSourceMonitor($('#srcMon')); mountDock(editorEl.querySelector('.edit-grid')); mountMonDock(editorEl.querySelector('.edit-grid')); // 🎬 Premiere's two monitors (Studio look)
@@ -347,7 +348,7 @@ async function openProject(name) {
     if (!editorEl.querySelector('.top')) safely('Building the editor', shell);
     homeEl.hidden = true; editorEl.hidden = false;
     $('#pName').textContent = name;
-    document.title = `${name} - Limelight Editor`;
+    document.title = `${name} - Limelight`;
     history.replaceState(null, '', `#/p/${enc(name)}`);
     // recovered changes go to the server like any other change (only what differs from the saved project)
     if (recovered) { delete recovered._rev; S.project = recovered; commit('Recovered changes'); }
@@ -375,7 +376,7 @@ async function goHome() {
   pause?.();
   S.proj = null; S.project = null;
   history.replaceState(null, '', '#/');
-  document.title = 'Limelight Editor';
+  document.title = 'Limelight';
   editorEl.hidden = true; homeEl.hidden = false;
   renderHome(homeEl, openProject);
 }

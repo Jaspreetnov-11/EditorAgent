@@ -1,5 +1,6 @@
 // Media pool: import a whole raw-footage folder (files stay where they are), upload extras,
 // search/filter/bins, hover-scrub thumbnails, drag clips onto the timeline.
+import { ic } from './lineicons.js';
 import { guarded } from './errlog.js';
 import { S, on, emit, commit, setMedia, saveNow } from './store.js';
 import { api, enc, uploadFile } from './api.js';
@@ -27,7 +28,7 @@ export function mountPool(el, { big = false } = {}) {
   <div class="pool-bar">
     <button class="accent small" data-a="folder" title="Import every clip in a folder (files are not copied)">+ Folder</button>
     <button class="small" data-a="upload" title="Upload files (music, logo, VO...)">Upload</button>
-    <button class="small" data-a="newitem" title="New item: Sequence, Adjustment Layer, Color Matte, Black Video, Title">＋ New ▾</button>
+    <button class="small" data-a="newitem" title="New item: Sequence, Adjustment Layer, Color Matte, Black Video, Title">New ▾</button>
     <button class="small" data-a="batch" title="Batch: subtitles, transcripts, scans or renders for many clips at once - now or overnight; watch a folder for new footage">Batch</button>
     <button class="small" data-a="smart" title="Smart footage: shot tags, find a shot by what it shows (jharna dikhao), near-copies and bad clips, match cameras">Smart</button>
     <button class="small" data-a="archive" title="Search all the old footage on the NAS / drives (every project) by what it shows, and bring a shot in">Archive</button>
@@ -36,7 +37,7 @@ export function mountPool(el, { big = false } = {}) {
     <span class="pool-q" data-q></span>
   </div>
   <div class="pool-filters">
-    <div class="row-in"><input type="search" placeholder="Search names / tags - Enter: by picture" data-search aria-label="Search media"><button class="icon-btn small" data-a="find" title="Find by what the picture shows (jharna dikhao, crowd at night…)" aria-label="Find by picture">🔎</button></div>
+    <div class="row-in"><input type="search" placeholder="Search names / tags - Enter: by picture" data-search aria-label="Search media"><button class="icon-btn small" data-a="find" title="Find by what the picture shows (jharna dikhao, crowd at night…)" aria-label="Find by picture">${ic('search')}</button></div>
     <div class="bin-chips" data-bins role="tablist" aria-label="Folders"></div>
     <div class="chips tagchips" data-tags hidden></div>
     <div class="chips">${['all', 'video', 'audio', 'image'].map((f) => `<button class="chip" data-f="${f}">${{ all: 'All', video: 'Video', audio: 'Audio', image: 'Photos' }[f]}</button>`).join('')}</div>
@@ -210,7 +211,7 @@ function renderNow(p) {
   const inBin = (b) => S.media.filter((m) => (m.bin || '') === b || (m.bin || '').startsWith(`${b}/`)).length;
   $('[data-bins]', el).innerHTML = `<button class="bchip${bin ? '' : ' on'}" data-binc="" title="Every file of the project">All <i>${S.media.length}</i></button>`
     + bins.map((b) => `<button class="bchip${b === bin ? ' on' : ''}" data-binc="${esc(b)}" data-drop title="${esc(b)} - click: open · double-click: rename · Delete key / right-click: delete · drop clips here to move them">${esc(b)} <i>${inBin(b)}</i></button>`).join('')
-    + '<button class="bchip add" data-binnew title="A new folder in this project (files stay where they are on the disk)">＋ New folder</button>';
+    + '<button class="bchip add" data-binnew title="A new folder in this project (files stay where they are on the disk)">New folder</button>';
   const q = S.queue, busy = q.quick + q.proxy;
   $('[data-q]', el).textContent = busy ? `Preparing ${q.quick ? `${q.quick} file${q.quick > 1 ? 's' : ''}` : ''}${q.quick && q.proxy ? ' · ' : ''}${q.proxy ? `${q.proxy} preview cop${q.proxy > 1 ? 'ies' : 'y'}` : ''}…` : `${S.media.length} items`;
   // shot tags (after a 🧠 Smart scan): only the tags some clip has, with how many
@@ -222,7 +223,7 @@ function renderNow(p) {
     tc.innerHTML = mine.map(([t, k]) => `<button class="chip utag${tag === `u:${t.toLowerCase()}` ? ' on' : ''}" data-tag="u:${esc(t.toLowerCase())}" style="--tc:${tagColor(t)}" title="Your tag - click to show only these files">${esc(t)} ${k}</button>`).join('')
       + TAGS.filter(([t]) => count(t)).map(([t, l]) => `<button class="chip${tag === t ? ' on' : ''}" data-tag="${t}">${l} ${count(t)}</button>`).join('')
       + (nb ? `<button class="chip warnchip${tag === '!bad' ? ' on' : ''}" data-tag="!bad" title="Too dark, soft, shaky or very short">${nb}</button>` : '')
-      + (nd ? `<button class="chip${tag === '!dup' ? ' on' : ''}" data-tag="!dup" title="Near-identical clips">⧉ ${nd}</button>` : '');
+      + (nd ? `<button class="chip${tag === '!dup' ? ' on' : ''}" data-tag="!dup" title="Near-identical clips">${ic('duplicate')} ${nd}</button>` : '');
   }
   // ⚡ Phase 18: a few hundred tiles at a time - 6000 files drawn in two pools made every timeline change ~95 ms slower
   // (the browser lays them all out again). Search / filters / folders still look through everything.
@@ -239,12 +240,12 @@ function renderNow(p) {
       const st = m.status !== 'ready' ? `<span class="mi-st"${m.status === 'error' && m.error ? ` title="${esc(m.error)}"` : ''}>${m.status === 'offline' ? 'Offline' : m.status === 'error' ? 'Cannot read' : 'Reading…'}</span>`
         : m.kind === 'video' && m.proxy !== 'ready' && m.proxy !== 'none' ? `<span class="mi-st">${m.proxy === 'error' ? 'No preview' : `Preview ${m.proxyPct || 0}%`}</span>` : '';
       const res = m.width >= 3800 ? '4K' : m.width >= 2500 ? '2.7K' : m.height >= 1080 || m.width >= 1920 ? 'HD' : '';
-      return `<div class="mi${poolSel.has(m.id) ? ' sel' : ''}${m.status === 'offline' ? ' off' : ''}${m.label ? ' lab' : ''}" data-id="${m.id}" draggable="true"${m.label ? ` style="--lab:${m.label}"` : ''} title="${esc(mName(m))}${m.bin ? `\n${esc(m.bin)}` : ''}${m.tags ? `\n${esc(m.tags.join(' · '))}` : ''}${m.utags ? `\n🏷 ${esc(m.utags.join(', '))}` : ''}${m.bad ? `\n${esc(m.bad.join(', '))}` : ''}">
+      return `<div class="mi${poolSel.has(m.id) ? ' sel' : ''}${m.status === 'offline' ? ' off' : ''}${m.label ? ' lab' : ''}" data-id="${m.id}" draggable="true"${m.label ? ` style="--lab:${m.label}"` : ''} title="${esc(mName(m))}${m.bin ? `\n${esc(m.bin)}` : ''}${m.tags ? `\n${esc(m.tags.join(' · '))}` : ''}${m.utags ? `\nTags: ${esc(m.utags.join(', '))}` : ''}${m.bad ? `\n${esc(m.bad.join(', '))}` : ''}">
         <div class="mi-th k-${m.kind}" ${m.urls.thumb ? `style="background-image:url('${m.urls.thumb}')" data-thumb="${m.urls.thumb}"` : m.urls.wave ? `style="background-image:url('${m.urls.wave}');background-size:100% 70%"` : ''} ${m.urls.strip ? `data-strip="${m.urls.strip}"` : ''}>
-          ${!m.urls.thumb && !m.urls.wave ? `<span class="mi-ic">${m.kind === 'audio' ? '♪' : '▣'}</span>` : ''}
-          ${m.subOf ? `<span class="mi-d" title="Subclip ${fmt(m.subIn)} - ${fmt(m.subOut)} of its file">${fmt(m.subOut - m.subIn)}</span>` : m.duration && m.kind !== 'image' ? `<span class="mi-d">${fmt(m.duration)}</span>` : ''}${res ? `<span class="mi-r">${res}</span>` : ''}${used ? '<span class="mi-u" title="Used in the timeline">●</span>' : ''}${m.utags ? `<span class="mi-tg">${m.utags.slice(0, 6).map((t) => `<i style="background:${tagColor(t)}" title="${esc(t)}"></i>`).join('')}</span>` : ''}${st}
+          ${!m.urls.thumb && !m.urls.wave ? `<span class="mi-ic">${m.kind === 'audio' ? ic('music') : ic('clip')}</span>` : ''}
+          ${m.subOf ? `<span class="mi-d" title="Subclip ${fmt(m.subIn)} - ${fmt(m.subOut)} of its file">${fmt(m.subOut - m.subIn)}</span>` : m.duration && m.kind !== 'image' ? `<span class="mi-d">${fmt(m.duration)}</span>` : ''}${res ? `<span class="mi-r">${res}</span>` : ''}${used ? '<span class="mi-u" title="Used in the timeline">' + ic('dot') + '</span>' : ''}${m.utags ? `<span class="mi-tg">${m.utags.slice(0, 6).map((t) => `<i style="background:${tagColor(t)}" title="${esc(t)}"></i>`).join('')}</span>` : ''}${st}
         </div>
-        <div class="mi-n">${m.bad ? '<b class="warn">⚠</b> ' : ''}${dups.has(m.id) ? '<b class="muted">⧉</b> ' : ''}${esc(mName(m))}</div></div>`;
+        <div class="mi-n">${esc(mName(m))}</div></div>`;
     }).join('') || '<div class="pool-empty">Nothing matches</div>';
     if (all.length > list.length) grid.insertAdjacentHTML('beforeend', `<button class="pool-more" data-more>Show ${Math.min(POOL_STEP, all.length - list.length)} more <span class="muted">(${all.length - list.length} left - or search above)</span></button>`);
     // 🗂 files gone from their place (moved, drive unplugged): one click to find and link them again
@@ -441,7 +442,7 @@ export async function tagMedia(ids) {
   try {
     await api('POST', `/api/media/tags?p=${enc(S.proj)}`, { ids: ms.map((m) => m.id), add: next, remove: common.filter((t) => !keep.has(t.toLowerCase())) });
     await refreshMedia();
-    toast(`🏷 ${ms.length > 1 ? `${ms.length} files` : ms[0].name}: ${next.length ? next.join(', ') : 'no tags'}`);
+    toast(`${ms.length > 1 ? `${ms.length} files` : ms[0].name}: ${next.length ? next.join(', ') : 'no tags'}`);
   } catch (e) { toast(e.message, 'err'); }
 }
 

@@ -55,7 +55,7 @@ export function openGraphics() {
     <h4>Data graphics <span class="muted small">- numbers, charts, callouts</span></h4>
     <div class="gfx-grid">${all.filter(([, x]) => !x.motion).map(tile).join('')}</div>
     <p class="muted small">Placed at the playhead on a free overlay track. Change words, colours and style in Effect Controls. What you see in the viewer is what renders.</p>
-    <p class="small"><button class="link" data-ctpls>🎞 Custom templates - your own MOGRTs, logo animations and videos with transparency…</button></p>`, { width: 1000 });
+    <p class="small"><button class="link" data-ctpls>Custom templates - your own MOGRTs, logo animations and videos with transparency…</button></p>`, { width: 1000 });
   const preview = () => $$('[data-tpl]', dlg.el).forEach((el) => { const g = made(el.dataset.tpl), d = GFX[el.dataset.tpl].dur; drawGraphic(el.querySelector('canvas').getContext('2d'), W, H, g, Math.max(0.1, d * 0.62), d); });
   preview();
   // logos load a moment later: draw the tiles again then

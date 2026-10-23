@@ -173,8 +173,8 @@ export async function openAiDub(clipId = selClip()?.id) {
   body.className = 'vo dub';
   body.innerHTML = `<div class="fgrid">
       <label class="fld"><span>The clip speaks</span><select name="from"><option value="auto">Auto-detect</option><option value="hi">Hindi</option><option value="en">English</option></select></label>
-      <label class="fld"><span>Dub into</span><select name="to">${LANGS.map(([k, l, same]) => `<option value="${k}">${l}${same ? ' ★' : ''}</option>`).join('')}</select></label>
-      <label class="fld wide"><span>Voice</span><select name="voiceKind"><option value="clone"${vs.ready ? '' : ' disabled'}>The speaker's own voice (★ languages${vs.ready ? '' : ' - set it up on the Labs page first'})</option><option value="other">Another AI voice (Microsoft Edge / ElevenLabs)</option></select></label>
+      <label class="fld"><span>Dub into</span><select name="to">${LANGS.map(([k, l, same]) => `<option value="${k}">${l}${same ? ' - own voice' : ''}</option>`).join('')}</select></label>
+      <label class="fld wide"><span>Voice</span><select name="voiceKind"><option value="clone"${vs.ready ? '' : ' disabled'}>The speaker's own voice (languages marked own voice${vs.ready ? '' : ' - set it up on the Labs page first'})</option><option value="other">Another AI voice (Microsoft Edge / ElevenLabs)</option></select></label>
     </div>
     <div data-picker hidden></div>
     <div class="row-in"><button type="button" class="accent small" data-go1>Listen and translate</button><span class="muted small grow" data-st>${esc(m.name)}</span></div>

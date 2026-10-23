@@ -18,8 +18,8 @@ export function refOptions(skip = new Set(), sel = '') {
   const tl = timelineClips().filter((x) => !skip.has(x.clip.id));
   const pool = S.media.filter(usable).sort((a, b) => (a.bin === 'Colour references' ? -1 : 0) - (b.bin === 'Colour references' ? -1 : 0));
   return `${tl.length ? `<optgroup label="Timeline clips">${tl.map((x, i) => o(`c:${x.clip.id}`, `${x.track} · ${String(i + 1).padStart(2, '0')} · ${S.mediaById[x.clip.mediaId]?.name || ''}${x.clip.color && Object.keys(x.clip.color).length ? ' (graded)' : ''}`)).join('')}</optgroup>` : ''}`
-    + `${pool.length ? `<optgroup label="Media pool">${pool.map((m) => o(`m:${m.id}`, `${m.kind === 'image' ? '🖼' : '🎞'} ${m.name}`)).join('')}</optgroup>` : ''}`
-    + `<optgroup label="A still image">${o('still', '📷 Upload a reference still…')}</optgroup>`;
+    + `${pool.length ? `<optgroup label="Media pool">${pool.map((m) => o(`m:${m.id}`, `${m.name}`)).join('')}</optgroup>` : ''}`
+    + `<optgroup label="A still image">${o('still', 'Upload a reference still…')}</optgroup>`;
 }
 
 // a picked still image (or video) uploaded into Media › Colour references -> its key 'm:<id>' once it is read
@@ -67,7 +67,7 @@ export function openColorMatch(ids) {
   const clips = [...new Set(ids)].map((id) => findClip(id)?.clip).filter(visual);
   if (!clips.length) return toast('Color match works on video and photo clips', 'err');
   const skip = new Set(clips.map((c) => c.id));
-  const dlg = modal('🎨 Color match', `<p class="muted small">${clips.length > 1 ? `${clips.length} clips take` : 'The clip takes'} the colour of the reference: another clip on the timeline (with its grade), any video or photo in Media, or a still image you upload. It sets Gain and Offset - fine-tune on the Color page.</p>
+  const dlg = modal('Color match', `<p class="muted small">${clips.length > 1 ? `${clips.length} clips take` : 'The clip takes'} the colour of the reference: another clip on the timeline (with its grade), any video or photo in Media, or a still image you upload. It sets Gain and Offset - fine-tune on the Color page.</p>
     <label class="fld"><span>Reference</span><select data-ref style="width:100%">${refOptions(skip)}</select></label>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px"><button data-close>Cancel</button><button class="primary" data-go>Match</button></div>`, { width: 480 });
   const sel = $('[data-ref]', dlg.el);
@@ -81,7 +81,7 @@ export function openColorMatch(ids) {
     const ref = refOf(sel.value);
     if (!ref) return toast('Pick a reference', 'err');
     e.target.disabled = true; e.target.textContent = 'Matching…';
-    try { const n = await matchClips(clips, ref); dlg.close(); toast(`🎨 ${n} clip${n > 1 ? 's' : ''} matched to ${sel.selectedOptions[0]?.textContent || 'the reference'}`); }
+    try { const n = await matchClips(clips, ref); dlg.close(); toast(`${n} clip${n > 1 ? 's' : ''} matched to ${sel.selectedOptions[0]?.textContent || 'the reference'}`); }
     catch (err) { toast(err.message, 'err'); e.target.disabled = false; e.target.textContent = 'Match'; }
   });
 }

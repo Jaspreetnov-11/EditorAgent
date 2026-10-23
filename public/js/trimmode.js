@@ -5,6 +5,7 @@
 // plays (L later, J earlier, again = faster, K stops and keeps it), Space plays round the cut, ↑ / ↓ go to the cut
 // before / after, Esc or Shift+T closes. A ripple moves the story after the cut (and the ⇋ sync-locked tracks along
 // with it); Ctrl+Z takes the trims on one cut back in one go.
+import { ic } from './lineicons.js';
 import { S, on, emit, commit, layout } from './store.js';
 import { clipDur, rampPts, setTransition, syncShift, fmtTC } from './model.js';
 import { $, h, esc, toast } from './ui.js';
@@ -98,7 +99,7 @@ function build() {
       <button data-tm="1" title="Trim forward 1 frame (→)">+1</button><button data-tm="5" title="Trim forward 5 frames (Shift+→)">+5</button>
       <span class="grow"></span>
       <button data-tm="prev" title="Cut before (↑)">↑</button><button data-tm="next" title="Cut after (↓)">↓</button>
-      <button data-tm="play" title="Play round the cut (Space)">▶</button><button data-tm="close" title="Close Trim mode (Esc / Shift+T)">✕</button>
+      <button data-tm="play" title="Play round the cut (Space)">${ic('play')}</button><button data-tm="close" title="Close Trim mode (Esc / Shift+T)">✕</button>
     </div>
     <div class="tm-help">← → trim 1 frame · Shift 5 · Tab Ripple Out / Roll / Ripple In · J K L trim while playing · Space play round the cut · ↑ ↓ other cuts · Esc close</div>
   </div>`);
@@ -155,7 +156,7 @@ function preview(acc) {
   const n = Math.round(acc * fps()), el = st.el;
   if (st.mode === 'in') showFrame(el.querySelector('[data-s="b"]'), p.B, (p.B.in || 0) + acc * (p.B.speed || 1));
   else showFrame(el.querySelector('[data-s="a"]'), p.A, outT(p.A) + acc * (p.A.speed || 1));
-  el.querySelector('.tm-amt').textContent = `${amt(p, n)} ${st.dyn.rate > 0 ? '▶' : '◀'}${Math.abs(st.dyn.rate) > 1 ? `${Math.abs(st.dyn.rate)}×` : ''}`;
+  el.querySelector('.tm-amt').textContent = `${amt(p, n)} ${st.dyn.rate > 0 ? '›' : '‹'}${Math.abs(st.dyn.rate) > 1 ? `${Math.abs(st.dyn.rate)}×` : ''}`;
 }
 function playAround() {
   const p = pair(); if (!p) return;

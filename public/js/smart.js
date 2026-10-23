@@ -2,6 +2,7 @@
 // (wide, close-up, drone, people…), "jharna dikhao" search, near-duplicate and problem clips, and matching the
 // colour of several cameras to one of them. engine/people.py finds the faces (🧑 People: name them once, known in every
 // project) and reads the text on the pictures; 💬 Quotes are the best lines of the transcripts.
+import { ic } from './lineicons.js';
 import { S, emit, commit } from './store.js';
 import { api, enc, watchJob } from './api.js';
 import { fmt } from './model.js';
@@ -99,10 +100,10 @@ async function check(body) {
   const tl = onTimeline(), bad = S.media.filter((m) => m.bad?.length && !m.seqOf), groups = footage.dups.map((g) => g.map((id) => S.mediaById[id]).filter(Boolean)).filter((g) => g.length > 1);
   body.innerHTML = `<h4>Near-identical clips (${groups.length})</h4>
     <p class="muted small">The same shot imported twice, or two takes that look the same. Moving the extra copies to a "Duplicates" folder keeps the media pool clean - nothing is deleted.</p>
-    <div class="sm-list">${groups.map((g, i) => `<div class="sm-grp">${g.map((m) => `<div class="sm-mini" data-open="${m.id}" title="${esc(m.name)}">${thumb(m)}<span class="small">${esc(m.name)}${tl.has(m.id) ? ' <b class="good">● on timeline</b>' : ''}<br><span class="muted">${fmt(m.duration)} · ${esc(m.bin || '')}</span></span></div>`).join('')}
+    <div class="sm-list">${groups.map((g, i) => `<div class="sm-grp">${g.map((m) => `<div class="sm-mini" data-open="${m.id}" title="${esc(m.name)}">${thumb(m)}<span class="small">${esc(m.name)}${tl.has(m.id) ? ' <b class="good">on timeline</b>' : ''}<br><span class="muted">${fmt(m.duration)} · ${esc(m.bin || '')}</span></span></div>`).join('')}
       <button class="small" data-dup="${i}" title="Keep the first (or the one on the timeline), move the others">Move copies to Duplicates</button></div>`).join('') || '<div class="muted pad">None found.</div>'}</div>
     <h4>Clips worth a second look (${bad.length})</h4>
-    <div class="sm-list">${bad.map((m) => `<div class="sm-hit" data-open="${m.id}">${thumb(m)}<div class="grow"><div class="sm-name">${esc(m.name)}${tl.has(m.id) ? ' <b class="good">● on timeline</b>' : ''}</div><div class="warn small">${esc(m.bad.join(' · '))}</div></div></div>`).join('') || '<div class="muted pad">Nothing looks wrong.</div>'}</div>
+    <div class="sm-list">${bad.map((m) => `<div class="sm-hit" data-open="${m.id}">${thumb(m)}<div class="grow"><div class="sm-name">${esc(m.name)}${tl.has(m.id) ? ' <b class="good">on timeline</b>' : ''}</div><div class="warn small">${esc(m.bad.join(' · '))}</div></div></div>`).join('') || '<div class="muted pad">Nothing looks wrong.</div>'}</div>
     ${bad.length ? '<div class="dv-actions"><button data-rej>Move these to a "Rejects" folder</button></div>' : ''}`;
   const move = async (ids, bin) => { await api('POST', `/api/media/bin?p=${enc(S.proj)}`, { ids, bin }); await refreshMedia(); toast(`${ids.length} clip${ids.length > 1 ? 's' : ''} moved to the "${bin}" folder in Media`); };
   body.onclick = async (e) => {
@@ -175,7 +176,7 @@ async function people(body) {
         <span class="sm-face" style="${p.thumb ? `background-image:url('${p.thumb}')` : ''}"></span>
         <div class="grow"><div class="row-in"><input data-name value="${esc(p.name || '')}" placeholder="${esc(p.label)} - type a name" aria-label="Name of ${esc(p.label)}"><input data-alias value="${esc((p.aliases || []).join(', '))}" placeholder="other names, comma-separated" aria-label="Other names"${p.name ? '' : ' hidden'}></div>
           <div class="muted small">seen ${p.count}× in ${ids.length} clip${ids.length === 1 ? '' : 's'}: ${ids.slice(0, 4).map((id) => `<a href="#" data-at="${id}" data-t="${p.media[id][0]}">${esc(S.mediaById[id]?.name || id)}</a>`).join(', ')}${ids.length > 4 ? ' …' : ''}</div></div>
-        <button class="small" data-find title="All shots of this person">🔎</button><button class="small" data-rm title="Not someone to know (a poster, a passer-by) - leave out">✕</button></div>`; }).join('') || '<div class="muted pad">No faces in this footage.</div>'}</div>`;
+        <button class="small" data-find title="All shots of this person">${ic('search')}</button><button class="small" data-rm title="Not someone to know (a poster, a passer-by) - leave out">✕</button></div>`; }).join('') || '<div class="muted pad">No faces in this footage.</div>'}</div>`;
   };
   const reload = async () => { d = await api('GET', `/api/people?p=${enc(S.proj)}`); await refreshMedia(); draw(); };
   const save = async (row) => {

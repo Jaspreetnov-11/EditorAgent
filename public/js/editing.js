@@ -129,7 +129,7 @@ export function closeAllGaps() {
     V1.splice(i, 1); syncShift(S.project, x.end, -(x.end - x.start)); secs += x.end - x.start;
   }
   commit(`Close ${gaps.length} gap${gaps.length > 1 ? 's' : ''}`);
-  toast(`⇤ ${gaps.length} gap${gaps.length > 1 ? 's' : ''} closed (${secs.toFixed(1)} s) - the story moved up`);
+  toast(`${gaps.length} gap${gaps.length > 1 ? 's' : ''} closed (${secs.toFixed(1)} s) - the story moved up`);
 }
 export function goGap(dir) {
   const ts = Object.values(layout()).flatMap((l) => l.filter((x) => x.clip.gap).map((x) => x.start)).sort((a, b) => a - b);

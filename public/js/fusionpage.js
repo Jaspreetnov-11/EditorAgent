@@ -2,6 +2,7 @@
 // (output) onto another node's left dot (input) to connect; click a connected input dot to cut it; drag nodes to
 // arrange; Delete removes the selected node. The viewer shows the output, or the selected node (press 1 / 2).
 // Right-click a video clip on the timeline → "✨ Open in Fusion", or start from a style on the left.
+import { ic } from './lineicons.js';
 import { S, on, emit, commit, layout } from './store.js';
 import { ASPECTS, uid, clipDur, compTrack } from './model.js';
 import { $, $$, esc, toast, clamp } from './ui.js';
@@ -30,18 +31,18 @@ function save(label, coalesce) {
 export function mountFusion(el) {
   root = el;
   el.innerHTML = `<div class="fu">
-    <div class="panel fu-lib"><div class="mo-head"><b>Fusions</b><span class="grow"></span><button class="small" data-f="new" title="New fusion from a clip in Media">＋ New ▾</button></div>
+    <div class="panel fu-lib"><div class="mo-head"><b>Fusions</b><span class="grow"></span><button class="small" data-f="new" title="New fusion from a clip in Media">New ▾</button></div>
       <div class="mo-list" id="fuList"></div>
       <div class="mo-head sub"><b>Styles</b><span class="muted small">replace the graph</span></div><div class="fu-styles" id="fuStyles"></div>
       <div class="mo-head sub"><b>Nodes</b><span class="muted small">click to add</span></div><div class="fu-nodes" id="fuNodes"></div></div>
     <div class="panel fu-view">
       <div class="mo-head"><div class="segbtns"><button data-view="out">Output (1)</button><button data-view="sel">Selected node (2)</button></div><span class="grow"></span>
         <button class="accent small" data-f="toTimeline" title="Put this fusion on the edit's timeline at the playhead">Add to timeline</button></div>
-      <div class="mo-stage" id="fuStage"><div class="mo-canvas"><canvas id="fuCanvas"></canvas></div><div class="mo-empty" id="fuEmpty">Right-click a video clip on the Edit timeline → Open in Fusion, or ＋ New.</div></div>
-      <div class="mo-trans"><button class="icon-btn" data-f="start">⏮</button><button class="icon-btn" data-f="play"></button><input type="range" id="fuPos" min="0" max="1" step="0.001" value="0" aria-label="Time"><span class="tc" id="fuTC">0:00:00</span></div>
+      <div class="mo-stage" id="fuStage"><div class="mo-canvas"><canvas id="fuCanvas"></canvas></div><div class="mo-empty" id="fuEmpty">Right-click a video clip on the Edit timeline → Open in Fusion, or New.</div></div>
+      <div class="mo-trans"><button class="icon-btn" data-f="start">${ic('start')}</button><button class="icon-btn" data-f="play"></button><input type="range" id="fuPos" min="0" max="1" step="0.001" value="0" aria-label="Time"><span class="tc" id="fuTC">0:00:00</span></div>
     </div>
     <div class="panel fu-insp" id="fuInsp"></div>
-    <div class="panel fu-graph"><div class="mo-head"><b>Nodes</b><span class="muted small">drag ● output → ● input to connect · click a connected input to cut · Delete removes · drag empty space to pan · wheel zooms · double-click empty = fit</span></div>
+    <div class="panel fu-graph"><div class="mo-head"><b>Nodes</b><span class="muted small">drag output → input to connect · click a connected input to cut · Delete removes · drag empty space to pan · wheel zooms · double-click empty = fit</span></div>
       <div class="fu-gwrap" id="fuGWrap"><canvas id="fuGraph"></canvas></div></div>
   </div>`;
   el.addEventListener('click', onClick);
@@ -67,7 +68,7 @@ function refresh() {
 // ---------------- library ----------------
 function renderLib() {
   const list = Object.values(fusions());
-  $('#fuList', root).innerHTML = list.length ? list.map((f) => `<div class="mo-comp${f.id === fid ? ' on' : ''}" data-fid="${f.id}" title="Double-click to rename"><span>✨</span><span class="grow">${esc(f.name)}</span><span class="muted small">${f.dur}s</span><button class="icon-btn" data-fdel="${f.id}" title="Delete">✕</button></div>`).join('') : '<div class="muted small pad">No fusions yet.</div>';
+  $('#fuList', root).innerHTML = list.length ? list.map((f) => `<div class="mo-comp${f.id === fid ? ' on' : ''}" data-fid="${f.id}" title="Double-click to rename"><span class="grow">${esc(f.name)}</span><span class="muted small">${f.dur}s</span><button class="icon-btn" data-fdel="${f.id}" title="Delete">✕</button></div>`).join('') : '<div class="muted small pad">No fusions yet.</div>';
   $$('[data-fid]', root).forEach((r) => {
     r.onclick = (e) => { if (e.target.closest('button')) return; fid = r.dataset.fid; selId = null; T = 0; refresh(); };
     r.ondblclick = () => { const f = fusions()[r.dataset.fid], n = prompt('Fusion name', f.name)?.trim(); if (n) { f.name = n; save('Rename fusion'); } };
@@ -200,13 +201,13 @@ function draw() {
 function seek(t) { T = clamp(t, 0, fu()?.dur || 0); draw(); }
 function play() {
   const f = fu(); if (!f) return;
-  playing = true; $('[data-f="play"]', root).textContent = '❚❚';
+  playing = true; $('[data-f="play"]', root).innerHTML = ic('pause');
   if (T >= f.dur - 0.05) T = 0;
   let last = performance.now();
   const step = (now) => { if (!playing) return; T += (now - last) / 1000; last = now; if (T >= f.dur) T = 0; CV.play('fusion', F.fusionVideos(f, T)); draw(); raf = requestAnimationFrame(step); };
   raf = requestAnimationFrame(step);
 }
-function stop() { playing = false; cancelAnimationFrame(raf); CV.pause('fusion'); const b = root && $('[data-f="play"]', root); if (b) b.textContent = '▶'; if (root && fu()) setTimeout(draw, 0); }
+function stop() { playing = false; cancelAnimationFrame(raf); CV.pause('fusion'); const b = root && $('[data-f="play"]', root); if (b) b.innerHTML = ic('play'); if (root && fu()) setTimeout(draw, 0); }
 
 // ---------------- inspector ----------------
 function renderInsp() {
@@ -219,7 +220,7 @@ function renderInsp() {
       const inp = kind === 'num' ? `<input type="range" min="${a}" max="${b}" step="${step}" value="${v}" data-pk="${k}"><input type="number" class="mo-num" step="${step}" value="${v}" data-pn="${k}">`
         : kind === 'color' ? `<input type="color" value="${v}" data-pk="${k}">`
         : kind === 'select' ? `<select data-pk="${k}">${a.map((o) => `<option${String(o) === String(v) ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select>`
-        : kind === 'matte' ? `<button class="accent small" data-findsubj>${v ? '↻ Find the subject again' : 'Find the subject (AI)'}</button><span class="muted small">${v ? 'Ready ✓ - follows the subject in every frame' : 'Not made yet'}</span>`
+        : kind === 'matte' ? `<button class="accent small" data-findsubj>${v ? 'Find the subject again' : 'Find the subject (AI)'}</button><span class="muted small">${v ? 'Ready ✓ - follows the subject in every frame' : 'Not made yet'}</span>`
         : kind === 'media' ? `<select data-pk="${k}">${S.media.filter((m) => m.kind === 'video' || m.kind === 'image').slice(0, 400).map((m) => `<option value="${m.id}"${m.id === v ? ' selected' : ''}>${esc(m.name)}</option>`).join('')}</select>`
         : `<textarea rows="2" data-pk="${k}">${esc(v)}</textarea>`;
       return `<label class="fu-p"><span>${label}</span><span class="fu-pi">${inp}</span></label>`;

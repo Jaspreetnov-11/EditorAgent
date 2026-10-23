@@ -45,9 +45,9 @@ function pick(i) {
 const ver = () => info.versions[cur];
 function draw() {
   const v = ver();
-  $('versions').replaceChildren(...(info.versions.length > 1 ? info.versions.map((x, i) => el('button', { class: i === cur ? 'cur' : '', type: 'button', onclick: () => pick(i) }, `Version ${x.n}${x.status === 'approved' ? ' ✅' : ''}`)) : []));
+  $('versions').replaceChildren(...(info.versions.length > 1 ? info.versions.map((x, i) => el('button', { class: i === cur ? 'cur' : '', type: 'button', onclick: () => pick(i) }, `Version ${x.n}${x.status === 'approved' ? ' ✓' : ''}`)) : []));
   const st = $('status'); st.hidden = false; st.className = `pill ${v.status}`;
-  st.textContent = { approved: '✅ Approved', changes: '✏️ Changes requested', waiting: '⏳ Waiting for review' }[v.status] || '';
+  st.textContent = { approved: 'Approved', changes: 'Changes requested', waiting: 'Waiting for review' }[v.status] || '';
   $('decided').textContent = v.status === 'waiting' ? `Version ${v.n} - happy with it? Approve it, or ask for changes (add your comments first).` : `Version ${v.n}: ${v.status === 'approved' ? 'approved' : 'changes requested'} by ${v.decidedBy}, ${when(v.decidedAt)}. You can still change your mind.`;
   const mine = info.comments.filter((c) => c.v === v.n), tops = mine.filter((c) => !c.parent).sort((a, b) => a.t - b.t || a.at - b.at);
   $('count').textContent = tops.length ? `(${tops.length})` : '';
@@ -57,7 +57,7 @@ function draw() {
     const send = () => reply(c, inp);
     inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
     return el('li', {},
-      el('div', {}, el('button', { class: 'link tc', type: 'button', title: 'Go there', onclick: () => seek(c) }, tc(c.t)), ' ', el('span', { class: 'txt' }, c.text), c.draw ? ' ✏️' : null),
+      el('div', {}, el('button', { class: 'link tc', type: 'button', title: 'Go there', onclick: () => seek(c) }, tc(c.t)), ' ', el('span', { class: 'txt' }, String(c.text ?? '').replace(/^(✅|✏️) /u, '')), c.draw ? ' (drawing)' : null),
       el('div', { class: `who${c.team ? ' team' : ''}` }, `${c.by}${c.team ? ' (Limelight)' : ''} · ${when(c.at)}`),
       replies.length ? el('ul', {}, ...replies.map((r) => el('li', {}, el('span', { class: 'txt' }, r.text), el('div', { class: `who${r.team ? ' team' : ''}` }, `${r.by}${r.team ? ' (Limelight)' : ''} · ${when(r.at)}`)))) : null,
       el('div', { class: 'reply' }, inp, el('button', { class: 'ghost', type: 'button', onclick: send }, 'Reply')));
@@ -79,7 +79,7 @@ function showInk(d) { ink.replaceChildren(...(d || []).map(line)); }
 function clearInk() { strokes = []; showing = null; ink.replaceChildren(); }
 function setDrawing(on) {
   drawing = on; ink.classList.toggle('drawing', on); $('draw').classList.toggle('on', on);
-  $('draw').textContent = on ? (strokes.length ? '✕ Clear drawing' : '✏️ Drawing… (drag on the picture)') : '✏️ Draw';
+  $('draw').textContent = on ? (strokes.length ? '✕ Clear drawing' : 'Drawing… (drag on the picture)') : 'Draw';
   if (on) { vid.pause(); if (showing) clearInk(); }
 }
 $('draw').onclick = () => { if (drawing && strokes.length) { clearInk(); setDrawing(false); } else setDrawing(!drawing); };

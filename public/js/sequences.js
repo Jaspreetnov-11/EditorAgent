@@ -1,6 +1,7 @@
 // 🎞 Sequences: several timelines in one project (Full film, Teaser 30s, Reel…). Open one, make a new one (empty or a
 // copy of this edit, as a version), rename / delete, and nest one inside another as a single clip (rendered once,
 // re-rendered when that sequence changes). The data model is in model.js (seqList / openSeq / seqHash).
+import { ic } from './lineicons.js';
 import { S, on, emit, commit, saveNow, openMySeq, sharedSeqId, sendPresence, adoptShared, layout } from './store.js';
 import { api, enc, watchJob } from './api.js';
 import { ASPECTS, newProject, seqOf, seqList, openSeq, seqData, seqHash, totalDuration, fmt, uid, linkedIds, relink, syncLinked, linkAudioOf } from './model.js';
@@ -138,13 +139,13 @@ export function openSequences() {
         <span class="grow"><b>${esc(x.name)}</b>${x.open ? ' <span class="tag">open</span>' : ''}${x.id === sharedSeqId() ? ' <span class="tag" title="The team&#39;s main sequence: Claude, the server&#39;s Agent jobs and edtool work on this one">Team</span>' : ''}${(S.people || []).filter((p) => (p.seq || sharedSeqId()) === x.id).map((p) => ` <span class="tag" style="background:${esc(p.color)};color:#111">${esc(p.name)}</span>`).join('')}<br><span class="muted small">${esc(x.data.settings?.aspect || '')} · ${dur(x)} · ${Object.values(x.data.tracks || {}).flat().length} clips</span></span>
         ${x.open ? '' : `<button class="small" data-open="${x.id}">Open</button><button class="small" data-nest="${x.id}" title="Put this whole sequence into the open timeline as one clip, at the playhead">Nest here</button>`}
         ${x.id === sharedSeqId() ? '' : `<button class="small" data-team="${x.id}" title="Make this the team's main sequence: edtool and the server's Agent jobs work on it (the Assistant's Claude always works on the sequence you have open). Everyone on the team sequence switches to it too.">Make team sequence</button>`}
-        <button class="icon-btn small" data-ren="${x.id}" title="Rename" aria-label="Rename ${esc(x.name)}">✎</button>
-        ${list.length > 1 ? `<button class="icon-btn small" data-del="${x.id}" title="Delete this sequence" aria-label="Delete ${esc(x.name)}">🗑</button>` : ''}</div>`).join('')}</div>
-      ${staleHere.length ? `<div class="warns">Changed since nested: ${staleHere.map((m) => esc(m.name)).join(', ')} <button class="small" data-upd>⟳ Update nested</button></div>` : ''}
+        <button class="icon-btn small" data-ren="${x.id}" title="Rename" aria-label="Rename ${esc(x.name)}">${ic('edit')}</button>
+        ${list.length > 1 ? `<button class="icon-btn small" data-del="${x.id}" title="Delete this sequence" aria-label="Delete ${esc(x.name)}">${ic('trash')}</button>` : ''}</div>`).join('')}</div>
+      ${staleHere.length ? `<div class="warns">Changed since nested: ${staleHere.map((m) => esc(m.name)).join(', ')} <button class="small" data-upd>Update nested</button></div>` : ''}
       <h4>New sequence</h4>
       <div class="fgrid"><label class="fld"><span>Name</span><input data-nname value="${esc(freeName('Teaser 30s'))}"></label>
         <label class="fld"><span>Frame</span><select data-naspect>${Object.keys(ASPECTS).map((a) => `<option${a === S.project.settings.aspect ? ' selected' : ''}>${a}</option>`).join('')}</select></label></div>
-      <div class="dv-actions"><button class="primary" data-new="empty">+ Empty sequence</button><button data-new="copy" title="A copy of the open timeline - try changes on it while the original stays as it is">⧉ Copy of "${esc(seqOf(S.project).name)}" (version)</button></div>`;
+      <div class="dv-actions"><button class="primary" data-new="empty">+ Empty sequence</button><button data-new="copy" title="A copy of the open timeline - try changes on it while the original stays as it is">Copy of "${esc(seqOf(S.project).name)}" (version)</button></div>`;
   };
   draw();
   dlg.el.addEventListener('click', async (e) => {
@@ -206,12 +207,12 @@ export function seqMenu(anchor) {
   const m = document.createElement('div');
   m.className = 'seq-menu ui-menu';
   m.innerHTML = `<div class="muted">Sequences - this project's timelines</div>
-    ${list.map((x) => `<button data-sq="${esc(x.id)}" class="${x.open ? 'cur' : ''}"><span class="sq-dot">${x.open ? '●' : ''}</span>
-      <span class="grow sq-name">${esc(x.name)}${x.id === team ? ' <span class="tag" title="The team&#39;s main sequence">👥</span>' : ''}</span>
+    ${list.map((x) => `<button data-sq="${esc(x.id)}" class="${x.open ? 'cur' : ''}"><span class="sq-dot">${x.open ? ic('dot') : ''}</span>
+      <span class="grow sq-name">${esc(x.name)}${x.id === team ? ' <span class="tag" title="The team&#39;s main sequence">team</span>' : ''}</span>
       <span class="muted small">${esc(x.data.settings?.aspect || '')} · ${dur(x)}</span></button>`).join('')}
-    <hr><button data-sq-ren>✎ Rename this sequence <span class="muted small">(or double-click its tab)</span></button>
+    <hr><button data-sq-ren>Rename this sequence <span class="muted small">(or double-click its tab)</span></button>
     <button data-sq-new="empty">+ New empty sequence</button>
-    <button data-sq-new="copy">⧉ Copy of this edit (version)</button>
+    <button data-sq-new="copy">Copy of this edit (version)</button>
     <hr><button data-sq-clip="copy">Copy this timeline <span class="muted small">(paste it in another project)</span></button>
     ${pasteOffer() ? `<button data-sq-clip="paste">Paste timeline: ${esc(pasteOffer())}</button>` : ''}
     <button data-sq-manage>Manage sequences… <span class="muted small">(rename, nest, delete)</span></button>`;

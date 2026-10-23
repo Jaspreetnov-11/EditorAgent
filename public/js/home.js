@@ -1,4 +1,5 @@
 // Home: every project (one folder each), and the New Project dialog.
+import { ic } from './lineicons.js';
 import { S } from './store.js';
 import { api, enc } from './api.js';
 import { fmt } from './model.js';
@@ -31,9 +32,9 @@ function filterCards(el) {
 
 export async function renderHome(el, openProject) {
   el.innerHTML = `<div class="home">
-    <div class="home-brand" aria-label="Limelight Editor"><img src="/img/limelight-mark-dark.png" alt=""><div class="hb-word"><b>LIME<em>LIGHT</em></b><span><i></i>EDITOR<i></i></span></div></div>
+    <div class="home-brand" aria-label="limelight - Elevate &amp; Illuminate"><img class="hb-logo" src="/img/limelight-logo-white.png" alt="limelight - Elevate &amp; Illuminate"></div>
     <div class="home-head">
-      <div><h1>Projects</h1><p class="muted">Each project is saved in its own folder with its timeline, previews, subtitles and renders.<br><span class="mono" id="projRoot"></span></p></div>
+      <div><h1>Projects</h1><span id="projRoot" hidden></span></div>
       <div class="home-actions"><button class="small" data-a="team" hidden title="Admin: people who can sign in from other computers - names, passwords, roles (Owner / Editor / Viewer), shared folders, render farm">Team &amp; users</button><button class="small" data-a="sessions" hidden title="Who worked in the editor, when and for how long - the last 30 days">Sessions</button><button class="link small" data-a="deleted" hidden>Recycle Bin</button><button class="small home-refresh" data-a="refresh" title="Refresh: load the editor again (newest version) - always here">Refresh</button><button class="primary big" data-a="new">+ New project</button></div>
     </div>
     <div class="pf-bar" id="pfBar"></div>
@@ -80,7 +81,7 @@ export async function renderHome(el, openProject) {
         <div class="proj-th" style="${p.thumb ? `background-image:url('${p.thumb}')` : ''}"><span class="badge">${esc(p.aspect || '')}</span></div>
         <div class="proj-info"><b>${esc(p.name)}</b>${tagsOf(p).length ? `<span class="proj-tags">${tagChips(tagsOf(p))}</span>` : ''}${inF(p) && cur === 'all' ? `<small class="pf-tag">${esc(pf.folders.find((f) => f.id === inF(p))?.name || '')}</small>` : ''}<small>${p.duration ? `${fmt(p.duration)} · ` : ''}${p.clips} clips · ${p.media} media</small>${p.place ? `<small class="mono" title="Saved in ${esc(p.place)}">${esc(p.place)}</small>` : ''}
         <small>${new Date(p.modified).toLocaleString()}</small></div>
-        <div class="proj-btns"><button class="icon-btn" data-ptag="${esc(p.name)}" title="Tags (labels to find it by - client, kind of work, status…)" aria-label="Tags of ${esc(p.name)}">🏷</button>${me.role !== 'viewer' ? `<button class="icon-btn" data-ren="${esc(p.name)}" title="Rename project" aria-label="Rename ${esc(p.name)}">✏</button>` : ''}<button class="icon-btn" data-move="${esc(p.name)}" title="Move to a folder (or drag the card onto a folder above)" aria-label="Move ${esc(p.name)} to a folder">${icon('folderMove')}</button><button class="icon-btn" data-folder="${esc(p.name)}" title="Open project folder" aria-label="Open folder of ${esc(p.name)}">${icon('folder')}</button>${owner ? `<button class="icon-btn proj-del" data-del="${esc(p.name)}" title="Delete project (to the Recycle Bin, or for good)" aria-label="Delete ${esc(p.name)}">${icon('trash')}</button>` : ''}</div></div>`).join('');
+        <div class="proj-btns"><button class="icon-btn" data-ptag="${esc(p.name)}" title="Tags (labels to find it by - client, kind of work, status…)" aria-label="Tags of ${esc(p.name)}">${ic('tag')}</button>${me.role !== 'viewer' ? `<button class="icon-btn" data-ren="${esc(p.name)}" title="Rename project" aria-label="Rename ${esc(p.name)}">${ic('edit')}</button>` : ''}<button class="icon-btn" data-move="${esc(p.name)}" title="Move to a folder (or drag the card onto a folder above)" aria-label="Move ${esc(p.name)} to a folder">${icon('folderMove')}</button><button class="icon-btn" data-folder="${esc(p.name)}" title="Open project folder" aria-label="Open folder of ${esc(p.name)}">${icon('folder')}</button>${owner ? `<button class="icon-btn proj-del" data-del="${esc(p.name)}" title="Delete project (to the Recycle Bin, or for good)" aria-label="Delete ${esc(p.name)}">${icon('trash')}</button>` : ''}</div></div>`).join('');
     if (owner) api('GET', '/api/projects/deleted').then((d) => { const b = $('[data-a="deleted"]', el); if (b) { b.hidden = false; b.textContent = `Recycle Bin${d.length ? ` (${d.length})` : ''}`; } }).catch(() => {});
     $$('.proj[data-open]', grid).forEach((c) => {
       c.addEventListener('keydown', (e) => { if (e.key === 'Enter') openProject(c.dataset.open); });
@@ -124,7 +125,7 @@ function renderBar(el, list, cur, refresh) {
   const bar = $('#pfBar', el), count = (id) => list.filter((p) => (id === 'none' ? !pf.map[p.name] : pf.map[p.name] === id)).length;
   // big folder tiles (a folder picture, its name, how many projects); drop a project card on one to move it there
   const chip = (id, label, n, kind = 'folder', extra = '') => `<button class="pf-chip pf-${kind}${cur === id ? ' on' : ''}" data-pf="${id}"${id !== 'all' ? ' data-drop' : ''} title="${label}">${FOLDER_SVG}<b>${label}</b><i>${n} project${n === 1 ? '' : 's'}</i>${extra}</button>`;
-  bar.innerHTML = chip('all', 'All projects', list.length, 'all') + pf.folders.map((f) => chip(f.id, esc(f.name), count(f.id), 'folder', `<span class="pf-x" data-pfedit="${f.id}" title="Rename / delete">⋯</span>`)).join('')
+  bar.innerHTML = chip('all', 'All projects', list.length, 'all') + pf.folders.map((f) => chip(f.id, esc(f.name), count(f.id), 'folder', `<span class="pf-x" data-pfedit="${f.id}" title="Rename / delete">${ic('more')}</span>`)).join('')
     + (pf.folders.length ? chip('none', 'Not in a folder', count('none'), 'none') : '') + '<button class="pf-chip add" data-pfnew><span class="pf-plus">+</span><b>New folder</b></button>';
   const pick = (id) => { try { localStorage.setItem('ve-home-folder', id); } catch {} refresh(); };
   bar.onclick = (e) => {
@@ -158,7 +159,7 @@ function popMenu(anchor, items, fn) {
 }
 function moveMenu(anchor, project, refresh) {
   const now = pf.map[project];
-  popMenu(anchor, [...pf.folders.map((f) => [f.id, `${f.id === now ? '● ' : '📁 '}${esc(f.name)}`]), ['-'], ['__new', '＋ New folder…'], ...(now ? [['__out', 'Take out of the folder']] : [])], (k) => {
+  popMenu(anchor, [...pf.folders.map((f) => [f.id, `${f.id === now ? ic('check') + ' ' : ''}${esc(f.name)}`]), ['-'], ['__new', 'New folder…'], ...(now ? [['__out', 'Take out of the folder']] : [])], (k) => {
     if (k === '__out') return moveTo(project, null, refresh);
     if (k === '__new') { const name = prompt('New folder name')?.trim(); if (!name) return; const id = newId(); return savePF({ folders: [...pf.folders, { id, name }], map: { ...pf.map, [project]: id } }, refresh); }
     moveTo(project, k, refresh);
@@ -304,7 +305,7 @@ async function deletedDialog(refresh) {
     const total = list.reduce((n, x) => n + (x.bytes || 0), 0);
     box.innerHTML = `<p class="muted small">Deleted projects wait here. <b>Restore</b> puts one back on the Projects page; <b>Delete forever</b> frees its disk space for good. Your original footage is never touched.</p>
       <div class="dv-list">${list.map((x) => `<div class="dv-item"><span class="grow"><b>${esc(x.name)}</b><br><span class="muted small">deleted ${new Date(x.deleted).toLocaleString()} · ${size(x.bytes || 0)}</span></span>
-        <button class="small" data-restore="${esc(x.folder)}">↺ Restore</button><button class="small danger" data-purge="${esc(x.folder)}" data-name="${esc(x.name)}">Delete forever</button></div>`).join('') || '<div class="muted pad">The Recycle Bin is empty.</div>'}</div>
+        <button class="small" data-restore="${esc(x.folder)}">Restore</button><button class="small danger" data-purge="${esc(x.folder)}" data-name="${esc(x.name)}">Delete forever</button></div>`).join('') || '<div class="muted pad">The Recycle Bin is empty.</div>'}</div>
       <div class="dv-actions">${list.length ? `<button class="danger" data-empty>Empty Recycle Bin (${list.length} · ${size(total)})</button>` : ''}<span class="grow"></span><button data-close>Close</button></div>`;
   };
   draw();
@@ -313,7 +314,7 @@ async function deletedDialog(refresh) {
     try {
       if (b.dataset.restore) {
         b.disabled = true;
-        const r = await api('POST', `/api/projects/restore?folder=${enc(b.dataset.restore)}`); toast(`↺ Restored as "${r.name}"`);
+        const r = await api('POST', `/api/projects/restore?folder=${enc(b.dataset.restore)}`); toast(`Restored as "${r.name}"`);
         list = list.filter((x) => x.folder !== b.dataset.restore); draw(); refresh();
       } else if (b.dataset.purge) {
         if (!confirm(`Delete "${b.dataset.name}" for good?

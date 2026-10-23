@@ -28,7 +28,7 @@ export async function toggleRecord(track) {
   mr.ondataavailable = (e) => e.data.size && rec?.chunks.push(e.data);
   mr.start(250);
   play();
-  bar.innerHTML = `<i class="dot"></i><b data-t>0:00</b><span>Recording a voice-over on ${track}</span><button class="small" data-stop>■ Stop</button>`;
+  bar.innerHTML = `<i class="dot"></i><b data-t>0:00</b><span>Recording a voice-over on ${track}</span><button class="small" data-stop>Stop</button>`;
   bar.querySelector('[data-stop]').onclick = stop;
   rec.timer = setInterval(() => { const s = (performance.now() - rec.t0) / 1000; bar.querySelector('[data-t]').textContent = `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`; }, 250);
   document.addEventListener('keydown', escStop, true);

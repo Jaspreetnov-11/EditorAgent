@@ -1,6 +1,7 @@
 // Viewer: "Timeline" mode plays the edit live from proxies (V1 with transitions, V2 overlays/titles, logo,
 // all audio tracks); "Source" mode previews one media file with In/Out marks.
 // Live playback is a close preview; "Accurate preview" renders the exact result with FFmpeg.
+import { ic } from './lineicons.js';
 import { reportError } from './errlog.js';
 import * as SM from './sourcemon.js';
 import { useContext as audioOut } from './audioout.js';
@@ -105,12 +106,12 @@ export function mountViewer(el) {
   <div class="vw-ctrl">
     <span class="tc big" id="vwTC">00:00:00:00</span>
     <span class="grow"></span>
-    <button class="icon-btn" data-act="start" title="Go to start (Home)">⏮</button>
-    <button class="icon-btn" data-act="back" title="Back 1 frame (←)">◂</button>
-    <button class="icon-btn play" data-act="play" title="Play / pause (Space)" aria-label="Play">▶</button>
-    <button class="icon-btn" data-act="fwd" title="Forward 1 frame (→)">▸</button>
-    <button class="icon-btn" data-act="end" title="Go to end (End)">⏭</button>
-    <button class="icon-btn" data-act="frame" title="Export Frame (Ctrl+Shift+E): this frame as a PNG, exactly as the export makes it" aria-label="Export Frame">📷</button>
+    <button class="icon-btn" data-act="start" title="Go to start (Home)">${ic('start')}</button>
+    <button class="icon-btn" data-act="back" title="Back 1 frame (←)">${ic('prev')}</button>
+    <button class="icon-btn play" data-act="play" title="Play / pause (Space)" aria-label="Play">${ic('play')}</button>
+    <button class="icon-btn" data-act="fwd" title="Forward 1 frame (→)">${ic('next')}</button>
+    <button class="icon-btn" data-act="end" title="Go to end (End)">${ic('end')}</button>
+    <button class="icon-btn" data-act="frame" title="Export Frame (Ctrl+Shift+E): this frame as a PNG, exactly as the export makes it" aria-label="Export Frame">${ic('camera')}</button>
     <span class="grow"></span>
     <span class="src-only" hidden>
       <button class="small" data-act="in" title="Mark In (I)">In</button>
@@ -449,7 +450,7 @@ export function pause() {
 }
 // J/K/L shuttle (simple): L = play, K = pause, J = back 2 s
 export function shuttle(k) { if (SM.srcMonActive()) return SM.shuttle(k); if (k === 'k') pause(); if (k === 'l') play(); if (k === 'j') { pause(); seek((mode === 'source' ? els.lyA.currentTime : S.playhead) - 2); } }
-function setPlayingUI(p) { const b = $('[data-act="play"]', root); b.textContent = p ? '❚❚' : '▶'; b.setAttribute('aria-label', p ? 'Pause' : 'Play'); }
+function setPlayingUI(p) { const b = $('[data-act="play"]', root); b.innerHTML = ic(p ? 'pause' : 'play'); b.setAttribute('aria-label', p ? 'Pause' : 'Play'); }
 
 function proxyMsg(m) {
   if (m.status !== 'ready') return `Reading ${m.name}…`;
@@ -721,8 +722,8 @@ export const editTextClip = (id) => { const c = findClipAny(id); if (c?.gfx?.tpl
 // (Generate, Magnify, Replicate, the keys, Change Color, Timecode... - effects.js). The shot's own element keeps
 // playing but is hidden; the canvas beside it takes its place, size, Motion and filters. Exact: Accurate preview / render.
 const pixCanvas = new WeakMap(); // picture element -> its canvas
-const hexRgb = (hx) => { const v = parseInt(String(hx || '#00ff00').replace('#', '').padEnd(6, '0').slice(0, 6), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; };
 let pixStage = null; // (a graphics-card canvas the frame is made small on before its pixels are read - see pixFx)
+const hexRgb = (hx) => { const v = parseInt(String(hx || '#00ff00').replace('#', '').padEnd(6, '0').slice(0, 6), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; };
 function pixFx(el, c, after = el, rel) {
   const fx = (c.effects || []).filter((e) => e.on !== false && !e.mask?.shape && inWindow(e, rel) && (e.type === 'mirror' || e.type === 'chromakey' || VFX[e.type]?.pix));
   let cv = pixCanvas.get(el);
@@ -763,9 +764,9 @@ function pixFx(el, c, after = el, rel) {
     if (e.type === 'chromakey') {
       const [kr, kg, kb] = hexRgb(e.p?.color), sim = +(e.p?.similarity ?? 0.15), bl = Math.max(0.001, +(e.p?.blend ?? 0.05));
       const im = g.getImageData(0, 0, W, H), d = im.data;
-      for (let i = 0; i < d.length; i += 4) {
       // (squared distances: the square root only for the few pixels on the soft edge - five keyed layers a frame)
       const in2 = (sim * 441.7) ** 2, out2 = ((sim + bl) * 441.7) ** 2;
+      for (let i = 0; i < d.length; i += 4) {
         const r = d[i] - kr, gg = d[i + 1] - kg, b = d[i + 2] - kb, q = r * r + gg * gg + b * b;
         if (q >= out2) continue;
         if (q < in2) d[i + 3] = 0; else d[i + 3] = Math.round(d[i + 3] * ((Math.sqrt(q) / 441.7 - sim) / bl));
@@ -773,16 +774,15 @@ function pixFx(el, c, after = el, rel) {
       g.putImageData(im, 0, 0);
     } else if (e.type !== 'mirror') VFX[e.type].pix(g, W, H, e.p || {}, { cv, rel, fps: S.project.settings.fps || 30, c, name: S.mediaById[c.mediaId]?.name });
   }
-  cv.hidden = false;
   return showPix(cv, src, el);
 }
 function showPix(cv, src, el) {
+  cv.hidden = false;
   for (const k of ['transform', 'opacity', 'clipPath', 'maskImage', 'webkitMaskImage', 'maskSize', 'webkitMaskSize', 'mixBlendMode']) cv.style[k] = src.style[k] || el.style[k];
   cv.style.filter = src === el ? el.style.filter : src.style.filter;
   src.style.visibility = 'hidden';
   return cv;
 }
-// 🖥 a transition drawn on the two V1 pictures: the moves on each, and the shape on whichever lies on top - the incoming
 // 🟩 Green screen (+ Mirror) on the graphics card: one shared WebGL canvas for every keyed layer (a context each would pass
 // the browser's ~16), whose result each layer copies into its own canvas - card to card. Same maths as the canvas version:
 // distance to the key colour (0-1 of the RGB cube's diagonal) under Similarity -> clear, within Blend -> partly clear.
@@ -833,6 +833,7 @@ function keyGpu(src, W, H, rect, fx) {
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   return true;
 }
+// 🖥 a transition drawn on the two V1 pictures: the moves on each, and the shape on whichever lies on top - the incoming
 // shot seen through the shape, or the outgoing one seen around it (an even-odd polygon: the frame with the shape cut out)
 function trDraw(tr, pe, ce) {
   const curTop = !!(pe.compareDocumentPosition(ce) & Node.DOCUMENT_POSITION_FOLLOWING);

@@ -1,5 +1,6 @@
 // ✨ Agent: a 4-step brief (what / footage / sound / finish) -> the agent builds the whole edit on the timeline,
 // then a report shows which shot was chosen for which voice-over line (and flags weak matches).
+import { ic } from './lineicons.js';
 import { S, emit, commit, findClip, layout } from './store.js';
 import { sequenceForAgent } from './sequences.js';
 import { api, enc, watchJob } from './api.js';
@@ -14,15 +15,15 @@ import { openScriptEdit, scriptPicker } from './scriptedit.js';
 import { applyCinematic, stabilizeAll, setFilmLook } from './looks.js';
 
 const TYPES = [
-  { id: 'song', icon: '🎵', label: 'Song / music video', sub: 'cuts on the beat, pictures follow the lyrics', aspect: '16:9', pace: 'medium', target: 60, subtitles: false, editStyle: 'song', look: 'Warm Film' },
-  { id: 'teaser', icon: '🎬', label: 'Cinematic teaser', sub: 'movie-trailer cut on the music beat', aspect: '16:9', pace: 'fast', target: 45, subtitles: false, editStyle: 'teaser', look: 'Teal & Orange', cinematic: true },
-  { id: 'reel', icon: '📱', label: 'Reel / Short', sub: '15-60 s, fast cuts, captions', aspect: '9:16', pace: 'fast', target: 30, subtitles: true },
-  { id: 'highlights', icon: '🎉', label: 'Event highlights', sub: '1-3 min, music-led', aspect: '16:9', pace: 'medium', target: 90, subtitles: false },
-  { id: 'film', icon: '🎬', label: 'VO film / Documentary', sub: 'shots follow the voice-over', aspect: '16:9', pace: 'slow', target: 120, subtitles: true },
-  { id: 'script', icon: '📜', label: 'Edit from a script', sub: 'A/V script (Word/PDF) → timeline', aspect: '16:9', pace: 'medium', target: 60, subtitles: true },
-  { id: 'autoreels', icon: '✂️', label: 'Auto Reels', sub: 'best moments of a long talk → 9:16 reels', aspect: '9:16', pace: 'fast', target: 30, subtitles: true },
-  { id: 'multicam', icon: '🎥', label: 'Multicam', sub: '2-4 cameras synced by sound, auto angle switching', aspect: '16:9', pace: 'medium', target: 60, subtitles: false },
-  { id: 'reference', icon: '🪞', label: 'Copy a reference', sub: 'cut like a video you like - only your footage is used', aspect: 'ref', pace: 'medium', target: 30, subtitles: false },
+  { id: 'song', icon: 'music', label: 'Song / music video', sub: 'cuts on the beat, pictures follow the lyrics', aspect: '16:9', pace: 'medium', target: 60, subtitles: false, editStyle: 'song', look: 'Warm Film' },
+  { id: 'teaser', icon: 'clapper', label: 'Cinematic teaser', sub: 'movie-trailer cut on the music beat', aspect: '16:9', pace: 'fast', target: 45, subtitles: false, editStyle: 'teaser', look: 'Teal & Orange', cinematic: true },
+  { id: 'reel', icon: 'phone', label: 'Reel / Short', sub: '15-60 s, fast cuts, captions', aspect: '9:16', pace: 'fast', target: 30, subtitles: true },
+  { id: 'highlights', icon: 'star', label: 'Event highlights', sub: '1-3 min, music-led', aspect: '16:9', pace: 'medium', target: 90, subtitles: false },
+  { id: 'film', icon: 'film', label: 'VO film / Documentary', sub: 'shots follow the voice-over', aspect: '16:9', pace: 'slow', target: 120, subtitles: true },
+  { id: 'script', icon: 'doc', label: 'Edit from a script', sub: 'A/V script (Word/PDF) → timeline', aspect: '16:9', pace: 'medium', target: 60, subtitles: true },
+  { id: 'autoreels', icon: 'scissors', label: 'Auto Reels', sub: 'best moments of a long talk → 9:16 reels', aspect: '9:16', pace: 'fast', target: 30, subtitles: true },
+  { id: 'multicam', icon: 'video', label: 'Multicam', sub: '2-4 cameras synced by sound, auto angle switching', aspect: '16:9', pace: 'medium', target: 60, subtitles: false },
+  { id: 'reference', icon: 'copy', label: 'Copy a reference', sub: 'cut like a video you like - only your footage is used', aspect: 'ref', pace: 'medium', target: 30, subtitles: false },
 ];
 
 export function openAgent(setBusy) {
@@ -33,7 +34,7 @@ export function openAgent(setBusy) {
   const body = h(`<div class="ag">
     <ol class="ag-steps">${['What', 'Footage', 'Sound', 'Finish'].map((s, i) => `<li data-go="${i}">${i + 1}. ${s}</li>`).join('')}</ol>
     <div class="ag-page" data-p="0">
-      <div class="ag-types">${TYPES.map((t) => `<label class="ag-type"><input type="radio" name="type" value="${t.id}"${t.id === st.type ? ' checked' : ''}><span><i>${t.icon}</i><b>${t.label}</b><small>${t.sub}</small></span></label>`).join('')}</div>
+      <div class="ag-types">${TYPES.map((t) => `<label class="ag-type"><input type="radio" name="type" value="${t.id}"${t.id === st.type ? ' checked' : ''}><span><b>${t.label}</b><small>${t.sub}</small></span></label>`).join('')}</div>
       <div class="fgrid">
         <label class="fld"><span>Format</span><select name="aspect"><option value="ref" data-refonly>Same as the reference</option><option value="9:16">9:16 Reel / Shorts</option><option value="16:9">16:9 YouTube / Film</option><option value="1:1">1:1 Square</option><option value="4:5">4:5 Feed</option></select></label>
         <label class="fld"><span>Clip speed</span><select name="clipSpeed"><option value="0.5">0.5x slow motion</option><option value="0.75">0.75x gentle slow-mo</option><option value="1" selected>1x normal</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x fast</option></select></label>
@@ -154,7 +155,7 @@ export function openAgent(setBusy) {
           <input type="checkbox" data-bin="${esc(b)}"${sel === list.length ? ' checked' : ''}${sel && sel < list.length ? ' data-mixed' : ''} aria-label="Select the whole folder">
           <span class="ag-bname">${esc(shortBin(b))}</span><span class="ag-bmeta">${list.length} clip${list.length > 1 ? 's' : ''}${sel ? ` · <b>${sel} selected</b>` : ''}</span></summary>
         <div class="ag-tiles">${list.map((m) => `<label class="ag-tile${st.clips.has(m.id) ? ' on' : ''}" title="${esc(m.name)}"><input type="checkbox" value="${m.id}"${st.clips.has(m.id) ? ' checked' : ''}>
-          <span class="ag-th">${m.urls.thumb ? `<img src="${m.urls.thumb}" alt="" loading="lazy">` : `<i>${m.kind === 'image' ? '🖼' : '🎞'}</i>`}${m.kind === 'video' && m.duration ? `<em>${fmt(m.duration)}</em>` : ''}<b class="ag-tick">✓</b></span>
+          <span class="ag-th">${m.urls.thumb ? `<img src="${m.urls.thumb}" alt="" loading="lazy">` : `<i>${m.kind === 'image' ? ic('image') : ic('film')}</i>`}${m.kind === 'video' && m.duration ? `<em>${fmt(m.duration)}</em>` : ''}<b class="ag-tick">✓</b></span>
           <span class="ag-tn">${esc(m.name)}</span></label>`).join('')}</div></details>`;
     }).join('') || (usable().length ? '<div class="muted pad">Nothing matches - clear the search.</div>' : '<div class="muted pad">No footage yet - use "+ Import a folder".</div>');
     body.querySelectorAll('[data-mixed]').forEach((x) => { x.indeterminate = true; });
@@ -422,7 +423,7 @@ export function showReport() {
         <td data-jump>${s.text ? `${esc(s.text)}${s.en && s.en !== s.text ? `<br><small class="muted">${esc(s.en)}</small>` : ''}` : '<span class="muted">(music / no speech)</span>'}</td>
         <td>${f ? `${esc(m?.name || s.media)}<br><small class="muted">at ${fmt(c.in || 0)}</small>` : '<span class="muted">deleted</span>'}</td>
         <td>${pct === null ? '<span class="muted">-</span>' : `<span class="meterbar"><i style="width:${pct}%"></i></span>${s.weak ? '<b class="warn">check</b>' : ''}`}</td>
-        <td class="rep-act">${f ? `<button class="small" data-change="${i}" title="Next-best shot for this line">Change</button><button class="small" data-choose="${i}" title="See all options">▾</button><button class="small" data-del="${i}" title="Delete this shot">🗑</button>` : ''}</td></tr>`;
+        <td class="rep-act">${f ? `<button class="small" data-change="${i}" title="Next-best shot for this line">Change</button><button class="small" data-choose="${i}" title="See all options">▾</button><button class="small" data-del="${i}" title="Delete this shot">${ic('trash')}</button>` : ''}</td></tr>`;
       if (open !== i || !f) return row;
       const alts = (s.alts || []).filter((a) => S.mediaById[a.mediaId]);
       const tile = (mid, at, label, k) => `<button class="rep-tile" data-pick="${i}" data-m="${mid}" data-in="${at}" title="${esc(S.mediaById[mid].name)}"><span class="th" style="${thumbAt(S.mediaById[mid], at)}"></span><small>${label}</small></button>`;

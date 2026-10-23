@@ -6,6 +6,7 @@
 //
 // panels: pool (Project / Media), viewer (Program), insp (Effect Controls, + Source as a tab), src (Source monitor on
 // its own - Resolve's two viewers), tl (Timeline). A layout is a grid: column/row sizes and which panel fills each cell.
+import { ic } from './lineicons.js';
 import { $, esc, toast } from './ui.js';
 
 const LIST = 've-ws-list', CUR = 've-ws-cur', LOOK = 've-ui';
@@ -198,11 +199,11 @@ export function openWorkspaceMenu(btn) {
   const m = document.createElement('div');
   m.className = 'ui-menu ws-menu';
   m.innerHTML = `<div class="muted">Workspaces</div>
-    ${Object.values(ws).map((w) => `<button data-ws="${esc(w.id)}">${w.id === id ? '● ' : '○ '}${esc(w.name)}${w.changed ? ' <i class="muted">(changed)</i>' : ''}</button>`).join('')}<hr>
+    ${Object.values(ws).map((w) => `<button data-ws="${esc(w.id)}">${w.id === id ? ic('check') + ' ' : ''}${esc(w.name)}${w.changed ? ' <i class="muted">(changed)</i>' : ''}</button>`).join('')}<hr>
     <button data-wa="edit">Edit layout…</button>
-    <button data-wa="reset"${cur.changed ? '' : ' disabled'}>↺ Reset to saved layout</button>
+    <button data-wa="reset"${cur.changed ? '' : ' disabled'}>Reset to saved layout</button>
     ${cur.builtIn ? '' : `<button data-wa="update"${cur.changed ? '' : ' disabled'}>Save changes to this workspace</button>`}
-    <button data-wa="saveas">＋ Save as new workspace…</button>
+    <button data-wa="saveas">Save as new workspace…</button>
     ${cur.builtIn ? '' : '<button data-wa="rename">Rename…</button><button data-wa="delete" class="danger">Delete this workspace</button>'}
     <hr><div class="muted small">Drag the lines to resize · drag ⠿ onto another panel to swap</div>`;
   document.body.append(m);

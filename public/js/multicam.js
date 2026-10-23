@@ -2,6 +2,7 @@
 // (engine/sync.mjs), then cut into V1 switching between angles while one recording's sound plays on A1 unbroken.
 // Each V1 shot remembers its group (clip.mc = { group, angle }), so the Inspector can switch it to another angle
 // later without losing sync: project.multicam[group] = { master, angles: [{ mediaId, offset, duration }] }.
+import { ic } from './lineicons.js';
 import { S, commit, emit } from './store.js';
 import { api, enc, watchJob } from './api.js';
 import { uid, fmt } from './model.js';
@@ -53,7 +54,7 @@ export function openMulticam(setBusy) {
   const vids = S.media.filter((m) => (m.kind === 'video' || m.kind === 'audio') && m.hasAudio && m.status === 'ready');
   const body = h(`<div class="mc">
     <p class="muted small">Choose the recordings of the same event (2-4 cameras, and an audio recorder if you have one). They are lined up by their sound.</p>
-    <div class="pick mc-pick">${vids.map((m) => `<label title="${esc(m.name)}"><input type="checkbox" value="${m.id}">${m.urls.thumb ? `<img src="${m.urls.thumb}" alt="">` : '<i>♪</i>'}<span>${esc(m.name)} · ${fmt(m.duration)}</span></label>`).join('') || '<div class="muted pad">No clips with sound yet.</div>'}</div>
+    <div class="pick mc-pick">${vids.map((m) => `<label title="${esc(m.name)}"><input type="checkbox" value="${m.id}">${m.urls.thumb ? `<img src="${m.urls.thumb}" alt="">` : `<i>${ic('music')}</i>`}<span>${esc(m.name)} · ${fmt(m.duration)}</span></label>`).join('') || '<div class="muted pad">No clips with sound yet.</div>'}</div>
     <div class="fgrid">
       <label class="fld"><span>Sound from</span><select name="master"><option value="">First chosen clip</option></select></label>
       <label class="fld"><span>Switch angle about every</span><select name="cut"><option value="2.5">2.5 s (lively)</option><option value="4" selected>4 s</option><option value="6">6 s (calm)</option></select></label>

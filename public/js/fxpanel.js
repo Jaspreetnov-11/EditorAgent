@@ -11,7 +11,6 @@ import { FX_PRESETS, FX_DEFAULT } from './audiofx.js';
 import { AFX, AFX_CATS, ATRANS, newAudioEffect } from './audioeffects.js';
 import { $, esc, toast } from './ui.js';
 
-const ICON = { transition: '⧓', cutfx: '⚡', vfx: '✦', afx: '🎚', preset: '⭐', ramp: '⏩', aeffect: '🔊', atrans: '◢◣' };
 const RAMP_CAT = 'Speed ramp (presets)';
 let root, query = '', open = new Set(['My presets', 'Transitions', RAMP_CAT]), trDur = 0.5;
 
@@ -33,7 +32,7 @@ function items() {
 export function mountFxPanel(el) {
   root = el;
   el.innerHTML = `<div class="fxp-bar"><input type="search" placeholder="Search effects" data-q aria-label="Search effects">
-      <label class="muted small" title="Length of transitions you add">⧓ <input type="number" min="0.1" max="3" step="0.1" value="${trDur}" data-trdur> s</label></div>
+      <label class="muted small" title="Length of transitions you add"><input type="number" min="0.1" max="3" step="0.1" value="${trDur}" data-trdur> s</label></div>
     <div class="fxp-list" data-list></div>
     <p class="fxp-help muted small">Drag onto a clip (a transition onto a cut), or select clips and double-click. Adjust in <b>Effect Controls</b> →</p>`;
   $('[data-q]', el).oninput = (e) => { query = e.target.value.toLowerCase(); draw(); };
@@ -63,8 +62,8 @@ function drawNow() {
     const vis = list.filter((x) => !query || x.label.toLowerCase().includes(query) || x.type.includes(query));
     if (!vis.length) return '';
     const isOpen = query || open.has(cat);
-    return `<div class="fxp-cat"><button class="fxp-h" data-cat="${esc(cat)}" aria-expanded="${!!isOpen}">${isOpen ? '▾' : '▸'} ${esc(cat)} <span class="muted">${vis.length}</span></button>
-      ${isOpen ? `<div class="fxp-items">${vis.map((x) => `<div class="fxp-it" draggable="true" data-fx='${esc(JSON.stringify({ kind: x.kind, type: x.type }))}' title="Drag onto a clip, or double-click to apply to the selected clips"><i>${ICON[x.kind]}</i><span>${esc(x.label)}</span>${x.hint ? `<small class="muted">${esc(x.hint)}</small>` : ''}${x.kind === 'preset' ? `<button class="link small" data-delpreset="${esc(x.type)}" title="Delete this preset">✕</button>` : ''}</div>`).join('')}</div>` : ''}</div>`;
+    return `<div class="fxp-cat"><button class="fxp-h" data-cat="${esc(cat)}" aria-expanded="${!!isOpen}">${isOpen ? '▾' : '›'} ${esc(cat)} <span class="muted">${vis.length}</span></button>
+      ${isOpen ? `<div class="fxp-items">${vis.map((x) => `<div class="fxp-it" draggable="true" data-fx='${esc(JSON.stringify({ kind: x.kind, type: x.type }))}' title="Drag onto a clip, or double-click to apply to the selected clips"><span>${esc(x.label)}</span>${x.hint ? `<small class="muted">${esc(x.hint)}</small>` : ''}${x.kind === 'preset' ? `<button class="link small" data-delpreset="${esc(x.type)}" title="Delete this preset">✕</button>` : ''}</div>`).join('')}</div>` : ''}</div>`;
   }).join('');
   $('[data-list]', root).innerHTML = html || '<p class="muted pad">No effect matches.</p>';
 }

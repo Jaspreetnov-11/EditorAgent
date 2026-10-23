@@ -4,6 +4,7 @@
 // cut effect, effects with their settings) and its own timeline (trim the ends, drag keyframes, the cut effect's
 // length). "Update the timeline as I edit" (on by default) or Update on timeline puts it on every clip of that Labs
 // edit. Space / ← → / Delete work on the Labs preview while the Labs page is open. Nothing about Labs is in Effect Controls.
+import { ic } from './lineicons.js';
 import { S, commit, emit, findClip, layout } from './store.js';
 import { uid, clipDur, compTrack, sourceAt, propAt, evalKeys, RAMPS, rampPts, setRamp, KEYABLE } from './model.js';
 import { effectsCss, VFX, newEffect } from './effects.js';
@@ -104,8 +105,8 @@ export function labsWorkHTML() {
     <div class="lw-grid">
       <aside class="lw-list" data-llist></aside>
       <div class="lw-stage"><div class="lw-frame" data-lframe><video muted playsinline preload="auto" data-lvid></video><div class="lw-ov" data-lov></div></div>
-        <div class="lw-tr"><button class="icon-btn" data-l="start" aria-label="Go to start" title="Go to start (Home)">⏮</button><button class="icon-btn" data-l="back" aria-label="One frame back" title="One frame back (←)">‹</button>
-          <button class="icon-btn lw-play" data-l="play" aria-label="Play" title="Play / pause (Space)">▶</button><button class="icon-btn" data-l="fwd" aria-label="One frame on" title="One frame on (→)">›</button><button class="icon-btn" data-l="end" aria-label="Go to end" title="Go to end (End)">⏭</button>
+        <div class="lw-tr"><button class="icon-btn" data-l="start" aria-label="Go to start" title="Go to start (Home)">${ic('start')}</button><button class="icon-btn" data-l="back" aria-label="One frame back" title="One frame back (←)">‹</button>
+          <button class="icon-btn lw-play" data-l="play" aria-label="Play" title="Play / pause (Space)">${ic('play')}</button><button class="icon-btn" data-l="fwd" aria-label="One frame on" title="One frame on (→)">›</button><button class="icon-btn" data-l="end" aria-label="Go to end" title="Go to end (End)">${ic('end')}</button>
           <span class="mono lw-tc" data-ltc>0:00.00</span><span class="mono lw-dur" data-ldur></span><label class="lw-zoom" title="Zoom the Labs timeline (Ctrl + mouse wheel over it)"><span>Zoom</span><input type="range" data-lzoom min="1" max="12" step="0.5" value="1"></label></div></div>
       <aside class="lw-insp" data-linsp></aside>
     </div>
@@ -371,7 +372,7 @@ function drawInspector(valuesOnly = false) {
       <label class="lwi-f"><span>Ease to the next</span><select data-f="ke">${EASES.map(([v, l]) => `<option value="${v}"${(k.ease || '') === v || (k.ease === true && v === 'io') ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
       <button class="small danger" data-l="delkey">Delete keyframe</button></div>` : ''}
     <div class="lwi-sec"><h4>Motion <small data-at>at ${fmtT(T)}</small></h4>
-      ${PROPS.map(([p, l, st]) => `<div class="lwi-prop"><span>${l}</span><input type="number" data-f="val" data-p="${p}" value="${+(+propAt(c, p, T) || 0).toFixed(3)}" step="${st}"><button class="icon-btn lwi-kb${c.keys?.[p]?.length ? ' on' : ''}" data-l="addkey" data-p="${p}" title="Keyframe at the playhead" aria-label="Add keyframe">◆</button>${c.keys?.[p]?.length ? `<button class="lab-link" data-l="clrkeys" data-p="${p}" title="Remove its keyframes">Clear</button>` : '<span></span>'}</div>`).join('')}</div>
+      ${PROPS.map(([p, l, st]) => `<div class="lwi-prop"><span>${l}</span><input type="number" data-f="val" data-p="${p}" value="${+(+propAt(c, p, T) || 0).toFixed(3)}" step="${st}"><button class="icon-btn lwi-kb${c.keys?.[p]?.length ? ' on' : ''}" data-l="addkey" data-p="${p}" title="Keyframe at the playhead" aria-label="Add keyframe">${ic('diamond')}</button>${c.keys?.[p]?.length ? `<button class="lab-link" data-l="clrkeys" data-p="${p}" title="Remove its keyframes">Clear</button>` : '<span></span>'}</div>`).join('')}</div>
     <div class="lwi-sec"><h4>Speed</h4>
       <div class="lwi-2"><label class="lwi-f"><span>Speed</span>${num('speed', c.speed || 1, 0.05, 'min="0.1" max="8"')}</label>
       <label class="lwi-f"><span>Speed ramp</span><select data-f="ramp"><option value="">None</option>${Object.entries(RAMPS).map(([k2, r]) => `<option value="${k2}"${c.ramp === k2 ? ' selected' : ''}>${esc(r.label)}</option>`).join('')}</select></label></div>
@@ -455,7 +456,7 @@ function frame() {
 function toggle() {
   const L = labOpen(), v = root.querySelector('[data-lvid]'), b = root.querySelector('[data-l="play"]');
   if (!L) return;
-  playing = !playing; b.textContent = playing ? '⏸' : '▶';
+  playing = !playing; b.innerHTML = ic(playing ? 'pause' : 'play');
   if (!playing) { cancelAnimationFrame(raf); v.pause(); drawInspector(true); return; }
   if (T >= L.dur - 0.05) T = 0;
   let last = performance.now();

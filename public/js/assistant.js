@@ -1,6 +1,7 @@
 // 💬 Assistant: type what you want changed - Hinglish, Hindi or English - and it changes the edit.
 // Works offline: each sentence is split into parts ("music dheema karo aur color warm kar do") and every part is matched
 // against the commands below. All changes from one message are a single undo step ("undo" / Ctrl+Z).
+import { ic } from './lineicons.js';
 import { S, on, emit, commit, undo, redo, duration, layout } from './store.js';
 import { api, enc, watchJob, upload } from './api.js';
 import { uid, RAMPS, setRamp, setTransition } from './model.js';
@@ -23,7 +24,7 @@ const EXAMPLES = [
   'music dheema karo', 'color warm kar do', 'voice over badlo', '3rd shot hata do', 'video 30 sec ki karo',
   'sab cuts par dissolve lagao', 'title "Viksit Bharat" lagao', 'awaaz saaf karo', 'pace tez karke dobara edit karo', 'undo',
 ];
-const QUICK = [['Stabilize', 'stabilize karo'], ['Cinematic', 'cinematic banao'], ['Sound design', 'sound design karo'], ['Light leaks', 'light leak lagao'], ['Change VO', 'voice over badlo'], ['Change music', 'music badlo'], ['Redo colour', 'auto color karo'], ['Re-edit all', 'dobara edit karo'], ['Faster pace', 'pace tez karke dobara edit karo'], ['↶ Undo', 'undo']];
+const QUICK = [['Stabilize', 'stabilize karo'], ['Cinematic', 'cinematic banao'], ['Sound design', 'sound design karo'], ['Light leaks', 'light leak lagao'], ['Change VO', 'voice over badlo'], ['Change music', 'music badlo'], ['Redo colour', 'auto color karo'], ['Re-edit all', 'dobara edit karo'], ['Faster pace', 'pace tez karke dobara edit karo'], ['Undo', 'undo']];
 
 export function mountAssistant(busyFn) {
   setBusy = busyFn;
@@ -35,7 +36,7 @@ export function mountAssistant(busyFn) {
     <div class="as-quick">${QUICK.map(([l, c]) => `<button class="chip" data-cmd="${esc(c)}">${l}</button>`).join('')}</div>
     <div class="as-log" aria-live="polite"></div>
     <div class="as-refs" hidden></div>
-    <form class="as-in"><label class="icon-btn as-att" title="Attach a reference video or photo - Claude takes it apart and makes the same edit with your footage">📎<input type="file" hidden accept="video/*,image/*,.mxf,.mts"></label><textarea rows="2" placeholder="e.g. music dheema karo aur color thoda warm kar do"></textarea><button class="primary" type="submit">Send</button></form>
+    <form class="as-in"><label class="icon-btn as-att" title="Attach a reference video or photo - Claude takes it apart and makes the same edit with your footage">${ic('attach')}<input type="file" hidden accept="video/*,image/*,.mxf,.mts"></label><textarea rows="2" placeholder="e.g. music dheema karo aur color thoda warm kar do"></textarea><button class="primary" type="submit">Send</button></form>
   </aside>`);
   document.body.append(root);
   const ta = $('textarea', root);
@@ -131,7 +132,7 @@ function draw() {
   if (!root) return;
   if (S.proj && chatsFor !== S.proj) loadChats();
   const el = $('.as-log', root);
-  el.innerHTML = log.map((m) => `<div class="as-msg ${m.who}">${esc(m.text).replace(/\n/g, '<br>')}</div>`).join('') + (cl.job ? `<div class="as-msg as-prog"><div class="as-prog-top"><b>${cl.prog ? `${cl.prog.pct}%` : ''}</b><span class="grow">${esc(cl.prog?.label || 'Working')}…</span><span class="muted small">${cl.model ? `${esc(cl.model)} · ` : ''}${cl.prog ? Math.floor((Date.now() - cl.prog.t0) / 60000) + ' min' : ''}</span><button class="link small" data-clstop>■ Stop</button></div><div class="bar"><div style="width:${cl.prog?.pct || 2}%"></div></div></div>` : '');
+  el.innerHTML = log.map((m) => `<div class="as-msg ${m.who}">${esc(m.text).replace(/\n/g, '<br>')}</div>`).join('') + (cl.job ? `<div class="as-msg as-prog"><div class="as-prog-top"><b>${cl.prog ? `${cl.prog.pct}%` : ''}</b><span class="grow">${esc(cl.prog?.label || 'Working')}…</span><span class="muted small">${cl.model ? `${esc(cl.model)} · ` : ''}${cl.prog ? Math.floor((Date.now() - cl.prog.t0) / 60000) + ' min' : ''}</span><button class="link small" data-clstop>Stop</button></div><div class="bar"><div style="width:${cl.prog?.pct || 2}%"></div></div></div>` : '');
   el.scrollTop = el.scrollHeight;
   if (cl.mode === 'claude') saveChats();
 }
@@ -162,7 +163,7 @@ async function checkClaude(force = false) {
 }
 async function newChat() {
   if (!S.proj) return;
-  if (cl.job) return say('Claude is still on the previous task - let it finish or press ■ Stop.');
+  if (cl.job) return say('Claude is still on the previous task - let it finish or press Stop.');
   await api('POST', `/api/claude/new?p=${enc(S.proj)}${S.seqMap ? `&seq=${enc(S.seqMap.mine)}` : ''}`).catch(() => {});
   chatId = null; log.length = 0; say(`New chat started. The earlier ones are kept in Chats (last ${CHATS_KEPT}). What shall we make?`);
 }
@@ -171,7 +172,7 @@ const refs = [];
 function drawRefs() {
   const el = $('.as-refs', root); if (!el) return;
   el.hidden = !refs.length;
-  el.innerHTML = refs.map((r, i) => `<span class="chip as-ref">${r.kind === 'image' ? '🖼' : '🎞'} ${esc(r.name)}${r.ready ? '' : ` <span class="muted">${r.pct}%</span>`} <button class="link" data-unref="${i}" aria-label="Remove ${esc(r.name)}">✕</button></span>`).join('') + (refs.length ? '<span class="muted small">Claude will copy this edit with your footage</span>' : '');
+  el.innerHTML = refs.map((r, i) => `<span class="chip as-ref">${esc(r.name)}${r.ready ? '' : ` <span class="muted">${r.pct}%</span>`} <button class="link" data-unref="${i}" aria-label="Remove ${esc(r.name)}">✕</button></span>`).join('') + (refs.length ? '<span class="muted small">Claude will copy this edit with your footage</span>' : '');
 }
 // what Claude is told about the attached references (it takes them apart with edtool ref, then rebuilds the edit)
 const refNote = (list) => `
@@ -183,7 +184,7 @@ export async function askClaude(text, { show = true, display = null } = {}) {
   setMode('claude');
   text = String(text || '').trim();
   if (!text || !S.proj) return;
-  if (cl.job) return say('Claude is still on the previous task - let it finish or press ■ Stop.');
+  if (cl.job) return say('Claude is still on the previous task - let it finish or press Stop.');
   log.push({ who: 'me', text: display || text }); draw();
   let st = await checkClaude();
   if (!st?.available) st = await checkClaude(true); // (a remembered failure can be a passing network blip: ask again before giving up)
@@ -234,7 +235,7 @@ async function send(text) {
   if (!text && !ready.length) return;
   if (!S.project) return toast('Open a project first', 'err');
   if (ready.length) { // 📎 a message with references goes to Claude
-    if (cl.job) return say('Claude is still on the previous task - let it finish or press ■ Stop.');
+    if (cl.job) return say('Claude is still on the previous task - let it finish or press Stop.');
     const msg = text || 'Is reference jaisa same-to-same edit bana do, meri footage se.';
     refs.length = 0; drawRefs();
     return askClaude(msg + refNote(ready), { show: false, display: `${msg}

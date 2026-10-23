@@ -1,5 +1,6 @@
 // Audio page (Fairlight-style mixer): one strip per track with preset, EQ, noise reduction, de-esser, compressor,
 // gain, limiter, live meter, fader, mute/solo; music ducking controls; master loudness target + EBU R128 measurement.
+import { ic } from './lineicons.js';
 import { STUDIO_HTML, studio } from './audiostudio.js';
 import { S, on, emit, commit, duration, layout, findClip } from './store.js';
 import { AFX, AFX_CATS, newAudioEffect } from './audioeffects.js';
@@ -24,8 +25,8 @@ export function mountAudio(el) {
   root = el;
   el.innerHTML = `<div class="ap">
     <div class="panel ap-top">
-      <button class="icon-btn" data-au="start" title="Start (Home)">⏮</button>
-      <button class="icon-btn play" data-au="play" title="Play / pause (Space)">▶</button>
+      <button class="icon-btn" data-au="start" title="Start (Home)">${ic('start')}</button>
+      <button class="icon-btn play" data-au="play" title="Play / pause (Space)">${ic('play')}</button>
       <span class="tc big" id="apTC">00:00:00:00</span>
       <span class="grow"></span>
       <span class="ap-live" id="apLive" title="Rough live level of the master output">Live ≈ -- LUFS</span>
@@ -142,7 +143,7 @@ function strip(s, used) {
       <label class="chk"><input type="checkbox" data-fx="limit"${fx.limit ? ' checked' : ''}> Limiter (-1 dB)</label>
     </div>
     <div class="slots"><b>Effects</b> <small>(Premiere's track effect inserts)</small>
-      ${(x.aeffects || []).map((e, i) => `<div class="slot${e.on === false ? ' off' : ''}"><button class="slot-n" data-au="slotEdit" data-i="${i}" title="Adjust">${esc(AFX[e.type]?.label || e.type)}</button><button class="icon-btn small" data-au="slotOn" data-i="${i}" title="On / off">${e.on === false ? '◌' : '●'}</button><button class="icon-btn small" data-au="slotDel" data-i="${i}" title="Remove">✕</button></div>`).join('')}
+      ${(x.aeffects || []).map((e, i) => `<div class="slot${e.on === false ? ' off' : ''}"><button class="slot-n" data-au="slotEdit" data-i="${i}" title="Adjust">${esc(AFX[e.type]?.label || e.type)}</button><button class="icon-btn small" data-au="slotOn" data-i="${i}" title="On / off">${ic(e.on === false ? 'circle' : 'radio')}</button><button class="icon-btn small" data-au="slotDel" data-i="${i}" title="Remove">✕</button></div>`).join('')}
       <select data-slotadd aria-label="Add an effect to ${s.name}"><option value="">+ Add effect…</option>${AFX_CATS.map((cat) => `<optgroup label="${esc(cat)}">${Object.entries(AFX).filter(([, a]) => a.cat === cat && !a.meter).map(([k, a]) => `<option value="${k}">${esc(a.label)}</option>`).join('')}</optgroup>`).join('')}</select>
     </div>
     ${s.id === 'A2' ? `<div class="duck"><b>Ducking</b> <small>music dips under speech</small>
@@ -188,7 +189,7 @@ async function onClick(e) {
   if (a === 'slotOn' && sl?.[si]) { sl[si].on = sl[si].on === false; commit(`${id} effect on/off`); emit('mix'); }
   if (a === 'slotDel' && sl?.[si]) { sl.splice(si, 1); if (!sl.length) delete st(id).aeffects; commit(`${id} remove effect`); emit('mix'); }
 }
-function syncPlay() { const b = $('[data-au="play"]', root); if (b) b.textContent = isPlayingProgram() ? '❚❚' : '▶'; }
+function syncPlay() { const b = $('[data-au="play"]', root); if (b) b.innerHTML = ic(isPlayingProgram() ? 'pause' : 'play'); }
 
 async function measure(btn) {
   if (!Object.values(S.project.tracks).flat().length) return toast('The timeline is empty', 'err');

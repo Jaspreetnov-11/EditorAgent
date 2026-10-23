@@ -21,7 +21,7 @@ export function openHistory() {
 function draw() {
   const box = dlg && $('[data-hs]', dlg.el); if (!box) return;
   const { done, undone } = historySteps();
-  box.innerHTML = `<button class="hs-row${done.length ? '' : ' cur'}" data-hs-go="0">⟲ Start (when this project opened)</button>`
+  box.innerHTML = `<button class="hs-row${done.length ? '' : ' cur'}" data-hs-go="0">Start (when this project opened)</button>`
     + done.map((l, i) => `<button class="hs-row${i === done.length - 1 ? ' cur' : ''}" data-hs-go="${i + 1}">${esc(l)}</button>`).join('')
     + undone.map((l, i) => `<button class="hs-row off" data-hs-go="${done.length + i + 1}">${esc(l)}</button>`).join('');
   box.querySelector('.cur')?.scrollIntoView({ block: 'nearest' });

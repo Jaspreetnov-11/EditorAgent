@@ -1,0 +1,189 @@
+/* Limelight Black - the premium look of the Studio UI (html.ui2[data-look="limelight"], set in index.html).
+   Clean and minimal: true black, quiet graphite cards with hairline edges, Inter type, one accent - the Limelight yellow
+   play-triangle. Loaded after ui2.css; the bottom page bar and the Color page keep their own look (asked for), and the
+   Classic look (no .ui2) is untouched. */
+
+@font-face { font-family: "LL Inter"; src: url(/fonts/Inter-Regular.ttf) format("truetype"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "LL Inter"; src: url(/fonts/Inter-Medium.ttf) format("truetype"); font-weight: 500; font-display: swap; }
+@font-face { font-family: "LL Inter"; src: url(/fonts/Inter-SemiBold.ttf) format("truetype"); font-weight: 600; font-display: swap; }
+@font-face { font-family: "LL Inter"; src: url(/fonts/Inter-Bold.ttf) format("truetype"); font-weight: 700; font-display: swap; }
+@font-face { font-family: "LL Inter"; src: url(/fonts/Inter-ExtraBold.ttf) format("truetype"); font-weight: 800; font-display: swap; }
+
+html.ui2[data-look="limelight"] {
+  --bg: #050505; --bg-2: #0a0a0b; --panel: #0e0e10; --panel-2: #17171a; --panel-3: #222226; --line: #1c1c1f; --line-2: #2a2a2e;
+  --text: #f7f7f8; --muted: #9b9ba1; --faint: #5f5f66;
+  --accent: #ffc21a; --accent-2: #ffd252; --accent-ink: #111111; --accent-soft: #ffc21a1a; --accent-line: #ffc21a80;
+  --y-grad: linear-gradient(180deg, #ffd85a 0%, #ffc21a 60%, #f4ad00 100%);
+  --gold-grad: var(--y-grad);
+  --hair: rgba(255,255,255,.065); --hair-2: rgba(255,255,255,.1);
+  --lift: 0 1px 0 rgba(255,255,255,.04) inset, 0 12px 32px -18px rgba(0,0,0,.9);
+  --glass: rgba(20,20,23,.97);
+  --v-clip: #0d6fa8; --v2-clip: #5b5bd6; --a-clip: #2f7d4f; --t-clip: #6b6b6b;
+  --clip-vb: #10263a; --clip-vl: #0d6fa8; --clip-vs: #1a86c4; --clip-ab: #13291c; --clip-al: #2f7d4f; --clip-as: #3a9761; --clip-tl: #5d5d66;
+  --tc: #f7f7f8; --r: 12px; --hdr: 48px;
+  /* Helvetica Now (installed on the editing PC); PCs without it fall back to Helvetica Neue / Helvetica, then the bundled Inter */
+  --ui-font: "Helvetica Now Text", "Helvetica Neue", Helvetica, "LL Inter", Arial, "Nirmala UI", sans-serif;
+  --brand-font: "Helvetica Now Display", "Helvetica Neue", Helvetica, "LL Inter", Arial, sans-serif;
+  --tri: url(/img/limelight-triangle.svg);
+  --mono: "Cascadia Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
+  --shadow-lg: 0 0 0 1px var(--hair-2) inset, 0 32px 80px -24px rgba(0,0,0,.95);
+}
+html.ui2[data-look="limelight"], html.ui2[data-look="limelight"] body { background: var(--bg); }
+html.ui2[data-look="limelight"] body { font: 12.5px/1.45 var(--ui-font); letter-spacing: .005em; }
+html.ui2[data-look="limelight"] ::selection { background: rgba(255,194,26,.28); }
+html.ui2[data-look="limelight"] :not(#colorPage, #colorPage *)::-webkit-scrollbar-thumb { background-color: #2a2a2e; }
+html.ui2[data-look="limelight"] :not(#colorPage, #colorPage *)::-webkit-scrollbar-thumb:hover { background-color: #3a3a3f; }
+html.ui2[data-look="limelight"] :not(#colorPage, #colorPage *) { scrollbar-color: #2a2a2e transparent; }
+
+/* ---------- line icons (public/js/lineicons.js) ---------- */
+html.ui2[data-look="limelight"] .lic { width: 14px; height: 14px; flex: none; vertical-align: -2px; }
+
+/* ---------- header and menu bar: black glass, one hairline with a touch of yellow light ---------- */
+html.ui2[data-look="limelight"] :is(.top, .menubar):not(#colorPage *) { background: rgba(5,5,5,.86) !important; backdrop-filter: blur(20px) saturate(1.4); border-bottom-color: transparent; }
+html.ui2[data-look="limelight"] .top::after { display: block; content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; pointer-events: none;
+  background: linear-gradient(90deg, rgba(255,194,26,.35), var(--hair) 22%, var(--hair) 78%, transparent); }
+html.ui2[data-look="limelight"] .tgroup { background: transparent; border-color: transparent; }
+html.ui2[data-look="limelight"] .top :is(button, .btn):not(.primary):not(.jobchip):not(#colorPage *) { background: transparent; border-color: transparent; box-shadow: none; color: #d4d4d8; }
+html.ui2[data-look="limelight"] .top :is(button, .btn):not(.primary):not(.jobchip):hover:not(:disabled) { background: #17171a; color: #fff; }
+html.ui2[data-look="limelight"] .top button.accent { border-color: transparent !important; background: #17171a; color: var(--text); }
+html.ui2[data-look="limelight"] .mb-top { border-radius: 6px; color: #c9c9cf; }
+/* (an open / hovered menu shows in the Limelight yellow - a near-black one could not be seen: "selection mein black aara hai") */
+html.ui2[data-look="limelight"] .top .menubar .mb-top:is(:hover, .on):not(.primary):not(#colorPage *), html.ui2[data-look="limelight"] .menubar .mb-top:is(:hover, .on):not(#colorPage *) { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent-line); }
+
+/* ---------- the brand: the official "limelight" wordmark with its yellow triangle (white for the dark UI), no "Editor" ---------- */
+.brand-logo { height: 20px; width: auto; display: block; }
+html.ui2[data-look="limelight"] .pb-brand { padding: 4px 10px; background: transparent; border-color: transparent; box-shadow: none; }
+html.ui2[data-look="limelight"] .brand:hover { background: #121215; border-color: transparent; }
+html.ui2[data-look="limelight"] .brand:hover .brand-logo { filter: drop-shadow(0 0 10px rgba(255,194,26,.25)); }
+
+/* ---------- panels: cards with a hairline edge and a whisper of light on top ---------- */
+html.ui2[data-look="limelight"] .edit-grid { gap: 8px; padding: 8px; }
+html.ui2[data-look="limelight"] .panel:not(#colorPage *) { background: linear-gradient(180deg, #111113, #0d0d0f 140px); border-color: transparent; border-radius: var(--r); box-shadow: 0 0 0 1px var(--hair) inset, var(--lift); }
+html.ui2[data-look="limelight"] .panel:focus-within:not(#colorPage *) { border-color: transparent; box-shadow: 0 0 0 1px rgba(255,194,26,.28) inset, var(--lift); }
+html.ui2[data-look="limelight"] :is(.vw-head, .tl-bar, .ptabs, .ihead, .mon-dock, .vw-ctrl, .sm-ctrl, .sm-actions):not(#colorPage *, .pagebar *) { background: transparent; border-color: var(--hair); }
+html.ui2[data-look="limelight"] .edit-grid :is(.ui-dock, .mon-dock) { background: #0f0f11; border-color: transparent; box-shadow: 0 0 0 1px var(--hair) inset; }
+html.ui2[data-look="limelight"] :is(.isec, .th):not(#colorPage *) { border-color: var(--hair); }
+html.ui2[data-look="limelight"] :is(.isec > h4, .isec-h, .ihead h3):not(#colorPage *, .pagebar *) { font-size: 10.5px; font-weight: 650; letter-spacing: .09em; text-transform: uppercase; color: var(--faint); }
+html.ui2[data-look="limelight"] h2:not(#colorPage *, .pagebar *, #home *) { font-size: 10.5px; font-weight: 650; letter-spacing: .09em; color: var(--faint); }
+
+/* ---------- tabs: a segmented control, the open one an engraved pill ---------- */
+html.ui2[data-look="limelight"] :is(.ptabs, .ui-dock, .mon-dock) button { font-family: var(--ui-font); font-weight: 550; letter-spacing: -.005em; text-transform: none; font-size: 12px; border-radius: 7px !important; margin: 4px 1px; padding: 3px 11px; background: transparent; box-shadow: none; }
+html.ui2[data-look="limelight"] :is(.ptabs button[aria-selected="true"], .ui-dock button.on, .ui-dock button[aria-selected="true"], .mon-dock button[aria-selected="true"]) {
+  background: linear-gradient(180deg, #26262a, #1d1d21) !important; color: #fff; box-shadow: 0 0 0 1px var(--hair-2) inset, 0 1px 2px rgba(0,0,0,.6); }
+html.ui2[data-look="limelight"] :is(.ptabs button[aria-selected="true"], .vw-head .segbtns button.on, .mon-dock button[aria-selected="true"])::after { display: none; }
+
+/* ---------- controls: hairline-edged, soft, tactile ---------- */
+:where(html.ui2[data-look="limelight"]) button:where(:not(#colorPage *, .pagebar *, .menubar *, .th *, .tl-tools *, .vw-ctrl *, .sm-ctrl *, .icon-btn)) {
+  border-color: transparent; background: #151518; border-radius: 8px; box-shadow: 0 0 0 1px var(--hair) inset; transition: background .15s, box-shadow .15s, transform .1s; }
+:where(html.ui2[data-look="limelight"]) button:hover:not(:disabled):where(:not(#colorPage *, .pagebar *, .menubar *, .th *, .tl-tools *, .vw-ctrl *, .sm-ctrl *, .icon-btn)) {
+  border-color: transparent; background: #1e1e22; box-shadow: 0 0 0 1px var(--hair-2) inset; }
+:where(html.ui2[data-look="limelight"]) button:active:not(:disabled):where(:not(#colorPage *, .pagebar *)) { transform: translateY(.5px); }
+:where(html.ui2[data-look="limelight"]) button.primary:where(:not(#colorPage *, .pagebar *)) { background: var(--y-grad); border-color: transparent; color: #111; font-weight: 650; border-radius: 8px;
+  box-shadow: 0 0 0 1px rgba(255,214,90,.6) inset, 0 1px 0 rgba(255,255,255,.45) inset, 0 8px 20px -10px rgba(255,194,26,.75); }
+:where(html.ui2[data-look="limelight"]) button.primary:hover:not(:disabled):where(:not(#colorPage *, .pagebar *)) { background: var(--y-grad); filter: brightness(1.06); border-color: transparent; }
+:where(html.ui2[data-look="limelight"]) button.accent:where(:not(#colorPage *, .pagebar *)) { background: rgba(255,194,26,.08); color: #ffd252; box-shadow: 0 0 0 1px rgba(255,194,26,.4) inset; border-color: transparent; }
+:where(html.ui2[data-look="limelight"]) button.link:where(:not(#colorPage *, .pagebar *)) { background: none; box-shadow: none; color: #ffd252; }
+:where(html.ui2[data-look="limelight"]) .icon-btn:where(:not(#colorPage *, .pagebar *)) { background: transparent; border-color: transparent; box-shadow: none; color: #b8b8be; border-radius: 7px; }
+:where(html.ui2[data-look="limelight"]) .icon-btn:hover:not(:disabled):where(:not(#colorPage *, .pagebar *)) { background: #1b1b1f; color: #fff; }
+:where(html.ui2[data-look="limelight"]) :is(input, select, textarea):where(:not(#colorPage *, .pagebar *)) { background: #0a0a0c; border-color: transparent; border-radius: 8px; box-shadow: 0 0 0 1px var(--hair) inset; }
+:where(html.ui2[data-look="limelight"]) :is(input, select, textarea):hover:where(:not(#colorPage *, .pagebar *)) { border-color: transparent; box-shadow: 0 0 0 1px var(--hair-2) inset; }
+:where(html.ui2[data-look="limelight"]) :is(input, select, textarea):focus:where(:not(#colorPage *, .pagebar *)) { outline: none; border-color: transparent; box-shadow: 0 0 0 1px rgba(255,194,26,.6) inset, 0 0 0 3px rgba(255,194,26,.12); }
+:where(html.ui2[data-look="limelight"]) button:focus-visible:where(:not(#colorPage *, .pagebar *)) { outline: none; box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px rgba(255,194,26,.6); }
+html.ui2[data-look="limelight"] :is(.chip, .bchip):not(#colorPage *, .pagebar *) { border-color: transparent; background: #141417; color: var(--muted); box-shadow: 0 0 0 1px var(--hair) inset; border-radius: 99px; }
+html.ui2[data-look="limelight"] :is(.chip.on, .bchip.on):not(#colorPage *, .pagebar *) { background: rgba(255,194,26,.1); color: #ffd252; box-shadow: 0 0 0 1px rgba(255,194,26,.45) inset; }
+html.ui2[data-look="limelight"] .pool-bar :is(button, .btn) { border-color: transparent; }
+html.ui2[data-look="limelight"] kbd { border-color: var(--hair-2); color: var(--faint); }
+
+/* ---------- monitors: a deep, framed stage and a lit play button ---------- */
+html.ui2[data-look="limelight"] :is(.vw-stage, .sm-stage) { background: radial-gradient(ellipse at center, #0b0b0d 0%, #020202 75%); }
+html.ui2[data-look="limelight"] :is(.vw-ctrl .play, .sm-play) { background: var(--y-grad) !important; color: #111 !important; border-color: transparent !important; box-shadow: 0 6px 18px -8px rgba(255,194,26,.8) !important; }
+html.ui2[data-look="limelight"] :is(.vw-ctrl, .sm-ctrl) .icon-btn { color: #c9c9cf; }
+html.ui2[data-look="limelight"] :is(#vwTC, .tl-tc, .sm-tc) { color: var(--tc); text-shadow: none; font-weight: 500; letter-spacing: .01em; }
+
+/* ---------- timeline: precise lines, calm clips, a lit playhead ---------- */
+html.ui2[data-look="limelight"] .timeline .tl-tools { background: #0e0e10; border-color: var(--hair); }
+html.ui2[data-look="limelight"] :is(.timeline .tl-tools button, .tl-bar button) { color: #c4c4ca; border-radius: 7px; }
+html.ui2[data-look="limelight"] :is(.tl-bar .sep, .timeline .tl-tools .sep) { background: var(--line-2); }
+html.ui2[data-look="limelight"] .tl-heads { background: #0e0e10; border-color: var(--hair); }
+html.ui2[data-look="limelight"] .th-name b { color: var(--text); }
+html.ui2[data-look="limelight"] .tl-row:nth-child(odd) { background: #0e0e10; }
+html.ui2[data-look="limelight"] .tl-row:nth-child(even) { background: #0c0c0e; }
+html.ui2[data-look="limelight"] .tl-row { box-shadow: 0 -1px 0 rgba(255,255,255,.025) inset; }
+html.ui2[data-look="limelight"] .tl-ruler { background: #0b0b0c; }
+html.ui2[data-look="limelight"] .tl-bar .tl-stab { border-color: var(--hair); }
+html.ui2[data-look="limelight"] .tl-bar .tl-stab:hover:not(:disabled) { background: #17171a; }
+html.ui2[data-look="limelight"] .tl-playhead { background: var(--accent) !important; box-shadow: 0 0 8px rgba(255,194,26,.55); }
+html.ui2[data-look="limelight"] .tl-playhead::before { border-top-color: var(--accent) !important; }
+html.ui2[data-look="limelight"] .tl-row .clip { background: var(--clip-vb); border-right-color: var(--bg); border-radius: 3px; }
+html.ui2[data-look="limelight"] .tl-row.audio .clip { background: var(--clip-ab); }
+html.ui2[data-look="limelight"] .tl-row .clip .clip-lbl { background: var(--clip-vl); font-weight: 600; }
+html.ui2[data-look="limelight"] .tl-row.audio .clip .clip-lbl { background: var(--clip-al); }
+html.ui2[data-look="limelight"] :is(.tl-row .clip.t-title, .tl-row .clip.t-graphic) .clip-lbl { background: var(--clip-tl); }
+html.ui2[data-look="limelight"] .tl-row .clip.sel .clip-lbl { background: var(--clip-vs); }
+html.ui2[data-look="limelight"] .tl-row.audio .clip.sel .clip-lbl { background: var(--clip-as); }
+html.ui2[data-look="limelight"] .clip.sel { box-shadow: inset 0 0 0 1.5px #fff; }
+html.ui2[data-look="limelight"] :is(.src-range, .tl-marquee) { background: rgba(255,194,26,.12); }
+html.ui2[data-look="limelight"] .clip:hover .trim { background: rgba(255,194,26,.45); }
+html.ui2[data-look="limelight"] :is(.trim:hover, .clip.sel .trim) { background: var(--accent); }
+html.ui2[data-look="limelight"] .sm-range { background: rgba(255,194,26,.45); }
+
+/* ---------- media: framed thumbnails, a yellow ring when picked ---------- */
+html.ui2[data-look="limelight"] .mi { background: transparent; border-color: transparent; border-radius: 10px; }
+html.ui2[data-look="limelight"] .mi:hover { background: #141417; border-color: transparent; }
+html.ui2[data-look="limelight"] .mi .mi-th { border-radius: 8px; box-shadow: 0 0 0 1px var(--hair) inset; }
+html.ui2[data-look="limelight"] .mi.sel { outline: 0; box-shadow: 0 0 0 1.5px var(--accent); }
+html.ui2[data-look="limelight"] .mi-n { color: var(--text); }
+
+/* ---------- menus, dialogs, toasts: frosted black glass ---------- */
+html.ui2[data-look="limelight"] :is(.ctx, .mb-drop, .menu, .pop, .ui-menu, .seq-menu):not(#colorPage *, .pagebar *) { background: var(--glass); border-color: transparent; border-radius: 12px;
+  backdrop-filter: blur(24px) saturate(1.5); box-shadow: 0 0 0 1px var(--hair-2) inset, 0 24px 60px -16px rgba(0,0,0,.9); }
+html.ui2[data-look="limelight"] :is(.ctx, .mb-drop, .ui-menu) button:is(:hover, :focus-visible):not(:disabled) { background: var(--accent); color: var(--accent-ink); }
+html.ui2[data-look="limelight"] :is(.ctx, .mb-drop, .ui-menu) button:is(:hover, :focus-visible):not(:disabled) kbd { color: inherit; }
+html.ui2[data-look="limelight"] .dlg { background: rgba(16,16,18,.96); backdrop-filter: blur(24px); border-color: transparent; border-radius: 16px; box-shadow: var(--shadow-lg); }
+html.ui2[data-look="limelight"] .dlg-head { background: transparent; border-color: var(--hair); border-radius: 16px 16px 0 0; }
+html.ui2[data-look="limelight"] .dlg-head h3 { font-family: var(--brand-font); font-size: 15px; font-weight: 650; letter-spacing: -.01em; text-transform: none; }
+html.ui2[data-look="limelight"] dialog { border-top-color: transparent !important; }
+html.ui2[data-look="limelight"] .toast { background: var(--glass); backdrop-filter: blur(14px); border-color: transparent; border-left: 2px solid var(--accent); border-radius: 12px; box-shadow: 0 0 0 1px var(--hair-2) inset, 0 14px 40px -12px #000; }
+
+/* ---------- signed-in chip and the Logout button ---------- */
+html.ui2[data-look="limelight"] .me:not([hidden]) { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 4px 0 12px; border-radius: 99px; background: #121215; box-shadow: 0 0 0 1px var(--hair) inset; font-size: 12px; color: var(--text); }
+html.ui2[data-look="limelight"] .me .me-out { height: 22px; padding: 0 10px 0 8px; border: 0; border-radius: 99px; background: #1d1d21; box-shadow: 0 0 0 1px var(--hair) inset; color: var(--text); font-weight: 600; }
+html.ui2[data-look="limelight"] .me .me-out:hover { background: #e5484d; color: #fff; box-shadow: none; }
+html.ui2[data-look="limelight"] .jobchip:not(.qchip) { background: #0f0f11; border-color: transparent; box-shadow: 0 0 0 1px var(--hair) inset; border-radius: 99px; }
+
+/* ---------- home: a spotlight hero and lifted cards ---------- */
+html.ui2[data-look="limelight"] #home { background: radial-gradient(900px 480px at 8% -12%, rgba(255,194,26,.09), transparent 62%), radial-gradient(700px 300px at 100% 0%, rgba(255,255,255,.03), transparent 60%), var(--bg); }
+.home-brand .hb-logo { height: 92px; width: auto; display: block; }
+html.ui2[data-look="limelight"] .home-brand { position: relative; margin: 10px 0 30px; }
+html.ui2[data-look="limelight"] .home-brand .hb-logo { height: 100px; }
+html.ui2[data-look="limelight"] #home h1 { font-family: var(--brand-font); font-size: 30px; font-weight: 700; letter-spacing: -.02em; text-transform: none; display: flex; align-items: center; gap: 0; }
+
+/* ---------- the logo's triangle, played with here and there ---------- */
+/* home: a big, very faint triangle like a beam of light, top right */
+html.ui2[data-look="limelight"] #home { position: relative; }
+html.ui2[data-look="limelight"] #home::before { content: ""; position: fixed; width: 900px; height: 900px; right: -260px; top: -340px; background: var(--tri) center / contain no-repeat; opacity: .035; transform: rotate(8deg); pointer-events: none; z-index: 0; }
+/* "Projects" ends with the triangle, like the logo's t */
+html.ui2[data-look="limelight"] #home h1::after { content: ""; display: inline-block; width: 13px; height: 13px; margin: 0 0 14px 6px; background: var(--tri) center / contain no-repeat; }
+/* section labels in panels start with a tiny triangle */
+html.ui2[data-look="limelight"] :is(.isec > h4, .isec-h):not(#colorPage *, .pagebar *)::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 6px; vertical-align: 0; background: var(--tri) center / contain no-repeat; opacity: .9; }
+/* the open folder on Home: the triangle in its corner */
+html.ui2[data-look="limelight"] .pf-chip.on::after { content: ""; position: absolute; top: 10px; right: 10px; width: 11px; height: 11px; background: var(--tri) center / contain no-repeat; }
+/* toasts: the triangle instead of a coloured edge */
+html.ui2[data-look="limelight"] .toast { border-left: 0; padding-left: 30px; position: relative; }
+html.ui2[data-look="limelight"] .toast::before { content: ""; position: absolute; left: 12px; top: 50%; width: 10px; height: 10px; margin-top: -5px; background: var(--tri) center / contain no-repeat; }
+/* a running job: the triangle pulses instead of a dot */
+html.ui2[data-look="limelight"] .jc-dot { width: 9px; height: 9px; border-radius: 0; background: var(--tri) center / contain no-repeat; box-shadow: none; }
+/* dialogs: the title starts with the triangle */
+html.ui2[data-look="limelight"] .dlg-head h3::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 8px; background: var(--tri) center / contain no-repeat; }
+/* the picked media file: a small triangle tag in the corner */
+html.ui2[data-look="limelight"] .mi.sel { position: relative; }
+html.ui2[data-look="limelight"] .mi.sel::after { content: ""; position: absolute; top: 6px; right: 6px; width: 12px; height: 12px; background: var(--tri) center / contain no-repeat; filter: drop-shadow(0 1px 2px rgba(0,0,0,.8)); }
+html.ui2[data-look="limelight"] :is(.pf-chip, .proj) { background: linear-gradient(180deg, #121214, #0d0d0f); border-color: transparent; border-radius: 14px; box-shadow: 0 0 0 1px var(--hair) inset, var(--lift); transition: transform .18s, box-shadow .18s; }
+html.ui2[data-look="limelight"] :is(.pf-chip, .proj):hover { transform: translateY(-2px); box-shadow: 0 0 0 1px var(--hair-2) inset, 0 20px 40px -20px rgba(0,0,0,.95); }
+html.ui2[data-look="limelight"] .pf-chip .pf-back { fill: #29292d; } html.ui2[data-look="limelight"] .pf-chip .pf-front { fill: #3a3a3f; }
+html.ui2[data-look="limelight"] .pf-chip.pf-all .pf-back { fill: #9a7400; } html.ui2[data-look="limelight"] .pf-chip.pf-all .pf-front { fill: var(--accent); }
+html.ui2[data-look="limelight"] .pf-chip.on { background: linear-gradient(180deg, rgba(255,194,26,.12), rgba(255,194,26,.04)); box-shadow: 0 0 0 1px rgba(255,194,26,.45) inset; }
+html.ui2[data-look="limelight"] .pf-chip.add { border: 0; box-shadow: 0 0 0 1px var(--hair-2) inset; background: transparent; }
+html.ui2[data-look="limelight"] .proj-th { border-radius: 14px 14px 0 0; }
+html.ui2[data-look="limelight"] .lw-item.on { border-color: rgba(255,194,26,.5); background: rgba(255,194,26,.08); }
+html.ui2[data-look="limelight"] :is(.lw-sw, .lbt-clip) { background: var(--y-grad); color: #111; }

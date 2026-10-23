@@ -7,7 +7,7 @@
 // One maths for the viewer (a small picture used as a CSS mask) and the render (a PNG laid in with FFmpeg's alphamerge).
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
-export const MASK_SHAPES = [['ellipse', '◯ Ellipse'], ['rect', '▭ Rectangle']];
+export const MASK_SHAPES = [['ellipse', 'Ellipse'], ['rect', 'Rectangle']];
 export const newMask = (shape = 'ellipse') => ({ shape, x: 0.5, y: 0.5, w: shape === 'ellipse' ? 0.32 : 0.4, h: shape === 'ellipse' ? 0.5 : 0.4, feather: 40, expand: 0, opacity: 1, invert: false });
 
 // how much of the picture shows at each pixel, 0..255, for a W x H frame

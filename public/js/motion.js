@@ -460,7 +460,7 @@ export const COMP_PRESETS = {
     c.layers = [tx, bar];
     return c;
   } },
-  lower: { name: '▭ Lower third (slide + typewriter)', make: (w, h) => {
+  lower: { name: 'Lower third (slide + typewriter)', make: (w, h) => {
     const c = newComp('Lower third', w, h, 6);
     const box = newLayer('shape', c, { name: 'Box' });
     Object.assign(box.shape, { size: [760, 150], roundness: 12, fill: '#0b2545' });
@@ -497,7 +497,7 @@ export const COMP_PRESETS = {
     c.layers = [tx];
     return c;
   } },
-  matte: { name: '◐ Text-matte reveal (shape through text)', make: (w, h) => {
+  matte: { name: 'Text-matte reveal (shape through text)', make: (w, h) => {
     const c = newComp('Text matte', w, h, 5);
     const tx = newLayer('text', c, { name: 'Matte text' });
     Object.assign(tx.text, { text: 'BHARAT', size: 320, weight: 900 }); tx.tr.position = [w / 2, h / 2];

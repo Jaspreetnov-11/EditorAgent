@@ -23,14 +23,14 @@ export async function openSessions() {
       <p class="muted small">Time counts only while someone is really using the editor (its tab in front, mouse or keys used in the last 5 minutes). A pause of more than 3 minutes, or another project, starts a new session. The last ${data.keepDays} days are kept.</p>
       ${ppl.length ? `<table class="ss-tab"><thead><tr><th>Person</th><th>Today</th><th>7 days</th><th>30 days</th><th>Sessions</th><th>Last seen</th><th class="ss-bars-h">Last 30 days</th></tr></thead><tbody>
         ${ppl.map((p) => `<tr class="ss-row${open.has(p.name) ? ' open' : ''}" data-p="${esc(p.name)}">
-          <td><b>${esc(p.name)}</b>${p.online ? ' <span class="good small">● working now</span>' : ''}</td><td>${dur(p.today)}</td><td>${dur(p.week)}</td><td><b>${dur(p.month)}</b></td><td>${p.sessions}</td>
+          <td><b>${esc(p.name)}</b>${p.online ? ' <span class="good small">working now</span>' : ''}</td><td>${dur(p.today)}</td><td>${dur(p.week)}</td><td><b>${dur(p.month)}</b></td><td>${p.sessions}</td>
           <td class="muted">${day(p.lastSeen)} ${hm(p.lastSeen)}</td>
           <td><div class="ss-bars">${days.map((d) => { const v = p.days[key(d)] || 0; return `<i style="height:${Math.round((v / maxDay) * 100)}%" title="${day(d)}: ${dur(v)}"></i>`; }).join('')}</div></td></tr>
           ${open.has(p.name) ? `<tr class="ss-detail"><td colspan="7"><div class="ss-list">${p.list.map((s) => `<div><span>${day(s.start)}</span><span class="mono">${hm(s.start)} - ${hm(s.end + 60000)}</span><b>${dur(s.ms)}</b><span class="grow">${esc(s.project || '(home)')}</span><span class="muted small">${esc(s.where || '')}</span></div>`).join('')}</div></td></tr>` : ''}`).join('')}
       </tbody></table>` : '<p class="muted">No sessions yet - they appear as people work in the editor.</p>'}
       <h4>Sign-ins from other computers</h4>
       <div class="ss-list ss-logins">${data.logins.length ? data.logins.slice(0, 60).map((l) => `<div><span>${day(l.t)}</span><span class="mono">${hm(l.t)}</span><b>${esc(l.name)}</b><span class="muted small grow">${esc(l.ip || '')}</span></div>`).join('') : '<div class="muted">None in the last 30 days.</div>'}</div>
-      <div class="row-in" style="justify-content:flex-end"><button class="small" data-csv>CSV (30 days)</button><button class="small" data-reload>↻ Refresh</button></div>`;
+      <div class="row-in" style="justify-content:flex-end"><button class="small" data-csv>CSV (30 days)</button><button class="small" data-reload>Refresh</button></div>`;
   };
   box.addEventListener('click', async (e) => {
     const r = e.target.closest('.ss-row');

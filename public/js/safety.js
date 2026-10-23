@@ -44,7 +44,7 @@ export async function openSafety(tab = 'health') {
   dlg.el.querySelectorAll('[data-tab]').forEach((b) => (b.onclick = () => { cur = b.dataset.tab; show(); if (cur === 'backup' && !nightsList) loadNights(); }));
   const loadNights = async () => { try { nightsList = await api('GET', '/api/safety/nights'); } catch { nightsList = []; } if (cur === 'backup') show(); };
 
-  const warnHTML = (d) => (d.warn.length ? `<ul class="sf-warn">${d.warn.map((w) => `<li class="${w.level}">${w.level === 'bad' ? '⛔' : '⚠'} ${esc(w.text)}</li>`).join('')}</ul>` : '<p class="sf-ok">All good</p>');
+  const warnHTML = (d) => (d.warn.length ? `<ul class="sf-warn">${d.warn.map((w) => `<li class="${w.level}">${esc(w.text)}</li>`).join('')}</ul>` : '<p class="sf-ok">All good</p>');
   function health(d) {
     const s = d.series, last = s.samples.at(-1) || {}, starts24 = s.starts.filter((t) => t > Date.now() - 864e5);
     return `${d.standby ? `<p class="sf-standby">This is the <b>standby editor</b> on ${esc(d.host)} - the main editor is down. Everything saved here goes back to it when it is up again.</p>` : ''}
@@ -86,7 +86,7 @@ export async function openSafety(tab = 'health') {
       </div>
       <div class="sf-now">
         ${b.busy ? `<span class="sf-busy">Backing up… ${esc(b.busy.step || '')}</span>` : `<button class="accent" data-act="now" ${b.dest ? '' : 'disabled'}>Back up now</button>`}
-        <span>${L ? `Last: <b>${L.ok ? '✅' : '⛔'} ${when(L.at)}</b> - ${L.projects ?? 0} projects, ${MB(L.bytes || 0)} copied${L.secs ? `, ${L.secs} s` : ''}${L.errors?.length ? `<br><span class="bad">${esc(L.errors.slice(0, 3).join(' · '))}</span>` : ''}` : 'No backup yet'}</span>
+        <span>${L ? `Last: <b>${L.ok ? 'OK' : 'Failed'} - ${when(L.at)}</b> - ${L.projects ?? 0} projects, ${MB(L.bytes || 0)} copied${L.secs ? `, ${L.secs} s` : ''}${L.errors?.length ? `<br><span class="bad">${esc(L.errors.slice(0, 3).join(' · '))}</span>` : ''}` : 'No backup yet'}</span>
       </div>
       <h4>Bring a project back</h4>
       ${!nightsList ? '<p class="muted small">Loading the nights…</p>' : !nightsList.length ? '<p class="muted small">No nights yet.</p>'

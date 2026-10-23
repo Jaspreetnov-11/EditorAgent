@@ -3,6 +3,7 @@
 // sequences. Imported once (engine/gfxlib.mjs makes a ProRes 4444 master and a small preview with alpha); a click or a
 // drag onto the timeline puts one on a free overlay track, where it renders with the shots below showing through.
 // The browser is a floating window (not a blocking dialog), so its tiles can be dragged straight onto the timeline.
+import { ic } from './lineicons.js';
 import { S, commit, emit } from './store.js';
 import { api, enc, upload, watchJob } from './api.js';
 import { clipDur, trackList, addTrack, uid } from './model.js';
@@ -41,7 +42,7 @@ export async function placeTemplate(id, track = null, t = S.playhead) {
   commit(`Add template "${m.template?.name || m.name}"`);
   emit('select');
   if (m.template?.fields?.length) askFields(m, c, tr);
-  else toast(`🎞 ${m.template?.name || m.name} on ${tr}`);
+  else toast(`${m.template?.name || m.name} on ${tr}`);
   return c;
 }
 
@@ -78,7 +79,7 @@ function draw() {
       <b>${esc(t.name)}</b>
       <span class="muted small">${fmtDur(t.duration)} · ${t.width}×${t.height} · ${t.alpha ? 'transparent' : 'on black (Screen)'}${t.fields?.length ? ` · ${t.fields.length} text field${t.fields.length > 1 ? 's' : ''}` : ''}</span>
       <span class="ctpl-tags">${tagChips(t.tags)}</span>
-      <span class="ctpl-acts"><button class="icon-btn small" data-ren="${t.id}" title="Rename">✎</button><button class="icon-btn small" data-tag="${t.id}" title="Tags">🏷</button><button class="icon-btn small" data-del="${t.id}" title="Delete from the Library">🗑</button></span>
+      <span class="ctpl-acts"><button class="icon-btn small" data-ren="${t.id}" title="Rename">${ic('edit')}</button><button class="icon-btn small" data-tag="${t.id}" title="Tags">${ic('tag')}</button><button class="icon-btn small" data-del="${t.id}" title="Delete from the Library">${ic('trash')}</button></span>
     </div>`).join('') : `<p class="muted">${list.length ? 'No template matches.' : 'No custom templates yet - import a .mogrt, a logo animation (.mov / .webm with transparency) or a zip / folder of PNG frames.'}</p>`;
 }
 
@@ -109,9 +110,9 @@ async function importPath() {
 
 export function openCustomTemplates() {
   if (win) { win.show(); load(); return; }
-  win = h(`<dialog class="dlg ctpl-win" aria-label="Custom templates"><div class="dlg-head"><h3>🎞 Custom templates <span class="muted small">MOGRT · logo animations · videos with transparency · image sequences</span></h3><button class="icon-btn" data-close aria-label="Close">✕</button></div>
+  win = h(`<dialog class="dlg ctpl-win" aria-label="Custom templates"><div class="dlg-head"><h3>Custom templates <span class="muted small">MOGRT · logo animations · videos with transparency · image sequences</span></h3><button class="icon-btn" data-close aria-label="Close">✕</button></div>
     <div class="dlg-body">
-      <div class="row ctpl-bar"><button class="primary small" data-imp>⬆ Import file…</button><button class="small" data-path>📁 From a path / frames folder…</button><input type="search" class="small" data-q placeholder="Search name or tag"><span class="muted small" data-status></span>
+      <div class="row ctpl-bar"><button class="primary small" data-imp>Import file…</button><button class="small" data-path>From a path / frames folder…</button><input type="search" class="small" data-q placeholder="Search name or tag"><span class="muted small" data-status></span>
         <input type="file" data-file hidden multiple accept=".mogrt,.mov,.webm,.mp4,.m4v,.mkv,.avi,.mxf,.zip"></div>
       <div class="ctpl-grid" data-grid><p class="muted">Loading…</p></div>
       <details class="muted small ctpl-limits"><summary>What works and what does not</summary><p>${esc(LIMITS)}</p><p>Shared by everyone: a template imported here is in every project, on every PC. Click one to add it at the playhead on a free overlay track, or drag it onto a track. In the project it is in Media › Templates too.</p></details>

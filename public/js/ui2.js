@@ -2,6 +2,7 @@
 // (⚙ in the header, remembered in this browser). Also: line icons for the header, and the Edit page's panels resized by
 // dragging the lines between them (Effect Controls | Program above, Project | Timeline below), remembered too.
 
+import { ic } from './lineicons.js';
 import { S, on } from './store.js';
 
 const KEY = 've-ui', SIZE = 've-ui-split', DOCK = 've-ui-dock';
@@ -48,8 +49,8 @@ export function openLookMenu(btn) {
   const m = document.createElement('div');
   m.className = 'ui-menu';
   m.innerHTML = `<div class="muted">Editor look</div>
-    <button data-look="studio">${studioOn() ? '● ' : '○ '}Studio (Premiere-style)</button>
-    <button data-look="classic">${studioOn() ? '○ ' : '● '}Classic (old)</button><hr>
+    <button data-look="studio">${studioOn() ? ic('check') + ' ' : ''}Studio (Premiere-style)</button>
+    <button data-look="classic">${studioOn() ? '' : ic('check') + ' '}Classic (old)</button><hr>
     <button data-look="reset">Reset panel sizes</button><hr>
     <button data-look="keys">Keyboard Shortcuts… <span class="muted small">Ctrl+Alt+K</span></button>`;
   document.body.append(m);

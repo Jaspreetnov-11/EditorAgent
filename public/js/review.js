@@ -3,6 +3,7 @@
 // 🔗 client review links over the internet (Send for review: comments, approve / changes per version).
 // Notes are markers with a text: { id, t, note, by, done, at, phone, render } - the ruler draws them, orange until done.
 // A client's comment also has { client: true, review: <link id>, version: <n> }.
+import { ic } from './lineicons.js';
 import { guarded } from './errlog.js';
 import { S, on, emit, commit, saveNow } from './store.js';
 import { api, enc } from './api.js';
@@ -57,12 +58,12 @@ function drawNow() {
   const all = notes().sort((a, b) => a.t - b.t), list = all.filter((n) => showDone || !n.done), open = all.filter((n) => !n.done).length;
   $('[data-list]', root).innerHTML = list.map((n) => `<div class="nt-item${n.done ? ' done' : ''}">
       <button class="link mono" data-seek="${n.t}" title="Go there">${fmtTC(n.t, S.project.settings.fps).replace(/^00:/, '')}</button>
-      <div class="grow" data-edit="${n.id}" title="Double-click to edit">${esc(n.note)}<div class="muted small">${n.phone ? '📱 ' : n.client ? '💬 ' : ''}${esc(n.by || 'You')}${n.client && n.version ? ` · Version ${n.version}` : ''}${n.render ? ` · on ${esc(n.render)}` : ''}</div></div>
-      <button class="icon-btn small" data-tick="${n.id}" title="${n.done ? 'Mark as not done' : 'Done'}" aria-label="Done">${n.done ? '↺' : '✓'}</button>
+      <div class="grow" data-edit="${n.id}" title="Double-click to edit">${noteHTML(n.note)}<div class="muted small">${esc(n.by || 'You')}${n.client && n.version ? ` · Version ${n.version}` : ''}${n.render ? ` · on ${esc(n.render)}` : ''}</div></div>
+      <button class="icon-btn small" data-tick="${n.id}" title="${n.done ? 'Mark as not done' : 'Done'}" aria-label="Done">${n.done ? ic('undo') : '✓'}</button>
       <button class="icon-btn small" data-del="${n.id}" title="Delete note" aria-label="Delete note">✕</button></div>`).join('')
     || `<div class="muted pad">${all.length ? 'All notes are done ✓' : 'No notes yet. Pause where something needs a change and write it here - it shows on the timeline ruler. Notes from a phone () land here too.'}</div>`;
   const tab = document.querySelector('[data-ptab="notes"]');
-  if (tab) tab.textContent = open ? `${open}` : '📝';
+  if (tab) tab.innerHTML = open ? `${open}` : ic('note');
 }
 
 export function addNote(text) {
@@ -111,10 +112,10 @@ export async function openVersions() {
   const draw = async () => {
     const list = await api('GET', `/api/versions?p=${enc(S.proj)}`);
     $('[data-vlist]', dlg.el).innerHTML = list.map((v) => `<div class="ver-row${v.named ? ' named' : ''}">
-      <span class="grow">${v.named ? `<b>★ ${esc(v.label)}</b> · ` : ''}${esc(ago(v.mtime))}<br><span class="muted small">${esc(v.seq)}${v.seqs > 1 ? ` (+${v.seqs - 1} more sequence${v.seqs > 2 ? 's' : ''})` : ''} · ${v.clips} clips · ${Math.floor(v.duration / 60)}:${String(Math.round(v.duration % 60)).padStart(2, '0')}</span>${editedBy(v)}</span>
+      <span class="grow">${v.named ? `<b>${esc(v.label)}</b> · ` : ''}${esc(ago(v.mtime))}<br><span class="muted small">${esc(v.seq)}${v.seqs > 1 ? ` (+${v.seqs - 1} more sequence${v.seqs > 2 ? 's' : ''})` : ''} · ${v.clips} clips · ${Math.floor(v.duration / 60)}:${String(Math.round(v.duration % 60)).padStart(2, '0')}</span>${editedBy(v)}</span>
       <button class="small" data-vseq="${esc(v.file)}" data-named="${v.named ? 1 : 0}" title="Add that version's timeline to this project as a separate sequence - nothing is replaced">+ As sequence</button>
       <button class="small" data-vrestore="${esc(v.file)}" data-named="${v.named ? 1 : 0}" title="The whole project goes back to this version (the current state is backed up first)">Restore</button>
-      ${v.named ? `<button class="icon-btn small" data-vdel="${esc(v.file)}" title="Delete this saved version" aria-label="Delete version">🗑</button>` : ''}</div>`).join('') || '<div class="muted pad">No versions yet - they appear a few minutes after you start editing.</div>';
+      ${v.named ? `<button class="icon-btn small" data-vdel="${esc(v.file)}" title="Delete this saved version" aria-label="Delete version">${ic('trash')}</button>` : ''}</div>`).join('') || '<div class="muted pad">No versions yet - they appear a few minutes after you start editing.</div>';
   };
   draw().catch((e) => toast(e.message, 'err'));
   dlg.el.addEventListener('click', async (e) => {
@@ -176,11 +177,16 @@ export async function openShare() {
 // Send for review: a secret link to one finished render that a client opens anywhere (no sign-in), comments on at
 // moments and approves or asks for changes. A new render goes on the same link as the next version. Their comments come
 // back as 💬 notes (above); the strip in 📝 Notes shows each link's versions: ⏳ waiting, ✏️ changes, ✅ approved.
-const ST = { waiting: '⏳', changes: '✏️', approved: '✅' }, STW = { waiting: 'Waiting', changes: 'Changes requested', approved: 'Approved' };
+// stored note / comment text keeps its old form ('✅ Approved…', '✏️ Changes requested…', '… ✏️' when drawn - written by
+// the server and parsed below); on screen the marks are left out
+const DEC_RE = /^(✅|✏\uFE0F?)\s*/u, DRAW_RE = /\s*✏\uFE0F?$/u;
+const notePlain = (s) => String(s ?? '').replace(DEC_RE, '').replace(DRAW_RE, '');
+const noteHTML = (s) => { const t = String(s ?? ''); return `${esc(notePlain(t))}${DRAW_RE.test(t) ? ' (drawing)' : ''}`; };
+const STW = { waiting: 'Waiting', changes: 'Changes requested', approved: 'Approved' };
 let crvLinks = [], crvDoor = true, newsTimer = null, newsSince = Date.now();
 const crvGet = () => api('GET', `/api/clientreview?proj=${enc(S.proj)}`).then((r) => { crvLinks = r.links; crvDoor = r.door; return r; });
 const copyLink = (url) => navigator.clipboard.writeText(url).then(() => toast('Review link copied - send it to the client'), () => prompt('Copy this link', url));
-const verChips = (l) => l.versions.map((v) => `<span class="crv-v ${v.status}" title="Version ${v.n}: ${STW[v.status]}${v.decidedBy ? ` by ${esc(v.decidedBy)}` : ''}">V${v.n} ${ST[v.status]}</span>`).join('');
+const verChips = (l) => l.versions.map((v) => `<span class="crv-v ${v.status}" title="Version ${v.n}: ${STW[v.status]}${v.decidedBy ? ` by ${esc(v.decidedBy)}` : ''}">V${v.n}</span>`).join('');
 async function drawReviews() {
   const box = root && $('[data-crv]', root);
   if (!box || !S.proj) return;
@@ -188,7 +194,7 @@ async function drawReviews() {
   const live = crvLinks.filter((l) => !l.expired);
   box.hidden = !live.length;
   box.innerHTML = live.slice(0, 4).map((l) => `<div class="crv-row"><span class="grow" title="${esc(l.title)}">${esc(l.client || l.title)}</span>${verChips(l)}
-      <button class="icon-btn small" data-crcopy="${esc(l.url)}" title="Copy the client's link" aria-label="Copy link">⧉</button></div>`).join('')
+      <button class="icon-btn small" data-crcopy="${esc(l.url)}" title="Copy the client's link" aria-label="Copy link">${ic('copy')}</button></div>`).join('')
     + `<button class="link small" data-a="reviews">All client reviews${live.length > 4 ? ` (${live.length})` : ''} · comments · replies</button>`;
 }
 // what clients said (every project): a toast, and the strip when it is this project
@@ -200,7 +206,7 @@ function watchClientNews() {
       if (got.length) {
         newsSince = Math.max(...got.map((x) => x.at));
         const last = got[got.length - 1], dec = got.find((x) => /^(✅|✏️ Changes)/.test(x.note));
-        toast(dec ? `${dec.by}: ${dec.note}${dec.project !== S.proj ? ` - ${dec.project}` : ''}` : `${got.length > 1 ? `${got.length} comments` : 'A comment'} from ${last.by} on "${last.title}"${last.project !== S.proj ? ` (${last.project})` : ''}: ${last.note}`);
+        toast(dec ? `${dec.by}: ${notePlain(dec.note)}${dec.project !== S.proj ? ` - ${dec.project}` : ''}` : `${got.length > 1 ? `${got.length} comments` : 'A comment'} from ${last.by} on "${last.title}"${last.project !== S.proj ? ` (${last.project})` : ''}: ${notePlain(last.note)}`);
         if (got.some((x) => x.project === S.proj)) drawReviews();
       }
     } catch {}
@@ -251,9 +257,9 @@ export async function openReviews() {
         <div class="nt-row"><b class="grow">${esc(l.client || l.title)}</b>${verChips(l)}</div>
         <div class="muted small">${esc(l.title)} · made ${new Date(l.created).toLocaleDateString()}${l.by ? ` by ${esc(l.by)}` : ''}${l.hasPw ? ' · password' : ''}${l.off ? ' · turned off' : l.expired ? ' · expired' : l.expires ? ` · works until ${new Date(l.expires).toLocaleDateString()}` : ''}</div>
         <div class="nt-row"><span class="mono small grow crv-url">${esc(l.url)}</span><button class="small" data-crcopy="${esc(l.url)}">Copy link</button>
-          <button class="small" data-croff="${esc(l.id)}" data-v="${l.off ? 0 : 1}">${l.off ? 'Turn on' : 'Turn off'}</button><button class="icon-btn small" data-crdel="${esc(l.id)}" title="Delete this link and its comments" aria-label="Delete link">🗑</button></div>
+          <button class="small" data-croff="${esc(l.id)}" data-v="${l.off ? 0 : 1}">${l.off ? 'Turn on' : 'Turn off'}</button><button class="icon-btn small" data-crdel="${esc(l.id)}" title="Delete this link and its comments" aria-label="Delete link">${ic('trash')}</button></div>
         ${tops.map((c) => `<div class="nt-item"><button class="link mono" data-seek="${+c.t || 0}" title="Go there on the timeline">${fmtTC(c.t, fps).replace(/^00:/, '')}</button>
-          <div class="grow">${esc(c.text)}${c.draw ? ' ✏️' : ''}<div class="muted small">${esc(c.by)} · Version ${c.v} · ${new Date(c.at).toLocaleString()}</div>
+          <div class="grow">${noteHTML(c.text)}${c.draw ? ' (drawing)' : ''}<div class="muted small">${esc(c.by)} · Version ${c.v} · ${new Date(c.at).toLocaleString()}</div>
           ${l.comments.filter((r) => r.parent === c.id).map((r) => `<div class="crv-reply">${esc(r.text)} <span class="muted small">${esc(r.by)}${r.team ? ' (team)' : ''}</span></div>`).join('')}
           <div class="row-in"><input data-crr="${esc(c.id)}" data-link="${esc(l.id)}" placeholder="Reply to the client… (Enter)" aria-label="Reply"></div></div></div>`).join('') || '<div class="muted small pad">No comments yet.</div>'}
       </div>`;

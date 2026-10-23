@@ -1,6 +1,7 @@
 // ⏩ Clip Speed / Duration (Ctrl+R, like Premiere): speed in %, duration (chained to the speed or on its own), reverse,
 // maintain audio pitch, ripple edit and time interpolation - for the selected clips. A clip's linked sound / picture
 // gets the same speed, so the two stay in sync.
+import { ic } from './lineicons.js';
 import { S, commit, layout } from './store.js';
 import { clipDur, fmtTC, linkedPartner, rampPts, rampAvg, keepLength } from './model.js';
 import { $, esc, toast, modal } from './ui.js';
@@ -29,7 +30,7 @@ export function openSpeedDuration() {
         <label class="fld"><span>Speed</span><span class="row-in"><input data-speed type="number" min="1" max="10000" step="0.1" value="${sp0}"${media ? '' : ' disabled'}> %</span></label>
         <label class="fld"><span>Duration</span><input data-dur value="${one ? fmtTC(D0, fps) : ''}" placeholder="${one ? '' : 'each clip keeps its own'}"${one ? '' : ' disabled'} title="hh:mm:ss:ff, or seconds (4.5)"></label>
       </div>
-      <button type="button" class="spd-link on" data-link title="Speed and duration chained: changing one changes the other (click to unchain)" ${media ? '' : 'disabled'}>🔗</button>
+      <button type="button" class="spd-link on" data-link title="Speed and duration chained: changing one changes the other (click to unchain)" ${media ? '' : 'disabled'}>${ic('link')}</button>
     </div>
     <label class="chk"><input type="checkbox" data-rev${c0.reverse ? ' checked' : ''}${clips.some((c) => c.type === 'video' || c.type === 'audio') ? '' : ' disabled'}> Reverse speed</label>
     <label class="chk"><input type="checkbox" data-pitch${c0.keepPitch === false ? '' : ' checked'}${media ? '' : ' disabled'}> Maintain audio pitch</label>
@@ -43,7 +44,7 @@ export function openSpeedDuration() {
   let linked = true;
   const avg = (c) => { const p = rampPts(c); return p ? rampAvg(p) : 1; };
   const span = (c) => (c.out ?? S.mediaById[c.mediaId]?.duration ?? 0) - (c.in || 0);
-  lk.onclick = () => { linked = !linked; lk.classList.toggle('on', linked); lk.textContent = linked ? '🔗' : '⛓️‍💥'; };
+  lk.onclick = () => { linked = !linked; lk.classList.toggle('on', linked); lk.innerHTML = ic(linked ? 'link' : 'unlink'); };
   // chained: the speed follows a new duration and the other way round (for the clip as it is now)
   sp.oninput = () => { if (linked && one && isMedia(one) && +sp.value > 0) du.value = fmtTC(span(one) / ((+sp.value / 100) * avg(one)), fps); };
   du.onchange = () => { const d = parseDur(du.value, fps); if (linked && one && isMedia(one) && d > 0) sp.value = Math.round(((span(one) / d / avg(one)) * 100) * 10) / 10; };

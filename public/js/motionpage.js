@@ -5,6 +5,7 @@
 //
 // Panels: Project (comps + presets) | Composition (viewer, tools) | Properties (the selected layer) / Timeline below
 // (layers, bars, keyframes) with the Graph Editor on a toggle.
+import { ic } from './lineicons.js';
 import { S, on, emit, commit, layout } from './store.js';
 import { ASPECTS, uid, clipDur, compTrack, linkedPartner } from './model.js';
 import { $, $$, esc, toast, clamp } from './ui.js';
@@ -47,23 +48,23 @@ export function mountMotion(el) {
   root = el;
   el.innerHTML = `<div class="mo">
     <div class="panel mo-proj"><div class="mo-head"><b>Project</b><span class="grow"></span>
-      <button class="small" data-m="new" title="New composition">＋ Comp ▾</button></div>
+      <button class="small" data-m="new" title="New composition">Comp ▾</button></div>
       <div class="mo-list" id="moList"></div>
       <div class="mo-compset" id="moCompSet"></div>
       <div class="mo-head sub"><b>Presets</b></div>
       <div class="mo-presets" id="moPresets"></div></div>
     <div class="panel mo-view">
       <div class="mo-head mo-tools" role="toolbar" aria-label="Tools">
-        ${[['select', '➤', 'Selection (V)'], ['text', 'T', 'Text (T)'], ['rect', '▭', 'Rectangle (Q)'], ['ellipse', '◯', 'Ellipse'], ['star', '☆', 'Star / polygon'], ['pen', '✒', 'Pen - path shape (G): click = point, drag = curve, click the first point or Enter = done'],
-          ['mrect', '⬚', 'Rectangle mask on the selected layer'], ['mellipse', '◌', 'Ellipse mask on the selected layer'], ['mpen', '✎', 'Pen mask on the selected layer'], ['track', '🎯', 'Track motion: select the layer that should follow (e.g. text), then drag a box around the thing in the video to follow']].map(([k, i, t]) => `<button class="mo-tool" data-tool="${k}" title="${t}">${i}</button>`).join('')}
+        ${[['select', ic('cursor'), 'Selection (V)'], ['text', 'T', 'Text (T)'], ['rect', ic('rect'), 'Rectangle (Q)'], ['ellipse', ic('ellipse'), 'Ellipse'], ['star', ic('star'), 'Star / polygon'], ['pen', ic('pen'), 'Pen - path shape (G): click = point, drag = curve, click the first point or Enter = done'],
+          ['mrect', ic('mask'), 'Rectangle mask on the selected layer'], ['mellipse', ic('maskellipse'), 'Ellipse mask on the selected layer'], ['mpen', ic('edit'), 'Pen mask on the selected layer'], ['track', ic('target'), 'Track motion: select the layer that should follow (e.g. text), then drag a box around the thing in the video to follow']].map(([k, i, t]) => `<button class="mo-tool" data-tool="${k}" title="${t}">${i}</button>`).join('')}
         <span class="sep"></span>
-        <button class="small" data-m="addLayer" title="New layer">＋ Layer ▾</button>
+        <button class="small" data-m="addLayer" title="New layer">Layer ▾</button>
         <span class="grow"></span>
         <select id="moZoom" aria-label="Zoom"><option value="fit">Fit</option><option value="0.25">25%</option><option value="0.5">50%</option><option value="1">100%</option></select>
         <button class="accent small" data-m="toTimeline" title="Put this comp on the edit's timeline at the playhead (it updates when you change it here)">Add to timeline</button>
       </div>
-      <div class="mo-stage" id="moStage"><div class="mo-canvas"><canvas id="moCanvas"></canvas><canvas id="moOver"></canvas></div><div class="mo-empty" id="moEmpty">Make a composition: ＋ Comp, or pick a preset on the left.</div></div>
-      <div class="mo-trans"><button class="icon-btn" data-m="start" title="Start (Home)">⏮</button><button class="icon-btn" data-m="prevKey" title="Previous keyframe (J)">◆</button><button class="icon-btn" data-m="play" title="Play / pause (Space)">▶</button><button class="icon-btn" data-m="nextKey" title="Next keyframe (K)">◆</button><button class="icon-btn" data-m="end" title="End (End)">⏭</button>
+      <div class="mo-stage" id="moStage"><div class="mo-canvas"><canvas id="moCanvas"></canvas><canvas id="moOver"></canvas></div><div class="mo-empty" id="moEmpty">Make a composition: Comp, or pick a preset on the left.</div></div>
+      <div class="mo-trans"><button class="icon-btn" data-m="start" title="Start (Home)">${ic('start')}</button><button class="icon-btn" data-m="prevKey" title="Previous keyframe (J)">${ic('prev')}</button><button class="icon-btn" data-m="play" title="Play / pause (Space)">${ic('play')}</button><button class="icon-btn" data-m="nextKey" title="Next keyframe (K)">${ic('next')}</button><button class="icon-btn" data-m="end" title="End (End)">${ic('end')}</button>
         <span class="tc" id="moTC">0:00:00</span><span class="muted small" id="moHint"></span></div>
     </div>
     <div class="panel mo-props" id="moProps"></div>
@@ -104,8 +105,8 @@ function refresh() {
 // ---------------- project panel ----------------
 function renderList() {
   const list = Object.values(comps());
-  $('#moList', root).innerHTML = list.length ? list.map((c) => `<div class="mo-comp${c.id === compId ? ' on' : ''}" data-comp="${c.id}" title="Double-click to rename"><span>🎬</span><span class="grow">${esc(c.name)}</span><span class="muted small">${c.dur}s</span>
-    <button class="icon-btn" data-dup="${c.id}" title="Duplicate">⧉</button><button class="icon-btn" data-del="${c.id}" title="Delete">✕</button></div>`).join('') : '<div class="muted small pad">No compositions yet.</div>';
+  $('#moList', root).innerHTML = list.length ? list.map((c) => `<div class="mo-comp${c.id === compId ? ' on' : ''}" data-comp="${c.id}" title="Double-click to rename"><span class="grow">${esc(c.name)}</span><span class="muted small">${c.dur}s</span>
+    <button class="icon-btn" data-dup="${c.id}" title="Duplicate">${ic('duplicate')}</button><button class="icon-btn" data-del="${c.id}" title="Delete">✕</button></div>`).join('') : '<div class="muted small pad">No compositions yet.</div>';
   $$('[data-comp]', root).forEach((r) => {
     r.onclick = (e) => { if (e.target.closest('button')) return; compId = r.dataset.comp; selIds.clear(); T = 0; refresh(); };
     r.ondblclick = () => { const c = comps()[r.dataset.comp], n = prompt('Composition name', c.name)?.trim(); if (n) { c.name = n; save('Rename comp'); } };
@@ -156,7 +157,7 @@ function addLayer(type, extra = {}) {
 }
 function layerMenu(btn) {
   const imgs = S.media.filter((m) => m.kind === 'image'), vids = S.media.filter((m) => m.kind === 'video' && m.playable !== false);
-  menu(btn, [['text', 'T  Text'], ['shape', '▭  Shape'], ['solid', '■  Solid'], ['null', '⊹  Null (parent for others)'], ...(vids.length ? [['video', ' Video from Media…']] : []), ...(imgs.length ? [['image', ' Image from Media…']] : [])], (k) => {
+  menu(btn, [['text', 'Text'], ['shape', 'Shape'], ['solid', 'Solid'], ['null', 'Null (parent for others)'], ...(vids.length ? [['video', 'Video from Media…']] : []), ...(imgs.length ? [['image', 'Image from Media…']] : [])], (k) => {
     if (k === 'video') return menu(btn, vids.slice(0, 80).map((m) => [m.id, m.name]), (id) => { const m = S.mediaById[id], c = comp() || null, [w, h] = frame(), k2 = Math.max(w / (m.width || w), h / (m.height || h)); addLayer('video', { mediaId: id, name: m.name, w: Math.round((m.width || w) * k2), h: Math.round((m.height || h) * k2) }); });
     if (k !== 'image') return addLayer(k);
     menu(btn, imgs.slice(0, 60).map((m) => [m.id, m.name]), (id) => { const m = S.mediaById[id], [w, h] = frame(), k2 = Math.min(1, (w * 0.6) / (m.width || 800)); addLayer('image', { mediaId: id, name: m.name, w: Math.round((m.width || 800) * k2), h: Math.round((m.height || 600) * k2) }); });
@@ -376,7 +377,7 @@ function seek(t) { const c = comp(); T = snapT(clamp(t, 0, c?.dur || 0)); draw()
 function syncOutline() { const el = root && $('#moLHead', root); if (!el) return; if (el.contains(document.activeElement) && document.activeElement.tagName !== 'BUTTON') { const t = $('.ae-tc', el); if (t) t.textContent = tc(T); return; } renderLHead(); }
 function play() {
   const c = comp(); if (!c) return;
-  playing = true; $('[data-m="play"]', root).textContent = '❚❚';
+  playing = true; $('[data-m="play"]', root).innerHTML = ic('pause');
   if (T >= c.dur - 1 / fps()) T = 0;
   let last = performance.now();
   const step = (now) => {
@@ -390,7 +391,7 @@ function play() {
   };
   raf = requestAnimationFrame(step);
 }
-function stop() { playing = false; cancelAnimationFrame(raf); CV.pause('motion'); if (root && comp()) setTimeout(() => { draw(); syncOutline(); }, 0); const b = root && $('[data-m="play"]', root); if (b) b.textContent = '▶'; if (root) renderPropsValues(); }
+function stop() { playing = false; cancelAnimationFrame(raf); CV.pause('motion'); if (root && comp()) setTimeout(() => { draw(); syncOutline(); }, 0); const b = root && $('[data-m="play"]', root); if (b) b.innerHTML = ic('play'); if (root) renderPropsValues(); }
 function allKeyTimes(onlySel = true) {
   const c = comp(); if (!c) return [];
   const ts = new Set();
@@ -408,11 +409,11 @@ const ROW = (L, path, label, kind, opts = {}) => {
   const input = kind === 'color' ? `<input type="color" data-pv="${P}" value="${v || '#ffffff'}">`
     : kind === 'xy' ? (v || [0, 0]).map(num).join('') : num(v, -1);
   return `<div class="mo-row${graphPath === P ? ' gsel' : ''}" data-row="${P}">
-    <button class="mo-sw${on ? ' on' : ''}" data-sw="${P}" title="Stopwatch: animate this property">⏱</button>
+    <button class="mo-sw${on ? ' on' : ''}" data-sw="${P}" title="Stopwatch: animate this property">${ic('clock')}</button>
     <span class="mo-lab" data-glab="${P}" title="${on ? 'Click: show in the Graph Editor' : ''}">${label}</span>
     <span class="mo-in">${input}</span>
-    ${on ? `<button class="mo-key${k ? ' on' : ''}" data-key="${P}" title="${k ? 'Remove the keyframe here' : 'Add a keyframe here'}">◆</button>` : '<span class="mo-key-sp"></span>'}
-    ${kind !== 'color' && opts.wiggle !== false ? `<button class="mo-wig${w ? ' on' : ''}" data-wig="${P}" title="Wiggle (random motion)${w ? `: ${w.freq}/s, ±${w.amp}` : ''}">〰</button>` : ''}
+    ${on ? `<button class="mo-key${k ? ' on' : ''}" data-key="${P}" title="${k ? 'Remove the keyframe here' : 'Add a keyframe here'}">${ic('diamond')}</button>` : '<span class="mo-key-sp"></span>'}
+    ${kind !== 'color' && opts.wiggle !== false ? `<button class="mo-wig${w ? ' on' : ''}" data-wig="${P}" title="Wiggle (random motion)${w ? `: ${w.freq}/s, ±${w.amp}` : ''}">${ic('wave')}</button>` : ''}
   </div>`;
 };
 const SEL = (path, label, options, cur) => `<label class="mo-f"><span>${label}</span><select data-sv="${path}">${options.map(([k, l]) => `<option value="${esc(k)}"${String(k) === String(cur ?? '') ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
@@ -448,11 +449,11 @@ function renderProps() {
       return `<div class="mo-anim"><div class="mo-anim-h"><b>${esc(a.name || `Animator ${i + 1}`)}</b><span class="grow"></span><button class="icon-btn" data-adel="${i}" title="Remove">✕</button></div>
         <div class="muted small">Animate these to (where the selector is):</div>
         ${Object.keys(a.props || {}).map((k) => ROW(L, [...P, 'props', k], { position: 'Position', scale: 'Scale %', rotation: 'Rotation °', opacity: 'Opacity %', fill: 'Fill colour', blur: 'Blur' }[k] || k, k === 'position' ? 'xy' : k === 'fill' ? 'color' : 'n', { wiggle: false })).join('')}
-        <div class="mo-grid">${SEL(`${P.join('.')}.addprop`, 'Add property', [['', '＋ …'], ['position', 'Position'], ['scale', 'Scale'], ['rotation', 'Rotation'], ['opacity', 'Opacity'], ['fill', 'Fill colour'], ['blur', 'Blur']].filter(([k]) => !k || !(k in (a.props || {}))), '')}</div>
+        <div class="mo-grid">${SEL(`${P.join('.')}.addprop`, 'Add property', [['', 'Add…'], ['position', 'Position'], ['scale', 'Scale'], ['rotation', 'Rotation'], ['opacity', 'Opacity'], ['fill', 'Fill colour'], ['blur', 'Blur']].filter(([k]) => !k || !(k in (a.props || {}))), '')}</div>
         <div class="muted small">Range selector</div>
         ${ROW(L, [...P, 'range', 'start'], 'Start %', 'n', { wiggle: false })}${ROW(L, [...P, 'range', 'end'], 'End %', 'n', { wiggle: false })}${ROW(L, [...P, 'range', 'offset'], 'Offset %', 'n', { wiggle: false })}
         <div class="mo-grid">${SEL(`${P.join('.')}.range.by`, 'Based on', [['char', 'Characters'], ['word', 'Words'], ['line', 'Lines']], a.range?.by || 'char')}${SEL(`${P.join('.')}.range.shape`, 'Shape', [['square', 'Square'], ['rampUp', 'Ramp up'], ['rampDown', 'Ramp down'], ['triangle', 'Triangle'], ['smooth', 'Round']], a.range?.shape || 'square')}</div></div>`;
-    }).join('') + `<div class="mo-grid">${SEL('addanim', 'Add', [['', '＋ Animator or preset…'], ['custom', 'Empty animator (Opacity)'], ...Object.entries(M.TEXT_ANIMS).filter(([k]) => k !== 'tracking').map(([k, p]) => [k, p.name])], '')}</div>`);
+    }).join('') + `<div class="mo-grid">${SEL('addanim', 'Add', [['', 'Animator or preset…'], ['custom', 'Empty animator (Opacity)'], ...Object.entries(M.TEXT_ANIMS).filter(([k]) => k !== 'tracking').map(([k, p]) => [k, p.name])], '')}</div>`);
   }
   if (L.type === 'shape') {
     const s = L.shape;
@@ -464,11 +465,11 @@ function renderProps() {
       ${ROW(L, ['shape', 'trimStart'], 'Start %', 'n')}${ROW(L, ['shape', 'trimEnd'], 'End %', 'n')}${ROW(L, ['shape', 'trimOffset'], 'Offset °', 'n')}`);
   }
   if (L.type === 'solid') h += sec('solid', 'Solid', ROW(L, ['solid', 'color'], 'Colour', 'color') + ROW(L, ['solid', 'size'], 'Size', 'xy'));
-  if (L.type === 'video') h += sec('roto', 'Subject (AI roto)', `<div class="btn-grid"><button class="accent small" data-roto>${L.video.matte?.id ? '↻ Find again' : 'Cut out subject'}</button><button class="small" data-behind title="Text between the clip and its cut-out subject - in one click">🅣 Text behind subject</button><button class="small" data-parallax title="2.5D: the subject in front, text in the middle, the background behind, and a slow camera move">Parallax (2.5D)</button></div>
+  if (L.type === 'video') h += sec('roto', 'Subject (AI roto)', `<div class="btn-grid"><button class="accent small" data-roto>${L.video.matte?.id ? 'Find again' : 'Cut out subject'}</button><button class="small" data-behind title="Text between the clip and its cut-out subject - in one click">🅣 Text behind subject</button><button class="small" data-parallax title="2.5D: the subject in front, text in the middle, the background behind, and a slow camera move">Parallax (2.5D)</button></div>
     ${L.video.matte?.id ? `<div class="mo-grid">${SEL('video.matte.mode', 'Show', [['cutout', 'Subject only'], ['background', 'Everything but the subject'], ['matte', 'The matte (black & white)']], L.video.matte.mode || 'cutout')}<label class="mo-f"><span>Blur edge px</span><input type="number" class="mo-num" min="0" max="30" step="0.5" data-msoft value="${+L.video.matte.soft || 0}"></label></div>
     <label class="pr"><span>Shrink (+) / grow (−) <i>edge in or out</i></span><input type="range" min="-40" max="40" step="1" data-mref="choke" value="${+L.video.matte.choke || 0}"><input type="number" class="pr-n" data-mrefn="choke" value="${+L.video.matte.choke || 0}"></label>
     <label class="pr"><span>Edge softness % <i>0 = hard</i></span><input type="range" min="0" max="100" step="1" data-mref="edge" value="${L.video.matte.edge ?? 100}"><input type="number" class="pr-n" data-mrefn="edge" value="${L.video.matte.edge ?? 100}"></label>
-    <div class="muted small">Something wrong in places? Draw a mask on this layer (⬚ ◌ ✎) and set it to <b>Subtract</b> to take it out. Adding missed parts: use Fusion's Subject Matte (add / remove inputs).</div><label class="chk small"><input type="checkbox" data-moff> Matte off (whole picture)</label>` : '<div class="muted small">The AI finds the person / animal / vehicle in every frame (GPU, a few seconds).</div>'}`)
+    <div class="muted small">Something wrong in places? Draw a mask on this layer and set it to <b>Subtract</b> to take it out. Adding missed parts: use Fusion's Subject Matte (add / remove inputs).</div><label class="chk small"><input type="checkbox" data-moff> Matte off (whole picture)</label>` : '<div class="muted small">The AI finds the person / animal / vehicle in every frame (GPU, a few seconds).</div>'}`)
     + sec('video', 'Video (from the edit)', `<div class="muted small">${esc(S.mediaById[L.video.mediaId]?.name || 'Missing media')}</div>
     <label class="mo-f"><span>Source start (s) / speed</span><span><input type="number" step="0.04" data-vv="in" value="${+(L.video.in || 0).toFixed(2)}" class="mo-num"><input type="number" step="0.05" min="0.1" data-vv="speed" value="${L.video.speed || 1}" class="mo-num"></span></label>
     <label class="mo-f"><span>Width / height</span><span><input type="number" data-vv="w" value="${L.video.w || 0}" class="mo-num"><input type="number" data-vv="h" value="${L.video.h || 0}" class="mo-num"></span></label>
@@ -479,11 +480,11 @@ function renderProps() {
       <select data-mmode="${i}">${[['add', 'Add'], ['subtract', 'Subtract'], ['intersect', 'Intersect']].map(([k, l]) => `<option value="${k}"${m.mode === k ? ' selected' : ''}>${l}</option>`).join('')}</select>
       <label class="chk small"><input type="checkbox" data-minv="${i}"${m.inverted ? ' checked' : ''}>Inverted</label><span class="grow"></span><button class="icon-btn" data-mdel="${i}" title="Remove mask">✕</button></div>
       ${ROW(L, ['masks', i, 'feather'], 'Feather px', 'n', { wiggle: false })}${ROW(L, ['masks', i, 'opacity'], 'Opacity %', 'n', { wiggle: false })}${ROW(L, ['masks', i, 'expansion'], 'Expansion px', 'n', { wiggle: false })}</div>`).join('')
-    + '<div class="muted small">Draw masks with ⬚ ◌ ✎ on the viewer toolbar.</div>');
+    + '<div class="muted small">Draw masks with the mask tools on the viewer toolbar.</div>');
   const FX = { blur: ['Gaussian blur', { amount: 10 }], shadow: ['Drop shadow', { color: '#000000', opacity: 60, distance: 12, angle: 135, softness: 20 }], glow: ['Glow', { radius: 30, intensity: 100 }], fill: ['Fill (colour)', { color: '#ff9933' }], brightness: ['Brightness', { amount: 130 }], saturation: ['Saturation', { amount: 150 }], hue: ['Hue shift', { amount: 90 }] };
   h += sec('fx', `Effects (${(L.effects || []).length})`, (L.effects || []).map((f, i) => `<div class="mo-anim"><div class="mo-anim-h"><label class="chk"><input type="checkbox" data-fxon="${i}"${f.off ? '' : ' checked'}> <b>${FX[f.type]?.[0] || f.type}</b></label><span class="grow"></span><button class="icon-btn" data-fxdel="${i}" title="Remove effect">✕</button></div>
       ${Object.keys(FX[f.type]?.[1] || {}).map((k) => (k === 'color' ? (f.type === 'fill' ? `<label class="mo-f"><span>Colour</span><input type="color" data-fxc="${i}" value="${f.color || '#ffffff'}"></label>` : ROW(L, ['effects', i, k], 'Colour', 'color')) : ROW(L, ['effects', i, k], { amount: 'Amount', opacity: 'Opacity %', distance: 'Distance', angle: 'Angle °', softness: 'Softness', radius: 'Radius', intensity: 'Intensity %' }[k] || k, 'n', { wiggle: false }))).join('')}</div>`).join('')
-    + `<div class="mo-grid">${SEL('addfx', 'Add', [['', '＋ Effect…'], ...Object.entries(FX).map(([k, [l]]) => [k, l])], '')}</div>`);
+    + `<div class="mo-grid">${SEL('addfx', 'Add', [['', 'Effect…'], ...Object.entries(FX).map(([k, [l]]) => [k, l])], '')}</div>`);
   el.innerHTML = `${h}</div>`;
   wireProps(el, L, FX);
 }
@@ -628,21 +629,21 @@ function renderLHead() {
   const modes = (L) => Object.keys(M.BLENDS).map((k) => `<option value="${k}"${k === (L.blend || 'normal') ? ' selected' : ''}>${k[0].toUpperCase()}${k.slice(1)}</option>`).join('');
   const mats = (L) => [['', 'None'], ['alpha', 'Alpha'], ['alphaInv', 'Alpha Inv'], ['luma', 'Luma'], ['lumaInv', 'Luma Inv']].map(([k, l]) => `<option value="${k}"${k === (L.matte || '') ? ' selected' : ''}>${l}</option>`).join('');
   el.innerHTML = `<div class="ae-top" style="height:${HEAD}px"><span class="ae-tc">${tc(T)}</span><input type="search" class="ae-search" data-tlsearch placeholder="Search layers" value="${esc(tlSearch)}">${propSolo ? `<span class="tag" title="Esc shows everything">${propSolo.toUpperCase()} only</span>` : ''}</div>`
-    + '<div class="ae-row ae-hdr"><span class="ae-av">◉ </span><span class="ae-n">#</span><span class="ae-name">Source Name</span><span class="ae-fx">fx</span><span class="ae-mode">Mode</span><span class="ae-mat">TrkMat</span><span class="ae-par">Parent &amp; Link</span></div>'
+    + '<div class="ae-row ae-hdr"><span class="ae-av">' + ic('eye') + ' </span><span class="ae-n">#</span><span class="ae-name">Source Name</span><span class="ae-fx">fx</span><span class="ae-mode">Mode</span><span class="ae-mat">TrkMat</span><span class="ae-par">Parent &amp; Link</span></div>'
     + rowsOf().map((r) => {
       const L = r.L, sel = selIds.has(L.id);
-      if (r.group !== undefined) return `<div class="ae-row ae-grp" data-gk="${esc(r.gk)}" data-lid="${L.id}"><span class="ae-tw">${r.open ? '▾' : '▸'}</span>${esc(r.group)}</div>`;
+      if (r.group !== undefined) return `<div class="ae-row ae-grp" data-gk="${esc(r.gk)}" data-lid="${L.id}"><span class="ae-tw">${r.open ? '▾' : '›'}</span>${esc(r.group)}</div>`;
       if (r.prop) {
         const P = r.prop.join('.'), p = M.getIn(L, r.prop), on = animated(p), v = val(p, T), k = M.keyAt(p, T) >= 0;
         const input = r.kind === 'color' ? `<input type="color" class="tl-col" data-tv="${P}" value="${v || '#ffffff'}">` : r.kind === 'xy' ? (v || [0, 0]).map((x, i) => vnum(x, P, i)).join('') : vnum(v, P, -1);
-        return `<div class="ae-row ae-prop${graphPath === P && sel ? ' gsel' : ''}" data-lid="${L.id}" data-gprop="${P}"><button class="mo-sw${on ? ' on' : ''}" data-tsw="${P}" title="Stopwatch">⏱</button><span class="ae-pname" title="Click: graph it in the Graph Editor">${esc(r.label)}</span><span class="ae-pv">${input}</span>`
-          + (on ? `<span class="ae-nav"><button data-tnav="-1" data-p="${P}" title="Previous keyframe">◀</button><button class="${k ? 'on' : ''}" data-tkey="${P}" title="Add / remove keyframe">◆</button><button data-tnav="1" data-p="${P}" title="Next keyframe">▶</button></span>` : '<span class="ae-nav"></span>') + '</div>';
+        return `<div class="ae-row ae-prop${graphPath === P && sel ? ' gsel' : ''}" data-lid="${L.id}" data-gprop="${P}"><button class="mo-sw${on ? ' on' : ''}" data-tsw="${P}" title="Stopwatch">${ic('clock')}</button><span class="ae-pname" title="Click: graph it in the Graph Editor">${esc(r.label)}</span><span class="ae-pv">${input}</span>`
+          + (on ? `<span class="ae-nav"><button data-tnav="-1" data-p="${P}" title="Previous keyframe">${ic('prev')}</button><button class="${k ? 'on' : ''}" data-tkey="${P}" title="Add / remove keyframe">${ic('diamond')}</button><button data-tnav="1" data-p="${P}" title="Next keyframe">${ic('next')}</button></span>` : '<span class="ae-nav"></span>') + '</div>';
       }
       const isMatte = c.layers[c.layers.indexOf(L) + 1]?.matte;
       return `<div class="ae-row ae-layer${sel ? ' on' : ''}" data-lid="${L.id}" draggable="true">`
-        + `<span class="ae-av"><button class="mo-ib${L.hidden ? '' : ' on'}" data-vis="${L.id}" title="Video (show / hide)">👁</button><button class="mo-ib${L.solo ? ' on' : ''}" data-solo="${L.id}" title="Solo">◉</button><button class="mo-ib${L.locked ? ' on' : ''}" data-lock="${L.id}" title="Lock">🔒</button></span>`
+        + `<span class="ae-av"><button class="mo-ib${L.hidden ? '' : ' on'}" data-vis="${L.id}" title="Video (show / hide)">${ic('eye')}</button><button class="mo-ib${L.solo ? ' on' : ''}" data-solo="${L.id}" title="Solo">${ic('radio')}</button><button class="mo-ib${L.locked ? ' on' : ''}" data-lock="${L.id}" title="Lock">${ic('lock')}</button></span>`
         + `<span class="ae-n"><i class="ae-lab" data-lab="${L.id}" style="background:${labelOf(L)}" title="Label colour (click to change)"></i>${r.n}</span>`
-        + `<span class="ae-name"><span class="ae-tw" data-tw="${L.id}">${openLayers.has(L.id) ? '▾' : '▸'}</span>${{ text: 'T', shape: '★', solid: '■', image: '🖼', video: '🎞', null: '⊹' }[L.type]} <span class="ae-ln" data-ren="${L.id}" title="Double-click to rename">${esc(L.name)}</span>${isMatte ? ' <i class="muted">(matte)</i>' : ''}</span>`
+        + `<span class="ae-name"><span class="ae-tw" data-tw="${L.id}">${openLayers.has(L.id) ? '▾' : '›'}</span><span class="ae-ln" data-ren="${L.id}" title="Double-click to rename">${esc(L.name)}</span>${isMatte ? ' <i class="muted">(matte)</i>' : ''}</span>`
         + `<span class="ae-fx"><button class="mo-ib${(L.effects || []).some((f) => !f.off) ? ' on' : ''}" data-fxall="${L.id}" title="Effects on / off">fx</button></span>`
         + `<span class="ae-mode"><select data-tsel="blend" data-l="${L.id}">${modes(L)}</select></span>`
         + `<span class="ae-mat"><select data-tsel="matte" data-l="${L.id}">${mats(L)}</select></span>`
@@ -843,7 +844,7 @@ function easeSel(kind) {
   const keys = [];
   if (selKey) { const L = layer(selKey.lid), p = L && M.getIn(L, pathOf(selKey.path)); const k = animated(p) && p.k.find((q) => Math.abs(q.t - selKey.t) < 1e-4); if (k) keys.push(k); }
   else for (const L of sel()) for (const r of M.layerKeys(L)) keys.push(...r.keys);
-  if (!keys.length) return toast('Select a keyframe (click a ◆ in the timeline) or a layer with keyframes', 'err');
+  if (!keys.length) return toast('Select a keyframe (click a keyframe in the timeline) or a layer with keyframes', 'err');
   for (const k of keys) { if (kind === 'hold') k.hold = true; else { delete k.hold; k.e = [...EASE[kind]]; } }
   save(`Keyframe ease: ${kind}`);
   toast(`${keys.length} keyframe${keys.length > 1 ? 's' : ''}: ${kind === 'easy' ? 'Easy Ease' : kind}`);
@@ -941,7 +942,7 @@ export function trackMatteFromClips(ids, findClip) {
   const lm = S.project.tracks[fm.track]; lm.splice(lm.indexOf(mt), 1);
   S.sel = new Set([clip.id]);
   commit(`Track Matte Key: ${name}`);
-  toast(`◐ "${name}": the picture shows through the ${mode === 'luma' ? 'light parts of the video' : 'shape of the matte'} - double-click it to change it in Motion`);
+  toast(`"${name}": the picture shows through the ${mode === 'luma' ? 'light parts of the video' : 'shape of the matte'} - double-click it to change it in Motion`);
   return true;
 }
 

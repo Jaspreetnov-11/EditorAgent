@@ -3,40 +3,48 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Limelight Editor - Sign in</title>
+<title>Limelight - Sign in</title>
 <link rel="icon" type="image/png" href="/img/favicon.png">
 <link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#070706">
+<meta name="theme-color" content="#050505">
 <style>
-  :root { --bg: #070706; --panel: #141311; --line: #2a2620; --text: #ece9e2; --muted: #8e887d; --accent: #d4a24c; --green: #36c27e; --red: #ff5d5d; color-scheme: dark; }
+  /* Limelight Black: true black, a hairline-edged card, Helvetica type, the logo's yellow triangle */
+  :root { --bg: #050505; --panel: #0e0e10; --hair: rgba(255,255,255,.08); --text: #f7f7f8; --muted: #9b9ba1; --faint: #5f5f66; --accent: #ffc21a;
+    --y-grad: linear-gradient(180deg, #ffd85a 0%, #ffc21a 60%, #f4ad00 100%); --red: #ff6369; color-scheme: dark; }
   * { box-sizing: border-box; }
-  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: radial-gradient(700px 360px at 50% 0%, #d4a24c1f, transparent 65%), var(--bg); color: var(--text); font: 15px/1.45 "Segoe UI", "Nirmala UI", system-ui, sans-serif; padding: 16px; }
-  form { width: min(360px, 100%); background: var(--panel); border: 1px solid var(--line); border-top-color: #d4a24c66; box-shadow: 0 30px 80px -30px #000, 0 0 40px -20px #d4a24c66; border-radius: 12px; padding: 24px; display: grid; gap: 10px; }
-  h1 { margin: 0 0 6px; display: grid; justify-items: center; gap: 10px; font: 600 20px/1 Bahnschrift, "Segoe UI", sans-serif; letter-spacing: .18em; }
-  h1 img { width: 84px; height: 84px; filter: drop-shadow(0 0 14px #e8b55a66); }
-  h1 em { font-style: normal; background: linear-gradient(180deg, #f6d48a, #d9a650 55%, #b5812f); -webkit-background-clip: text; background-clip: text; color: transparent; }
-  h1 small { font-size: 10px; letter-spacing: .5em; color: var(--accent); font-weight: 400; }
-  label { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
-  input { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; }
-  input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-  button { font: inherit; font-weight: 600; background: linear-gradient(180deg, #f6d48a, #d9a650 55%, #b5812f); color: #170f03; border: 0; border-radius: 8px; padding: 10px; cursor: pointer; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: radial-gradient(800px 420px at 50% -10%, rgba(255,194,26,.09), transparent 62%), var(--bg); color: var(--text);
+    font: 14.5px/1.5 "Helvetica Now Text", "Helvetica Neue", Helvetica, "Inter", Arial, "Nirmala UI", sans-serif; letter-spacing: 0; padding: 16px; position: relative; overflow: hidden; }
+  /* the logo's triangle, large and faint, like a beam of light behind the card */
+  body::before { content: ""; position: absolute; width: 760px; height: 760px; right: -220px; top: -260px; background: url(/img/limelight-triangle.svg) center / contain no-repeat; opacity: .05; transform: rotate(8deg); pointer-events: none; }
+  form { width: min(380px, 100%); background: linear-gradient(180deg, #121214, #0d0d0f); border-radius: 18px; padding: 32px 28px 26px; display: grid; gap: 12px;
+    box-shadow: 0 0 0 1px var(--hair) inset, 0 40px 100px -30px #000; }
+  form { position: relative; }
+  h1 { margin: 4px 0 14px; display: grid; justify-items: center; }
+  h1 img { width: 230px; height: auto; display: block; }
+  label { font-size: 12px; font-weight: 500; color: var(--muted); display: grid; gap: 6px; }
+  input { font: inherit; color: inherit; background: #08080a; border: 0; border-radius: 10px; padding: 10px 12px; box-shadow: 0 0 0 1px var(--hair) inset; outline: none; }
+  input:focus { box-shadow: 0 0 0 1px rgba(255,194,26,.6) inset, 0 0 0 3px rgba(255,194,26,.12); }
+  button:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px rgba(255,194,26,.6); }
+  button { font: inherit; font-weight: 650; background: var(--y-grad); color: #111; border: 0; border-radius: 10px; padding: 11px; cursor: pointer; margin-top: 4px;
+    box-shadow: 0 1px 0 rgba(255,255,255,.45) inset, 0 10px 24px -12px rgba(255,194,26,.8); }
+  button:hover { filter: brightness(1.06); }
   p { margin: 0; color: var(--muted); font-size: 13px; }
   .err { color: var(--red); min-height: 18px; }
-  .inst { background: none; color: var(--accent); border: 1px solid #d4a24c66; font-weight: 600; }
+  .inst { background: #17171a; color: var(--text); box-shadow: 0 0 0 1px var(--hair) inset; font-weight: 600; }
   .inst[hidden] { display: none; }
-  .sc { color: var(--accent); font-size: 12px; text-align: center; text-decoration: none; } .sc:hover { text-decoration: underline; }
+  .sc { color: var(--faint); font-size: 12px; text-align: center; text-decoration: none; } .sc:hover { color: var(--muted); }
 </style>
 </head>
 <body>
 <form id="f">
-  <h1><img src="/img/limelight-icon.png" alt=""><span>LIME<em>LIGHT</em></span><small>EDITOR</small></h1>
+  <h1><img src="/img/limelight-logo-white.png" alt="limelight - Elevate &amp; Illuminate"></h1>
   <p>Sign in with the name and password the editor's owner gave you.</p>
   <label>Name <input id="n" autocomplete="username" required></label>
   <label>Password <input id="p" type="password" autocomplete="current-password" required></label>
   <button>Sign in</button>
   <div class="err" id="e" role="alert"></div>
-  <button type="button" class="inst" id="inst" hidden>🖥 Install on this PC (Desktop icon)</button>
-  <p class="sc" id="instHow">🖥 Desktop icon: in Chrome / Edge press <b>⋮</b> › <b>Cast, save and share</b> › <b>Install page as app</b> (Edge: <b>Apps › Install this site as an app</b>)</p>
+  <button type="button" class="inst" id="inst" hidden>Install on this PC (Desktop icon)</button>
+  <p class="sc" id="instHow">Desktop icon: in Chrome / Edge open the <b>menu</b> › <b>Cast, save and share</b> › <b>Install page as app</b> (Edge: <b>Apps › Install this site as an app</b>)</p>
 </form>
 <script>
 // 🖥 Chrome / Edge offer to install the editor as an app: one click puts its icon on the Desktop and in the Start menu
@@ -45,7 +53,7 @@ let ask = null;
 const inst = document.getElementById('inst'), how = document.getElementById('instHow');
 if (matchMedia('(display-mode: standalone)').matches) how.hidden = true; // (already opened as the app)
 addEventListener('beforeinstallprompt', (ev) => { ev.preventDefault(); ask = ev; inst.hidden = false; how.hidden = true; });
-addEventListener('appinstalled', () => { inst.hidden = true; how.hidden = false; how.textContent = '✅ Installed - the Limelight Editor icon is on the Desktop'; });
+addEventListener('appinstalled', () => { inst.hidden = true; how.hidden = false; how.textContent = 'Installed - the Limelight icon is on the Desktop'; });
 inst.onclick = async () => { if (!ask) return; ask.prompt(); await ask.userChoice.catch(() => null); ask = null; inst.hidden = true; };
 document.getElementById('f').onsubmit = async (ev) => {
   ev.preventDefault();

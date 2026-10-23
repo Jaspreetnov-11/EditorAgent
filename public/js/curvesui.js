@@ -23,8 +23,8 @@ export function mountCurves(box, mode, api) {
     <div class="cv-side">
       <div class="segbtns cv-ch">${list.map(([k, l, c]) => `<button data-cv="${k}" ${mode === 'rgb' ? `style="--cvc:${c}"` : `title="${esc(c)}"`}>${l}</button>`).join('')}</div>
       <p class="muted small cv-help">Click the line to add a point, drag to shape it. Double-click a point to remove it.${mode === 'hue' ? ' 0.5 (the middle line) = no change.' : ''}</p>
-      <button class="small" data-cvreset="one">↺ Reset this curve</button>
-      <button class="small" data-cvreset="all">↺ Reset all ${mode === 'rgb' ? 'RGB' : 'hue'} curves</button>
+      <button class="small" data-cvreset="one">Reset this curve</button>
+      <button class="small" data-cvreset="all">Reset all ${mode === 'rgb' ? 'RGB' : 'hue'} curves</button>
     </div>
     <canvas class="cv-c" width="300" height="300" aria-label="${mode === 'rgb' ? 'RGB curves' : 'Hue saturation curves'}"></canvas>
   </div>`;

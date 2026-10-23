@@ -53,7 +53,7 @@ export function fieldsHTML(defs, obj) {
     switch (d.type) {
       case 'range': input = `<div class="rng"><input type="range" ${a} min="${d.min}" max="${d.max}" step="${d.step}" value="${val}">
         <input class="rng-num" type="number" data-mirror="${d.k}" min="${d.min}" max="${d.max}" step="${d.step}" value="${+(+val).toFixed(3)}">
-        <button class="icon-btn reset" data-reset="${d.k}" data-def="${d.def}" title="Reset">↺</button></div>`; break;
+        <button class="icon-btn reset" data-reset="${d.k}" data-def="${d.def}" title="Reset">${ic('reset')}</button></div>`; break;
       case 'select': input = `<select ${a}>${d.options.map(([ov, ol]) => `<option value="${esc(ov)}"${String(val ?? '') === String(ov) ? ' selected' : ''}>${esc(ol)}</option>`).join('')}</select>`; break;
       case 'check': return `<label class="chk"><input type="checkbox" ${a}${val ? ' checked' : ''}> ${esc(d.label)}</label>`;
       case 'area': input = `<textarea ${a} rows="${d.rows || 2}" placeholder="${esc(d.ph || '')}">${esc(val ?? '')}</textarea>`; break;
@@ -124,4 +124,5 @@ export function progressClock(started = Date.now()) {
       return { elapsed: mmss(el), left: left === null ? null : mmss(Math.max(1, left)), text: `${mmss(el)} done${left === null ? ' · estimating time left…' : ` · about ${mmss(Math.max(1, left))} left`}` };
     },
   };
-}
+}import { ic } from './lineicons.js';
+

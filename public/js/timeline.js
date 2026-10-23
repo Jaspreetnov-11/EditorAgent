@@ -1,5 +1,6 @@
 // Multi-track timeline: V2 overlays/titles, V1 magnetic main story, A1 voice-over, A2 music, A3 SFX.
 // Drag to move (V1 reorders), drag edges to trim, blade/S to split, drop media from the pool, snapping to edges + playhead.
+import { ic } from './lineicons.js';
 import { guarded } from './errlog.js';
 import { S, on, emit, commit, layout, duration, findClip, saveNow } from './store.js';
 import { zoneBandsHTML } from './zones.js';
@@ -61,23 +62,23 @@ export function mountTimeline(el) {
       </div>
       <span class="sep"></span>
       <button data-act="split" title="Split clips under the playhead (S)">${ICON.split}<span>Split</span></button>
-      <button data-act="trimStart" title="Cut the front: remove everything before the playhead from the clip under it, the gap closes (Q)"><b>⇤</b><span>Trim front</span></button>
-      <button data-act="trimEnd" title="Cut the back: remove everything after the playhead from the clip under it, the gap closes (W)"><b>⇥</b><span>Trim back</span></button>
+      <button data-act="trimStart" title="Cut the front: remove everything before the playhead from the clip under it, the gap closes (Q)"><b>${ic('trimstart')}</b><span>Trim front</span></button>
+      <button data-act="trimEnd" title="Cut the back: remove everything after the playhead from the clip under it, the gap closes (W)"><b>${ic('trimend')}</b><span>Trim back</span></button>
       <button data-act="delete" title="Delete selected (Del)">${ICON.trash}<span>Delete</span></button>
       <button data-act="dup" title="Duplicate (Ctrl+D)">${ICON.copy}<span>Duplicate</span></button>
       <span class="sep"></span>
       <button data-act="title" title="Type tool (T): click on the Program monitor and type - text right there (title templates: Graphics and Titles menu)">${ICON.text}<span>Text</span></button>
-      <button data-act="gfx" title="Motion graphics: counters, charts, callouts, route lines"><b>📊</b><span>Graphic</span></button>
-      <button data-act="adjust" title="Adjustment layer: colour / effects for every track below it, at the playhead"><b>◩</b><span>Adjust</span></button>
-      <button data-act="ramp" title="Speed ramp: pick a preset for the selected video clips (slow-mo hit, bullet time, whoosh…)"><b>⏩</b><span>Ramp</span></button>
-      <button data-act="roto" title="Roto (AI): select a video clip - its subject (person / animal / vehicle) is cut out onto the track above. Put text on a track in between to have it behind the person"><b>✂</b><span>Roto</span></button>
-      <button data-act="sfx" title="Auto sound design: whooshes, hits and a riser on A3, lined up with your cuts, transitions and effects"><b>🔊</b><span>SFX</span></button>
+      <button data-act="gfx" title="Motion graphics: counters, charts, callouts, route lines"><b>${ic('chart')}</b><span>Graphic</span></button>
+      <button data-act="adjust" title="Adjustment layer: colour / effects for every track below it, at the playhead"><b>${ic('adjust')}</b><span>Adjust</span></button>
+      <button data-act="ramp" title="Speed ramp: pick a preset for the selected video clips (slow-mo hit, bullet time, whoosh…)"><b>${ic('ramp')}</b><span>Ramp</span></button>
+      <button data-act="roto" title="Roto (AI): select a video clip - its subject (person / animal / vehicle) is cut out onto the track above. Put text on a track in between to have it behind the person"><b>${ic('scissors')}</b><span>Roto</span></button>
+      <button data-act="sfx" title="Auto sound design: whooshes, hits and a riser on A3, lined up with your cuts, transitions and effects"><b>${ic('speaker')}</b><span>SFX</span></button>
       <span class="sep"></span>
       <button data-act="snap" class="tog" title="Snapping on/off (N)">${ICON.magnet}<span>Snap</span></button>
     </div>
     <div class="tl-bar">
       <div class="tl-seqtabs" id="tlSeqTabs" role="tablist" aria-label="Sequences"></div>
-      <button data-act="seq" class="tl-seq" title="Sequences: switch, make a new one, copy / paste a timeline, manage" aria-haspopup="menu"><b>🎞</b><span id="tlSeqName"></span><i class="tl-seq-caret">▾</i></button>
+      <button data-act="seq" class="tl-seq" title="Sequences: switch, make a new one, copy / paste a timeline, manage" aria-haspopup="menu"><b>${ic('film')}</b><span id="tlSeqName"></span><i class="tl-seq-caret">▾</i></button>
       <span class="sep"></span>
       <span class="tl-tc" id="tlTC" title="Click and type a timecode: 1:10:00 or 11000 goes there, +15 / -1:00 moves by that (the selected clips, else the playhead)">00:00:00:00</span><span class="tl-dur" id="tlDur"></span>
       <span class="grow"></span>
@@ -209,14 +210,14 @@ const toolIcon = (x) => (x[3][0] === '@' ? ICON[x[3].slice(1)] : x[3]); // (ICON
 const toolTip = (x) => `${x[1]}${x[2] ? ` (${x[2]})` : ''}: ${x[4]}`;
 function toolBtn(x, i) {
   const many = TOOL_GROUPS[i].length > 1;
-  return `<button data-tool="${x[0]}" data-grp="${i}" title="${esc(toolTip(x))}${many ? ' - hold, right-click or ◢ for the others' : ''}" aria-label="${esc(x[1])}">${toolIcon(x)}${many ? '<i class="tg-more" data-tgmore></i>' : ''}</button>`;
+  return `<button data-tool="${x[0]}" data-grp="${i}" title="${esc(toolTip(x))}${many ? ' - hold or right-click for the others' : ''}" aria-label="${esc(x[1])}">${toolIcon(x)}${many ? '<i class="tg-more" data-tgmore></i>' : ''}</button>`;
 }
 // the flyout of group i under / beside its button
 function toolFlyout(btn) {
   document.querySelector('.tg-fly')?.remove();
   const g = TOOL_GROUPS[+btn.dataset.grp], r = btn.getBoundingClientRect(), m = document.createElement('div');
   m.className = 'tg-fly ctx'; m.setAttribute('role', 'menu');
-  m.innerHTML = g.map((x) => `<button role="menuitem" data-pick="${x[0]}" title="${esc(x[4])}"><span class="tg-ic">${toolIcon(x)}</span><span>${S.tool === x[0] ? '■ ' : ''}${esc(x[1])}</span>${x[2] ? `<kbd>${x[2]}</kbd>` : ''}</button>`).join('');
+  m.innerHTML = g.map((x) => `<button role="menuitem" data-pick="${x[0]}" title="${esc(x[4])}"><span class="tg-ic">${toolIcon(x)}</span><span>${S.tool === x[0] ? ic('check') + ' ' : ''}${esc(x[1])}</span>${x[2] ? `<kbd>${x[2]}</kbd>` : ''}</button>`).join('');
   document.body.append(m);
   m.style.left = `${Math.min(r.right + 4, innerWidth - m.offsetWidth - 6)}px`; m.style.top = `${Math.min(r.top, innerHeight - m.offsetHeight - 6)}px`;
   const close = () => { m.remove(); window.removeEventListener('pointerdown', out, true); };
@@ -261,7 +262,7 @@ function syncBar() {
     try { localStorage.setItem(okey, JSON.stringify(order)); } catch {}
     // ✕ closed tabs are hidden here (the sequence itself stays - 🎞 ▾ opens it again, which shows its tab again)
     const closed = closedTabs(); for (const x of list0) if (x.open) closed.delete(x.id);
-    const list = [...list0].filter((x) => !closed.has(x.id)).sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id)), team = sharedSeqId(), html = list.map((x) => `<button role="tab" class="tl-stab" data-stab="${esc(x.id)}" aria-selected="${x.open}" title="${esc(x.name)}${x.id === team ? ' (team main sequence)' : ''} - double-click to rename">${x.id === team ? '<i class="stab-team">👥</i>' : ''}<span>${esc(x.name)}</span>${list0.length - closed.size > 1 ? `<i class="stab-x" data-sclose="${esc(x.id)}" title="Close this tab (the sequence stays - ▾ opens it again)">✕</i>` : ''}</button>`).join('');
+    const list = [...list0].filter((x) => !closed.has(x.id)).sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id)), team = sharedSeqId(), html = list.map((x) => `<button role="tab" class="tl-stab" data-stab="${esc(x.id)}" aria-selected="${x.open}" title="${esc(x.name)}${x.id === team ? ' (team main sequence)' : ''} - double-click to rename"><span>${esc(x.name)}</span>${list0.length - closed.size > 1 ? `<i class="stab-x" data-sclose="${esc(x.id)}" title="Close this tab (the sequence stays - ▾ opens it again)">✕</i>` : ''}</button>`).join('');
     if (tabs.__html !== html) { tabs.innerHTML = html; tabs.__html = html; const cur = tabs.querySelector('[aria-selected="true"]'); if (cur && (cur.offsetLeft < tabs.scrollLeft || cur.offsetLeft + cur.offsetWidth > tabs.scrollLeft + tabs.clientWidth)) tabs.scrollLeft = Math.max(0, cur.offsetLeft - 40); }
   }
   $('[data-act="snap"]', root).classList.toggle('on', S.snap);
@@ -310,7 +311,7 @@ export function fitZoom() {
 }
 
 // ---------------- render ----------------
-const mName = (c) => (c.labsId && S.project.labs?.[c.labsId] ? S.project.labs[c.labsId].name : c.type === 'title' ? (c.text || 'Title').split('\n')[0] : c.type === 'adjust' ? '◩ Adjustment layer' : c.type === 'graphic' ? (c.gfx?.tpl === 'fusion' ? `${c.gfx.fusion?.name || 'Fusion'}` : c.gfx?.tpl === 'comp' ? `${c.gfx.comp?.name || 'Comp'}` : `${c.gfx?.title || GFX[c.gfx?.tpl]?.label || 'Graphic'}`) : nestedName(c) || S.mediaById[c.mediaId]?.name || 'Missing media');
+const mName = (c) => (c.labsId && S.project.labs?.[c.labsId] ? S.project.labs[c.labsId].name : c.type === 'title' ? (c.text || 'Title').split('\n')[0] : c.type === 'adjust' ? 'Adjustment layer' : c.type === 'graphic' ? (c.gfx?.tpl === 'fusion' ? `${c.gfx.fusion?.name || 'Fusion'}` : c.gfx?.tpl === 'comp' ? `${c.gfx.comp?.name || 'Comp'}` : `${c.gfx?.title || GFX[c.gfx?.tpl]?.label || 'Graphic'}`) : nestedName(c) || S.mediaById[c.mediaId]?.name || 'Missing media');
 // a nested clip is named after its sequence (renaming the sequence renames the clip)
 const nestedName = (c) => { const sid = S.mediaById[c.mediaId]?.seqOf; const s = sid && seqList(S.project).find((x) => x.id === sid); return s ? `${s.name}` : null; };
 
@@ -511,9 +512,9 @@ function drawHeads(TR, ts) {
       <div class="th-btns">
         ${t.kind === 'video' ? `<button class="tbtn${st.hide ? ' on' : ''}" data-tst="hide" title="Hide track">${st.hide ? ICON.eyeOff : ICON.eye}</button>` : ''}
         <button class="tbtn${st.mute ? ' on' : ''}" data-tst="mute" title="${t.kind === 'video' ? 'Mute clip sound' : 'Mute track'}">M</button>
-        ${t.kind === 'audio' ? `<button class="tbtn solo${st.solo ? ' on' : ''}" data-tst="solo" title="Solo Track: hear only the soloed tracks">S</button><button class="tbtn rec" data-rec="${t.id}" title="Voice-over record: 3-2-1, then the edit plays and your voice goes onto ${t.name} from the playhead (click again or Esc to stop)">🎙</button>` : ''}
-        ${t.kind === 'audio' || t.id === 'V1' ? `<button class="tbtn tkey${st.volKeys?.length ? ' on' : ''}" data-tkey="${t.id}" title="Track volume keyframe at the playhead (${st.volKeys?.length || 0} now) - drag the dots on the track's yellow line, double-click one to remove it">◆</button>` : ''}
-        ${t.id !== 'V1' ? `<button class="tbtn sync${st.sync ? ' on' : ''}" data-tst="sync" title="Sync Lock: when the main story ripples (Ripple delete, Q / W, Insert, ripple trim, Paste Insert, Trim mode) the clips on ${t.name} after that point move along with it">⇋</button>` : ''}
+        ${t.kind === 'audio' ? `<button class="tbtn solo${st.solo ? ' on' : ''}" data-tst="solo" title="Solo Track: hear only the soloed tracks">S</button><button class="tbtn rec" data-rec="${t.id}" title="Voice-over record: 3-2-1, then the edit plays and your voice goes onto ${t.name} from the playhead (click again or Esc to stop)">${ic('mic')}</button>` : ''}
+        ${t.kind === 'audio' || t.id === 'V1' ? `<button class="tbtn tkey${st.volKeys?.length ? ' on' : ''}" data-tkey="${t.id}" title="Track volume keyframe at the playhead (${st.volKeys?.length || 0} now) - drag the dots on the track's yellow line, double-click one to remove it">${ic('diamond')}</button>` : ''}
+        ${t.id !== 'V1' ? `<button class="tbtn sync${st.sync ? ' on' : ''}" data-tst="sync" title="Sync Lock: when the main story ripples (Ripple delete, Q / W, Insert, ripple trim, Paste Insert, Trim mode) the clips on ${t.name} after that point move along with it">${ic('sync')}</button>` : ''}
         <button class="tbtn${st.lock ? ' on' : ''}" data-tst="lock" title="Lock track">${ICON.lock}</button>
       </div>
       <div class="th-resize" data-rowh="${t.id}" title="Drag to make ${t.name} taller / shorter (double-click: normal)"></div>
@@ -523,7 +524,7 @@ function drawHeads(TR, ts) {
     const id = b.closest('.th').dataset.track, k = b.dataset.tst;
     ts[id] = { ...ts[id], [k]: !ts[id]?.[k] };
     commit(k === 'sync' ? 'Sync Lock' : `Track ${k}`);
-    if (k === 'sync') toast(ts[id].sync ? `⇋ Sync Lock on ${id}: its clips move along when the main story ripples` : `Sync Lock off on ${id}: its clips stay where they are`);
+    if (k === 'sync') toast(ts[id].sync ? `Sync Lock on ${id}: its clips move along when the main story ripples` : `Sync Lock off on ${id}: its clips stay where they are`);
     emit('mix'); // (the preview mix follows mute / solo at once)
   }));
   // 🎚 track volume keyframe at the playhead: the value the line has there (1 = the fader as it is)
@@ -531,7 +532,7 @@ function drawHeads(TR, ts) {
     const id = b.dataset.tkey, st = (ts[id] ||= {}), k = (st.volKeys ||= []), t = +S.playhead.toFixed(3);
     const v = k.length ? +evalKeys(k, t).toFixed(3) : 1, i = k.findIndex((x) => Math.abs(x.t - t) < 0.02);
     if (i >= 0) k[i].v = v; else { k.push({ t, v }); k.sort((p, q) => p.t - q.t); }
-    commit('Track volume keyframe'); toast(`◆ ${id} volume keyframe at ${fmtTC(t, S.project.settings.fps)} - drag its dot up / down on the track`);
+    commit('Track volume keyframe'); toast(`${id} volume keyframe at ${fmtTC(t, S.project.settings.fps)} - drag its dot up / down on the track`);
   }));
   $$('[data-rec]', headsEl).forEach((b) => (b.onclick = () => import('./vorecord.js').then((m) => m.toggleRecord(b.dataset.rec))));
   $$('[data-tg]', headsEl).forEach((b) => (b.onclick = (e) => { e.stopPropagation(); setTarget(trackKind(b.dataset.tg) === 'video' ? 'v' : 'a', b.dataset.tg); }));
@@ -548,7 +549,7 @@ function drawHeads(TR, ts) {
   });
 
   headsEl.insertAdjacentHTML('beforeend', '<div class="th-add"><button class="small" data-addtrack="video" title="Add a video track on top">+ Video</button><button class="small" data-addtrack="audio" title="Add an audio track at the bottom">+ Audio</button></div>'
-    + `<div class="th-vz" title="Track height (vertical zoom) - also Alt + mouse wheel over these headers, Ctrl+= / Ctrl+-"><button class="small" data-vz="min" title="Minimise all tracks (Shift+-)">▁</button><button class="small" data-vz="-" aria-label="Shorter tracks">−</button><input type="range" data-vz="r" min="0" max="100" value="${Math.round(((Math.log(vZoom) - Math.log(0.4)) / (Math.log(5) - Math.log(0.4))) * 100)}" aria-label="Track height"><button class="small" data-vz="+" aria-label="Taller tracks">+</button><button class="small" data-vz="max" title="Expand all tracks (Shift+=)">▇</button></div>`);
+    + `<div class="th-vz" title="Track height (vertical zoom) - also Alt + mouse wheel over these headers, Ctrl+= / Ctrl+-"><button class="small" data-vz="min" title="Minimise all tracks (Shift+-)">${ic('rowsmin')}</button><button class="small" data-vz="-" aria-label="Shorter tracks">−</button><input type="range" data-vz="r" min="0" max="100" value="${Math.round(((Math.log(vZoom) - Math.log(0.4)) / (Math.log(5) - Math.log(0.4))) * 100)}" aria-label="Track height"><button class="small" data-vz="+" aria-label="Taller tracks">+</button><button class="small" data-vz="max" title="Expand all tracks (Shift+=)">${ic('rowsmax')}</button></div>`);
   headsEl.querySelectorAll('[data-vz]').forEach((b) => {
     const k = b.dataset.vz;
     if (k === 'r') b.oninput = () => setTrackZoom(Math.exp(Math.log(0.4) + (+b.value / 100) * (Math.log(5) - Math.log(0.4))));
@@ -605,14 +606,14 @@ function clipHTML(track, x, i) {
   // 🎨 kinds you can tell apart at a glance: ⤵ nested sequence (green), 🎬 Motion comp (orange), ✨ Fusion (maroon)
   const kind = c.labsId ? ' k-labs' : c.gfx?.tpl === 'comp' ? ' k-comp' : c.gfx?.tpl === 'fusion' ? ' k-fusion' : c.mediaId && S.mediaById[c.mediaId]?.seqOf ? ' k-nest' : '';
   const badges = [c.color && Object.keys(c.color).length ? '<i title="Colour graded">CC</i>' : '', c.speed && c.speed !== 1 ? `<i>${c.speed}×</i>` : '',
-    c.text && c.type !== 'title' ? '<i title="Has text">T</i>' : '', c.loop ? '<i title="Loops">⟲</i>' : '', c.duck ? '<i title="Ducks under speech">duck</i>' : '',
-    c.link ? `<i class="lk" title="Linked to its ${c.type === 'audio' ? 'picture' : 'sound'} - they move and trim together (Alt + click takes one; right-click › Unlink)">${c.type === 'audio' ? 'A' : 'V'}🔗</i>` : '',
+    c.text && c.type !== 'title' ? '<i title="Has text">T</i>' : '', c.loop ? '<i title="Loops">' + ic('loop') + '</i>' : '', c.duck ? '<i title="Ducks under speech">duck</i>' : '',
+    c.link ? `<i class="lk" title="Linked to its ${c.type === 'audio' ? 'picture' : 'sound'} - they move and trim together (Alt + click takes one; right-click › Unlink)">${c.type === 'audio' ? 'A' : 'V'}</i>` : '',
     c.mute && !(c.link && c.type === 'video') ? '<i title="Muted">M</i>' : '',
-    c.soundType ? `<i title="Audio type: ${c.soundType} (Essential Sound)">${{ dialogue: '🗣', music: '🎵', sfx: '💥', ambience: '🌿' }[c.soundType] || ''}</i>` : '',
-    c.locked ? '<i class="lkb" title="Locked clip (right-click › Unlock clip)">🔒</i>' : '',
-    c.grp ? '<i class="grpb" title="Grouped - selected, moved and deleted together (Alt + click takes one; Ctrl+Shift+G ungroups)">▣</i>' : '',
+    c.soundType ? `<i title="Audio type: ${c.soundType} (Essential Sound)">${{ dialogue: ic('mic'), music: ic('music'), sfx: ic('bolt'), ambience: ic('leaf') }[c.soundType] || ''}</i>` : '',
+    c.locked ? '<i class="lkb" title="Locked clip (right-click › Unlock clip)">' + ic('lock') + '</i>' : '',
+    c.grp ? '<i class="grpb" title="Grouped - selected, moved and deleted together (Alt + click takes one; Ctrl+Shift+G ungroups)">' + ic('group') + '</i>' : '',
     // fx (like Premiere): the clip has effects - video effects, a cut effect, audio clean-up or masks
-    c.effects?.length || c.cutFx?.type || c.afx || c.masks?.length || c.aeffects?.length ? `<i class="fxb" title="Effects: ${esc([...(c.effects || []).map((e) => e.type), c.cutFx?.type, c.afx && 'audio clean-up', ...(c.aeffects || []).map((e) => `${e.type}`), c.masks?.length && `${c.masks.length} mask${c.masks.length > 1 ? 's' : ''}`].filter(Boolean).join(', '))} (Effect Controls)">fx</i>` : '', c.sfx ? `<i title="Sound effect (auto)">${esc(c.sfx)}</i>` : '', c.ramp ? '<i title="Speed ramp">⤳</i>' : '', c.transform && (c.transform.zoom !== 1 || c.transform.x || c.transform.y || c.transform.rotation) ? '<i title="Transformed">◰</i>' : ''].join('');
+    c.effects?.length || c.cutFx?.type || c.afx || c.masks?.length || c.aeffects?.length ? `<i class="fxb" title="Effects: ${esc([...(c.effects || []).map((e) => e.type), c.cutFx?.type, c.afx && 'audio clean-up', ...(c.aeffects || []).map((e) => `${e.type}`), c.masks?.length && `${c.masks.length} mask${c.masks.length > 1 ? 's' : ''}`].filter(Boolean).join(', '))} (Effect Controls)">fx</i>` : '', c.sfx ? `<i title="Sound effect (auto)">${esc(c.sfx)}</i>` : '', c.ramp ? '<i title="Speed ramp">' + ic('ramp') + '</i>' : '', c.transform && (c.transform.zoom !== 1 || c.transform.x || c.transform.y || c.transform.rotation) ? '<i title="Transformed">' + ic('transform') + '</i>' : ''].join('');
   // (no + on the cut any more: it sat - invisible - over the left trim edge, so taking a shot's start to trim it often
   // added a transition instead. Transitions: Effects panel, Ctrl+D, right-click. A transition's box is drawn on the row.)
   // 🌑 a fade from / to black at an end of the clip (a one-sided Dip to Black): a box like a transition's, click to change it
@@ -630,7 +631,7 @@ function clipHTML(track, x, i) {
   return `<div class="clip t-${c.type}${kind}${S.sel.has(c.id) ? ' sel' : ''}${missing ? ' missing' : ''}${c.disabled ? ' off' : ''}${c.locked ? ' clocked' : ''}${c.label ? ' lab' : ''}" data-id="${c.id}" data-track="${track}"
     style="left:${vs * S.zoom}px;width:${w}px${c.label ? `;--lab:${c.label}` : ''}" title="${esc(mName(c))} · ${fmt(ve - vs)}${c.color && Object.keys(c.color).length ? ' · colour graded' : ''}${c.speed && c.speed !== 1 ? ` · ${c.speed}×` : ''}${c.ramp ? ' · speed ramp' : ''}${c.mute ? ' · muted' : ''}">
     <div class="clip-bg" style="${bg}">${wv}</div>${ov}${(dupMarks?.get(c.id)?.segs || []).map(([a0, a1]) => `<i class="dupf" title="These frames are used in another clip too" style="left:${Math.max(0, (a0 - (vs - x.start)) * S.zoom)}px;width:${Math.max(2, (a1 - a0) * S.zoom)}px;background:${dupMarks.get(c.id).col}"></i>`).join('')}${kfs}${cmk}${spd}${bandHTML(c, track, x.end - x.start)}
-    <div class="clip-lbl"><span class="nm">${missing ? '⚠ ' : ''}${esc(mName(c))}</span><span class="bd">${badges}</span></div>
+    <div class="clip-lbl"><span class="nm">${esc(mName(c))}</span><span class="bd">${badges}</span></div>
     <div class="clip-dur">${fmt(ve - vs)}</div>
     <div class="trim l" data-trim="l"></div><div class="trim r" data-trim="r"></div>${trans}
   </div>`;
@@ -929,7 +930,7 @@ function onRowsDown(e) {
       if (sides.hA + sides.hB < 0.1) sides[left ? 'hB' : 'hA'] = +(0.1 - sides[left ? 'hA' : 'hB']).toFixed(2);
       const cur = findClip(id); if (!cur) return;
       setTransition(S.project, S.mediaById, cur.index, type, 0, sides); moved = true; render();
-      toast(`⧓ ${findClip(id)?.clip.transitionIn?.dur?.toFixed(2) || d.toFixed(2)} s`);
+      toast(`${findClip(id)?.clip.transitionIn?.dur?.toFixed(2) || d.toFixed(2)} s`);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', () => { window.removeEventListener('pointermove', move); if (moved) commit('Transition length'); }, { once: true });
@@ -1250,12 +1251,12 @@ async function remixTo(id) {
   const c = findClip(id)?.clip; if (!c) return;
   const len = +clipDur(c, S.mediaById).toFixed(2);
   try {
-    toast(`♫ Remixing to ${fmt(len)}…`);
+    toast(`Remixing to ${fmt(len)}…`);
     const best = await api('GET', `/api/music/best?p=${enc(S.proj)}&id=${c.mediaId}&dur=${len}`);
     const now = findClip(id)?.clip; if (!now) return;
     Object.assign(now, { in: best.in, out: best.out, fadeOut: Math.max(now.fadeOut || 0, 1.5) });
     if (now.loop) now.dur = len;
-    commit('Remix'); toast(`♫ Remixed to ${fmt(clipDur(now, S.mediaById))} from the best part of the music`);
+    commit('Remix'); toast(`Remixed to ${fmt(clipDur(now, S.mediaById))} from the best part of the music`);
   } catch (err) { commit('Trim'); toast(`Remix: ${err.message}`, 'err'); }
 }
 // ⇹ Rolling edit: the cut moves by dt; the shot before gets longer / shorter by as much as the shot after gets shorter /
@@ -1282,7 +1283,7 @@ function rateStretch(c, o, m, dt, pts) {
     if (Math.abs(sp - 1) < 0.005) delete c.speed; else c.speed = +sp.toFixed(4);
   } else c.dur = +nd.toFixed(3);
   if (!right && drag.track !== 'V1') c.start = +Math.max(0, (o.start || 0) + (d0 - clipDur(c, S.mediaById))).toFixed(3);
-  toast(`⟷ ${fmt(clipDur(c, S.mediaById))} · speed ${Math.round((c.speed || 1) * 100)}%`);
+  toast(`${fmt(clipDur(c, S.mediaById))} · speed ${Math.round((c.speed || 1) * 100)}%`);
   return L;
 }
 // ✒ Pen: a keyframe on the clip's opacity (picture) / volume (sound) line where it was clicked - the higher on the clip,
@@ -1943,7 +1944,7 @@ function onContext(e) {
     const at = Math.max(0, timeAt(e.clientX)), n = clipboard()?.kind === 'clips' ? clipboard().items.length : 0;
     // an empty place on the main story (a gap): Ripple delete closes it, like Premiere
     const gap = row.dataset.track === 'V1' ? layout().V1.find((x) => x.clip.gap && at >= x.start && at < x.end) : null;
-    const items = [...(gap ? [['ripple', `⇤ Ripple delete (close this ${fmt(gap.end - gap.start)} gap)`]] : []), ...(n ? [['pasteHere', `Paste ${n} clip${n > 1 ? 's' : ''} here`, 'Ctrl+V']] : [])];
+    const items = [...(gap ? [['ripple', `Ripple delete (close this ${fmt(gap.end - gap.start)} gap)`]] : []), ...(n ? [['pasteHere', `Paste ${n} clip${n > 1 ? 's' : ''} here`, 'Ctrl+V']] : [])];
     if (!items.length) return;
     e.preventDefault();
     return ctxMenu(e, items, (a) => {
@@ -1957,7 +1958,7 @@ function onContext(e) {
   const f = findClip(id), c = f.clip;
   // the everyday edits only; the rest sit under "More…" (same spot) so the menu stays short
   const items = [
-    ...(c.gap ? [['closegap', '⇤ Close gap (ripple)', 'Del'], '-'] : []),
+    ...(c.gap ? [['closegap', 'Close gap (ripple)', 'Del'], '-'] : []),
     ['split', 'Split at playhead', 'S'], ['copy', S.sel.size > 1 ? `Copy ${S.sel.size} clips` : 'Copy', 'Ctrl+C'],
     ...(clipboard()?.kind === 'clips' ? [['paste', `Paste ${clipboard().items.length > 1 ? `${clipboard().items.length} clips ` : ''}at playhead`, 'Ctrl+V']] : []),
     ['dup', 'Duplicate', 'Ctrl+D'],
@@ -1965,7 +1966,7 @@ function onContext(e) {
     ...(S.sel.size > 1 ? [['nest', `Nest ${S.sel.size} clips…`], ['group', 'Group', 'Ctrl+G']] : []), ...(c.grp ? [['ungroup', 'Ungroup', 'Ctrl+Shift+G']] : []),
     '-',
     ['spdlg', 'Speed / Duration…', 'Ctrl+R'],
-    ...(c.type === 'video' || c.type === 'image' ? [['frameFit', 'Set to Frame Size (fit)'], ['frameScale', 'Scale to Frame Size'], ['frameFill', 'Fill Frame'], ['cmatch', '🎨 Color match to a reference…']] : []),
+    ...(c.type === 'video' || c.type === 'image' ? [['frameFit', 'Set to Frame Size (fit)'], ['frameScale', 'Scale to Frame Size'], ['frameFill', 'Fill Frame'], ['cmatch', 'Color match to a reference…']] : []),
     ...(soundClips([id]).length ? [['gain', 'Audio gain…', 'G']] : []),
     ...((c.type === 'video' || c.type === 'audio') && !linkedPartner(S.project, c) ? [['mute', c.mute ? 'Unmute' : 'Mute']] : []),
     ...(linkedPartner(S.project, c) ? [['unlink', 'Unlink audio / video']] : c.type === 'video' && S.mediaById[c.mediaId]?.hasAudio && !c.link ? [['linkA', 'Separate audio (linked)']] : c.type === 'video' && c.link && S.mediaById[c.mediaId]?.hasAudio ? [['linkA', 'Bring back its sound (linked)']] : []),
@@ -1983,7 +1984,7 @@ function onContext(e) {
     ['clipMarker', 'Add clip marker at playhead'], ...(c.markers?.length ? [['clipMarkersOff', `Remove clip markers (${c.markers.length})`]] : []),
     ['pasteAttr', 'Paste Attributes…', 'Ctrl+Alt+V'], ['removeAttr', 'Remove Attributes…'], ['label', 'Label colour…'],
     [c.locked ? 'unlockClip' : 'lockClip', c.locked ? 'Unlock clip' : `Lock clip${S.sel.size > 1 ? `s (${S.sel.size})` : ''}`],
-    ...(S.sel.size === 2 ? [['matte', '◐ Track Matte Key (the upper clip is the matte)']] : []),
+    ...(S.sel.size === 2 ? [['matte', 'Track Matte Key (the upper clip is the matte)']] : []),
     ...(c.type === 'video' ? ['-', ['behind', 'Text behind subject (AI roto)']] : []),
     ...(c.mediaId && S.mediaById[c.mediaId] ? ['-', ['revealP', 'Reveal in Project'], ['copydir', 'Copy folder path'], ...(/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? [['revealE', 'Reveal in Explorer']] : [])] : []),
     ...(c.mediaId ? ['-', ['replaceSrc', 'Replace with clip from Source monitor'], ['src', 'Open in source viewer']] : []),

@@ -1,4 +1,5 @@
 // Inspector: properties of the selected clip, or project settings when nothing is selected.
+import { ic } from './lineicons.js';
 import { guarded } from './errlog.js';
 import { S, on, emit, commit, findClip, layout, duration, saveNow } from './store.js';
 import { ASPECTS, shapeLabel, TRANSITIONS, clipDur, fmt, parseTime, fmtTC, KEYABLE, propAt, hasKeys, RAMPS, EASES, BLEND_MODES, setTransition, keepLength } from './model.js';
@@ -44,7 +45,7 @@ export function mountInspector(el) {
   on('change', () => { if (!selfCommit) render(); });
   on('media', render);
   on('playhead', () => updateKeyUI());
-  on('maskEdit', () => { root.querySelectorAll('[data-medit]').forEach((b) => { const sc = b.closest('[data-mscope]').dataset.mscope, on2 = !!S.maskEdit && (S.maskEdit.effId || 'clip') === sc; b.classList.toggle('on', on2); b.textContent = on2 ? '✎ Editing on monitor' : '✎ Edit on monitor'; }); });
+  on('maskEdit', () => { root.querySelectorAll('[data-medit]').forEach((b) => { const sc = b.closest('[data-mscope]').dataset.mscope, on2 = !!S.maskEdit && (S.maskEdit.effId || 'clip') === sc; b.classList.toggle('on', on2); b.textContent = on2 ? 'Editing on monitor' : 'Edit on monitor'; }); });
   on('inspect', (sec) => { openSections.add(sec); document.querySelector('.ui-dock [data-dock="ec"]')?.click(); render(); $(`[data-sec="${sec}"]`, root)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); });
   root.addEventListener('click', (e) => {
     const s = e.target.closest('.isec > summary');
@@ -78,12 +79,12 @@ function renderClip(id) {
   if (!f) { root.innerHTML = ''; return; }
   const c = f.clip, m = S.mediaById[c.mediaId], track = f.track, L = layout()[track].find((x) => x.clip.id === id);
   const obj = c, isVid = c.type === 'video', isImg = c.type === 'image', isTitle = c.type === 'title', isAud = c.type === 'audio', isAdj = c.type === 'adjust';
-  const head = `<div class="ec-title">Effect Controls</div><div class="ihead"><span class="trk">${track}</span><b title="${esc(m?.name || '')}">${esc(isTitle ? 'Title' : isAdj ? '◩ Adjustment layer' : m?.name || 'Missing media')}</b>
+  const head = `<div class="ec-title">Effect Controls</div><div class="ihead"><span class="trk">${track}</span><b title="${esc(m?.name || '')}">${esc(isTitle ? 'Title' : isAdj ? 'Adjustment layer' : m?.name || 'Missing media')}</b>
     <span class="muted">${fmtTC(L?.start || 0, S.project.settings.fps)} · ${fmt((L?.end || 0) - (L?.start || 0))}</span></div>`;
   let html = '';
   if (c.gap) { // a lifted clip's empty place on the main story
     root.innerHTML = `<div class="ec-title">Effect Controls</div><div class="ihead"><span class="trk">${track}</span><b>Gap</b><span class="muted">${fmtTC(L?.start || 0, S.project.settings.fps)} · ${fmt((L?.end || 0) - (L?.start || 0))}</span></div>
-      <div class="ibody"><p class="muted small">An empty place in the story (black, silent when played) - left by a deleted clip so nothing after it moved. Drop a clip from Media here, or close it.</p><div class="iactions"><button class="danger" data-a="del">⇤ Close gap</button></div></div>`;
+      <div class="ibody"><p class="muted small">An empty place in the story (black, silent when played) - left by a deleted clip so nothing after it moved. Drop a clip from Media here, or close it.</p><div class="iactions"><button class="danger" data-a="del">Close gap</button></div></div>`;
     root.onclick = (e) => { if (e.target.closest('[data-a="del"]')) emit('deleteSelected'); };
     return;
   }
@@ -124,8 +125,8 @@ function renderClip(id) {
   if (isVid || isImg) html += sec('cutfx', `Cut effect${c.cutFx?.type ? ` <span class="tag">${esc(CUTFX[c.cutFx.type]?.label || c.cutFx.type)}</span>` : ''}`, fieldsHTML([
     { k: 'cutFx.type', label: 'Effect (plays on the cut into this shot)', type: 'select', options: [['', 'None'], ...Object.entries(CUTFX).map(([k, x]) => [k, x.label])] },
     ...(c.cutFx?.type ? [{ k: 'cutFx.dur', label: 'Effect length', type: 'num', min: 0.1, max: 3, step: 0.05, unit: 'sec', def: CUTFX[c.cutFx.type]?.dur }] : [])], obj));
-  if (isVid || isImg) html += sec('omask', `◐ Opacity mask${c.omask?.shape ? ' <span class="tag">on</span>' : ''}`, maskHTML(c.omask, 'clip', id) + `<small class="hint">${track === 'V1' ? 'Only the inside shows - the rest is black.' : 'Only the inside shows - the tracks below show around it.'} Exact in Accurate preview and renders.</small>`);
-  if (isVid || isImg || isAdj || (isTitle && track === 'V1')) html += sec('vfx', `✦ Video effects${c.effects?.length ? ` <span class="muted">${c.effects.length}</span>` : ''}`, effectsHTML(c, track));
+  if (isVid || isImg) html += sec('omask', `Opacity mask${c.omask?.shape ? ' <span class="tag">on</span>' : ''}`, maskHTML(c.omask, 'clip', id) + `<small class="hint">${track === 'V1' ? 'Only the inside shows - the rest is black.' : 'Only the inside shows - the tracks below show around it.'} Exact in Accurate preview and renders.</small>`);
+  if (isVid || isImg || isAdj || (isTitle && track === 'V1')) html += sec('vfx', `Video effects${c.effects?.length ? ` <span class="muted">${c.effects.length}</span>` : ''}`, effectsHTML(c, track));
 
   if (isTitle) { // (a shot's lower-third text is not in Effect Controls any more - only a title's own words and look)
     const tdefs = [{ k: 'text', label: isTitle ? 'Title text' : 'Text (super / lower third)', type: 'area', rows: 3, ph: isTitle ? 'युवा शक्ति\nYuva Shakti' : 'Name, Designation, Place', wide: true }];
@@ -294,9 +295,9 @@ function aeffectsHTML(c) {
     const note = def.meter ? `<div class="row-in"><button class="small accent" data-ameasure>Measure this clip</button><span class="muted small" data-ameter>${e.last ? esc(e.last) : 'Loudness (LUFS), range and true peak - after the effects above it'}</span></div>`
       : !def.live ? '<small class="hint">Heard in Accurate preview and renders.</small>' : def.hint ? `<small class="hint">${esc(def.hint)}</small>` : '';
     return `<div class="efx${e.on === false ? ' off' : ''}" data-aefx="${e.id}">
-      <div class="efx-h"><button class="icon-btn small" data-aea="toggle" title="${e.on === false ? 'Turn on' : 'Turn off'}" aria-label="On / off">${e.on === false ? '◌' : '●'}</button><b>${esc(def.label)}</b><span class="grow"></span>
-        <button class="icon-btn small" data-aea="up" title="Earlier in the order"${i === 0 ? ' disabled' : ''}>▲</button><button class="icon-btn small" data-aea="down" title="Later in the order"${i === c.aeffects.length - 1 ? ' disabled' : ''}>▼</button>
-        <button class="icon-btn small" data-aea="reset" title="Reset to defaults">↺</button><button class="icon-btn small" data-aea="del" title="Remove effect">✕</button></div>
+      <div class="efx-h"><button class="icon-btn small" data-aea="toggle" title="${e.on === false ? 'Turn on' : 'Turn off'}" aria-label="On / off">${ic(e.on === false ? 'circle' : 'radio')}</button><b>${esc(def.label)}</b><span class="grow"></span>
+        <button class="icon-btn small" data-aea="up" title="Earlier in the order"${i === 0 ? ' disabled' : ''}>${ic('up')}</button><button class="icon-btn small" data-aea="down" title="Later in the order"${i === c.aeffects.length - 1 ? ' disabled' : ''}>${ic('down')}</button>
+        <button class="icon-btn small" data-aea="reset" title="Reset to defaults">${ic('reset')}</button><button class="icon-btn small" data-aea="del" title="Remove effect">✕</button></div>
       ${params ? `<div class="fgrid">${params}</div>` : ''}${note}</div>`;
   }).join('');
   const opts = AFX_CATS.map((cat) => `<optgroup label="${esc(cat)}">${Object.entries(AFX).filter(([, x]) => x.cat === cat).map(([k, x]) => `<option value="${k}">${esc(x.label)}</option>`).join('')}</optgroup>`).join('');
@@ -357,9 +358,9 @@ function effectsHTML(c, track) {
     const canMask = !def.stab && !def.key && !def.post && !def.blend;
     const warn = def.v2only && track !== 'V2' ? '<small class="hint warn">Works on V2 overlays only (it shows the shot below).</small>' : def.stab ? '<small class="hint">Analysed and stabilised when rendering (Accurate preview / export) - the render takes longer for this shot. Perspective / Subspace Warp work like Position, Scale, Rotation here.</small>' : !def.css ? '<small class="hint">Seen in Accurate preview and renders.</small>' : '';
     return `<div class="efx${e.on === false ? ' off' : ''}" data-efx="${e.id}">
-      <div class="efx-h"><button class="icon-btn small" data-ea="toggle" title="${e.on === false ? 'Turn on' : 'Turn off'}" aria-label="On / off">${e.on === false ? '◌' : '●'}</button><b>${esc(def.label)}</b><span class="grow"></span>
-        <button class="icon-btn small" data-ea="up" title="Earlier in the order"${i === 0 ? ' disabled' : ''}>▲</button><button class="icon-btn small" data-ea="down" title="Later in the order"${i === c.effects.length - 1 ? ' disabled' : ''}>▼</button>
-        <button class="icon-btn small" data-ea="reset" title="Reset to defaults">↺</button><button class="icon-btn small" data-ea="del" title="Remove effect">✕</button></div>
+      <div class="efx-h"><button class="icon-btn small" data-ea="toggle" title="${e.on === false ? 'Turn on' : 'Turn off'}" aria-label="On / off">${ic(e.on === false ? 'circle' : 'radio')}</button><b>${esc(def.label)}</b><span class="grow"></span>
+        <button class="icon-btn small" data-ea="up" title="Earlier in the order"${i === 0 ? ' disabled' : ''}>${ic('up')}</button><button class="icon-btn small" data-ea="down" title="Later in the order"${i === c.effects.length - 1 ? ' disabled' : ''}>${ic('down')}</button>
+        <button class="icon-btn small" data-ea="reset" title="Reset to defaults">${ic('reset')}</button><button class="icon-btn small" data-ea="del" title="Remove effect">✕</button></div>
       ${params ? `<div class="fgrid">${params}</div>` : ''}${canMask ? maskHTML(e.mask, e.id, c.id) : ''}${warn}</div>`;
   }).join('');
   const opts = VFX_CATS.map((cat) => `<optgroup label="${esc(cat)}">${Object.entries(VFX).filter(([, x]) => x.cat === cat).map(([k, x]) => `<option value="${k}">${esc(x.label)}</option>`).join('')}</optgroup>`).join('');
@@ -405,8 +406,8 @@ function maskHTML(m, scope, clipId) {
   if (!m?.shape) return `<div class="efx-mask" data-mscope="${scope}"><div class="mk-row"><b>Mask</b>${MASK_SHAPES.map(([k, l]) => `<button class="small" data-madd="${k}" title="Limit ${scope === 'clip' ? 'the clip' : 'this effect'} to a ${k === 'rect' ? 'rectangle' : 'ellipse'} - drag it on the monitor">${l}</button>`).join('')}</div></div>`;
   const editing = S.maskEdit?.clipId === clipId && (S.maskEdit.effId || 'clip') === scope;
   const rng = (k, label, min, max, step, unit = '', mul = 1) => `<label class="fld"><span>${label} <b data-mv="${k}">${Math.round((m[k] ?? 0) * mul)}${unit}</b></span><input type="range" data-mp="${k}" data-mul="${mul}" min="${min}" max="${max}" step="${step}" value="${(m[k] ?? 0) * mul}"></label>`;
-  return `<div class="efx-mask" data-mscope="${scope}"><div class="mk-row"><b>${m.shape === 'rect' ? '▭' : '◯'} Mask</b><span class="grow"></span>
-      <button class="small${editing ? ' on' : ''}" data-medit title="Show the mask on the monitor to move / size it">✎ ${editing ? 'Editing on monitor' : 'Edit on monitor'}</button><button class="icon-btn small" data-mdel title="Remove the mask">✕</button></div>
+  return `<div class="efx-mask" data-mscope="${scope}"><div class="mk-row"><b>${m.shape === 'rect' ? 'Rectangle' : 'Ellipse'} mask</b><span class="grow"></span>
+      <button class="small${editing ? ' on' : ''}" data-medit title="Show the mask on the monitor to move / size it">${editing ? 'Editing on monitor' : 'Edit on monitor'}</button><button class="icon-btn small" data-mdel title="Remove the mask">✕</button></div>
     <div class="fgrid"><label class="fld"><span>Shape</span><select data-mp="shape">${MASK_SHAPES.map(([k, l]) => `<option value="${k}"${k === m.shape ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
       ${rng('feather', 'Feather', 0, 300, 1, ' px')}${rng('expand', 'Expansion', -200, 200, 1, ' px')}${rng('opacity', 'Mask opacity', 0, 100, 1, '%', 100)}
       <label class="chk"><input type="checkbox" data-mp="invert"${m.invert ? ' checked' : ''}> Inverted (the outside instead)</label></div></div>`;
@@ -498,10 +499,10 @@ function motionHTML(c, D, isVid, blendTrack) {
   return `<div class="pm" data-kl data-d="${D}">${MOTION.filter((r) => !r.vid || isVid).map((r) => {
     const keys = c.keys?.[r.p] || [];
     return `<div class="pm-row" data-kp="${r.p}" data-kpath="${r.p}">
-      <button class="pm-sw${keys.length ? ' on' : ''}" data-sw="${r.p}" title="${keys.length ? 'Animated - click to stop animating (removes its keyframes)' : 'Animate: a keyframe at the playhead, then change the value elsewhere'}">⏱</button>
+      <button class="pm-sw${keys.length ? ' on' : ''}" data-sw="${r.p}" title="${keys.length ? 'Animated - click to stop animating (removes its keyframes)' : 'Animate: a keyframe at the playhead, then change the value elsewhere'}">${ic('clock')}</button>
       <span class="pm-n">${kgTwirl(c, r.p)}${r.label}</span>
       <span class="pm-v" data-pv="${r.p}" tabindex="0" title="Drag left / right (Shift: faster) or click to type">${mShow(r, motionVal(c, r.p, rel), c)}</span>
-      <span class="pm-k"><button class="kfb" data-kprev="${r.p}" title="Previous keyframe">◂</button><button class="kfd" data-kf="${r.p}" title="Add / remove a keyframe at the playhead">◆</button><button class="kfb" data-knext="${r.p}" title="Next keyframe">▸</button></span>
+      <span class="pm-k"><button class="kfb" data-kprev="${r.p}" title="Previous keyframe">${ic('prev')}</button><button class="kfd" data-kf="${r.p}" title="Add / remove a keyframe at the playhead">${ic('diamond')}</button><button class="kfb" data-knext="${r.p}" title="Next keyframe">${ic('next')}</button></span>
       <div class="kl-track">${keys.map((k, j) => `<i class="kl-k${k.ease ? ' ease' : ''}${k.ip ? ` ip-${k.ip}` : ''}${inSel(ks, k) ? ' sel' : ''}" data-kj="${j}" style="left:${Math.min(100, (k.t / Math.max(0.01, D)) * 100).toFixed(2)}%" title="${fmt(k.t)} · ${mShow(r, k.v, c)} - click to select (Shift / Ctrl: more, or drag a box), drag to move the selected ones, Delete removes them, right-click: interpolation"></i>`).join('')}<b class="kl-ph"></b></div>
     </div>${kgRow(c, r.p)}${r.p === 'opacity' && blendTrack ? blendHTML(c, blendTrack) : ''}`; // (📈 kfgraph.js: the value / velocity graphs when twirled open)
   }).join('')}</div>`;
@@ -559,7 +560,7 @@ function keyLaneHTML(c, D) {
   const any = rows.some(([p]) => c.keys?.[p]?.length);
   return `<div class="kl" data-kl data-d="${D}">${rows.filter(([p]) => !any || c.keys?.[p]?.length).map(([p, d]) => `<div class="kl-row" data-kp="${p}"><span>${esc(d.label)}</span>
       <div class="kl-track">${(c.keys?.[p] || []).map((k, j) => `<i class="kl-k${k.ease ? ' ease' : ''}" data-kj="${j}" style="left:${Math.min(100, (k.t / Math.max(0.01, D)) * 100).toFixed(2)}%" title="${fmt(k.t)} · ${(+k.v).toFixed(2)}"></i>`).join('')}<b class="kl-ph"></b></div></div>`).join('')}</div>
-    <small class="hint">${any ? 'Drag ◆ to retime · double-click ◆ to delete · click the lane to move the playhead.' : 'No keyframes yet - press ◆ next to Zoom / Position / Rotation / Opacity above.'}</small>`;
+    <small class="hint">${any ? 'Drag a keyframe to retime · double-click one to delete · click the lane to move the playhead.' : 'No keyframes yet - press the keyframe button next to Zoom / Position / Rotation / Opacity above.'}</small>`;
 }
 // ◆ selecting keys (kfsel.js): click one, Shift / Ctrl+click more, drag a box over the lanes; drag a selected ◆ and all
 // the selected ones move with it; Delete removes them. Click the lane (not a ◆) to move the playhead.
@@ -770,7 +771,7 @@ function addKeyButtons(id) {
     const span = input.closest('.fld')?.querySelector(':scope > span');
     if (!span) continue;
     span.insertAdjacentHTML('beforeend', `<span class="kfc" data-kpath="${path}">
-      <button class="kfb" data-kprev="${path}" title="Previous keyframe">◂</button><button class="kfd" data-kf="${path}" title="Add / remove keyframe at the playhead">◆</button><button class="kfb" data-knext="${path}" title="Next keyframe">▸</button>
+      <button class="kfb" data-kprev="${path}" title="Previous keyframe">${ic('prev')}</button><button class="kfd" data-kf="${path}" title="Add / remove keyframe at the playhead">${ic('diamond')}</button><button class="kfb" data-knext="${path}" title="Next keyframe">${ic('next')}</button>
       <select class="kfe" data-kease="${path}" title="How the value moves between keyframes">${EASES.map(([v, l]) => `<option value="${v}">${l.split(' (')[0]}</option>`).join('')}<option value="custom" disabled hidden>Custom</option></select></span>`);
   }
   root.querySelectorAll('[data-kease]').forEach((cb) => cb.addEventListener('change', () => {

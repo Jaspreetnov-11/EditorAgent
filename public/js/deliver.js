@@ -1,5 +1,6 @@
 // Deliver: platform presets (with reframing), render queue, finished renders, timeline hand-off to Premiere / Resolve,
 // and subtitles (generate, proof-read, burn in).
+import { ic } from './lineicons.js';
 import { S, on, emit, commit, saveNow, duration } from './store.js';
 import { api, enc, watchJob } from './api.js';
 import { fmtTC, ASPECTS, rangeOf, seqHash } from './model.js';
@@ -306,12 +307,12 @@ function drawQueue() {
     const other = j.project !== S.proj ? ` <span class="muted">(${esc(j.project)})</span>` : '';
     const seq = j.seq ? ` <span class="tag">${esc(j.seq)}</span>` : '';
     // ⭐ priority: started on the server PC (always first), ⚡ urgent (an editor's choice), else first come first served
-    const pri = j.priority === 2 ? ' <span class="tag" title="Started on the server PC - rendered first">⭐ Server PC</span>' : j.priority === 1 ? ' <span class="tag warn" title="Rendered before the normal ones">⚡ Urgent</span>' : '';
-    const urgent = j.state === 'waiting' && (j.priority || 0) < 2 ? `<button class="link small" data-qurgent="${j.id}" data-on="${j.priority === 1 ? 0 : 1}" title="${j.priority === 1 ? 'Back to normal' : 'Urgent: render it before the normal ones'}">${j.priority === 1 ? '⚡✕' : '⚡'}</button>` : '';
+    const pri = j.priority === 2 ? ' <span class="tag" title="Started on the server PC - rendered first">Server PC</span>' : j.priority === 1 ? ' <span class="tag warn" title="Rendered before the normal ones">Urgent</span>' : '';
+    const urgent = j.state === 'waiting' && (j.priority || 0) < 2 ? `<button class="link small" data-qurgent="${j.id}" data-on="${j.priority === 1 ? 0 : 1}" title="${j.priority === 1 ? 'Back to normal' : 'Urgent: render it before the normal ones'}">${j.priority === 1 ? ic('bolt') + '✕' : ic('bolt')}</button>` : '';
     const acts = urgent + (j.state === 'waiting' ? `<button class="link small" data-qmove="${j.id}" data-dir="-1" title="Render it earlier">↑</button><button class="link small" data-qmove="${j.id}" data-dir="1" title="Render it later">↓</button><button class="link small" data-qcancel="${j.id}" title="Take it out of the queue">✕</button>`
-      : j.state === 'rendering' ? `<button class="link small" data-qcancel="${j.id}" title="Stop this render">■ Stop</button>`
-      : j.state === 'done' ? (/\.mp4$/i.test(j.out) && j.project === S.proj ? `<button class="link small" data-play="${esc(j.url)}" data-name="${esc(j.out)}" title="Watch">▶</button>` : '') + `<a href="${j.url}?download" download title="Download">⬇</a>`
-      : j.state === 'failed' ? `<button class="link small" data-qretry="${j.id}" title="Try again">⟳</button>` : '');
+      : j.state === 'rendering' ? `<button class="link small" data-qcancel="${j.id}" title="Stop this render">Stop</button>`
+      : j.state === 'done' ? (/\.mp4$/i.test(j.out) && j.project === S.proj ? `<button class="link small" data-play="${esc(j.url)}" data-name="${esc(j.out)}" title="Watch">${ic('play')}</button>` : '') + `<a href="${j.url}?download" download title="Download">${ic('download')}</a>`
+      : j.state === 'failed' ? `<button class="link small" data-qretry="${j.id}" title="Try again">${ic('refresh')}</button>` : '');
     return `<div class="dv-q-item ${j.state}"><div class="dv-q-top"><span class="grow"><b>${esc(j.label)}</b>${pri}${seq}${other}</span><span class="muted small">${STATE[j.state]}</span>${acts}</div>
       <div class="muted small mono">${esc(j.out)}</div>
       ${j.copiedTo ? `<div class="small good">also saved to ${esc(j.copiedTo)}</div>` : j.copyError ? `<div class="warn small">Could not copy to your folder: ${esc(j.copyError)}</div>` : j.saveTo && j.state !== 'done' ? `<div class="muted small">→ ${esc(j.saveTo)}</div>` : ''}
@@ -324,7 +325,7 @@ function drawQueue() {
   $$('[data-qmove]', el).forEach((b) => (b.onclick = async () => { await api('POST', `/api/queue/move?id=${b.dataset.qmove}&dir=${b.dataset.dir}`); pollQueue(); }));
   $$('[data-play]', el).forEach((b) => (b.onclick = () => play(b.dataset.play, b.dataset.name)));
   const g = $('#dvGpu', root);
-  g.innerHTML = rq.gpu ? '<span class="ok">● NVIDIA GPU encoding works</span> <span class="muted">- tick it under Quality for faster 4K</span>'
+  g.innerHTML = rq.gpu ? '<span class="ok">NVIDIA GPU encoding works</span> <span class="muted">- tick it under Quality for faster 4K</span>'
     : '<span class="muted">GPU encoding is off: the NVIDIA driver is too old for FFmpeg. After updating it (GeForce Experience or nvidia.com)</span> <button class="link small" id="dvGpuCheck">check again</button>';
   const gc = $('#dvGpuCheck', root);
   if (gc) gc.onclick = async () => { gc.textContent = 'checking…'; S.health = await api('POST', '/api/health/recheck'); await pollQueue(); syncSpec(); toast(S.health.nvenc ? 'GPU encoding works now' : 'Still not available - the driver needs an update', S.health.nvenc ? '' : 'err'); };
@@ -423,7 +424,7 @@ async function exportXml() {
     if (localOn() && r.folder) toThisPc(`/api/export/zip?p=${enc(S.proj)}&name=${enc(r.folder)}`, `${r.folder}.zip`); // 💻
     const extra = r.files.length - 2;
     const m = modal('Timeline exported', `<p><b>${esc(r.folder)}</b>: ${r.clips} clips in <span class="mono">${esc(r.xml)}</span>${extra > 0 ? `, plus ${extra} title/subtitle file${extra > 1 ? 's' : ''}` : ''}.</p>
-      ${r.collected ? `<p>📦 <b>${r.collected.files} media files</b> (${r.collected.mb >= 1024 ? `${(r.collected.mb / 1024).toFixed(1)} GB` : `${r.collected.mb} MB`}) are in the <b>Media</b> folder${r.collected.cut ? ` - ${r.collected.cut} video clips cut down to the used part` : ''}. Send the <b>whole folder</b>. If the other computer shows clips offline: Premiere → Link Media → pick one file in Media (the rest link by themselves); Resolve → Relink Selected Clips → Media folder.</p>` : '<p class="muted">The XML links to the files on this computer - on another computer they will be missing (choose a Collect option to send the footage too).</p>'}
+      ${r.collected ? `<p><b>${r.collected.files} media files</b> (${r.collected.mb >= 1024 ? `${(r.collected.mb / 1024).toFixed(1)} GB` : `${r.collected.mb} MB`}) are in the <b>Media</b> folder${r.collected.cut ? ` - ${r.collected.cut} video clips cut down to the used part` : ''}. Send the <b>whole folder</b>. If the other computer shows clips offline: Premiere → Link Media → pick one file in Media (the rest link by themselves); Resolve → Relink Selected Clips → Media folder.</p>` : '<p class="muted">The XML links to the files on this computer - on another computer they will be missing (choose a Collect option to send the footage too).</p>'}
       ${r.color === 'lut' ? '<p>Colour: each graded clip has its own <b>.cube LUT</b> (clip names end in [LUT nn]) - how to apply it is in the README.</p>' : r.color === 'bake' ? '<p>Colour: the clips are already coloured (graded folder) - nothing to re-grade.</p>' : ''}
       <ol class="dv-steps"><li><b>Premiere Pro:</b> File → Import → pick the .xml. A new sequence appears in the Project panel.</li>
       <li><b>DaVinci Resolve:</b> File → Import → Timeline → pick the .xml and tick “Automatically import source clips into media pool”.</li></ol>

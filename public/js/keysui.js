@@ -1,6 +1,7 @@
 // ⌨ Keyboard Shortcuts window (Ctrl+Alt+K, or ⚙ in the header) - like Premiere's: a keyboard showing what each key does
 // (with Ctrl / Shift / Alt), the commands with their keys, click "+" and press keys to give a command a shortcut,
 // "Save as" your own preset. Changing a built-in preset makes "My shortcuts" (a copy) - the built-ins never change.
+import { ic } from './lineicons.js';
 import { COMMANDS, CMD, GROUPS, BUILTIN, keyState, setKeyState, presetMap, presetName, keyOf, withNew } from './keys.js';
 import { esc, toast, modal } from './ui.js';
 
@@ -72,7 +73,7 @@ export function openShortcuts() {
         ${(m[c.id] || []).map((k) => `<span class="ks-chip">${esc(k)}<button class="link" data-rm="${c.id}" data-k="${esc(k)}" aria-label="Remove ${esc(k)}">✕</button></span>`).join('')}
         ${capture === c.id ? '<span class="ks-wait">Press the keys… <span class="muted">(Esc = cancel)</span></span>'
           : typing === c.id ? `<input class="ks-type" data-typed="${c.id}" placeholder="e.g. Ctrl+Shift+D" size="16"><button class="small primary" data-typeok="${c.id}">Set</button><button class="small" data-typeno>✕</button>`
-          : `<button class="small ks-add" data-add="${c.id}" title="Give it a shortcut: press the keys">+</button><button class="small ks-add" data-type="${c.id}" title="Type the shortcut yourself, e.g. Ctrl+Shift+D">✎</button>`}</span></div>`).join('')}`;
+          : `<button class="small ks-add" data-add="${c.id}" title="Give it a shortcut: press the keys">+</button><button class="small ks-add" data-type="${c.id}" title="Type the shortcut yourself, e.g. Ctrl+Shift+D">${ic('edit')}</button>`}</span></div>`).join('')}`;
     }).join('');
     box.innerHTML = `
       <div class="ks-top">
@@ -83,7 +84,7 @@ export function openShortcuts() {
       </div>
       <div class="ks-kb"><div class="ks-main">${ROWS.map((r) => `<div class="ks-r">${r.map(keyCap).join('')}</div>`).join('')}</div>
         <div class="ks-nav">${NAV.map((r) => `<div class="ks-r">${r.map(keyCap).join('')}</div>`).join('')}</div></div>
-      <p class="muted small">Purple keys have a command (with the modifier chosen above). Click a key to find its command. Click <b>+</b> next to a command and press the keys to give it a shortcut, or <b>✎</b> to type it (e.g. Ctrl+Shift+D); ✕ removes one.</p>
+      <p class="muted small">Purple keys have a command (with the modifier chosen above). Click a key to find its command. Click <b>+</b> next to a command and press the keys to give it a shortcut, or <b>${ic('edit')}</b> to type it (e.g. Ctrl+Shift+D); ✕ removes one.</p>
       <div class="ks-list-head"><input data-q placeholder="Search commands or keys (e.g. split, Ctrl+K)" value="${esc(q)}"><span class="muted small">Preset: <b>${esc(presetName(st.preset, st))}</b></span></div>
       <div class="ks-list">${rows || '<div class="muted pad">No command matches.</div>'}</div>
       <div class="ks-foot"><span class="muted small">Shortcuts are kept in this browser. Text boxes keep their own keys while you type.</span><span class="grow"></span><button class="primary" data-close>Done</button></div>`;

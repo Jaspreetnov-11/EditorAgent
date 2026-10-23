@@ -85,7 +85,7 @@ export const GFX = {
 
   // ▭ ◯ a shape drawn with the Rectangle / Ellipse tool on the Program monitor (Premiere's shape tools): its box in % of
   // the frame, fill / stroke / corner rounding; no in / out animation (fade it with a transition, like Premiere)
-  shape: { label: '▭ Shape (Rectangle / Ellipse tool)', dur: 5, motion: true, common: [],
+  shape: { label: 'Shape (Rectangle / Ellipse tool)', dur: 5, motion: true, common: [],
     def: { shape: 'rect', x: 30, y: 30, w: 40, h: 40, fill: true, color: '#ff9933', stroke: false, strokeColor: '#ffffff', strokeW: 6, radius: 0, opacity: 1, shadow: false },
     fields: [{ k: 'shape', label: 'Shape', type: 'select', options: [['rect', 'Rectangle'], ['ellipse', 'Ellipse']] },
       { k: 'fill', label: 'Fill', type: 'check' }, { k: 'color', label: 'Fill colour', type: 'color', def: '#ff9933' },
@@ -210,7 +210,7 @@ export function drawGraphic(ctx, W, H, g, t, dur, extra = {}) {
 // pinW = also grow / shrink with the frame's width (against pinRef, the frame it was pinned on). A pinned graphic keeps its
 // place against that edge whatever the sequence / export shape is, and never runs off the frame.
 export const PIN_TPL = ['text', 'lower3', 'kinetic', 'logoreveal', 'ticker', 'counter', 'stats', 'bars', 'columns', 'line', 'donut', 'progress', 'list'];
-export const PINS = [['', 'Not pinned'], ['tl', 'Top left'], ['t', '↑ Top'], ['tr', 'Top right'], ['l', '← Left'], ['c', '● Centre'], ['r', '→ Right'], ['bl', 'Bottom left'], ['b', '↓ Bottom'], ['br', 'Bottom right']];
+export const PINS = [['', 'Not pinned'], ['tl', 'Top left'], ['t', '↑ Top'], ['tr', 'Top right'], ['l', '← Left'], ['c', 'Centre'], ['r', '→ Right'], ['bl', 'Bottom left'], ['b', '↓ Bottom'], ['br', 'Bottom right']];
 export const SAFE = 0.1; // title safe: 10% in from every edge (the monitor's Guides)
 export const pinOk = (g) => PIN_TPL.includes(g?.tpl) && g.pos !== 'full';
 export const pinOn = (g) => !!g?.pin && pinOk(g);

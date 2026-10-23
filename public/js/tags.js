@@ -19,7 +19,7 @@ export const tagChips = (tags = [], { remove = false } = {}) => (tags || []).map
 export function editTags(tags = [], { title = 'Tags', suggest = [] } = {}) {
   return new Promise((ok) => {
     let cur = cleanTags(tags), done = false;
-    const dlg = modal(`🏷 ${esc(title)}`, `<div class="tag-ed">
+    const dlg = modal(`${esc(title)}`, `<div class="tag-ed">
       <div class="tag-ed-cur" data-cur></div>
       <div class="row-in"><input data-new placeholder="Type a tag and press Enter (e.g. logo, intro, client: MyGov)" maxlength="32" aria-label="New tag"><button data-add>Add</button></div>
       <div class="tag-ed-sug" data-sug></div>
