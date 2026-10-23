@@ -68,6 +68,22 @@ const ROW7 = 'mod(floor(Y/(H/7)),2)', CELL = 'mod(floor(X/(W/8))+floor(Y/(H/8)),
 const RND = 'sin(floor(X/(W/16))*12.9898+floor(Y/(H/9))*78.233)*43758.5453'; // a fixed random number per block (fraction below)
 const SX = 'if(lt(X,W/2),X+(1-P)*W/2,X-(1-P)*W/2)', SY = 'if(lt(Y,H/2),Y+(1-P)*H/2,Y-(1-P)*H/2)', BX = `if(${ROW7},X+P*W,X-P*W)`;
 const FS = 'abs(2*P-1)', FX = `(W/2+(X-W/2)/max(${FS},0.001))`;
+// Cube Spin: the turn a = 0..90°, both faces fitted into the frame (sc); XC = the corner between them; S / T = how far
+// across face A / B a pixel is (0..1); HA / HB = how much smaller the face is there (the side further back)
+const CU = (() => { const C = 'cos((1-P)*PI/2)', Sn = 'sin((1-P)*PI/2)', SC = `(1/(${C}+${Sn}))`, XC = `(W/2+W/2*(${C}-${Sn})*${SC})`, WA = `(W*${C}*${SC})`, WB = `(W*${Sn}*${SC})`;
+  const S = `((X-${XC}+${WA})/max(${WA},0.001))`, T = `((X-${XC})/max(${WB},0.001))`;
+  return { XC, WB, S, T, HA: `(1/(1+0.5*(1-${S})*${Sn}))`, HB: `(1/(1+0.5*${T}*${C}))` }; })();
+const COL8 = 'floor(X/(W/8))', ROW6 = 'floor(Y/(H/6))';
+const RND6 = `sin(${COL8}*12.9898+${ROW6}*78.233)*43758.5453`;
+const CLOUDS = 'clip(0.5+0.22*sin(X/W*7.3+sin(Y/H*5.1)*2)+0.18*sin(Y/H*9.7-sin(X/W*3.3)*2)+0.1*sin((X+Y)/W*23),0,1)';
+const SPLAT = 'clip(0.5+0.32*sin(X/W*11.3+sin(Y/H*7.7)*3)*sin(Y/H*9.1+sin(X/W*5.3)*3)+0.18*sin((X*0.7+Y)/W*29),0,1)';
+// Spiral Boxes: 8 x 6 boxes numbered round the outside ring clockwise from the top left, then the next ring in
+const SPIRAL = (() => { const I = COL8, J = ROW6, R = `min(min(${I},${J}),min(7-${I},5-${J}))`, w = `(8-2*${R})`, h = `(6-2*${R})`, li = `(${I}-${R})`, lj = `(${J}-${R})`;
+  return `(48-${w}*${h}+if(eq(${lj},0),${li},if(eq(${li},${w}-1),${w}-1+${lj},if(eq(${lj},${h}-1),2*(${w}-1)+${h}-1-${li},2*(${w}-1)+2*(${h}-1)-${lj}))))`; })();
+// the same numbering in JS (the monitor's live look)
+const spiralIdx = (i, j) => { const r = Math.min(i, j, 7 - i, 5 - j), w = 8 - 2 * r, h = 6 - 2 * r, a = i - r, b = j - r;
+  return 48 - w * h + (b === 0 ? a : a === w - 1 ? w - 1 + b : b === h - 1 ? 2 * (w - 1) + h - 1 - a : 2 * (w - 1) + 2 * (h - 1) - b); };
+const frac = (x) => x - Math.floor(x);
 export const XFADE_EXPR = {
   adddissolve: 'if(eq(PLANE,0),min(255,16+max(0,A-16)*min(1,2*P)+max(0,B-16)*min(1,2*(1-P))),A*P+B*(1-P))',
   nonadddissolve: 'if(eq(PLANE,0),max(A*min(1,2*P),B*min(1,2*(1-P))),A*P+B*(1-P))',
@@ -88,6 +104,17 @@ export const XFADE_EXPR = {
   bandslide: `if(between(${BX},0,W-1),${at('b', BX, 'Y')},A)`,
   // A squeezed to a line, then B opened from it (black behind)
   flipover: `if(lt(abs(X-W/2),${FS}*W/2),if(gt(P,0.5),${at('a', FX, 'Y')},${at('b', FX, 'Y')}),if(PLANE,128,16))`,
+  // a cube turning left: A's face shrinks to the left and leans back, B's comes in from the right (black behind)
+  cubespin: `if(lt(X,${CU.XC}),if(gte(${CU.S},0)*lt(abs(Y-H/2),${CU.HA}*H/2),${at('a', `(${CU.S}*W)`, `(H/2+(Y-H/2)/${CU.HA})`)},if(PLANE,128,16)),if(lt(X,${CU.XC}+${CU.WB})*lt(abs(Y-H/2),${CU.HB}*H/2),${at('b', `(${CU.T}*W)`, `(H/2+(Y-H/2)/${CU.HB})`)},if(PLANE,128,16)))`,
+  // the page folds over from the right: B beyond the fold (shaded near it), the back of the page (A mirrored, paler) on the flap
+  pageturn: `if(gt(X,W*P),if(PLANE,B,B*(1-0.45*exp(-(X-W*P)/(0.04*W)))),if(gt(X,2*W*P-W),if(PLANE,128+(${at('a', '(2*W*P-X)', 'Y')}-128)*0.6,${at('a', '(2*W*P-X)', 'Y')}*0.7+60),A))`,
+  // the same from the bottom-right corner, folded along the diagonal
+  pagepeel: `if(gt((X/W+Y/H)/2,P),if(PLANE,B,B*(1-0.45*exp(-((X/W+Y/H)/2-P)/0.03))),if(between(2*P-Y/H,0,1)*between(2*P-X/W,0,1),if(PLANE,128+(${at('a', '((2*P-Y/H)*W)', '((2*P-X/W)*H)')}-128)*0.6,${at('a', '((2*P-Y/H)*W)', '((2*P-X/W)*H)')}*0.7+60),A))`,
+  gradientwipe: `A+(B-A)*clip(((1-P)*1.1-${CLOUDS})/0.1,0,1)`,
+  spiralboxes: `if(lt(${SPIRAL},(1-P)*48),B,A)`,
+  zigzag: `if(lt(${ROW6}*8+if(mod(${ROW6},2),7-${COL8},${COL8}),(1-P)*48),B,A)`,
+  randomwipe: `if(lt(${ROW6}/6*0.6+0.4*(${RND6}-floor(${RND6})),(1-P)),B,A)`,
+  paintsplatter: `if(lt(${SPLAT},(1-P)*1.02),B,A)`,
 };
 // the xfade options of a transition type
 export const xfadeOf = (type) => (XFADE_EXPR[type] ? `transition=custom:expr='${XFADE_EXPR[type]}'` : `transition=${type}`);
@@ -138,6 +165,19 @@ export function trLive(type, q, ar = 16 / 9) {
     case 'coverup': return { cur: { ty: P(r) }, show: rect(0, P(r), 100, 100) };
     case 'coverdown': return { cur: { ty: -P(r) }, show: rect(0, 0, 100, P(q)) };
     case 'revealleft': return { prev: { tx: -P(q) }, show: rect(P(r), 0, 100, 100) };
+    // (8 x 6 boxes, as the render's expressions number them)
+    case 'spiralboxes': case 'zigzag': case 'randomwipe': {
+      const cells = [];
+      for (let j = 0; j < 6; j++) for (let i = 0; i < 8; i++) {
+        const on = type === 'spiralboxes' ? spiralIdx(i, j) < q * 48 : type === 'zigzag' ? j * 8 + (j % 2 ? 7 - i : i) < q * 48 : (j / 6) * 0.6 + 0.4 * frac(Math.sin(i * 12.9898 + j * 78.233) * 43758.5453) < q;
+        if (on) cells.push(rect(i * 12.5, (j * 100) / 6, (i + 1) * 12.5, ((j + 1) * 100) / 6));
+      }
+      return { show: cells.length ? joined(cells) : [[0, 0], [0, 0], [0, 0]] }; }
+    // (the page's flap is drawn by the render only)
+    case 'pageturn': return { show: rect(P(r), 0, 100, 100) };
+    case 'pagepeel': return { show: r >= 0.5 ? [[100, P(2 * r - 1)], [100, 100], [P(2 * r - 1), 100]] : [[P(2 * r), 0], [100, 0], [100, 100], [0, 100], [0, P(2 * r)]] };
+    case 'cubespin': { const a = (q * Math.PI) / 2, sc = 1 / (Math.cos(a) + Math.sin(a)), wa = Math.cos(a) * sc, wb = Math.sin(a) * sc;
+      return { prev: { tx: P((wa - 1) / 2), sx: wa }, cur: { tx: P((1 - wb) / 2), sx: wb } }; }
     case 'flipover': return q < 0.5 ? { cur: { op: 0 }, prev: { sx: 1 - 2 * q } } : { cur: { sx: 2 * q - 1 }, prev: { op: 0 } };
     default: return null;
   }

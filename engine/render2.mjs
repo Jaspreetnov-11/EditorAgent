@@ -290,6 +290,9 @@ function vfxGraph(c, inL, g, pre = `vx${segN}`, addMask = null) {
   }
   return cur;
 }
+// the Blend effect's modes, A = the shots below, B = the layer (per RGB channel, 0-255)
+const BLEND_EXPR = { darken: 'min(A,B)', lighten: 'max(A,B)', multiply: 'A*B/255', screen: '255-(255-A)*(255-B)/255', difference: 'abs(A-B)',
+  overlay: 'if(lt(A,128),2*A*B/255,255-2*(255-A)*(255-B)/255)' };
 // ▱ Drop Shadow / Radial Shadow / Bevel Alpha (effects.js post) work on the layer's outline after Motion: a white frame
 // moved by the same Motion is the picture's transparency (times its key's, when it has one), then the effects run in
 // order. in: the moved picture (black around it), out: a label with alpha - the shadow included.
@@ -705,15 +708,15 @@ ovl.forEach((x, k) => {
   const opA = c.keys?.opacity?.length ? `format=yuva420p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='${key || c.omask?.shape || post ? 'alpha(X,Y)' : '255'}*clip(${keysExpr(c.keys.opacity, 'T')},0,1)',` : op < 1 ? `format=rgba,colorchannelmixer=aa=${op},` : '';
   g.push(c.blend || bmode ? `[${src}]${keyF}setpts=PTS-STARTPTS[ov${k}]` : `[${src}]${keyF}${opA}setpts=PTS-STARTPTS+${st.toFixed(3)}/TB[ov${k}]`);
   const on = `eof_action=pass:enable='between(t,${st.toFixed(3)},${en.toFixed(3)})'`;
-  if (bmode && (bmode.mode === 'colour' || bmode.mode === 'tint')) {
-    // Color only / Tint only: the brightness of the shots below, the colour of this layer (Tint: part of it); "Blend
-    // with original" brings this layer's own brightness back
-    const K = bmode.mode === 'tint' ? 0.6 : 1, a = (+bmode.amount).toFixed(3);
-    g.push(`[ov${k}]tpad=start_duration=${st.toFixed(3)}:color=black,format=yuv444p[ob${k}]`, `[${v}]format=yuv444p[ub${k}]`,
-      `[ob${k}][ub${k}]blend=c0_expr='A*${a}+B*(1-${a})':c1_expr='A*${K}+B*${(1 - K).toFixed(3)}':c2_expr='A*${K}+B*${(1 - K).toFixed(3)}':all_opacity=${Math.min(1, op).toFixed(2)}:${on},format=yuv420p[vo${k}]`);
-  } else if (bmode) {
-    g.push(`[ov${k}]tpad=start_duration=${st.toFixed(3)}:color=black,format=gbrp[ob${k}]`, `[${v}]format=gbrp[ub${k}]`,
-      `[ob${k}][ub${k}]blend=${blendFF(bmode.mode)}:all_opacity=${Math.min(1, (1 - bmode.amount) * op).toFixed(2)}:${on},format=yuv420p[vo${k}]`);
+  if (bmode) {
+    // A = the shots below (first, so outside the layer's time blend passes them through), B = this layer. The blended
+    // picture, then "Blend with original" (a) brings this layer back, then its opacity (o) the shots below.
+    // Color only / Tint only (in YUV): the brightness below, this layer's colour (Tint: part of it).
+    const a = (+bmode.amount).toFixed(3), o = Math.min(1, op).toFixed(3), mix = (M) => `A+((B*${a}+(${M})*(1-${a}))-A)*${o}`;
+    const yuv = bmode.mode === 'colour' || bmode.mode === 'tint', K = bmode.mode === 'tint' ? 0.6 : 1;
+    const expr = yuv ? `c0_expr='${mix('A')}':c1_expr='${mix(`B*${K}+A*${(1 - K).toFixed(3)}`)}':c2_expr='${mix(`B*${K}+A*${(1 - K).toFixed(3)}`)}'` : `all_expr='${mix(BLEND_EXPR[bmode.mode] || 'B')}'`;
+    g.push(`[ov${k}]tpad=start_duration=${st.toFixed(3)}:color=black,format=${yuv ? 'yuv444p' : 'gbrp'}[ob${k}]`, `[${v}]format=${yuv ? 'yuv444p' : 'gbrp'}[ub${k}]`,
+      `[ub${k}][ob${k}]blend=${expr}:${on},format=yuv420p[vo${k}]`);
   } else if (c.blend) {
     g.push(`[ov${k}]tpad=start_duration=${st.toFixed(3)}:color=black,format=gbrp[ob${k}]`, `[${v}]format=gbrp[ub${k}]`,
       `[ub${k}][ob${k}]blend=${blendFF(c.blend)}:all_opacity=${Math.min(1, op).toFixed(2)}:eof_action=pass:enable='between(t,${st.toFixed(3)},${en.toFixed(3)})',format=yuv420p[vo${k}]`);

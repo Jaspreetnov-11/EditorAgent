@@ -13,8 +13,10 @@ import { XFADE_EXPR, xfadeOf, trLive, polyCss } from '../public/js/fx.js';
 import { AFX, aeffectFilters } from '../public/js/audioeffects.js';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const NEW = ['levels', 'procamp', 'extract', 'lighting', 'autolevels', 'unsharp', 'flicker', 'solidcomp', 'arith', 'ascdl', 'changecolor', 'changetocolor', 'chanmix', 'colorbalance', 'colorbalancehls', 'equalize', 'limiter', 'magnify', 'spherize', 'twirl', 'transform', 'turbulent', 'grad4', 'ramp', 'circle', 'ellipse', 'checker', 'grid', 'flare', 'cbrgb', 'colorreplace', 'gamma', 'lumakey', 'colorkey', 'noise', 'median', 'dust', 'noisehls', 'bevel', 'emboss', 'coloremboss', 'findedges', 'posterize', 'solarize', 'threshold', 'replicate', 'edgefeather', 'linwipe', 'radwipe', 'blinds', 'blockdiss', 'cineon', 'timecode', 'clipname'];
-const PREMIERE_FOLDERS = ['Adjust', 'Blur & sharpen', 'Channel', 'Color Correction', 'Colour', 'Distort', 'Generate', 'Image Control', 'Keying', 'Noise & Grain', 'Perspective', 'Stylize', 'Time', 'Transform', 'Transition', 'Utility', 'Video'];
+const NEW = ['levels', 'procamp', 'extract', 'lighting', 'autolevels', 'unsharp', 'flicker', 'solidcomp', 'arith', 'ascdl', 'changecolor', 'changetocolor', 'chanmix', 'colorbalance', 'colorbalancehls', 'equalize', 'limiter', 'magnify', 'spherize', 'twirl', 'transform', 'turbulent', 'grad4', 'ramp', 'circle', 'ellipse', 'checker', 'grid', 'flare', 'cbrgb', 'colorreplace', 'gamma', 'lumakey', 'colorkey', 'noise', 'median', 'dust', 'noisehls', 'bevel', 'emboss', 'coloremboss', 'findedges', 'posterize', 'solarize', 'threshold', 'replicate', 'edgefeather', 'linwipe', 'radwipe', 'blinds', 'blockdiss', 'cineon', 'timecode', 'clipname',
+  // round 2: the ones first left out
+  'convkernel', 'shadowhl', 'camerablur', 'channelblur', 'blendfx', 'lightning', 'cellpattern', 'eyedropper', 'writeon', 'vrproj', 'vrrotate', 'vrplane', 'alphaadjust', 'despill', 'noisealpha', 'dropshadow', 'radialshadow', 'bevelalpha', 'roughen', 'texturize', 'hhold', 'vhold', 'gradwipe', 'sdrconform'];
+const PREMIERE_FOLDERS = ['Adjust', 'Blur & sharpen', 'Channel', 'Color Correction', 'Colour', 'Distort', 'Generate', 'Image Control', 'Keying', 'Noise & Grain', 'Perspective', 'Stylize', 'Time', 'Transform', 'Transition', 'Utility', 'Video', 'Immersive Video'];
 const hasFF = spawnSync('ffmpeg', ['-hide_banner', '-version'], { windowsHide: true }).status === 0;
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vedit-pfx-'));
 fs.copyFileSync(['C:/Windows/Fonts/arial.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'].find((f) => fs.existsSync(f)) || process.execPath, path.join(tmp, 'f.ttf'));
@@ -97,22 +99,23 @@ test('Luma Key and Color Key key like Green screen: only on V2, in the final pas
   assert(VFX.lumakey.key(defaultsOf('lumakey')).startsWith('format=yuva420p,lumakey='));
   assert(/format=rgba,colorkey=0x00ff00:.*,format=yuva420p$/.test(VFX.colorkey.key(defaultsOf('colorkey'))));
   const r2 = fs.readFileSync(path.join(ROOT, 'engine', 'render2.mjs'), 'utf8');
-  assert(r2.includes('if (VFX[e.type].key) continue;') && r2.includes('activeEffects(c).find((e) => VFX[e.type].key)'), 'render2 keys every key effect in the final pass');
+  assert(r2.includes('if (VFX[e.type].key) continue;') && r2.includes('activeEffects(c).filter((e) => VFX[e.type].key)'), 'render2 keys every key effect in the final pass');
 });
 
 test('live preview: each new effect has a CSS / SVG look, a canvas drawing, or is said to be Accurate-preview-only', () => {
-  const live = NEW.filter((k) => VFX[k].css || VFX[k].pix), accurate = NEW.filter((k) => !VFX[k].css && !VFX[k].pix);
-  same(accurate.sort(), ['autolevels', 'blockdiss', 'colorbalance', 'dust', 'equalize', 'limiter', 'spherize', 'turbulent', 'twirl'].sort());
-  assert(live.length >= 45, `${live.length} live`);
+  const look = (k) => VFX[k].css || VFX[k].pix || VFX[k].blend, live = NEW.filter(look), accurate = NEW.filter((k) => !look(k));
+  same(accurate.sort(), ['autolevels', 'blockdiss', 'colorbalance', 'dust', 'equalize', 'limiter', 'spherize', 'turbulent', 'twirl',
+    'channelblur', 'cellpattern', 'vrproj', 'vrrotate', 'vrplane', 'despill', 'bevelalpha', 'roughen', 'texturize', 'hhold', 'vhold', 'sdrconform'].sort());
+  assert(live.length >= 55, `${live.length} live`);
   // (in Node there is no page: SVG filters come back empty, the rest as CSS)
   same(VFX.procamp.css(defaultsOf('procamp')).filter, 'brightness(1.0000) contrast(1.0000) saturate(1.0000) hue-rotate(0deg)');
   assert(/linear-gradient\(270deg/.test(VFX.linwipe.css({ ...defaultsOf('linwipe'), angle: 270 }).overlay));
 });
 
-test('40 + 20 transitions: each an FFmpeg xfade built-in or one of the custom shapes', () => {
-  same(TRANSITIONS.length, 60);
+test('40 + 28 transitions: each an FFmpeg xfade built-in or one of the custom shapes', () => {
+  same(TRANSITIONS.length, 68);
   const custom = TRANSITIONS.filter(([k]) => XFADE_EXPR[k]).map(([k]) => k);
-  same(custom.length, 16);
+  same(custom.length, 24);
   for (const k of custom) assert(!/\b(st|ld)\(/.test(XFADE_EXPR[k]), `${k}: xfade shares st/ld registers between its threads`);
   assert(xfadeOf('fade') === 'transition=fade' && xfadeOf('iriscross').startsWith("transition=custom:expr='"));
   if (!hasFF) return;
@@ -133,7 +136,7 @@ test('the custom transitions run in FFmpeg, start on A and end on B', () => {
 
 test('the monitor draws wipes, irises and slides live: the incoming shot grows from nothing to the whole frame', () => {
   const area = (pts) => Math.abs(pts.reduce((s, [x, y], i) => { const [x2, y2] = pts[(i + 1) % pts.length]; return s + x * y2 - x2 * y; }, 0)) / 2;
-  for (const k of ['wipeleft', 'wiperight', 'wipeup', 'wipedown', 'vertopen', 'horzopen', 'inset', 'irisdiamond', 'iriscross', 'venetian', 'bandwipe', 'checkerwipe', 'checkerboard', 'wedgewipe', 'clockwipe']) {
+  for (const k of ['wipeleft', 'wiperight', 'wipeup', 'wipedown', 'vertopen', 'horzopen', 'inset', 'irisdiamond', 'iriscross', 'venetian', 'bandwipe', 'checkerwipe', 'checkerboard', 'wedgewipe', 'clockwipe', 'spiralboxes', 'zigzag', 'randomwipe', 'pageturn', 'pagepeel']) {
     const s0 = trLive(k, 0).show, s5 = trLive(k, 0.5).show, s1 = trLive(k, 1).show;
     assert(area(s0) < 1 && area(s5) > 5 && area(s1) >= 9900, `${k}: ${area(s0)} ${area(s5)} ${area(s1)}`);
     assert(s5.flat().every(Number.isFinite), k);
@@ -152,6 +155,36 @@ test('Adaptive Noise Reduction: afftdn that follows the noise', () => {
   same(r.status, 0, r.stderr);
 });
 
+test('Drop Shadow / Radial Shadow / Bevel Alpha: on the layer\'s outline - shadow beside the picture, the rest see-through', () => {
+  if (!hasFF) return 'skip';
+  // a 80 x 45 picture in the middle of a 160 x 90 see-through layer, over blue
+  const blue = [0x33, 0x66, 0xaa], near = (a, b, t = 12) => a.every((v, i) => Math.abs(v - b[i]) <= t);
+  for (const k of ['dropshadow', 'radialshadow', 'bevelalpha']) {
+    const p = { ...defaultsOf(k), ...(k === 'dropshadow' ? { dist: 240, soft: 4, opacity: 1 } : k === 'radialshadow' ? { dist: 40, soft: 4, opacity: 1 } : {}) };
+    const g = `[0:v]scale=80:45,format=yuva420p,pad=160:90:40:22:color=black@0[a];${VFX[k].post(p, { W: 160, H: 90 })('a', 'b')};[1:v][b]overlay=format=auto,format=rgb24[o]`;
+    const f = run(g, 'testsrc2=s=160x90:r=25:d=0.2', ['-f', 'lavfi', '-i', 'color=c=0x3366aa:s=160x90:r=25:d=0.2']);
+    assert(near(px(f, 3, 3), blue), `${k}: the corner far away is the blue below (${px(f, 3, 3)})`);
+    assert(!near(px(f, 80, 45), blue), `${k}: the picture is there`);
+    if (k !== 'bevelalpha') assert(px(f, 128, 75).every((v, i) => v < blue[i] - 15), `${k}: darker beside the picture (${px(f, 128, 75)})`);
+  }
+});
+
+test('the Blend effect: Crossfade is opacity, the other modes blend with the shots below (live: mix-blend-mode)', async () => {
+  const { blendOf } = await import('../public/js/effects.js');
+  same(blendOf({ effects: [newEffect('blendfx')] }), { mode: 'crossfade', amount: 0.5, css: 'normal' });
+  same(blendOf({ effects: [{ ...newEffect('blendfx'), p: { mode: 'colour', amount: 0 } }] }).css, 'color');
+  same(blendOf({ effects: [] }), null);
+  assert(VFX.blendfx.v2only && VFX.blendfx.ff({}, CTX) === 'null');
+});
+
+test('round 2 to the pixel: Eyedropper Fill takes the colour under its point, VR Plane to Sphere leaves black around', () => {
+  if (!hasFF) return 'skip';
+  const e = run(fxGraph('eyedropper', { ...defaultsOf('eyedropper'), x: 50, y: 50, radius: 4 }), 'color=c=0x20c040:s=160x90:r=25:d=0.2');
+  assert(Math.abs(px(e)[1] - 0xc0) < 8 && px(e)[0] < 50, `${px(e)}`);
+  const v = run(fxGraph('vrplane'), 'color=c=0xff0000:s=160x90:r=25:d=0.2');
+  assert(px(v, 2, 2).every((x) => x < 20) && px(v)[0] > 200, 'black far out, the picture in front');
+});
+
 test('a render with the new effects, a custom transition and a Luma Key overlay (render2.mjs, end to end)', () => {
   if (!process.env.VEDIT_TEST_SERVER || !hasFF) return 'skip';
   const mk = (n, src) => { const f = path.join(tmp, n).replace(/\\/g, '/'); spawnSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `${src}=s=320x180:r=25:d=3`, '-f', 'lavfi', '-i', 'sine=d=3', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', f]); return f; };
@@ -159,13 +192,18 @@ test('a render with the new effects, a custom transition and a Luma Key overlay 
   const media = { a: m('a', mk('a.mp4', 'testsrc2')), b: m('b', mk('b.mp4', 'smptebars')) };
   const fx = (type, p = {}) => ({ ...newEffect(type), p: { ...defaultsOf(type), ...p } });
   const project = { version: 2, name: 't', settings: { aspect: '16:9', fps: 25, loudness: -14, crf: 20 }, trackState: {},
-    tracks: { V1: [{ id: 'c1', type: 'video', mediaId: 'a', in: 0, out: 2, effects: [fx('twirl'), fx('levels', { gamma: 1.4 }), fx('timecode')] },
+    tracks: { V1: [{ id: 'c1', type: 'video', mediaId: 'a', in: 0, out: 2, transform: { zoom: 0.8 }, effects: [fx('twirl'), fx('levels', { gamma: 1.4 }), fx('timecode'), fx('dropshadow', { dist: 60, opacity: 1 })] },
       { id: 'c2', type: 'video', mediaId: 'b', in: 0.5, out: 2.5, transitionIn: { type: 'iriscross', dur: 0.6 }, effects: [fx('changecolor'), fx('grad4', { opacity: 0.3 })] }],
-    V2: [{ id: 'o1', type: 'video', mediaId: 'b', start: 0.5, in: 0, out: 1.5, volume: 0, effects: [fx('lumakey', { thr: 0.1 }), fx('clipname')] }], A1: [], A2: [] } };
+    V2: [{ id: 'o1', type: 'video', mediaId: 'b', start: 0.5, in: 0, out: 1.5, volume: 0, effects: [fx('lumakey', { thr: 0.1 }), fx('clipname')] },
+      { id: 'o2', type: 'video', mediaId: 'a', start: 2.2, in: 0, out: 1, volume: 0, effects: [fx('blendfx', { mode: 'colour', amount: 0 })] }], A1: [], A2: [] } };
   const out = path.join(tmp, 'out.mp4');
   fs.writeFileSync(path.join(tmp, 'job.json'), JSON.stringify({ project, media, output: out.replace(/\\/g, '/'), preview: true, gpu: false }));
   const r = spawnSync(process.execPath, [path.join(ROOT, 'engine', 'render2.mjs'), path.join(tmp, 'job.json')], { encoding: 'utf8', windowsHide: true });
   same(r.status, 0, (r.stderr || '').slice(-600));
   const d = +spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', out], { encoding: 'utf8' }).stdout;
   assert(Math.abs(d - 3.4) < 0.15, `length ${d}`);
+  // (a Blend layer later on must not black out the frames before it; the main shot is 80 % with its shadow around)
+  const f = spawnSync('ffmpeg', ['-v', 'error', '-ss', '0.2', '-i', out, '-frames:v', '1', '-vf', 'scale=160:90', '-pix_fmt', 'rgb24', '-f', 'rawvideo', '-'], { maxBuffer: 1 << 24 }).stdout;
+  assert(px(f).some((v) => v > 60), `the picture at 0.2 s (${px(f)})`);
+  assert(px(f, 2, 2).every((v) => v < 30), `black outside the 80 % shot (${px(f, 2, 2)})`);
 });

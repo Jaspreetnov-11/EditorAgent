@@ -193,6 +193,8 @@ const embossK = (deg, relief, centre) => { const a = (deg * Math.PI) / 180, k = 
 // the timecode of the source at t seconds into the clip, as drawtext's text expansion writes it (HH:MM:SS:FF)
 const tcText = (inS, sp, F) => { const T = `(t*${f4(sp)}+${f4(inS)})`; return `%{eif:floor(${T}/3600):d:2}:%{eif:mod(floor(${T}/60),60):d:2}:%{eif:mod(floor(${T}),60):d:2}:%{eif:mod(floor(${T}*${F}),${F}):d:2}`; };
 const tcAt = (s, F) => { const f = Math.floor(s * F + 1e-6), p2 = (v) => String(v).padStart(2, '0'); return `${p2(Math.floor(f / F / 3600))}:${p2(Math.floor(f / F / 60) % 60)}:${p2(Math.floor(f / F) % 60)}:${p2(f % F)}`; };
+// Premiere's Blend modes (the Blend effect) - FFmpeg's blend modes; 'colour' = this layer's colour on the brightness below
+const BLENDS = [['crossfade', 'Crossfade'], ['colour', 'Color only'], ['tint', 'Tint only'], ['darken', 'Darken only'], ['lighten', 'Lighten only'], ['multiply', 'Multiply'], ['screen', 'Screen'], ['overlay', 'Overlay'], ['difference', 'Difference']];
 const TXT_POS = [['bc', 'Bottom centre'], ['bl', 'Bottom left'], ['br', 'Bottom right'], ['tc', 'Top centre'], ['tl', 'Top left'], ['tr', 'Top right'], ['c', 'Centre']];
 const txtXY = (pos, m) => [pos.endsWith('l') ? `${m}` : pos.endsWith('r') ? `w-tw-${m}` : '(w-tw)/2', pos[0] === 't' ? `${m}` : pos[0] === 'b' ? `h-th-${m}` : '(h-th)/2'];
 // burnt-in text (Timecode, Clip Name): drawtext with the render's own font and a text file (no escaping of : in the graph)
@@ -438,7 +440,180 @@ const MORE = {
     pix: (g, W, H, p, { rel = 0, fps = 30, c }) => burnPix(g, W, tcAt((+c?.in || 0) + rel * (+c?.speed || 1), Math.round(fps)), p) },
   clipname: { label: 'Clip Name', cat: 'Video', params: { pos: SEL('Position', TXT_POS, 'bl'), size: { label: 'Size', min: 12, max: 160, step: 1, def: 40, unit: 'px' }, bg: { label: 'Background opacity', min: 0, max: 1, step: 0.05, def: 0.6 } },
     ff: (p, ctx) => burnText(ctx.name || 'Clip', p, ctx), pix: (g, W, H, p, { name }) => burnPix(g, W, name || 'Clip', p) },
+
+  // ======== round 2: the ones first left out (engine/premiere-effects-gap.md) ========
+  // ---------- Adjust / Blur & sharpen ----------
+  convkernel: { label: 'Convolution Kernel', cat: 'Adjust',
+    params: { ...Object.fromEntries([11, 12, 13, 21, 22, 23, 31, 32, 33].map((k) => [`m${k}`, { label: `M${k}`, min: -30, max: 30, step: 1, def: k === 22 ? 1 : 0 }])), scale: { label: 'Scale (divide by)', min: 1, max: 100, step: 1, def: 1 }, offset: { label: 'Offset', min: -255, max: 255, step: 1, def: 0 } },
+    ff: (p) => { const m = KERN(p); return `format=gbrp,convolution=${[0, 1, 2].map((i) => `${i}m='${m}':${i}rdiv=${f4(1 / p.scale)}:${i}bias=${Math.round(p.offset)}`).join(':')},format=yuv420p`; },
+    css: (p) => ({ filter: svgFx(fid('ck', KERN(p), p.scale, p.offset), `<feConvolveMatrix order="3" kernelMatrix="${KERN(p)}" divisor="${p.scale}" bias="${f4(p.offset / 255)}" preserveAlpha="true"/>`) }) },
+  shadowhl: { label: 'Shadow/Highlight', cat: 'Adjust', params: { shadows: { label: 'Shadow amount', min: 0, max: 100, step: 1, def: 35 }, highlights: { label: 'Highlight amount', min: 0, max: 100, step: 1, def: 0 } },
+    // the shadows lifted and the highlights pulled down; the middle stays
+    ff: (p) => lutAll(`255*clip(${SHL('val/255', p)},0,1)`),
+    css: (p) => ({ filter: svgCt(fid('shl', p.shadows, p.highlights), () => tbl((x) => shl(x, p), 65)) }) },
+  camerablur: { label: 'Camera Blur', cat: 'Blur & sharpen', params: { amount: { label: 'Percent blur', min: 0, max: 100, step: 1, def: 15 } },
+    // a lens-like (flat, round-ish) blur: a box blur twice is close to a disc
+    ff: (p, { W }) => { const r = Math.max(1, Math.round((p.amount * W) / 1920 / 2)); return `avgblur=sizeX=${r}:sizeY=${r},avgblur=sizeX=${r}:sizeY=${r}`; },
+    css: (p, k) => ({ filter: `blur(${f4(p.amount * k * 0.45)}px)` }) },
+  channelblur: { label: 'Channel Blur', cat: 'Blur & sharpen', params: { r: { label: 'Red blurriness', min: 0, max: 60, step: 1, def: 10 }, g: { label: 'Green blurriness', min: 0, max: 60, step: 1, def: 0 }, b: { label: 'Blue blurriness', min: 0, max: 60, step: 1, def: 0 } },
+    // (gbrp's planes are green 1, blue 2, red 4)
+    ff: (p, { W }) => { const f = [['g', 1], ['b', 2], ['r', 4]].filter(([c]) => p[c] > 0).map(([c, pl]) => `gblur=sigma=${f4(Math.max(0.1, (p[c] * W) / 1920 / 2))}:planes=${pl}`); return f.length ? `format=gbrp,${f.join(',')},format=yuv420p` : 'null'; } },
+
+  // ---------- Channel ----------
+  blendfx: { label: 'Blend', cat: 'Channel', v2only: true, params: { mode: SEL('Mode', BLENDS, 'crossfade'), amount: { label: 'Blend with original', min: 0, max: 1, step: 0.05, def: 0.5 } },
+    // blends this layer with everything below it, in the final pass (like the track Blend mode, with Premiere's modes)
+    ff: () => 'null', blend: (p) => ({ mode: p.mode, amount: p.amount }) },
+
+  // ---------- Generate ----------
+  lightning: { label: 'Lightning', cat: 'Generate', params: { sx: { label: 'Start across', min: 0, max: 100, step: 0.5, def: 20, unit: '%' }, sy: { label: 'Start down', min: 0, max: 100, step: 0.5, def: 10, unit: '%' }, ex: { label: 'End across', min: 0, max: 100, step: 0.5, def: 75, unit: '%' }, ey: { label: 'End down', min: 0, max: 100, step: 0.5, def: 90, unit: '%' }, width: { label: 'Core width', min: 1, max: 40, step: 0.5, def: 5, unit: 'px' }, amp: { label: 'Detail amplitude', min: 0, max: 300, step: 1, def: 70, unit: 'px' }, speed: { label: 'Changes a second', min: 0, max: 30, step: 1, def: 10 }, color: { label: 'Outside colour', type: 'color', def: '#8fb8ff' } },
+    // the bolt: the straight line start-end bent by three sines that jump to new phases (speed) times a second
+    ff: (p, { W }) => { const k = W / 1920, b = bolt(p, k, 'W', 'H'), c = rgbOf(p.color), w = f4(Math.max(0.5, p.width * k));
+      return rgbGeq((ch, i) => `${b};clip(${ch}(X,Y)+255*exp(-pow(ld(4)/${w},2))+${c[i]}*0.8*exp(-pow(ld(4)/(6*${w}),2)),0,255)`); },
+    pix: (g, W, H, p, { rel = 0 }) => { const k = W / 1920, n = Math.floor(rel * p.speed), [sx, sy, ex, ey] = [p.sx * W, p.sy * H, p.ex * W, p.ey * H].map((v) => v / 100), L = Math.hypot(ex - sx, ey - sy) || 1;
+      g.save(); g.lineCap = g.lineJoin = 'round'; g.globalCompositeOperation = 'lighter'; g.beginPath();
+      for (let i = 0; i <= 60; i++) { const u = i / 60, o = boltOff(u, n, p.amp * k); g.lineTo(sx + (ex - sx) * u - ((ey - sy) / L) * o, sy + (ey - sy) * u + ((ex - sx) / L) * o); }
+      g.strokeStyle = rgba(p.color, 0.6); g.lineWidth = p.width * k * 6; g.shadowColor = p.color; g.shadowBlur = p.width * k * 8; g.stroke(); g.shadowBlur = 0; g.strokeStyle = '#fff'; g.lineWidth = p.width * k * 1.4; g.stroke(); g.restore(); } },
+  cellpattern: { label: 'Cell Pattern', cat: 'Generate', params: { size: { label: 'Size', min: 10, max: 400, step: 1, def: 80, unit: 'px' }, contrast: { label: 'Contrast', min: 0.2, max: 4, step: 0.05, def: 1.2 }, invert: SEL('Invert', [['off', 'Off'], ['on', 'On']], 'off'), speed: { label: 'Evolution speed', min: 0, max: 5, step: 0.1, def: 0.5 }, opacity: OPA },
+    // Bubbles: the distance to the nearest of one jittered point per grid cell (the 3 x 3 cells around)
+    ff: (p, { W }) => { const s = f4(Math.max(4, (p.size * W) / 1920)), v = `clip(ld(9)/${s}*${f4(p.contrast)},0,1)`, val = p.invert === 'on' ? `(1-${v})` : v, o = f4(p.opacity);
+      const pre = `st(0,floor(X/${s}));st(1,floor(Y/${s}));st(9,1e9);${CELLS(s, f4(p.speed))}`;
+      return `format=yuv444p,geq=lum='${pre};p(X,Y)*(1-${o})+(16+219*${val})*${o}':cb='128+(p(X,Y)-128)*(1-${o})':cr='128+(p(X,Y)-128)*(1-${o})'`; } },
+  eyedropper: { label: 'Eyedropper Fill', cat: 'Generate', reads: true, params: { x: { label: 'Sample point across', min: 0, max: 100, step: 0.5, def: 50, unit: '%' }, y: { label: 'Sample point down', min: 0, max: 100, step: 0.5, def: 50, unit: '%' }, radius: { label: 'Sample radius', min: 1, max: 200, step: 1, def: 20, unit: 'px' }, opacity: OPA },
+    // the average colour around the sample point, each frame, laid over the picture
+    ff: (p, { W, H }) => { const r = Math.max(1, Math.round((p.radius * W) / 1920));
+      return { graph: (a, b) => `[${a}]split[${b}o][${b}s];[${b}s]crop=w=${2 * r}:h=${2 * r}:x='clip(iw*${f4(p.x / 100)}-${r},0,iw-ow)':y='clip(ih*${f4(p.y / 100)}-${r},0,ih-oh)',scale=1:1:flags=area,scale=${W}:${H},format=rgba,colorchannelmixer=aa=${f4(p.opacity)}[${b}c];[${b}o][${b}c]overlay=format=auto,format=yuv420p[${b}]` }; },
+    pix: (g, W, H, p) => { const r = Math.max(1, Math.round((p.radius * W) / 1920)), x = Math.max(0, Math.min(W - 2 * r, (W * p.x) / 100 - r)), y = Math.max(0, Math.min(H - 2 * r, (H * p.y) / 100 - r));
+      const d = g.getImageData(x, y, 2 * r, 2 * r).data, s = [0, 0, 0]; for (let i = 0; i < d.length; i += 4) for (let j = 0; j < 3; j++) s[j] += d[i + j];
+      g.save(); g.globalAlpha = p.opacity; g.fillStyle = `rgb(${s.map((v) => Math.round(v / (d.length / 4))).join(',')})`; g.fillRect(0, 0, W, H); g.restore(); } },
+  writeon: { label: 'Write-on', cat: 'Generate', params: { sx: { label: 'Brush start across', min: 0, max: 100, step: 0.5, def: 15, unit: '%' }, sy: { label: 'Brush start down', min: 0, max: 100, step: 0.5, def: 50, unit: '%' }, ex: { label: 'Brush end across', min: 0, max: 100, step: 0.5, def: 85, unit: '%' }, ey: { label: 'Brush end down', min: 0, max: 100, step: 0.5, def: 50, unit: '%' }, size: { label: 'Brush size', min: 1, max: 200, step: 1, def: 24, unit: 'px' }, start: { label: 'Starts at', min: 0, max: 30, step: 0.1, def: 0, unit: 's' }, dur: { label: 'Writes in', min: 0.1, max: 30, step: 0.1, def: 1.5, unit: 's' }, color: { label: 'Colour', type: 'color', def: '#ffffff' }, opacity: OPA, style: SEL('Paint style', [['on', 'On original image'], ['reveal', 'Reveal original image']], 'on') },
+    // the brush moves from start to end in the given time; everything it has passed stays painted
+    ff: (p, { W }) => { const r = f4(Math.max(0.5, (p.size * W) / 1920 / 2)), sx = `W*${f4(p.sx / 100)}`, sy = `H*${f4(p.sy / 100)}`, dx = `(W*${f4((p.ex - p.sx) / 100)})`, dy = `(H*${f4((p.ey - p.sy) / 100)})`;
+      const a = `st(0,clip((T-${f4(p.start)})/${f4(p.dur)},0,1));st(1,clip(((X-${sx})*${dx}+(Y-${sy})*${dy})/max(1,${dx}*${dx}+${dy}*${dy}),0,ld(0)));gt(ld(0),0)*clip((${r}-hypot(X-${sx}-ld(1)*${dx},Y-${sy}-ld(1)*${dy}))/1.5+0.5,0,1)`;
+      if (p.style === 'reveal') return rgbGeq((ch) => `${ch}(X,Y)*(${a})`);
+      return paint(p.color, `(${a})*${f4(p.opacity)}`); },
+    pix: (g, W, H, p, { rel = 0 }) => { const pr = Math.min(1, Math.max(0, (rel - p.start) / p.dur)), sx = (W * p.sx) / 100, sy = (H * p.sy) / 100;
+      g.save(); g.lineCap = 'round'; g.lineWidth = Math.max(1, (p.size * W) / 1920); g.beginPath(); g.moveTo(sx, sy); g.lineTo(sx + ((W * (p.ex - p.sx)) / 100) * pr, sy + ((H * (p.ey - p.sy)) / 100) * pr);
+      if (p.style === 'reveal') { g.globalCompositeOperation = 'destination-in'; g.strokeStyle = '#000'; if (pr > 0) g.stroke(); else g.clearRect(0, 0, W, H); } else if (pr > 0) { g.globalAlpha = p.opacity; g.strokeStyle = p.color; g.stroke(); }
+      g.restore(); } },
+
+  // ---------- Immersive Video (360 footage: equirectangular) ----------
+  vrproj: { label: 'VR Projection', cat: 'Immersive Video', params: { pan: { label: 'Pan', min: -180, max: 180, step: 1, def: 0, unit: '°' }, tilt: { label: 'Tilt', min: -90, max: 90, step: 1, def: 0, unit: '°' }, roll: { label: 'Roll', min: -180, max: 180, step: 1, def: 0, unit: '°' }, fov: { label: 'Field of view', min: 20, max: 160, step: 1, def: 90, unit: '°' } },
+    // a flat view looking into the sphere (the shot is a 360 equirectangular picture)
+    ff: (p, { W, H }) => `v360=input=e:output=flat:yaw=${p.pan}:pitch=${p.tilt}:roll=${p.roll}:h_fov=${p.fov}:v_fov=${f4((2 * Math.atan(Math.tan((p.fov * Math.PI) / 360) * (H / W)) * 180) / Math.PI)}:w=${W}:h=${H},setsar=1` },
+  vrrotate: { label: 'VR Rotate Sphere', cat: 'Immersive Video', params: { tilt: { label: 'Tilt (X axis)', min: -180, max: 180, step: 1, def: 0, unit: '°' }, pan: { label: 'Pan (Y axis)', min: -180, max: 180, step: 1, def: 0, unit: '°' }, roll: { label: 'Roll (Z axis)', min: -180, max: 180, step: 1, def: 0, unit: '°' } },
+    ff: (p, { W, H }) => `v360=input=e:output=e:yaw=${p.pan}:pitch=${p.tilt}:roll=${p.roll}:w=${W}:h=${H},setsar=1` },
+  vrplane: { label: 'VR Plane to Sphere', cat: 'Immersive Video', params: { pan: { label: 'Pan', min: -180, max: 180, step: 1, def: 0, unit: '°' }, tilt: { label: 'Tilt', min: -90, max: 90, step: 1, def: 0, unit: '°' }, fov: { label: 'Size (field of view)', min: 10, max: 180, step: 1, def: 60, unit: '°' } },
+    // a flat shot laid onto the 360 sphere (black around it), to put over 360 footage on V2
+    ff: (p, { W, H }) => `v360=input=flat:output=e:ih_fov=${p.fov}:iv_fov=${f4((2 * Math.atan(Math.tan((p.fov * Math.PI) / 360) * (H / W)) * 180) / Math.PI)}:yaw=${p.pan}:pitch=${p.tilt}:w=${W}:h=${H}:alpha_mask=1,premultiply=inplace=1,format=yuv420p,setsar=1` },
+
+  // ---------- Keying ----------
+  alphaadjust: { label: 'Alpha Adjust', cat: 'Keying', v2only: true, params: { opacity: { label: 'Opacity', min: 0, max: 100, step: 1, def: 100, unit: '%' }, mode: SEL('Alpha', [['keep', 'As it is'], ['ignore', 'Ignore alpha'], ['invert', 'Invert alpha'], ['only', 'Mask only']], 'keep') },
+    ff: () => 'null',
+    key: (p) => { const o = f4(p.opacity / 100), a = { ignore: '255', invert: '255-val', only: 'val' }[p.mode] || 'val'; return `format=yuva420p,lutyuv=${p.mode === 'only' ? 'y=235:u=128:v=128:' : ''}a='clip((${a})*${o},0,255)'`; },
+    pix: (g, W, H, p) => { const im = g.getImageData(0, 0, W, H), d = im.data, o = p.opacity / 100;
+      for (let i = 0; i < d.length; i += 4) { const a = p.mode === 'ignore' ? 255 : p.mode === 'invert' ? 255 - d[i + 3] : d[i + 3]; if (p.mode === 'only') d[i] = d[i + 1] = d[i + 2] = 255; d[i + 3] = a * o; }
+      g.putImageData(im, 0, 0); } },
+  despill: { label: 'Spill Suppressor', cat: 'Keying', params: { color: SEL('Screen colour', [['green', 'Green'], ['blue', 'Blue']], 'green'), mix: { label: 'Suppression', min: 0, max: 1, step: 0.05, def: 0.5 }, expand: { label: 'Spread', min: 0, max: 1, step: 0.05, def: 0 } },
+    // (Premiere: Ultra Key's spill suppression / Remove Matte) the green or blue cast left on the edges taken out
+    ff: (p) => `format=gbrp,despill=type=${p.color === 'blue' ? 'blue' : 'green'}:mix=${f4(p.mix)}:expand=${f4(p.expand)},format=yuv420p` },
+
+  // ---------- Noise & Grain ----------
+  noisealpha: { label: 'Noise Alpha', cat: 'Noise & Grain', v2only: true, params: { amount: { label: 'Amount', min: 0, max: 100, step: 1, def: 50, unit: '%' } },
+    // random holes in the layer's transparency, new each frame (the shot below shows through)
+    ff: () => 'null', key: (p) => `format=yuva420p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='alpha(X,Y)*(1-${f4(p.amount / 100)}*(${RNDN}-floor(${RNDN})))'`,
+    pix: (g, W, H, p) => { const im = g.getImageData(0, 0, W, H), d = im.data, a = p.amount / 100; for (let i = 3; i < d.length; i += 4) d[i] *= 1 - a * Math.random(); g.putImageData(im, 0, 0); } },
+
+  // ---------- Perspective: on the layer's shape after Motion (final pass - the picture's own outline casts them) ----------
+  dropshadow: { label: 'Drop Shadow', cat: 'Perspective', post: true, params: { color: { label: 'Shadow colour', type: 'color', def: '#000000' }, opacity: { label: 'Opacity', min: 0, max: 1, step: 0.05, def: 0.5 }, dir: { label: 'Direction', min: 0, max: 360, step: 1, def: 135, unit: '°' }, dist: { label: 'Distance', min: 0, max: 400, step: 1, def: 20, unit: 'px' }, soft: { label: 'Softness', min: 0, max: 200, step: 1, def: 20, unit: 'px' } },
+    ff: () => 'null',
+    post: (p, { W }) => { const k = W / 1920, a = (p.dir * Math.PI) / 180, dx = Math.round(Math.sin(a) * p.dist * k), dy = Math.round(-Math.cos(a) * p.dist * k);
+      return (i, o) => shadowG(i, o, p, Math.max(0.01, (p.soft * k) / 2), `${dx}`, `${dy}`); },
+    css: (p, k) => { const a = (p.dir * Math.PI) / 180; return { filter: `drop-shadow(${(Math.sin(a) * p.dist * k).toFixed(1)}px ${(-Math.cos(a) * p.dist * k).toFixed(1)}px ${(p.soft * k * 0.5).toFixed(1)}px ${rgba(p.color, p.opacity)})` }; } },
+  radialshadow: { label: 'Radial Shadow', cat: 'Perspective', post: true, params: { color: { label: 'Shadow colour', type: 'color', def: '#000000' }, opacity: { label: 'Opacity', min: 0, max: 1, step: 0.05, def: 0.5 }, lx: { label: 'Light source across', min: -50, max: 150, step: 1, def: 30, unit: '%' }, ly: { label: 'Light source down', min: -50, max: 150, step: 1, def: 20, unit: '%' }, dist: { label: 'Projection distance', min: 0, max: 100, step: 1, def: 10, unit: '%' }, soft: { label: 'Softness', min: 0, max: 200, step: 1, def: 15, unit: 'px' } },
+    // the outline thrown away from a point light: the shadow is the layer grown about the light
+    post: (p, { W, H }) => { const s = 1 + p.dist / 100, x = Math.round((W * p.lx) / 100 * (1 - s)), y = Math.round((H * p.ly) / 100 * (1 - s));
+      return (i, o) => shadowG(i, o, p, Math.max(0.01, (p.soft * W) / 1920 / 2), `${x}`, `${y}`, `scale=iw*${f4(s)}:ih*${f4(s)},`); },
+    ff: () => 'null',
+    css: (p, k) => { const dx = (50 - p.lx) * p.dist * 0.02, dy = (50 - p.ly) * p.dist * 0.02; return { filter: `drop-shadow(${(dx * 19.2 * k).toFixed(1)}px ${(dy * 10.8 * k).toFixed(1)}px ${(p.soft * k * 0.5).toFixed(1)}px ${rgba(p.color, p.opacity)})` }; } },
+  bevelalpha: { label: 'Bevel Alpha', cat: 'Perspective', post: true, params: { edge: { label: 'Edge thickness', min: 1, max: 60, step: 0.5, def: 6, unit: 'px' }, angle: { label: 'Light angle', min: 0, max: 360, step: 1, def: 315, unit: '°' }, light: { label: 'Light intensity', min: 0, max: 1, step: 0.05, def: 0.5 } },
+    // the layer's outline (its alpha, softened) embossed, laid on the picture as light and shade
+    post: (p, { W }) => (i, o) => `[${i}]split[${o}p][${o}a];[${o}a]alphaextract,gblur=sigma=${f4(Math.max(0.5, (p.edge * W) / 1920))},convolution=0m='${embossK(p.angle, 2, 0).join(' ')}':0rdiv=1:0bias=128,format=yuva420p[${o}r];[${o}p][${o}r]blend=c0_mode=hardlight:c0_opacity=${f4(p.light)}:c1_mode=normal:c1_opacity=1:c2_mode=normal:c2_opacity=1:c3_mode=normal:c3_opacity=1[${o}]`,
+    ff: () => 'null' },
+
+  // ---------- Stylize ----------
+  roughen: { label: 'Roughen Edges', cat: 'Stylize', params: { border: { label: 'Border', min: 1, max: 400, step: 1, def: 40, unit: 'px' }, rough: { label: 'Edge sharpness / roughness', min: 0, max: 1, step: 0.05, def: 0.6 }, scale: { label: 'Scale', min: 5, max: 400, step: 1, def: 60, unit: 'px' }, speed: { label: 'Evolution speed', min: 0, max: 5, step: 0.1, def: 0 } },
+    // the frame's edge eaten away along a ragged line (black on V1)
+    ff: (p, { W }) => { const k = W / 1920, B = f4(p.border * k), L = f4(Math.max(2, p.scale * k)), v = f4(p.speed);
+      const nz = `(0.5+0.25*sin(X/${L}+T*${v})*cos(Y/(0.8*${L})-T*${v})+0.15*sin((X+Y)/(0.37*${L})+T*${v}*1.3)+0.1*sin((X-2*Y)/(0.19*${L})))`;
+      return shade(`clip((min(min(X,W-1-X),min(Y,H-1-Y))-${B}*(1-${f4(p.rough)}+${f4(p.rough)}*${nz}))/1.5,0,1)`); } },
+  texturize: { label: 'Texturize', cat: 'Stylize', params: { kind: SEL('Texture', [['canvas', 'Canvas'], ['brick', 'Brick'], ['burlap', 'Burlap']], 'canvas'), size: { label: 'Texture size', min: 2, max: 200, step: 1, def: 8, unit: 'px' }, relief: { label: 'Texture contrast', min: 0, max: 2, step: 0.05, def: 1 } },
+    // a height pattern lit from the top left (its emboss), added to the brightness
+    ff: (p, { W }) => { const s = f4(Math.max(1, (p.size * W) / 1920)), h = (x, y) => TEX[p.kind] ? TEX[p.kind](x, y, s) : TEX.canvas(x, y, s);
+      return `format=yuv444p,geq=lum='clip(p(X,Y)+${f4(p.relief * 40)}*(${h('(X-1)', '(Y-1)')}-(${h('(X+1)', '(Y+1)')})),0,255)':cb='p(X,Y)':cr='p(X,Y)'`; } },
+
+  // ---------- Transform ----------
+  hhold: { label: 'Horizontal Hold', cat: 'Transform', params: { skew: { label: 'Skew', min: -100, max: 100, step: 1, def: 20, unit: '%' } },
+    ff: (p) => warp(`p(mod(X+Y/H*W*${f4(p.skew / 100)}+100*W,W),Y)`) },
+  vhold: { label: 'Vertical Hold', cat: 'Transform', params: { offset: { label: 'Offset', min: -100, max: 100, step: 1, def: 0, unit: '%' }, speed: { label: 'Roll (frames a second)', min: -5, max: 5, step: 0.05, def: 0.5 } },
+    ff: (p) => warp(`p(X,mod(Y+H*(${f4(p.offset / 100)}+${f4(p.speed)}*T)+100*H,H))`) },
+
+  // ---------- Transition ----------
+  gradwipe: { label: 'Gradient Wipe', cat: 'Transition', params: { done: { label: 'Transition completion', min: 0, max: 100, step: 0.5, def: 50, unit: '%' }, soft: { label: 'Transition softness', min: 0, max: 100, step: 1, def: 10, unit: '%' }, pattern: SEL('Gradient layer', [['linear', 'Linear (left to right)'], ['radial', 'Radial (from the middle)'], ['diamond', 'Diamond'], ['clouds', 'Clouds'], ['self', 'The shot\'s own brightness']], 'linear'), invert: SEL('Invert gradient', [['off', 'Off'], ['on', 'On']], 'off') },
+    // pixels whose gradient value is below the completion go black; softness blends the edge
+    ff: (p) => { const g0 = GRAD[p.pattern] || GRAD.linear, gv = p.invert === 'on' ? `(1-${g0})` : g0, s = Math.max(0.005, p.soft / 100), c = (p.done / 100) * (1 + s) - s;
+      return shade(`clip((${gv}-${f4(c)})/${f4(s)},0,1)`); },
+    css: (p) => { const s = Math.max(0.5, p.soft), c = p.done * (1 + s / 100) - s, stops = `rgba(0,0,0,1) ${c.toFixed(1)}%, rgba(0,0,0,0) ${(c + s).toFixed(1)}%`;
+      return p.pattern === 'linear' ? { overlay: `linear-gradient(${p.invert === 'on' ? 270 : 90}deg, ${stops})` } : p.pattern === 'radial' && p.invert !== 'on' ? { overlay: `radial-gradient(circle closest-corner at 50% 50%, ${stops})` } : {}; } },
+
+  // ---------- Video ----------
+  sdrconform: { label: 'SDR Conform', cat: 'Video', params: { src: SEL('Source', [['pq', 'HDR10 (PQ)'], ['hlg', 'HLG']], 'pq'), method: SEL('Tone mapping', [['hable', 'Hable (filmic)'], ['mobius', 'Mobius (keeps colour)'], ['reinhard', 'Reinhard'], ['clip', 'Clip']], 'hable'), npl: { label: 'Reference white', min: 80, max: 1000, step: 1, def: 203, unit: ' nits' }, desat: { label: 'Highlight desaturation', min: 0, max: 2, step: 0.05, def: 0 } },
+    // an HDR shot brought to normal (Rec.709) brightness and colour: to linear light, tone-mapped, back to 709
+    ff: (p) => `zscale=tin=${p.src === 'hlg' ? 'arib-std-b67' : 'smpte2084'}:min=bt2020nc:pin=bt2020:rin=tv:t=linear:npl=${Math.round(p.npl)}:p=bt2020:m=bt2020nc:r=tv,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=${p.method}:desat=${f4(p.desat)},zscale=t=bt709:m=bt709:r=tv,format=yuv420p` },
 };
+// the 3 x 3 kernel as FFmpeg / SVG want it
+const KERN = (p) => [11, 12, 13, 21, 22, 23, 31, 32, 33].map((k) => Math.round(p[`m${k}`])).join(' ');
+// Shadow/Highlight: shadows lifted by s, highlights pulled down by h (x 0..1 - the curve as an FFmpeg expression and in JS)
+const SHL = (x, p) => `(${x}+${f4((p.shadows / 100) * 1.7)}*${x}*pow(1-${x},3)-${f4((p.highlights / 100) * 1.7)}*pow(${x},3)*(1-${x}))`;
+const shl = (x, p) => x + (p.shadows / 100) * 1.7 * x * (1 - x) ** 3 - (p.highlights / 100) * 1.7 * x ** 3 * (1 - x);
+// a fixed random number for each pixel and frame (fraction below) - Noise Alpha
+const RNDN = 'sin(X*12.9898+Y*78.233+N*37.719)*43758.5453';
+// Lightning: how far the bolt bends at u (0..1 along it) in flash n; geq: ld(4) = this pixel's distance from the bolt
+const boltOff = (u, n, A) => A * Math.sin(Math.PI * u) * (0.5 * Math.sin(u * 17 + n * 2.1) + 0.3 * Math.sin(u * 41 + n * 5.3) + 0.2 * Math.sin(u * 97 + n * 9.7));
+function bolt(p, k, Wv, Hv) {
+  const sx = `${Wv}*${f4(p.sx / 100)}`, sy = `${Hv}*${f4(p.sy / 100)}`, dx = `(${Wv}*${f4((p.ex - p.sx) / 100)})`, dy = `(${Hv}*${f4((p.ey - p.sy) / 100)})`, L = `max(1,hypot(${dx},${dy}))`;
+  return `st(0,((X-${sx})*${dx}+(Y-${sy})*${dy})/(${L}*${L}));st(1,((Y-${sy})*${dx}-(X-${sx})*${dy})/${L});st(2,floor(T*${f4(p.speed)}));` +
+    `st(3,${f4(p.amp * k)}*sin(PI*clip(ld(0),0,1))*(0.5*sin(ld(0)*17+ld(2)*2.1)+0.3*sin(ld(0)*41+ld(2)*5.3)+0.2*sin(ld(0)*97+ld(2)*9.7)));st(4,if(between(ld(0),0,1),abs(ld(1)-ld(3)),1e5))`;
+}
+// Cell Pattern: the 9 nearest cell points (one per grid cell, moving a little), the smallest distance kept in ld(9)
+const CELLS = (s, v) => [-1, 0, 1].flatMap((dj) => [-1, 0, 1].map((di) => { const i = `(ld(0)+${di})`, j = `(ld(1)+${dj})`;
+  return `st(9,min(ld(9),hypot(X-(${i}+0.5+0.4*sin(sin(${i}*127.1+${j}*311.7)*43758+T*${v}))*${s},Y-(${j}+0.5+0.4*sin(sin(${i}*269.5+${j}*183.3)*43758+T*${v}*1.3))*${s})))`; })).join(';');
+// Texturize: height patterns h(x, y) -1..1 (s = the texture's size in pixels)
+const TEX = {
+  canvas: (x, y, s) => `(0.6*sin(2*PI*${x}/${s})*sin(2*PI*${y}/${s})+0.4*sin(2*PI*(${x}+${y})/(1.7*${s})))`,
+  burlap: (x, y, s) => `(0.5*sin(2*PI*${x}/${s}+2*sin(${y}/(3*${s})))+0.5*sin(2*PI*${y}/${s}+2*sin(${x}/(3*${s}))))`,
+  brick: (x, y, s) => `(1-2*max(lt(mod(${y},4*${s}),${s}/2),lt(mod(${x}+if(mod(floor(${y}/(4*${s})),2),4*${s},0),8*${s}),${s}/2)))`,
+};
+// Gradient Wipe: the gradient layers, 0..1 (as geq expressions on yuv444p)
+const GRAD = { linear: '(X/W)', radial: 'clip(hypot(X/W-0.5,(Y/H-0.5)*H/W)/hypot(0.5,0.5*H/W),0,1)', diamond: 'clip(abs(X/W-0.5)+abs(Y/H-0.5),0,1)',
+  clouds: 'clip(0.5+0.22*sin(X/W*7.3+sin(Y/H*5.1)*2)+0.18*sin(Y/H*9.7-sin(X/W*3.3)*2)+0.1*sin((X+Y)/W*23),0,1)', self: '((p(X,Y)-16)/219)' };
+// a shadow of the layer's alpha: in its colour, softened, moved (dx, dy) - and the layer laid on it (yuva in, yuva out)
+function shadowG(i, o, p, sigma, dx, dy, grow = '') {
+  const [Y, U, V] = yuvOf(p.color);
+  return `[${i}]split=3[${o}p][${o}s][${o}z];[${o}z]lutyuv=a=0[${o}b];[${o}s]${grow}lutyuv=y=${Y}:u=${U}:v=${V}:a='val*${f4(p.opacity)}',gblur=sigma=${f4(sigma)}:planes=8[${o}h];` +
+    `[${o}b][${o}h]overlay=x=${dx}:y=${dy}:format=yuv420[${o}c];[${o}c][${o}p]overlay=format=yuv420[${o}]`;
+}
+// a colour in limited-range BT.709 YUV
+const yuvOf = (c) => { const [r, g, b] = rgbOf(c).map((v) => v / 255), y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return [Math.round(16 + 219 * y), Math.round(128 + 224 * ((b - y) / 1.8556)), Math.round(128 + 224 * ((r - y) / 1.5748))]; };
+// 🎨 the Blend effect of a layer, if any: { mode, amount, css (mix-blend-mode) } - the render and the viewer use it
+export function blendOf(c) {
+  const e = activeEffects(c).find((x) => VFX[x.type]?.blend);
+  if (!e) return null;
+  const b = VFX[e.type].blend(e.p || {});
+  return { ...b, css: { crossfade: 'normal', colour: 'color', tint: 'color', darken: 'darken', lighten: 'lighten', multiply: 'multiply', screen: 'screen', overlay: 'overlay', difference: 'difference' }[b.mode] || 'normal' };
+}
+// ▱ the effects that work on the layer's shape after Motion (final pass), in order
+export const postEffects = (c) => activeEffects(c).filter((e) => VFX[e.type]?.post);
 // every parameter filled in (numbers as numbers) before an effect's ff / css / pix / key sees it
 function withDefaults(d) {
   const fill = (p) => Object.fromEntries(Object.entries(d.params).map(([k, x]) => [k, typeof x.def === 'number' ? n(p?.[k], x.def) : p?.[k] ?? x.def]));
@@ -446,6 +621,8 @@ function withDefaults(d) {
   if (d.css) o.css = (p, k = 0.3) => d.css(fill(p), k);
   if (d.pix) o.pix = (g, W, H, p, info = {}) => d.pix(g, W, H, fill(p), info);
   if (d.key) o.key = (p) => d.key(fill(p));
+  if (d.post) o.post = (p, ctx = {}) => d.post(fill(p), ctx);
+  if (d.blend) o.blend = (p) => d.blend(fill(p));
   return o;
 }
 for (const [k, d] of Object.entries(MORE)) VFX[k] = withDefaults(d);

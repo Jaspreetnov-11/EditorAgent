@@ -1,7 +1,7 @@
 # Premiere Pro effects vs the Limelight editor
 
 What an editor coming from Premiere Pro finds in the Effects panel here, folder by folder. Written before the
-"Premiere effects" work (2026-10-23) and kept as the record of what was added, what already existed under another
+"Premiere effects" work (2026-10-23), round 2 the same day (the ones first left out) and kept as the record of what was added, what already existed under another
 name, and what was left out and why.
 
 Legend: **have** = was already in the editor · **added** = added in this round · **mapped** = Premiere's effect is
@@ -27,8 +27,8 @@ are - `KEYABLE` in model.js). The new effects follow the existing ones and are s
 | Lighting Effects | **added** `lighting` (one spotlight: centre, radius, intensity, ambient) - one light, not five |
 | ProcAmp | **added** `procamp` |
 | Auto Color / Auto Contrast / Auto Levels (Obsolete) | **added** `autolevels` (FFmpeg `normalize`, mode select) |
-| Shadow/Highlight (Obsolete) | **mapped** Color page (shadows / highlights wheels) |
-| Convolution Kernel (Obsolete) | **skip** - a 3x3 number grid nobody uses; Sharpen / Emboss / Find Edges cover the uses |
+| Shadow/Highlight (Obsolete) | **added** `shadowhl` (shadows lifted, highlights pulled down); the Color page has the full wheels |
+| Convolution Kernel (Obsolete) | **added** `convkernel` (3 x 3 grid, scale, offset - FFmpeg `convolution`) |
 
 ### Blur & Sharpen
 | Premiere | Here |
@@ -38,7 +38,8 @@ are - `KEYABLE` in model.js). The new effects follow the existing ones and are s
 | Sharpen | **have** `sharpen` |
 | Unsharp Mask | **added** `unsharp` |
 | Reduce Interlace Flicker | **added** `flicker` (vertical-only blur) |
-| Camera Blur / Channel Blur / Compound Blur (Obsolete) | **skip** - Gaussian blur covers Camera Blur; Compound Blur needs a second layer as the blur map |
+| Camera Blur / Channel Blur (Obsolete) | **added** `camerablur` (a disc-like blur), `channelblur` (red / green / blue each its own blur) |
+| Compound Blur (Obsolete) | **mapped** Gaussian blur with a mask on the effect (the blur map Premiere takes from a second layer) |
 
 ### Channel
 | Premiere | Here |
@@ -46,7 +47,9 @@ are - `KEYABLE` in model.js). The new effects follow the existing ones and are s
 | Invert | **have** `invert` |
 | Solid Composite | **added** `solidcomp` (solid colour over the picture, opacity) |
 | Arithmetic | **added** `arith` (add / subtract / multiply / min / max per channel) |
-| Blend, Calculations, Compound Arithmetic, Set Matte | **skip** - each takes a second layer as input; use a track blend mode (Opacity > Blend mode) or an opacity mask |
+| Blend | **added** `blendfx` - blends the layer with everything below it (Crossfade, Color only, Tint only, Darken, Lighten, Multiply, Screen, Overlay, Difference), in the final pass |
+| Calculations, Compound Arithmetic | **mapped** the Blend effect and Opacity > Blend Mode (the same layer-on-layer arithmetic) |
+| Set Matte | **mapped** Opacity mask / track matte (the transparency taken from another shape) |
 
 ### Color Correction
 | Premiere | Here |
@@ -79,7 +82,7 @@ are - `KEYABLE` in model.js). The new effects follow the existing ones and are s
 | Transform | **added** `transform` (position, scale, rotation, skew, opacity - inside the effect stack, before Motion) |
 | Turbulent Displace | **added** `turbulent` - smooth sine turbulence, not After Effects' fractal noise |
 | Rolling Shutter Repair | **skip** - no FFmpeg filter re-times scan lines; needs optical flow per row |
-| Bend (Obsolete) | **skip** - Wave Warp covers it |
+| Bend (Obsolete) | **mapped** Wave Warp (the same bend along a direction) |
 
 ### Generate
 | Premiere | Here |
@@ -91,11 +94,11 @@ are - `KEYABLE` in model.js). The new effects follow the existing ones and are s
 | Checkerboard | **added** `checker` |
 | Grid | **added** `grid` |
 | Lens Flare | **added** `flare` - a glow and three ghosts along the flare line, not Adobe's lens models |
-| Cell Pattern | **skip** - Voronoi cells per pixel in an FFmpeg expression are far too slow to render |
-| Lightning | **skip** - procedural animated bolts; no FFmpeg equivalent, would be a fake |
+| Cell Pattern | **added** `cellpattern` (Bubbles: distance to the nearest jittered cell point, moving) |
+| Lightning | **added** `lightning` (a bolt start -> end, bent by three sines that jump to new shapes several times a second, with glow) |
 | Paint Bucket | **skip** - a flood fill from a point; FFmpeg has no flood fill |
-| Eyedropper Fill | **skip** - Solid Composite with a picked colour gives the same result |
-| Write-on | **skip** - an animated brush stroke; use a graphic / Motion title instead |
+| Eyedropper Fill | **added** `eyedropper` (the average colour around a point, every frame, laid over the picture) |
+| Write-on | **added** `writeon` (the brush moves start -> end in the given time; on the picture, or revealing it) - a straight stroke, since effect keyframes are not there yet |
 
 ### Image Control
 | Premiere | Here |
@@ -109,7 +112,10 @@ are - `KEYABLE` in model.js). The new effects follow the existing ones and are s
 ### Immersive Video
 | Premiere | Here |
 |---|---|
-| VR Blur, VR Glow, VR Projection, VR Rotate Sphere, ... | **skip** - 360 / VR footage is not edited here |
+| VR Projection | **added** `vrproj` (a flat view into 360 footage: pan, tilt, roll, field of view - FFmpeg `v360`) |
+| VR Rotate Sphere | **added** `vrrotate` |
+| VR Plane to Sphere | **added** `vrplane` (a flat shot laid on the sphere, black around) |
+| VR Blur, VR Glow, VR Sharpen, VR De-Noise, VR Color Gradients, VR Chromatic Aberrations, VR Digital Glitch, VR Fractal Noise | **mapped** the normal Gaussian Blur, Glow, Sharpen, Median, Ramp, RGB split, Glitch cut effect, Turbulent Displace - their VR versions only wrap the seam |
 
 ### Keying
 | Premiere | Here |
@@ -118,10 +124,11 @@ are - `KEYABLE` in model.js). The new effects follow the existing ones and are s
 | Color Key | **added** `colorkey` (RGB distance key - FFmpeg `colorkey`) |
 | Luma Key | **added** `lumakey` |
 | Track Matte Key | **mapped** opacity masks (`clip.omask`) and track blend modes |
-| Alpha Adjust | **mapped** clip Opacity |
-| Four / Eight / Sixteen-Point Garbage Matte | **mapped** shape masks on the clip / effect |
-| Image Matte Key, Difference Matte, Remove Matte, Blue Screen Key, Non Red Key, RGB Difference Key (Obsolete) | **skip** - covered by the keys above, or need a second picture as the matte |
 
+| Four / Eight / Sixteen-Point Garbage Matte | **mapped** shape masks on the clip / effect |
+| Remove Matte | **added** `despill` (Spill Suppressor: the green / blue cast on the edges taken out) |
+| Alpha Adjust | **added** `alphaadjust` (opacity, ignore / invert alpha, mask only - after the keys) |
+| Image Matte Key, Difference Matte, Blue Screen Key, Non Red Key, RGB Difference Key (Obsolete) | **mapped** Color Key / Green screen (Blue Screen, Non Red, RGB Difference are colour keys) and opacity masks (Image / Difference Matte take a second picture) |
 ### Noise & Grain
 | Premiere | Here |
 |---|---|
@@ -129,7 +136,7 @@ are - `KEYABLE` in model.js). The new effects follow the existing ones and are s
 | Median | **added** `median` |
 | Dust & Scratches | **added** `dust` (median with a threshold, mixed back where the change is small) - approximate |
 | Noise HLS / Noise HLS Auto | **added** `noisehls` (lightness and colour noise amounts) |
-| Noise Alpha | **skip** - noise in the alpha channel; clips here are opaque before Motion |
+| Noise Alpha | **added** `noisealpha` (random holes in the layer's transparency, new each frame - V2 layers) |
 
 ### Obsolete
 Everything Adobe marks Obsolete is listed in its own folder above; the useful ones were added (Auto Levels family).
@@ -139,8 +146,9 @@ Everything Adobe marks Obsolete is listed in its own folder above; the useful on
 |---|---|
 | Basic 3D | **have** `basic3d` |
 | Bevel Edges | **added** `bevel` (lit top / left, shaded bottom / right) |
-| Drop Shadow | **skip** - effects run on the full frame before Motion, so a shadow would fall outside the picture; titles / graphics have their own shadow |
-| Bevel Alpha, Radial Shadow | **skip** - need a picture with transparent parts (alpha); same reason |
+| Drop Shadow | **added** `dropshadow` - on the layer's outline after Motion (a white frame moved by the same Motion is its transparency); V1: on the black around it, V2: on the shots below |
+| Radial Shadow | **added** `radialshadow` (the outline thrown away from a point light) |
+| Bevel Alpha | **added** `bevelalpha` (the outline's edge lit and shaded) |
 
 ### Stylize
 | Premiere | Here |
@@ -155,7 +163,9 @@ Everything Adobe marks Obsolete is listed in its own folder above; the useful on
 | Replicate | **added** `replicate` |
 | Solarize | **added** `solarize` |
 | Threshold | **added** `threshold` |
-| Brush Strokes, Texturize, Roughen Edges | **skip** - painterly / texture-map effects with no FFmpeg filter; a geq imitation would look nothing like them |
+| Texturize | **added** `texturize` (canvas / brick / burlap relief, lit from the top left) |
+| Roughen Edges | **added** `roughen` (the edge eaten away along a ragged, optionally moving line) |
+| Brush Strokes | **skip** - painterly strokes; no FFmpeg filter |
 
 ### Time
 | Premiere | Here |
@@ -170,7 +180,9 @@ Everything Adobe marks Obsolete is listed in its own folder above; the useful on
 | Horizontal Flip / Vertical Flip | **have** `fliph` / `flipv` |
 | Edge Feather | **added** `edgefeather` (edges fade to black) |
 | Auto Reframe | **mapped** 🎯 Follow faces (crop position keyframes) and the reel reframing |
-| Horizontal Hold / Vertical Hold, Camera View (Obsolete) | **skip** - Offset covers the hold effects; Camera View is Basic 3D |
+| Horizontal Hold | **added** `hhold` (the picture skewed and wrapped) |
+| Vertical Hold | **added** `vhold` (the picture rolling) |
+| Camera View (Obsolete) | **mapped** Basic 3D |
 
 ### Transition (effects)
 | Premiere | Here |
@@ -179,7 +191,7 @@ Everything Adobe marks Obsolete is listed in its own folder above; the useful on
 | Radial Wipe | **added** `radwipe` |
 | Venetian Blinds | **added** `blinds` |
 | Block Dissolve | **added** `blockdiss` |
-| Gradient Wipe | **skip** - needs a second layer as the gradient |
+| Gradient Wipe | **added** `gradwipe` (built-in gradient layers: linear, radial, diamond, clouds, or the shot's own brightness) |
 
 These are static (no effect keyframes here); put them on a Labs time window or use the real transitions below.
 
@@ -194,7 +206,7 @@ These are static (no effect keyframes here); put them on a Labs time window or u
 | Timecode | **added** `timecode` (burnt-in source timecode) |
 | Clip Name | **added** `clipname` |
 | Simple Text | **mapped** titles |
-| SDR Conform | **skip** - HDR footage is not handled by the editor's pipeline |
+| SDR Conform | **added** `sdrconform` (HDR10 / HLG to Rec.709: zscale to linear light, tone-mapped) |
 
 ## Video Transitions
 
@@ -222,13 +234,17 @@ These are static (no effect keyframes here); put them on a Labs time window or u
 | Wipe | Random Blocks | **added** `randomblocks` |
 | Wipe | Venetian Blinds | **added** `venetian` |
 | Wipe | Wedge Wipe | **added** `wedgewipe` |
-| Wipe | Gradient Wipe | **skip** - needs a gradient picture chosen by the user |
-| Wipe | Paint Splatter, Spiral Boxes, Random Wipe, Zig-Zag Blocks | **skip** - Random Blocks / Checker Wipe cover the look; the exact patterns are Adobe's |
+| Wipe | Gradient Wipe | **added** `gradientwipe` (a clouds gradient) |
+| Wipe | Spiral Boxes | **added** `spiralboxes` (8 x 6 boxes round the outside ring, then inwards) |
+| Wipe | Zig-Zag Blocks | **added** `zigzag` |
+| Wipe | Random Wipe | **added** `randomwipe` |
+| Wipe | Paint Splatter | **added** `paintsplatter` |
 | Zoom | Cross Zoom | **mapped** `zoomin` (Zoom in) |
 | 3D Motion | Flip Over | **added** `flipover` (flat squeeze, no perspective) |
-| 3D Motion | Cube Spin | **skip** - needs a real 3D projection of two faces; a squeeze would be a fake |
-| Page Peel | Page Peel, Page Turn | **skip** - curled-page 3D rendering; no FFmpeg equivalent |
-| Immersive Video | VR transitions | **skip** - no 360 footage |
+| 3D Motion | Cube Spin | **added** `cubespin` (two faces turning, the far side of each smaller) |
+| Page Peel | Page Turn | **added** `pageturn` (the page folds over from the right; its back is the shot mirrored and paler) |
+| Page Peel | Page Peel | **added** `pagepeel` (the same from the bottom-right corner, along the diagonal) |
+| Immersive Video | VR transitions | **mapped** the normal transitions (on 360 footage they only differ at the seam) |
 
 The new ones are FFmpeg `xfade` built-ins or `xfade=transition=custom` expressions (fx.js `XFADE_EXPR`). The monitor
 now also draws wipes, irises and slides live (fx.js `trLive`) instead of showing every transition as a dissolve.
