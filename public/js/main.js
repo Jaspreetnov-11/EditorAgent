@@ -213,7 +213,9 @@ async function whoAmI() {
   try { S.me = await api('GET', '/api/me'); } catch { S.me = { role: 'owner', local: true }; }
   const chip = $('#meChip'); if (!chip) return;
   chip.hidden = !!S.me.local;
-  chip.innerHTML = S.me.local ? '' : `${esc(S.me.name)} · ${S.me.role} <a href="/team/logout" title="Sign out">⎋</a>`;
+  // (a real Logout button - it was a small ⎋ sign after the name that people could not tell was a button)
+  chip.innerHTML = S.me.local ? '' : `<span class="me-name" title="Signed in as ${esc(S.me.name)} (${esc(S.me.role)})">${esc(S.me.name)} · ${esc(S.me.role)}</span>`
+    + `<a class="me-out" href="/team/logout" title="Sign out of the editor on this PC"><svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Logout</a>`;
   $('[data-a="team"]').hidden = !(S.me.local && S.me.role === 'owner');
   // 🩺 Mazbooti: the owner on the editing computer (a dot when something needs a look)
   const sf = $('[data-a="safety"]');

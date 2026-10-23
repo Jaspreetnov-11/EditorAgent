@@ -742,6 +742,12 @@ select.kfe { font-size: 10px; padding: 0 2px; height: 18px; width: auto; max-wid
 .ro-banner { background: #3a2410; color: #ffd2a3; padding: 6px 14px; font-size: 13px; border-bottom: 1px solid #5a3a18; }
 .me { font-size: 12px; color: var(--muted); white-space: nowrap; flex: none; display: inline-flex; align-items: center; gap: 2px; } .me a { color: var(--accent); text-decoration: none; margin-left: 4px; }
 .me[hidden] { display: none; }
+/* the Logout button next to the signed-in name */
+.me { gap: 8px; }
+.me .me-out { display: inline-flex; align-items: center; gap: 5px; margin-left: 0; padding: 3px 10px; border: 1px solid var(--line-2, #3a3a40); border-radius: 6px;
+  color: var(--text, #e6e6ea); background: var(--panel-2, #1c1c20); font-size: 12px; font-weight: 600; line-height: 1.2; }
+.me .me-out:hover { color: #fff; background: #b3261e; border-color: #d4433a; }
+.me .me-out:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* 🔴 live editing: who else is here, their selections and playheads (colour per person) */
 .people { display: inline-flex; align-items: center; gap: 2px; margin-right: 6px; }
