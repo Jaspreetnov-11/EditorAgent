@@ -19,7 +19,7 @@ import { fxFilters } from '../public/js/audiofx.js';
 import { aeffectFilters, fadeCurve } from '../public/js/audioeffects.js';
 import { colorFilters, stager } from './color.mjs';
 import { cutFxDur, wordWindows, isKinetic, hitsOf, CUTFX, xfadeOf } from '../public/js/fx.js';
-import { VFX, activeEffects, stabOf, blendOf, postEffects } from '../public/js/effects.js';
+import { VFX, activeEffects, stabOf, blendOf, postEffects, pyEffects } from '../public/js/effects.js';
 import { buildAss, capTracks } from '../public/js/captions.js';
 import { maskTrack } from '../public/js/tracking.js';
 import { gfxKey } from '../public/js/graphics.js';
@@ -79,6 +79,19 @@ function ffAsync(args, bin = 'ffmpeg') {
     p.stderr.on('data', (d) => { err = (err + d).slice(-3000); });
     p.on('error', () => no(new Error('ffmpeg not found')));
     p.on('close', (code) => (code === 0 ? ok() : no(new Error(`ffmpeg failed (exit ${code}) ${err.trim().split(/\r?\n/).pop() || ''}`))));
+  });
+}
+// 🐍 engine/pyfx.py (OpenCV effects, Morph Cut) in the work folder; rejects with its last line (e.g. no OpenCV on this PC)
+const PYTHON = process.env.VEDIT_PYTHON || ['python', 'python3', 'py'].find((b) => spawnSync(b, ['--version'], { windowsHide: true }).status === 0) || 'python';
+const PYFX = path.join(path.dirname(fileURLToPath(import.meta.url)), 'pyfx.py');
+const pyMissing = (err) => (/No module named|not recognized|ENOENT/i.test(err) ? ' - Brush Strokes, Paint Bucket, Rolling Shutter Repair and Morph Cut need Python with OpenCV on this PC (pip install opencv-python numpy)' : '');
+function pyAsync(args) {
+  return new Promise((ok, no) => {
+    const p = spawn(PYTHON, [PYFX, ...args], { cwd: wd, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' } });
+    let err = '';
+    p.stderr.on('data', (d) => { err = (err + d).slice(-3000); });
+    p.on('error', () => no(new Error(`Python not found${pyMissing('ENOENT')}`)));
+    p.on('close', (code) => (code === 0 ? ok() : no(new Error(`pyfx failed (exit ${code}) ${err.trim().split(/\r?\n/).pop() || ''}${pyMissing(err)}`))));
   });
 }
 // a long filter graph goes in a file (-/filter_complex): Windows cuts a command line at 32k characters, and the final
@@ -393,7 +406,17 @@ function segment(c, label, fixed = null) {
     if (tout - tin < 0.05) die(`${label}: In/Out leaves no video`);
     const speed = c.speed || 1, ramp = rampPts(c);
     dur = exact(ramp ? clipDur({ ...c, in: tin, out: tout }, media) : (tout - tin) / speed);
-    inputs.push('-ss', String(tin), '-t', String(tout - tin), '-i', src);
+    // 🐍 Paint Bucket / Brush Strokes / Rolling Shutter Repair (engine/pyfx.py, OpenCV): made first, on exactly this piece
+    // of the file - the shot is then rendered (stabilised, sped up, framed...) from that copy
+    let srcIn = ['-ss', String(tin), '-t', String(tout - tin), '-i', src];
+    const py = pyEffects(c);
+    if (py.length) {
+      const pyf = `py${segN}.mp4`;
+      console.log(`    ${py.map((e) => VFX[e.type].label).join(', ')} on ${label} (Python)…`);
+      preCmds.push({ py: ['effects', src, String(tin), String(tout - tin), pyf, JSON.stringify(py)] });
+      srcIn = ['-i', pyf];
+    }
+    inputs.push(...srcIn);
     let stab = '';
     const so = stabOf(c); // 🎥 Warp Stabilizer (effect) or the simple Stabilize - settings shared with the monitor's copy
     if (so) {
@@ -401,7 +424,7 @@ function segment(c, label, fixed = null) {
       // pass 2 smooths the camera path and frames the picture (zoom / crop / filled edges) as the settings say.
       const trf = `stab${segN}.trf`, pre = `scale=-2:'min(ih,1080)'`;
       console.log(`    stabilising ${label}${activeEffects(c).some((e) => VFX[e.type]?.stab) ? ' (Warp Stabilizer)' : ''}…`);
-      preCmds.push(['-ss', String(tin), '-t', String(tout - tin), '-i', src, '-an', '-vf', `${pre},${so.detect}:result=${trf}`, '-f', 'null', '-']);
+      preCmds.push([...srcIn, '-an', '-vf', `${pre},${so.detect}:result=${trf}`, '-f', 'null', '-']);
       stab = `${pre},vidstabtransform=input=${trf}:${so.transform},unsharp=5:5:0.5:3:3:0.2,`;
     }
     // ✨ smooth slow motion: in-between frames are made after framing (at output size - much faster than on 4K)
@@ -486,7 +509,7 @@ function segment(c, label, fixed = null) {
 // render one planned shot (stabilise pass first) on the GPU encoder when there is one, then put it in the cache
 async function runSegment(s) {
   if (!s.main) return;
-  for (const a of s.pre) await ffAsync(a);
+  for (const a of s.pre) await (a.py ? pyAsync(a.py) : ffAsync(a));
   await ffAsync([...s.main, ...SEG_ENC, s.file]);
   if (s.hit) {
     // into the cache for next time (a failed copy only costs the reuse)
@@ -606,7 +629,19 @@ const inputs = [], g = [];
     let v = 's0v', a = 's0a', len = v1Segs[0].dur;
     for (let i = 1; i < v1Segs.length; i++) {
       const lay = v1[i], tr = lay.clip.transitionIn;
-      if (lay.overlap > 0) {
+      if (lay.overlap > 0 && tr.type === 'morphcut') {
+        // 🐍 Morph Cut (engine/pyfx.py): the last frame before the overlap flows into the first one after it; the picture
+        // goes A (to the overlap) - the morph - B (from the end of the overlap). The sound crossfades as usual.
+        const ov = lay.overlap, mf = `morph${i}.mp4`;
+        console.log(`  morph cut ${i}/${v1Segs.length - 1} (Python, optical flow)…`);
+        const r = spawnSync(PYTHON, [PYFX, 'morph', v1Segs[i - 1].file, String(v1Segs[i - 1].dur - ov), v1Segs[i].file, String(ov), String(ov), String(F), String(W), String(H), mf], { cwd: wd, encoding: 'utf8', windowsHide: true });
+        if (r.status !== 0) die(`Morph Cut failed: ${(r.stderr || r.error?.message || '').trim().split(/\r?\n/).pop()}${pyMissing(`${r.stderr || ''}${r.error ? 'ENOENT' : ''}`)}`);
+        const mi = inputs.filter((x) => x === '-i').length;
+        inputs.push('-i', mf);
+        g.push(`[${v}]trim=end=${(len - ov).toFixed(3)},setpts=PTS-STARTPTS,${TB}[mja${i}]`, `[${mi}:v]${TB},setpts=PTS-STARTPTS[mjm${i}]`, `[s${i}v]trim=start=${ov.toFixed(3)},setpts=PTS-STARTPTS,${TB}[mjb${i}]`,
+          `[mja${i}][mjm${i}][mjb${i}]concat=n=3:v=1:a=0,${TB}[jv${i}]`);
+        g.push(`[${a}][s${i}a]acrossfade=d=${ov.toFixed(3)}[ja${i}]`);
+      } else if (lay.overlap > 0) {
         g.push(`[${v}][s${i}v]xfade=${xfadeOf(tr.type)}:duration=${lay.overlap.toFixed(3)}:offset=${(len - lay.overlap).toFixed(3)},${TB}[jv${i}]`);
         g.push(`[${a}][s${i}a]acrossfade=d=${lay.overlap.toFixed(3)}[ja${i}]`);
       } else {

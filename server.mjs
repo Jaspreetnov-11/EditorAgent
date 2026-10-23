@@ -20,7 +20,7 @@ import zlib from 'node:zlib';
 import { newProject, uid, placed, clipDur, seqOf, seqHash, ASPECTS, normalizeProject, rangeOf, totalDuration } from './public/js/model.js';
 import { gfxKey } from './public/js/graphics.js';
 import { CAPTION_LANGS, translatePrompt, parseTranslation } from './public/js/captions.js';
-import { stabOf } from './public/js/effects.js';
+import { stabOf, usesPython } from './public/js/effects.js';
 import { ensureLuts, guessLogLut } from './engine/lutgen.mjs';
 import { ensureLooks } from './engine/looklut.mjs';
 import { keywords, searchStock, downloadStock } from './engine/stock.mjs';
@@ -2475,11 +2475,12 @@ function codeManifest() {
 // of null (done) or the error (then render it here too); o.task gets the farm task (to stop it).
 function helperRender({ proj, jobFile, duration = 60, label = '', onLine, task }) {
   if (!farm.server || !proj) return null;
-  const h = pickHelper(String(proj), helperPCs(), helperOf, farmCfg().pins || {}, 'render');
-  if (!h || !farm.polls.some((p) => p.w.id === h.id && p.lane === 'render')) return null; // (not free for a render right now)
   let job;
   try { job = readJSON(jobFile, null); } catch { job = null; }
   if (!job?.output) return null;
+  // 🐍 Brush Strokes / Paint Bucket / Rolling Shutter Repair / Morph Cut run engine/pyfx.py: only a PC with OpenCV takes them
+  const h = pickHelper(String(proj), helperPCs(), helperOf, farmCfg().pins || {}, usesPython(job.project) ? ['render', 'cv2'] : 'render');
+  if (!h || !farm.polls.some((p) => p.w.id === h.id && p.lane === 'render')) return null; // (not free for a render right now)
   const pjText = JSON.stringify(job.project), luts = {}, need = [];
   for (const [n, f] of Object.entries(job.luts || {})) {
     if (!pjText.includes(JSON.stringify(n))) continue; // (only the LUTs this timeline uses)

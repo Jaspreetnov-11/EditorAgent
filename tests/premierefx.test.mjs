@@ -15,7 +15,9 @@ import { AFX, aeffectFilters } from '../public/js/audioeffects.js';
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const NEW = ['levels', 'procamp', 'extract', 'lighting', 'autolevels', 'unsharp', 'flicker', 'solidcomp', 'arith', 'ascdl', 'changecolor', 'changetocolor', 'chanmix', 'colorbalance', 'colorbalancehls', 'equalize', 'limiter', 'magnify', 'spherize', 'twirl', 'transform', 'turbulent', 'grad4', 'ramp', 'circle', 'ellipse', 'checker', 'grid', 'flare', 'cbrgb', 'colorreplace', 'gamma', 'lumakey', 'colorkey', 'noise', 'median', 'dust', 'noisehls', 'bevel', 'emboss', 'coloremboss', 'findedges', 'posterize', 'solarize', 'threshold', 'replicate', 'edgefeather', 'linwipe', 'radwipe', 'blinds', 'blockdiss', 'cineon', 'timecode', 'clipname',
   // round 2: the ones first left out
-  'convkernel', 'shadowhl', 'camerablur', 'channelblur', 'blendfx', 'lightning', 'cellpattern', 'eyedropper', 'writeon', 'vrproj', 'vrrotate', 'vrplane', 'alphaadjust', 'despill', 'noisealpha', 'dropshadow', 'radialshadow', 'bevelalpha', 'roughen', 'texturize', 'hhold', 'vhold', 'gradwipe', 'sdrconform'];
+  'convkernel', 'shadowhl', 'camerablur', 'channelblur', 'blendfx', 'lightning', 'cellpattern', 'eyedropper', 'writeon', 'vrproj', 'vrrotate', 'vrplane', 'alphaadjust', 'despill', 'noisealpha', 'dropshadow', 'radialshadow', 'bevelalpha', 'roughen', 'texturize', 'hhold', 'vhold', 'gradwipe', 'sdrconform',
+  // done in Python with OpenCV (engine/pyfx.py)
+  'paintbucket', 'brushstrokes', 'rollingshutter'];
 const PREMIERE_FOLDERS = ['Adjust', 'Blur & sharpen', 'Channel', 'Color Correction', 'Colour', 'Distort', 'Generate', 'Image Control', 'Keying', 'Noise & Grain', 'Perspective', 'Stylize', 'Time', 'Transform', 'Transition', 'Utility', 'Video', 'Immersive Video'];
 const hasFF = spawnSync('ffmpeg', ['-hide_banner', '-version'], { windowsHide: true }).status === 0;
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vedit-pfx-'));
@@ -105,22 +107,22 @@ test('Luma Key and Color Key key like Green screen: only on V2, in the final pas
 test('live preview: each new effect has a CSS / SVG look, a canvas drawing, or is said to be Accurate-preview-only', () => {
   const look = (k) => VFX[k].css || VFX[k].pix || VFX[k].blend, live = NEW.filter(look), accurate = NEW.filter((k) => !look(k));
   same(accurate.sort(), ['autolevels', 'blockdiss', 'colorbalance', 'dust', 'equalize', 'limiter', 'spherize', 'turbulent', 'twirl',
-    'channelblur', 'cellpattern', 'vrproj', 'vrrotate', 'vrplane', 'despill', 'bevelalpha', 'roughen', 'texturize', 'hhold', 'vhold', 'sdrconform'].sort());
+    'channelblur', 'cellpattern', 'vrproj', 'vrrotate', 'vrplane', 'despill', 'bevelalpha', 'roughen', 'texturize', 'hhold', 'vhold', 'sdrconform', 'paintbucket', 'brushstrokes', 'rollingshutter'].sort());
   assert(live.length >= 55, `${live.length} live`);
   // (in Node there is no page: SVG filters come back empty, the rest as CSS)
   same(VFX.procamp.css(defaultsOf('procamp')).filter, 'brightness(1.0000) contrast(1.0000) saturate(1.0000) hue-rotate(0deg)');
   assert(/linear-gradient\(270deg/.test(VFX.linwipe.css({ ...defaultsOf('linwipe'), angle: 270 }).overlay));
 });
 
-test('40 + 28 transitions: each an FFmpeg xfade built-in or one of the custom shapes', () => {
-  same(TRANSITIONS.length, 68);
+test('40 + 29 transitions: each an FFmpeg xfade built-in, one of the custom shapes or Morph Cut (Python)', () => {
+  same(TRANSITIONS.length, 69);
   const custom = TRANSITIONS.filter(([k]) => XFADE_EXPR[k]).map(([k]) => k);
   same(custom.length, 24);
   for (const k of custom) assert(!/\b(st|ld)\(/.test(XFADE_EXPR[k]), `${k}: xfade shares st/ld registers between its threads`);
   assert(xfadeOf('fade') === 'transition=fade' && xfadeOf('iriscross').startsWith("transition=custom:expr='"));
   if (!hasFF) return;
   const help = spawnSync('ffmpeg', ['-hide_banner', '-h', 'filter=xfade'], { encoding: 'utf8' }).stdout;
-  for (const [k] of TRANSITIONS) if (k !== 'cut' && !XFADE_EXPR[k]) assert(new RegExp(`^\\s+${k}\\s`, 'm').test(help), `${k} is not an xfade transition`);
+  for (const [k] of TRANSITIONS) if (k !== 'cut' && !XFADE_EXPR[k] && k !== 'morphcut') assert(new RegExp(`^\\s+${k}\\s`, 'm').test(help), `${k} is not an xfade transition`);
 });
 
 test('the custom transitions run in FFmpeg, start on A and end on B', () => {
@@ -206,4 +208,69 @@ test('a render with the new effects, a custom transition and a Luma Key overlay 
   const f = spawnSync('ffmpeg', ['-v', 'error', '-ss', '0.2', '-i', out, '-frames:v', '1', '-vf', 'scale=160:90', '-pix_fmt', 'rgb24', '-f', 'rawvideo', '-'], { maxBuffer: 1 << 24 }).stdout;
   assert(px(f).some((v) => v > 60), `the picture at 0.2 s (${px(f)})`);
   assert(px(f, 2, 2).every((v) => v < 30), `black outside the 80 % shot (${px(f, 2, 2)})`);
+});
+
+// ---------- 🐍 the Python / OpenCV ones (engine/pyfx.py) ----------
+const PY = ['python', 'python3', 'py'].find((b) => spawnSync(b, ['-c', 'import cv2, numpy'], { windowsHide: true }).status === 0);
+const PYFX = path.join(ROOT, 'engine', 'pyfx.py');
+const mp4 = (name, src, d = 1) => { const f = path.join(tmp, name); spawnSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `${src}:s=160x90:r=25:d=${d}`, '-f', 'lavfi', '-i', `sine=d=${d}`, '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', f]); return f; };
+const frameOf = (f, t = 0.3, w = 160) => spawnSync('ffmpeg', ['-v', 'error', '-ss', String(t), '-i', f, '-frames:v', '1', '-vf', `scale=${w}:-2`, '-pix_fmt', 'rgb24', '-f', 'rawvideo', '-'], { maxBuffer: 1 << 24 }).stdout;
+
+test('Python effects: marked, left out of the FFmpeg stack, handed to pyfx.py with every parameter', async () => {
+  const { pyEffects, usesPython } = await import('../public/js/effects.js');
+  for (const k of ['paintbucket', 'brushstrokes', 'rollingshutter']) assert(VFX[k].py && VFX[k].ff({}, CTX) === 'null', k);
+  same(pyEffects({ effects: [{ ...newEffect('paintbucket'), p: { tol: 30 } }, newEffect('blur')] }).map((e) => [e.type, e.p.tol, e.p.color]), [['paintbucket', 30, '#ff3b30']]);
+  assert(usesPython({ tracks: { V1: [{ type: 'video', transitionIn: { type: 'morphcut', dur: 1 } }] } }));
+  assert(usesPython({ tracks: { V2: [{ type: 'video', effects: [newEffect('brushstrokes')] }] } }));
+  assert(!usesPython({ tracks: { V1: [{ type: 'video', effects: [newEffect('blur')], transitionIn: { type: 'fade' } }] } }));
+});
+
+test('a render with Python effects goes only to a helper PC with OpenCV (else it is made on the editor)', async () => {
+  const { pickHelper } = await import('../engine/helpers.mjs');
+  const hs = [{ id: 'a', name: 'A', specs: { cores: 16, render: true } }, { id: 'b', name: 'B', specs: { cores: 4, render: true, cv2: true } }];
+  same(pickHelper('p1', hs, new Map([['p1', 'a']]), {}, ['render', 'cv2']), null);
+  same(pickHelper('p2', hs, new Map([['p2', 'b']]), {}, ['render', 'cv2'])?.id, 'b');
+  assert(fs.readFileSync(path.join(ROOT, 'server.mjs'), 'utf8').includes("usesPython(job.project) ? ['render', 'cv2'] : 'render'"), 'server.mjs asks for cv2');
+});
+
+test('pyfx.py: Paint Bucket fills the area round its point, Brush Strokes and Rolling Shutter Repair keep length and sound', () => {
+  if (!PY || !hasFF) return 'skip';
+  const src = mp4('pysrc.mp4', 'color=c=0x2050c0', 1);
+  const run1 = (name, fx) => { const out = path.join(tmp, name), r = spawnSync(PY, [PYFX, 'effects', src, '0', '0.8', out, JSON.stringify(fx)], { encoding: 'utf8' }); same(r.status, 0, r.stderr); return out; };
+  const pb = run1('pb.mp4', [{ type: 'paintbucket', p: { ...defaultsOf('paintbucket'), color: '#ffd400', tol: 10, feather: 0 } }]);
+  const p = px(frameOf(pb));
+  assert(p[0] > 200 && p[1] > 180 && p[2] < 80, `filled yellow: ${p}`);
+  for (const [n, fx] of [['bs.mp4', [{ type: 'brushstrokes', p: defaultsOf('brushstrokes') }]], ['rs.mp4', [{ type: 'rollingshutter', p: defaultsOf('rollingshutter') }]]]) {
+    const f = run1(n, fx), info = spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type:format=duration', '-of', 'json', f], { encoding: 'utf8' }).stdout, j = JSON.parse(info);
+    assert(Math.abs(+j.format.duration - 0.8) < 0.1 && j.streams.some((s) => s.codec_type === 'audio'), `${n}: ${info}`);
+  }
+});
+
+test('pyfx.py Morph Cut: starts on the outgoing frame, ends on the incoming one, as long as the overlap', () => {
+  if (!PY || !hasFF) return 'skip';
+  const a = mp4('ma.mp4', 'color=c=0xff0000'), b = mp4('mb.mp4', 'color=c=0x0000ff'), out = path.join(tmp, 'morph.mp4');
+  const r = spawnSync(PY, [PYFX, 'morph', a, '0.5', b, '0.2', '0.6', '25', '160', '90', out], { encoding: 'utf8' });
+  same(r.status, 0, r.stderr);
+  const n = +spawnSync('ffprobe', ['-v', 'error', '-count_frames', '-select_streams', 'v:0', '-show_entries', 'stream=nb_read_frames', '-of', 'csv=p=0', out], { encoding: 'utf8' }).stdout;
+  same(n, 15);
+  const first = px(frameOf(out, 0)), last = px(frameOf(out, 0.5));
+  assert(first[0] > 200 && first[2] < 60 && last[2] > 200 && last[0] < 60, `${first} -> ${last}`);
+});
+
+test('a render with Python effects and a Morph Cut (render2.mjs runs pyfx.py, end to end)', () => {
+  if (!process.env.VEDIT_TEST_SERVER || !hasFF || !PY) return 'skip';
+  const m = (id, f) => ({ id, name: `${id}.mp4`, path: f, duration: 2, hasAudio: true, kind: 'video', width: 160, height: 90, fps: 25 });
+  const media = { a: m('a', mp4('ra.mp4', 'color=c=0x2050c0', 2)), b: m('b', mp4('rb.mp4', 'testsrc2=alpha=255', 2)) };
+  const fx = (type, p = {}) => ({ ...newEffect(type), p: { ...defaultsOf(type), ...p } });
+  const project = { version: 2, name: 't', settings: { aspect: '16:9', fps: 25, loudness: -14, crf: 20 }, trackState: {},
+    tracks: { V1: [{ id: 'c1', type: 'video', mediaId: 'a', in: 0, out: 1.5, effects: [fx('paintbucket', { color: '#ffd400', tol: 10, feather: 0 })] },
+      { id: 'c2', type: 'video', mediaId: 'b', in: 0.2, out: 1.7, transitionIn: { type: 'morphcut', dur: 0.4 }, effects: [fx('rollingshutter'), fx('brushstrokes')] }], V2: [], A1: [], A2: [] } };
+  const out = path.join(tmp, 'pyout.mp4');
+  fs.writeFileSync(path.join(tmp, 'pyjob.json'), JSON.stringify({ project, media, output: out.split(path.sep).join('/'), preview: true, gpu: false }));
+  const r = spawnSync(process.execPath, [path.join(ROOT, 'engine', 'render2.mjs'), path.join(tmp, 'pyjob.json')], { encoding: 'utf8', windowsHide: true });
+  same(r.status, 0, (r.stderr || '').slice(-600));
+  const d = +spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', out], { encoding: 'utf8' }).stdout;
+  assert(Math.abs(d - 2.6) < 0.15, `length ${d}`);
+  const p = px(frameOf(out, 0.4));
+  assert(p[0] > 200 && p[2] < 80, `the first shot filled yellow by Paint Bucket: ${p}`);
 });

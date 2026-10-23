@@ -214,6 +214,7 @@ export const TRANSITIONS = [
   ['centersplit', 'Center split'], ['bandslide', 'Band slide'], ['flipover', 'Flip over'],
   ['cubespin', 'Cube spin'], ['pageturn', 'Page turn'], ['pagepeel', 'Page peel'], ['gradientwipe', 'Gradient wipe'],
   ['spiralboxes', 'Spiral boxes'], ['zigzag', 'Zig-zag blocks'], ['randomwipe', 'Random wipe'], ['paintsplatter', 'Paint splatter'],
+  ['morphcut', 'Morph cut (Python, optical flow)'],
 ];
 
 export function newProject(name, { aspect = '16:9', fps = 30 } = {}) {

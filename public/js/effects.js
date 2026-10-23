@@ -565,6 +565,15 @@ const MORE = {
     css: (p) => { const s = Math.max(0.5, p.soft), c = p.done * (1 + s / 100) - s, stops = `rgba(0,0,0,1) ${c.toFixed(1)}%, rgba(0,0,0,0) ${(c + s).toFixed(1)}%`;
       return p.pattern === 'linear' ? { overlay: `linear-gradient(${p.invert === 'on' ? 270 : 90}deg, ${stops})` } : p.pattern === 'radial' && p.invert !== 'on' ? { overlay: `radial-gradient(circle closest-corner at 50% 50%, ${stops})` } : {}; } },
 
+  // ---------- done in Python with OpenCV (engine/pyfx.py): first in the stack, on the shot's own frames, before it is
+  // rendered - seen in Accurate preview and renders (on a helper PC only when it has Python with OpenCV) ----------
+  paintbucket: { label: 'Paint Bucket', cat: 'Generate', py: true, params: { x: { label: 'Fill point across (of the shot)', min: 0, max: 100, step: 0.5, def: 50, unit: '%' }, y: { label: 'Fill point down', min: 0, max: 100, step: 0.5, def: 50, unit: '%' }, tol: { label: 'Tolerance', min: 0, max: 100, step: 1, def: 10 }, color: { label: 'Colour', type: 'color', def: '#ff3b30' }, opacity: OPA, feather: { label: 'Feather', min: 0, max: 40, step: 0.5, def: 1, unit: 'px' }, mode: SEL('Paint', [['fill', 'Fill'], ['stroke', 'Stroke (the edge only)']], 'fill'), stroke: { label: 'Stroke width', min: 1, max: 40, step: 1, def: 6, unit: 'px' } },
+    ff: () => 'null' },
+  brushstrokes: { label: 'Brush Strokes', cat: 'Stylize', py: true, params: { angle: { label: 'Stroke angle', min: 0, max: 360, step: 1, def: 135, unit: '°' }, length: { label: 'Stroke length', min: 3, max: 80, step: 1, def: 18, unit: 'px' }, texture: { label: 'Stroke texture', min: 0, max: 3, step: 0.1, def: 1 }, blend: { label: 'Blend with original', min: 0, max: 1, step: 0.05, def: 0 } },
+    ff: () => 'null' },
+  rollingshutter: { label: 'Rolling Shutter Repair', cat: 'Distort', py: true, params: { rate: { label: 'Rolling shutter rate', min: 0, max: 100, step: 1, def: 50, unit: '%' }, order: SEL('Scan direction', [['top', 'Top to bottom'], ['bottom', 'Bottom to top']], 'top'), method: SEL('Method', [['shift', 'Displacement (whole frame)'], ['warp', 'Warp (band by band)']], 'shift') },
+    ff: () => 'null' },
+
   // ---------- Video ----------
   sdrconform: { label: 'SDR Conform', cat: 'Video', params: { src: SEL('Source', [['pq', 'HDR10 (PQ)'], ['hlg', 'HLG']], 'pq'), method: SEL('Tone mapping', [['hable', 'Hable (filmic)'], ['mobius', 'Mobius (keeps colour)'], ['reinhard', 'Reinhard'], ['clip', 'Clip']], 'hable'), npl: { label: 'Reference white', min: 80, max: 1000, step: 1, def: 203, unit: ' nits' }, desat: { label: 'Highlight desaturation', min: 0, max: 2, step: 0.05, def: 0 } },
     // an HDR shot brought to normal (Rec.709) brightness and colour: to linear light, tone-mapped, back to 709
@@ -614,6 +623,11 @@ export function blendOf(c) {
 }
 // ▱ the effects that work on the layer's shape after Motion (final pass), in order
 export const postEffects = (c) => activeEffects(c).filter((e) => VFX[e.type]?.post);
+// 🐍 the effects done by engine/pyfx.py (OpenCV), as it wants them: [{ type, p }] with every parameter filled in
+export const pyEffects = (c) => activeEffects(c).filter((e) => VFX[e.type]?.py).map((e) => ({ type: e.type, p: { ...defaultsOf(e.type), ...(e.p || {}) } }));
+// the transitions done by engine/pyfx.py (Morph Cut); the project uses Python when a clip has one of these or a py effect
+export const PY_TRANSITIONS = new Set(['morphcut']);
+export const usesPython = (project) => JSON.stringify(project?.tracks || {}).match(/"type":"(\w+)"/g)?.some((m) => { const t = m.slice(8, -1); return VFX[t]?.py || PY_TRANSITIONS.has(t); }) || false;
 // every parameter filled in (numbers as numbers) before an effect's ff / css / pix / key sees it
 function withDefaults(d) {
   const fill = (p) => Object.fromEntries(Object.entries(d.params).map(([k, x]) => [k, typeof x.def === 'number' ? n(p?.[k], x.def) : p?.[k] ?? x.def]));

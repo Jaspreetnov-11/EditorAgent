@@ -13,6 +13,11 @@ Where things live: video effects `public/js/effects.js` (`VFX`), transitions `pu
 `public/js/audiofx.js`. The render is `engine/render2.mjs` (FFmpeg); the monitor previews with CSS / SVG filters, a
 canvas (`pix`) or, for the rest, Accurate preview (the render's own FFmpeg filters).
 
+Python / OpenCV (`engine/pyfx.py`, already installed with the editor's AI tools: Python, numpy, opencv-python): Paint
+Bucket, Brush Strokes and Rolling Shutter Repair run on the shot's own frames before it is rendered (first in its effect
+stack); Morph Cut makes its frames from the two shots in the V1 join. They show in Accurate preview and renders. A render
+that uses them goes to a helper PC only when that PC has OpenCV (`pickHelper` need `cv2`); otherwise the editor makes it.
+
 Keyframes: clip effect parameters are not keyframable in this editor (only Motion, Opacity, Volume and crop position
 are - `KEYABLE` in model.js). The new effects follow the existing ones and are static per clip; time windows (Labs
 `from` / `to`) and masks work on them like on every effect. Keyframing effect parameters is a follow-up of its own.
@@ -81,7 +86,7 @@ are - `KEYABLE` in model.js). The new effects follow the existing ones and are s
 | Twirl | **added** `twirl` |
 | Transform | **added** `transform` (position, scale, rotation, skew, opacity - inside the effect stack, before Motion) |
 | Turbulent Displace | **added** `turbulent` - smooth sine turbulence, not After Effects' fractal noise |
-| Rolling Shutter Repair | **skip** - no FFmpeg filter re-times scan lines; needs optical flow per row |
+| Rolling Shutter Repair | **added** `rollingshutter` (Python / OpenCV: each line moved back by its share of the frame's motion, measured by optical flow; whole frame or band by band) |
 | Bend (Obsolete) | **mapped** Wave Warp (the same bend along a direction) |
 
 ### Generate
@@ -96,7 +101,7 @@ are - `KEYABLE` in model.js). The new effects follow the existing ones and are s
 | Lens Flare | **added** `flare` - a glow and three ghosts along the flare line, not Adobe's lens models |
 | Cell Pattern | **added** `cellpattern` (Bubbles: distance to the nearest jittered cell point, moving) |
 | Lightning | **added** `lightning` (a bolt start -> end, bent by three sines that jump to new shapes several times a second, with glow) |
-| Paint Bucket | **skip** - a flood fill from a point; FFmpeg has no flood fill |
+| Paint Bucket | **added** `paintbucket` (Python / OpenCV flood fill from the point, tolerance, feather, fill or stroke) |
 | Eyedropper Fill | **added** `eyedropper` (the average colour around a point, every frame, laid over the picture) |
 | Write-on | **added** `writeon` (the brush moves start -> end in the given time; on the picture, or revealing it) - a straight stroke, since effect keyframes are not there yet |
 
@@ -165,7 +170,7 @@ Everything Adobe marks Obsolete is listed in its own folder above; the useful on
 | Threshold | **added** `threshold` |
 | Texturize | **added** `texturize` (canvas / brick / burlap relief, lit from the top left) |
 | Roughen Edges | **added** `roughen` (the edge eaten away along a ragged, optionally moving line) |
-| Brush Strokes | **skip** - painterly strokes; no FFmpeg filter |
+| Brush Strokes | **added** `brushstrokes` (Python / OpenCV: edge-keeping smoothing, strokes along the angle, stroke texture) |
 
 ### Time
 | Premiere | Here |
@@ -215,7 +220,7 @@ These are static (no effect keyframes here); put them on a Labs time window or u
 | Dissolve | Cross Dissolve, Dip to Black, Dip to White, Film Dissolve | **have** `fade`, `fadeblack`, `fadewhite`, `fadegrays` |
 | Dissolve | Additive Dissolve | **added** `adddissolve` |
 | Dissolve | Non-Additive Dissolve | **added** `nonadddissolve` |
-| Dissolve | Morph Cut | **skip** - face-tracked optical-flow morphing; no FFmpeg equivalent |
+| Dissolve | Morph Cut | **added** `morphcut` (Python / OpenCV: the outgoing frame flows into the incoming one by optical flow both ways - for jump cuts in interviews; no face tracking) |
 | Iris | Iris Box, Iris Round | **have** `rectcrop`, `circleopen` / `circlecrop` |
 | Iris | Iris Cross | **added** `iriscross` |
 | Iris | Iris Diamond | **added** `irisdiamond` |
