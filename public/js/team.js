@@ -52,16 +52,26 @@ export async function openTeam() {
 
 // 🖥 Render farm (Phase 16): other office computers render shots for this one (engine/worker.mjs)
 function farmPanel(box, dlg) {
-  let f = null;
+  let f = null, projects = [];
+  api('GET', '/api/projects').then((l) => { projects = l.map((p) => p.name || p).sort((a, b) => a.localeCompare(b)); draw(); }).catch(() => {});
   const draw = () => {
     if (!f) return;
+    if (box.contains(document.activeElement) && document.activeElement.tagName === 'SELECT') return; // (not while a list is open)
     const u = f.urls[0], cmd = u ? `curl.exe -o worker.mjs ${u}/farm/worker.mjs
 node worker.mjs ${u} ${f.token}` : '';
     box.innerHTML = `<h4>Render farm <span class="muted small">(other office computers help with rendering)</span></h4>
       ${f.on ? `<p>Farm is <b class="good">on</b>. On the computer you want to add (needs Node.js and FFmpeg), run this in PowerShell:</p>
         ${u ? `<pre class="mono farm-cmd">${esc(cmd)}</pre><div class="row-in"><button class="small" data-fcopy>Copy command</button><span class="muted small grow">Keep the window open. With more cores, add <span class="mono">--slots 2</span> at the end.</span></div>`
           : '<p class="warn">No network address found for this computer - connect it to the office network.</p>'}
-        <div class="dv-list">${f.workers.map((w) => `<div class="dv-item"><b class="grow">${esc(w.name)}</b><span class="muted small">${esc(w.host || '')} · ${w.slots} slot · ${w.busy ? `<span class="good">rendering ${w.busy} shot${w.busy > 1 ? 's' : ''}</span>` : 'idle'} · ✓ ${w.done || 0}${w.failed ? ` · ✗ ${w.failed}` : ''}</span></div>`).join('') || '<div class="muted">No computers connected yet.</div>'}</div>
+        <div class="dv-list">${f.workers.map((w) => `<div class="dv-item farm-pc"><div class="grow"><b>${esc(w.name)}</b> <span class="muted small">${esc(w.host || '')}</span>
+          ${w.specs ? `<div class="muted small">${w.specs.cores} cores · ${w.specs.ramGB} GB${w.specs.gpu ? ` · ${esc(w.specs.gpu)}${w.specs.nvenc ? ' (NVIDIA encoder)' : ''}` : ''}${w.specs.ffprobe ? '' : ' · <span class="warn">no FFprobe</span>'}${w.specs.render ? ' · whole renders' : ''}${w.specs.whisper ? ' · 🎙 transcribing' : ''}</div>
+            <div class="small">Projects: ${w.projects.length ? w.projects.map((p) => `${esc(p)}${f.pins[p] === w.name ? ' 📌' : ''}`).join(', ') : '<span class="muted">none yet</span>'}</div>`
+          : '<div class="muted small">Renders shots only - run the new worker to help with projects too</div>'}</div>
+          <span class="muted small">${w.slots} slot · ${w.busy ? `<span class="good">busy ${w.busy}</span>` : 'idle'} · ✓ ${w.done || 0}${w.failed ? ` · ✗ ${w.failed}` : ''}</span></div>`).join('') || '<div class="muted">No computers connected yet.</div>'}</div>
+        ${f.workers.some((w) => w.specs) ? `<p class="muted small">🖥 <b>Helper PCs</b>: each project is given to one PC by its strength - that PC reads its new footage (thumbnails, filmstrips, sound), makes its preview copies, renders its queued exports (one at a time per PC, several PCs at once) and - on a PC with an NVIDIA card and Whisper - transcribes. It works straight from the NAS when it sees the same files. Editing stays here. Anything a PC can't do (or does not take soon) is done here.</p>
+          <div class="row-in farm-pin"><span class="small">Keep</span><select data-pinp>${projects.map((p) => `<option>${esc(p)}</option>`).join('')}</select><span class="small">on</span>
+            <select data-pinpc><option value="">Automatic (by strength)</option>${f.workers.filter((w) => w.specs).map((w) => `<option>${esc(w.name)}</option>`).join('')}</select><button class="small" data-pin>Set</button></div>
+          ${Object.keys(f.pins).length ? `<p class="small">📌 ${Object.entries(f.pins).map(([p, pc]) => `${esc(p)} → ${esc(pc)}`).join(' · ')}</p>` : ''}` : ''}
         <p class="muted small">Final render shots (not previews) are also rendered on connected computers. Shots that can't be sent out (stabilise, LUT, text file) or that fail are rendered here - a render never waits for the farm. Footage is read from this computer over the network with the token.</p>
         <div class="dv-actions"><button data-ftok title="Workers using the old token will stop">New token</button><button data-fon="0">Turn off farm</button></div>`
       : `<p class="muted">Final render shots can also be rendered on other office computers - more computers, faster renders. Each computer runs a small worker that reads the footage from this computer over the network.</p>
@@ -74,6 +84,7 @@ node worker.mjs ${u} ${f.token}` : '';
     const b = e.target.closest('button'); if (!b) return;
     if (b.dataset.fon) { b.disabled = true; await load({ on: b.dataset.fon === '1' }); toast(b.dataset.fon === '1' ? 'Render farm on' : 'Render farm off'); }
     if (b.dataset.ftok !== undefined && confirm('Make a new token? Connected computers will have to run the new command.')) { await load({ newToken: true }); toast('New token created'); }
+    if (b.dataset.pin !== undefined) { const pc = box.querySelector('[data-pinpc]').value; await load({ pin: { project: box.querySelector('[data-pinp]').value, pc } }); toast(pc ? `Kept on ${pc}` : 'Back to automatic'); }
     if (b.dataset.fcopy !== undefined) { await navigator.clipboard.writeText(box.querySelector('.farm-cmd').textContent); toast('Command copied'); }
   });
 }

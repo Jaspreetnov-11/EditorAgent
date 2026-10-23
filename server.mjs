@@ -38,6 +38,7 @@ import { readXmeml, aspectOf } from './engine/xmlimport.mjs';
 import { ensureSfx, listSfx, SFX_KINDS } from './engine/sfx.mjs';
 import { gyroflowExe, findLog, gyroSamples, stabilise, LOG_EXT as GF_LOG } from './engine/gyroflow.mjs';
 import { runNightly, mirrorLive, restoreProject, nights as backupNights, standbyState, liveDir, dayOf, safeDir } from './engine/safety.mjs';
+import { pickHelper, toTaskArgs } from './engine/helpers.mjs';
 import * as QC from './engine/qc.mjs';
 import { archiveRoutes } from './engine/archive.mjs';
 import { startHealth, noteRequest, healthSeries } from './engine/health.mjs';
@@ -172,7 +173,8 @@ const err = (code, msg) => Object.assign(new Error(msg), { code });
 // slows the projects of its own worker. The main process never holds a project's state, so two processes never write
 // one project's files; it hands every request about a project to its worker (handle -> forward).
 const WORKER_K = +process.env.VEDIT_WORKER || 0; // 1…N in a worker, 0 in the main process
-const WORKERS = Math.max(0, Math.min(16, WORKER_K ? +process.env.VEDIT_WORKERS || 0 : +(process.env.VEDIT_CLUSTER ?? config().cluster?.workers) || 0)); // (VEDIT_CLUSTER: the auto-tests)
+const MAX_WORKERS = 64; // (a big server: one worker per 1-2 cores; ports 3401…3464)
+const WORKERS = Math.max(0, Math.min(MAX_WORKERS, WORKER_K ? +process.env.VEDIT_WORKERS || 0 : +(process.env.VEDIT_CLUSTER ?? config().cluster?.workers) || 0)); // (VEDIT_CLUSTER: the auto-tests)
 const IS_WORKER = WORKER_K > 0, CLUSTER = WORKERS > 0;
 const CL_KEY = process.env.VEDIT_KEY || crypto.randomBytes(18).toString('hex'); // (only the main process may talk to a worker)
 const workerPort = (k) => (+process.env.WORKER_BASE || 3400) + k;
@@ -635,7 +637,7 @@ function diskOf(name) {
   try { renders = fs.readdirSync(P(name, 'renders')).filter((f) => !f.startsWith('_')).map((f) => { const st = fs.statSync(P(name, 'renders', f)); return { file: f, bytes: st.size, mtime: st.mtimeMs }; }).sort((a, b) => b.mtime - a.mtime); } catch {}
   return { project: name, total: total.bytes, parts, orphans: { bytes: orphanBytes, files: orphanFiles }, renders, offline: missingMedia(name).length };
 }
-const projectBusy = (name) => [...jobs.values()].some((j) => j.status === 'running' && j.project === name) || (rqActive && rq.items.find((x) => x.id === rqActive.id)?.project === name);
+const projectBusy = (name) => [...jobs.values()].some((j) => j.status === 'running' && j.project === name) || (rqActive && rq.items.find((x) => x.id === rqActive.id)?.project === name) || rq.items.some((x) => rqHelp.has(x.id) && x.project === name);
 function diskClean(name, what, files = []) {
   if (projectBusy(name)) throw err(409, 'A render / job is running on this project - clean up after it finishes');
   let freed = 0;
@@ -738,8 +740,41 @@ const NOT_MEDIA = { '.braw': 'Blackmagic RAW - export as ProRes / MP4 from DaVin
   '.cr2': 'a camera RAW photo - save it as JPG', '.cr3': 'a camera RAW photo - save it as JPG', '.nef': 'a camera RAW photo - save it as JPG', '.arw': 'a camera RAW photo - save it as JPG', '.dng': 'a RAW photo - save it as JPG',
   '.psd': 'a Photoshop file - save it as PNG / JPG', '.ai': 'an Illustrator file - save it as PNG', '.prproj': 'a Premiere project - open it in Premiere, or export an XML (File › Open here)',
   '.aep': 'an After Effects project - render it to a video first', '.drp': 'a Resolve project - export a timeline XML' };
-async function ffprobe(file) {
-  const r = await run('ffprobe', ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', file]);
+// 🖥 one of a project's FFmpeg / FFprobe runs on the helper PC that has the project (when helper PCs are on - see
+// helperRun), else here. inputs / outs: the files in args it reads / writes. lane: 'light' (reading new footage, short)
+// or 'heavy' (a preview copy). waitSec: how long it may wait for that PC before it is done here instead.
+let helperCaps = { heavy: 0, light: 0 }, helperAt = 0, helperAsk = null;
+function helpersOn() {
+  if (Date.now() - helperAt > 10000 && !helperAsk) { // (runs starting together wait for the same answer)
+    helperAsk = (async () => {
+      await null; // (so helperAsk is set before it is cleared, also when the answer needs no waiting)
+      try { helperCaps = IS_WORKER ? await (await fetch(`${APP_URL}/api/helper/status`, { signal: AbortSignal.timeout(3000) })).json() : helperSlots(); } catch { helperCaps = { heavy: 0, light: 0 }; }
+      helperAt = Date.now(); helperAsk = null;
+      return helperCaps;
+    })();
+  }
+  return helperAsk || Promise.resolve(helperCaps);
+}
+async function runMedia(proj, tool, args, { inputs = [], outs = [], lane = 'light', tag = '', waitSec = 10, limitSec = 120, onLine, helperOnly = false } = {}) {
+  if (proj && (await helpersOn())[lane] > 0) {
+    const ask = { proj, tool, args, inputs, outs, lane, tag, waitSec, limitSec };
+    let r = null;
+    if (!IS_WORKER) r = await helperRun({ ...ask, onLine }).catch(() => null);
+    else try {
+      const res = await fetch(`${APP_URL}/api/helper/run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ask) });
+      let buf = '';
+      for await (const chunk of res.body) {
+        buf += Buffer.from(chunk).toString('utf8');
+        for (let i; (i = buf.indexOf('\n')) >= 0;) { const j = JSON.parse(buf.slice(0, i)); buf = buf.slice(i + 1); if ('line' in j) onLine?.(j.line); else r = j.result; }
+      }
+    } catch { r = null; }
+    if (r) return r;
+    console.log(`🖥 ${proj}: ${tag || tool} ${path.basename(outs[0] || inputs[0] || '')} done here (no helper took it)`);
+  }
+  return helperOnly ? null : run(tool, args, { onLine });
+}
+async function ffprobe(file, proj = null) {
+  const r = await runMedia(proj, 'ffprobe', ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', file], { inputs: [file] });
   if (r.code !== 0) { ffprobe.lastErr = r.stderr; return null; }
   const j = JSON.parse(r.stdout);
   const v = j.streams.find((s) => s.codec_type === 'video' && s.disposition?.attached_pic !== 1);
@@ -770,34 +805,34 @@ async function processQuick(proj, id) {
   if (!m) return;
   if (!fs.existsSync(m.path)) { m.status = 'offline'; return; }
   m.status = 'probing';
-  const info = await ffprobe(m.path);
+  const info = await ffprobe(m.path, proj);
   if (!info) { m.status = 'error'; m.error = whyUnreadable(m.path, ffprobe.lastErr); return; }
   Object.assign(m, info);
   if (m.kind !== 'image') m.kind = info.hasVideo ? 'video' : info.hasAudio ? 'audio' : m.kind; // trust contents over extension
   const C = (d, f) => P(proj, 'cache', d, f);
   if (m.kind === 'video' || m.kind === 'image') {
     const seek = m.kind === 'video' ? ['-ss', String(Math.min(1, m.duration / 2))] : [];
-    await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...seek, '-i', m.path, '-frames:v', '1', '-vf', 'scale=320:-2', '-update', '1', C('thumbs', `${id}.jpg`)]);
+    await runMedia(proj, 'ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...seek, '-i', m.path, '-frames:v', '1', '-vf', 'scale=320:-2', '-update', '1', C('thumbs', `${id}.jpg`)], { inputs: [m.path], outs: [C('thumbs', `${id}.jpg`)] });
     m.thumb = fs.existsSync(C('thumbs', `${id}.jpg`));
   }
-  if (m.kind === 'video' && m.duration > 0) await makeStrip(m.path, m.duration, C('strips', `${id}.jpg`)).then((ok) => (m.strip = ok));
+  if (m.kind === 'video' && m.duration > 0) await makeStrip(m.path, m.duration, C('strips', `${id}.jpg`), proj).then((ok) => (m.strip = ok));
   const proxy = needsProxy(m);
   // Waveforms need the whole audio track; for big camera files read it from the small proxy later instead.
-  if (m.hasAudio && !proxy) m.wave = await makeWave(m.path, C('waves', `${id}.png`));
+  if (m.hasAudio && !proxy) m.wave = await makeWave(m.path, C('waves', `${id}.png`), proj);
   m.status = 'ready';
   if (proxy) { m.proxy = 'queued'; proxyQ.push({ proj, id }); } else m.proxy = 'none';
 }
 
 // Filmstrip: 12 evenly spaced frames side by side (timeline clip background).
 // Each frame is a fast seek (-ss before -i), so a long 4K intra-frame MXF is not decoded end to end.
-async function makeStrip(file, dur, out) {
+async function makeStrip(file, dur, out, proj = null) {
   const ins = [], g = [];
   for (let i = 0; i < 12; i++) {
     ins.push('-ss', ((dur * (i + 0.5)) / 12).toFixed(3), '-i', file);
     g.push(`[${i}:v:0]trim=end_frame=1,scale=-2:90,setsar=1[f${i}]`);
   }
   g.push(`${Array.from({ length: 12 }, (_, i) => `[f${i}]`).join('')}hstack=inputs=12[s]`);
-  await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...ins, '-filter_complex', g.join(';'), '-map', '[s]', '-frames:v', '1', '-update', '1', '-q:v', '5', out]);
+  await runMedia(proj, 'ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...ins, '-filter_complex', g.join(';'), '-map', '[s]', '-frames:v', '1', '-update', '1', '-q:v', '5', out], { inputs: [file], outs: [out] });
   return fs.existsSync(out);
 }
 // 🔊 the sound's real peaks for the timeline's waveform: one byte (0-255 = silence-full scale) every 10 ms, mono.
@@ -829,9 +864,9 @@ function makePeaks(file, out) {
   peaksMaking.set(out, job);
   return job;
 }
-async function makeWave(file, out) {
-  await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-i', file, '-filter_complex',
-    'aformat=channel_layouts=mono,showwavespic=s=1600x100:colors=#7fd3a8|#7fd3a8', '-frames:v', '1', '-update', '1', out]);
+async function makeWave(file, out, proj = null) {
+  await runMedia(proj, 'ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-i', file, '-filter_complex',
+    'aformat=channel_layouts=mono,showwavespic=s=1600x100:colors=#7fd3a8|#7fd3a8', '-frames:v', '1', '-update', '1', out], { inputs: [file], outs: [out] });
   return fs.existsSync(out);
 }
 
@@ -875,10 +910,11 @@ async function processProxy(proj, id) {
   const up = !lite && m.proxy === 'ready' && m.proxyUp; // (a sharper copy replacing an old 540p one: the old one plays meanwhile)
   if (lite) { m.lite = 'making'; } else if (up) { m.proxyUp = 'making'; } else { m.proxy = 'making'; m.proxyPct = 0; }
   const out = P(proj, 'cache', 'proxies', `${id}.mp4`), tmp = `${out}.part.mp4`;
-  const r = await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-i', m.path, '-map', '0:v:0', '-map', '0:a:0?',
+  // (🖥 on the project's helper PC when there is one - it may wait a while for it: a preview copy is long work)
+  const r = await runMedia(proj, 'ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-i', m.path, '-map', '0:v:0', '-map', '0:a:0?',
     '-vf', lite ? 'scale=-2:540,format=yuv420p' : `scale=-2:'min(ih,${PROXY_H})',format=yuv420p`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', lite ? '26' : '18', '-g', '12', '-c:a', 'aac', '-b:a', lite ? '128k' : '192k', '-ac', '2',
     '-movflags', '+faststart', '-progress', 'pipe:1', '-nostats', tmp],
-  { onLine: (l) => { const k = /^out_time_ms=(\d+)/.exec(l); if (k && m.duration && !lite) m.proxyPct = Math.min(99, Math.round((+k[1] / 1e6 / m.duration) * 100)); } });
+  { inputs: [m.path], outs: [tmp], lane: 'heavy', tag: 'proxy', waitSec: 300, limitSec: Math.max(600, Math.round((m.duration || 60) * 15)), onLine: (l) => { const k = /^out_time_ms=(\d+)/.exec(l); if (k && m.duration && !lite) m.proxyPct = Math.min(99, Math.round((+k[1] / 1e6 / m.duration) * 100)); } });
   if (lite) {
     if (r.code === 0 && fs.existsSync(tmp)) { fs.renameSync(tmp, out); m.lite = 'ready'; } else { fs.rmSync(tmp, { force: true }); m.lite = 'error'; }
     return;
@@ -890,7 +926,7 @@ async function processProxy(proj, id) {
   }
   if (r.code === 0 && fs.existsSync(tmp)) {
     fs.renameSync(tmp, out); m.proxy = 'ready'; m.proxyPct = 100; m.proxyH = PROXY_H;
-    if (m.hasAudio && !m.wave) m.wave = await makeWave(out, P(proj, 'cache', 'waves', `${id}.png`));
+    if (m.hasAudio && !m.wave) m.wave = await makeWave(out, P(proj, 'cache', 'waves', `${id}.png`), proj);
     // the agent's per-second analysis, from the small proxy right away, so the agent never has to read the camera file
     await analyzeClip(out, P(proj, 'cache', 'analysis', `${id}.json`), { hasAudio: m.hasAudio, duration: m.duration }).catch(() => {});
   } else { fs.rmSync(tmp, { force: true }); m.proxy = 'error'; m.error = r.stderr.slice(-300); }
@@ -928,8 +964,11 @@ function takeNext(q, onTimelineFirst = false) {
   if (i < 0) i = 0;
   return q.splice(i, 1)[0];
 }
+// 🖥 helper PCs take more at once: their share (of this worker, with ⚙ project workers) is added to the limits
+const helperShare = (n) => Math.ceil((n || 0) / Math.max(1, WORKERS));
 async function pump() {
-  while (quickActive < QUICK_WORKERS && quickQ.length) {
+  const hc = helperCaps; // (helpersOn keeps it fresh - the pump itself never waits)
+  while (quickActive < QUICK_WORKERS + helperShare(hc.light) && quickQ.length) {
     quickActive++;
     const { proj, id } = takeNext(quickQ);
     (async () => {
@@ -942,7 +981,7 @@ async function pump() {
   // while an agent reads footage, only one proxy at a time: both read the same (often slow, external) drive. (It used to
   // be none at all - with several people editing, some agent is nearly always running and new footage never got previews.)
   const agentBusy = [...jobs.values()].some((j) => j.kind === 'agent' && j.status === 'running' && !j.waiting);
-  while (proxyActive < (agentBusy ? 1 : PROXY_WORKERS) && proxyQ.length && !openPending) {
+  while (proxyActive < (agentBusy ? 1 : PROXY_WORKERS) + helperShare(hc.heavy) && proxyQ.length && !openPending) {
     proxyActive++;
     const { proj, id } = takeNext(proxyQ, true);
     (async () => {
@@ -973,11 +1012,13 @@ function publicMedia(proj, m) {
 let jobSeq = 0;
 // (⚙ a worker's jobs say whose they are - w3-12 - so the main process sends 'how far is it' to that worker)
 const JOB_ID = () => `${IS_WORKER ? `w${WORKER_K}-` : ''}${++jobSeq}`;
+// meta.helper = { proj, tool, inputs, outs }: 🖥 tried first on the project's helper PC (the arguments without the script,
+// which the PC has in its copy of the editor's code); done here when no helper takes it
 function startJob(kind, cmd, args, onDone, meta = {}) {
   const id = JOB_ID();
-  const job = { id, kind, status: 'running', progress: 0, log: [], started: Date.now(), result: null, ...meta };
+  const { helper, ...rest } = meta;
+  const job = { id, kind, status: 'running', progress: 0, log: [], started: Date.now(), result: null, ...rest };
   jobs.set(id, job);
-  const p = spawn(cmd, args, { cwd: ROOT, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' } });
   let partial = '';
   const onData = (buf) => {
     const lines = (partial + buf.toString('utf8')).split(/\r\n|\r|\n/);
@@ -991,15 +1032,25 @@ function startJob(kind, cmd, args, onDone, meta = {}) {
       if (job.log.length > 400) job.log.splice(0, job.log.length - 400);
     }
   };
-  p.stdout.on('data', onData); p.stderr.on('data', onData);
-  p.on('error', (e) => { job.status = 'error'; job.log.push(String(e)); });
-  p.on('close', (code) => {
+  const end = (code) => {
     if (partial.trim()) job.log.push(partial);
     job.status = code === 0 ? 'done' : 'error';
     job.progress = code === 0 ? 100 : job.progress;
     job.ended = Date.now();
     if (code === 0 && onDone) try { job.result = onDone(); } catch (e) { job.status = 'error'; job.log.push(String(e)); }
-  });
+  };
+  const here = () => {
+    const p = spawn(cmd, args, { cwd: ROOT, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' } });
+    p.stdout.on('data', onData); p.stderr.on('data', onData);
+    p.on('error', (e) => { job.status = 'error'; job.log.push(String(e)); });
+    p.on('close', end);
+  };
+  if (!helper) { here(); return job; }
+  (async () => {
+    const r = await runMedia(helper.proj, helper.tool, args.slice(1), { inputs: helper.inputs, outs: helper.outs, lane: 'ai', tag: kind, waitSec: 5, limitSec: 6 * 3600,
+      onLine: (l) => onData(Buffer.from(`${l}\n`)), helperOnly: true });
+    if (r) { job.log.push('(done on a helper PC)'); end(0); } else here();
+  })().catch(() => here());
   return job;
 }
 
@@ -1138,49 +1189,60 @@ function seqView(pj, id) {
 // its own copy of the timeline as it was when it was queued (cache/queue/<id>.json), and the list survives a restart.
 const QFILE = path.join(DATA, 'render-queue.json');
 const rq = readJSON(QFILE, { items: [] });
-for (const it of rq.items) if (it.state === 'rendering') { it.state = 'waiting'; it.progress = 0; } // cut off by a restart: again
+for (const it of rq.items) if (it.state === 'rendering') { it.state = 'waiting'; it.progress = 0; delete it.on; } // cut off by a restart: again (🖥 a helper stops it there)
 let rqActive = null; // { id, proc }
 const saveQueue = () => { try { writeJSON(QFILE, rq); } catch (e) { logCrash('render queue', e); } };
 const killTree = (p) => { if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(p.pid), '/T', '/F'], { windowsHide: true }); else p.kill('SIGKILL'); };
 
+// 🖥 renders whose project has a helper PC free for one go there (several at once, one per PC); the rest run here one
+// after another as before. A render a helper could not do goes back in line for this computer (it.noHelper).
 function pumpQueue() {
-  if (rqActive) return;
-  const it = rq.items.find((x) => x.state === 'waiting');
-  if (!it) return;
-  if (!fs.existsSync(it.jobFile)) { it.state = 'failed'; it.error = 'Its timeline copy is missing - add it to the queue again'; saveQueue(); return pumpQueue(); }
-  Object.assign(it, { state: 'rendering', started: Date.now(), progress: 0, stage: 'Starting…', log: [] });
-  saveQueue();
-  const p = spawn(process.execPath, [path.join(ROOT, 'engine', 'render2.mjs'), it.jobFile], { cwd: ROOT, windowsHide: true });
-  rqActive = { id: it.id, proc: p };
-  let partial = '', step = 0, steps = 1, D = it.duration || 1;
-  const onData = (buf) => {
-    const lines = (partial + buf.toString('utf8')).split(/\r\n|\r|\n/);
-    partial = lines.pop();
-    for (const l of lines) {
-      if (!l.trim()) continue;
-      let m;
-      if ((m = /^Rendering .*?, ([\d.]+)s/.exec(l))) D = +m[1] || D;
-      if ((m = /\[(\d+)\/(\d+)\]\s*(.*)/.exec(l))) { step = +m[1]; steps = +m[2]; it.stage = m[3].replace(/\.{3}$/, '…'); }
-      // inside a step, ffmpeg's time= says how far that piece is; the last step (the final mix) is the long one
-      const tm = /time=(\d+):(\d+):([\d.]+)/.exec(l), last = step === steps;
-      const within = tm && last ? Math.min(1, (+tm[1] * 3600 + +tm[2] * 60 + +tm[3]) / D) : 0;
-      // pieces (shots, the join) are the first 55%, the final mix the rest
-      it.progress = Math.min(99, Math.round(last ? 55 + 44 * within : (Math.max(0, step - 1) / Math.max(1, steps - 1)) * 55));
-      if (/^frame=/.test(l)) continue;
-      it.log.push(l); if (it.log.length > 60) it.log.splice(0, it.log.length - 60);
-    }
-  };
-  p.stdout.on('data', onData); p.stderr.on('data', onData);
-  p.on('close', (code) => {
-    rqActive = null;
-    it.ended = Date.now();
-    if (it.state === 'cancelled') it.error = 'Stopped';
-    else if (code === 0) { Object.assign(it, { state: 'done', progress: 100, stage: 'Done', url: `/pf/${encodeURIComponent(it.project)}/renders/${encodeURIComponent(it.out)}` }); copyToSaveTo(it); }
-    else Object.assign(it, { state: 'failed', error: (it.log.filter((l) => /render:|error|failed/i.test(l)).pop() || it.log[it.log.length - 1] || `exit ${code}`).slice(0, 300) });
-    if (it.state !== 'failed') fs.rmSync(it.jobFile, { force: true });
+  for (const it of rq.items) {
+    if (it.state !== 'waiting') continue;
+    if (!fs.existsSync(it.jobFile)) { it.state = 'failed'; it.error = 'Its timeline copy is missing - add it to the queue again'; saveQueue(); continue; }
+    const read = renderReader(it);
+    Object.assign(it, { state: 'rendering', started: Date.now(), progress: 0, stage: 'Starting…', log: [] });
+    if (renderOnHelper(it, read.line, (e, pc) => {
+      if (it.state === 'cancelled') { it.ended = Date.now(); it.error = 'Stopped'; }
+      else if (!e) renderEnded(it, 0);
+      else { // (the helper could not: done here instead)
+        Object.assign(it, { state: 'waiting', noHelper: true, progress: 0, stage: `Back here (${pc}: ${String(e.message).slice(0, 120)})` });
+        delete it.on;
+      }
+      saveQueue(); pumpQueue();
+    })) { it.stage = `On ${it.on}…`; saveQueue(); continue; }
+    if (rqActive) { it.state = 'waiting'; delete it.started; it.stage = ''; continue; }
     saveQueue();
-    pumpQueue();
-  });
+    const p = spawn(process.execPath, [path.join(ROOT, 'engine', 'render2.mjs'), it.jobFile], { cwd: ROOT, windowsHide: true });
+    rqActive = { id: it.id, proc: p };
+    p.stdout.on('data', read.data); p.stderr.on('data', read.data);
+    p.on('close', (code) => { rqActive = null; renderEnded(it, code); saveQueue(); pumpQueue(); });
+  }
+}
+// a render's lines (here or from its helper): which step, how far, the last lines kept for its log
+function renderReader(it) {
+  let partial = '', step = 0, steps = 1, D = it.duration || 1;
+  const line = (l) => {
+    if (!l.trim()) return;
+    let m;
+    if ((m = /^Rendering .*?, ([\d.]+)s/.exec(l))) D = +m[1] || D;
+    if ((m = /\[(\d+)\/(\d+)\]\s*(.*)/.exec(l))) { step = +m[1]; steps = +m[2]; it.stage = `${it.on ? `${it.on}: ` : ''}${m[3].replace(/\.{3}$/, '…')}`; }
+    // inside a step, ffmpeg's time= says how far that piece is; the last step (the final mix) is the long one
+    const tm = /time=(\d+):(\d+):([\d.]+)/.exec(l), last = step === steps;
+    const within = tm && last ? Math.min(1, (+tm[1] * 3600 + +tm[2] * 60 + +tm[3]) / D) : 0;
+    // pieces (shots, the join) are the first 55%, the final mix the rest
+    it.progress = Math.min(99, Math.round(last ? 55 + 44 * within : (Math.max(0, step - 1) / Math.max(1, steps - 1)) * 55));
+    if (/^frame=/.test(l)) return;
+    it.log.push(l); if (it.log.length > 60) it.log.splice(0, it.log.length - 60);
+  };
+  return { line, data: (buf) => { const ls = (partial + buf.toString('utf8')).split(/\r\n|\r|\n/); partial = ls.pop(); ls.forEach(line); } };
+}
+function renderEnded(it, code) {
+  it.ended = Date.now();
+  if (it.state === 'cancelled') it.error = 'Stopped';
+  else if (code === 0) { Object.assign(it, { state: 'done', progress: 100, stage: it.on ? `Done on ${it.on}` : 'Done', url: `/pf/${encodeURIComponent(it.project)}/renders/${encodeURIComponent(it.out)}` }); copyToSaveTo(it); }
+  else Object.assign(it, { state: 'failed', error: (it.log.filter((l) => /render:|error|failed/i.test(l)).pop() || it.log[it.log.length - 1] || `exit ${code}`).slice(0, 300) });
+  if (it.state !== 'failed') fs.rmSync(it.jobFile, { force: true });
 }
 if (!IS_WORKER) setTimeout(pumpQueue, 4000); // (⚙ the render queue is the main process's) whatever was waiting when the editor closed
 
@@ -2166,20 +2228,114 @@ const farmWorkers = () => [...farm.workers.values()].filter((w) => Date.now() - 
 const farmToken = () => { let t = farmCfg().token; if (!t) { t = crypto.randomBytes(12).toString('hex'); saveFarm({ token: t }); } return t; };
 const farmView = () => ({ on: !!farm.server, port: FARM_PORT, token: farm.server ? farmToken() : null,
   urls: farm.server ? lanHosts().map((ip) => `http://${ip}:${FARM_PORT}`) : [],
-  workers: farmWorkers().map(({ id, name, host, busy, done, failed, slots }) => ({ id, name, host, busy, done, failed, slots })),
-  waiting: farm.waiting.length, running: [...farm.tasks.values()].filter((t) => t.state === 'taken').length });
-// a task to a worker that is waiting for one (or to the next one that asks)
+  workers: farmWorkers().map(({ id, name, host, busy, done, failed, slots, specs, helped }) => ({ id, name, host, busy, done, failed, slots, specs: specs || null, helped: helped || 0,
+    projects: specs ? [...helperOf].filter(([, h]) => h === id).map(([p]) => p).sort() : [] })),
+  pins: farmCfg().pins || {}, waiting: farm.waiting.length, running: [...farm.tasks.values()].filter((t) => t.state === 'taken').length });
+// a task to a worker that is waiting for one (or to the next one that asks): the same lane (a helper's long / short
+// runs), and a project's run only to that project's helper
 function farmPump() {
-  while (farm.waiting.length && farm.polls.length) {
-    const t = farm.waiting.shift(), p = farm.polls.shift();
-    if (t.state !== 'waiting') continue;
+  for (let i = 0; i < farm.waiting.length; i++) {
+    const t = farm.waiting[i];
+    if (t.state !== 'waiting') { farm.waiting.splice(i--, 1); continue; }
+    const k = farm.polls.findIndex((p) => p.lane === (t.lane || 'heavy') && (!t.helper || p.w.id === t.helper));
+    if (k < 0) continue;
+    const p = farm.polls.splice(k, 1)[0];
+    farm.waiting.splice(i--, 1);
     clearTimeout(p.timer);
     t.state = 'taken'; t.worker = p.w.id; t.takenAt = Date.now(); p.w.busy = (p.w.busy || 0) + 1;
     // taken but never finished (the worker computer went off): the shot is rendered here
     t.timer = setTimeout(() => farmEnd(t, new Error(`${p.w.name} did not finish in time`)), t.limitMs);
-    send(p.res, 200, { id: t.id, label: t.label, args: t.args, graph: t.graph, inputs: t.inputs.map((_, n) => `/farm/src/${t.id}/${n}`) });
+    if (t.kind === 'tool') send(p.res, 200, { id: t.id, kind: 'tool', label: t.label, tool: t.tool, tag: t.tag, args: t.args,
+      ins: t.inputs.map((f, n) => ({ path: f, size: t.sizes[n], url: `/farm/src/${t.id}/${n}` })), outs: t.outs.map((f, n) => ({ path: f, url: `/farm/out/${t.id}/${n}` })) });
+    else if (t.kind === 'render') send(p.res, 200, { id: t.id, kind: 'render', label: t.label, job: t.job, need: t.need, dirs: t.dirs });
+    else send(p.res, 200, { id: t.id, label: t.label, args: t.args, graph: t.graph, inputs: t.inputs.map((_, n) => `/farm/src/${t.id}/${n}`) });
   }
 }
+// ---------------- 🖥 Helper PCs (Phase 23) ----------------
+// A PC running the new worker.mjs says what it is (cores, RAM, NVIDIA encoder). Each project is given to one helper
+// (engine/helpers.mjs pickHelper: pinned in 👥 Team > Render farm, else the one it has, else the least loaded for its
+// strength) and that PC does the project's heavy runs - reading new footage and making preview copies (runMedia), whole
+// renders from the render queue (renderOnHelper) and, on a PC with an NVIDIA card and Whisper, transcribing (startJob) -
+// while the editing stays here. Any run a helper does not take soon, or fails, is done here as before.
+// Lanes: a helper asks for work per lane - 'light' (reading footage), 'heavy' (preview copies, render shots), 'render'
+// (a whole render, one at a time) and 'ai' (transcribing).
+const LANES = ['light', 'heavy', 'render', 'ai'];
+const helperOf = new Map(); // project -> helper id (kept while that PC is on)
+const helperPCs = () => farmWorkers().filter((w) => w.specs);
+const helperSlots = () => { const hs = farm.server ? helperPCs() : []; return { heavy: hs.reduce((n, w) => n + (w.slots || 1), 0), light: hs.length * 2, ai: hs.filter((w) => w.specs.whisper).length }; };
+// what a run needs on the PC: FFprobe, Whisper on an NVIDIA card, or the editor's code (a whole render)
+const NEEDS = { ffprobe: 'ffprobe', transcribe: 'whisper' };
+async function helperRun({ proj, tool, args, inputs = [], outs = [], lane = 'light', tag = '', waitSec = 10, limitSec = 120, onLine }) {
+  if (!farm.server || !['ffmpeg', 'ffprobe', 'transcribe'].includes(tool) || !proj) return null;
+  const h = pickHelper(String(proj), helperPCs(), helperOf, farmCfg().pins || {}, NEEDS[tool] || null);
+  if (!h) return null;
+  let sizes;
+  try { sizes = inputs.map((f) => fs.statSync(f).size); } catch { return null; }
+  const t = { id: crypto.randomBytes(6).toString('hex'), kind: 'tool', label: `${proj}: ${tag || tool} ${path.basename(outs[0] || inputs[0] || '')}`, tool, tag,
+    args: toTaskArgs(args, inputs, outs), inputs, sizes, outs, lane: LANES.includes(lane) ? lane : 'light', helper: h.id, proj, onLine,
+    state: 'waiting', limitMs: Math.max(30, +limitSec || 120) * 1000 };
+  const done = new Promise((ok) => { t.finish = ok; });
+  farm.tasks.set(t.id, t); farm.waiting.push(t); farmPump();
+  const idle = setTimeout(() => { if (t.state === 'waiting') farmEnd(t, new Error('The helper is busy')); }, Math.max(1, +waitSec || 10) * 1000);
+  const e = await done; clearTimeout(idle);
+  if (e) return null;
+  const w = farm.workers.get(h.id); if (w) w.helped = (w.helped || 0) + 1; // (its record is made again at each hello)
+  return t.result;
+}
+// the editor's code a helper keeps a copy of (engine/worker.mjs syncs it): the render engine and what it imports, the
+// transcriber, and the editor's own LUTs (a whole render reads them). By size and time - only what changed is fetched.
+const CODE_PARTS = [['engine', /\.(mjs|py)$/], ['public/js', /\.js$/], ['LUTs', /\.cube$/i], ['LUTs/Looks', /\.cube$/i]];
+let codeList = null, codeAt = 0;
+function codeManifest() {
+  if (codeList && Date.now() - codeAt < 15000) return codeList;
+  const files = [];
+  for (const [dir, re] of CODE_PARTS) {
+    let names = []; try { names = fs.readdirSync(path.join(ROOT, dir)); } catch {}
+    for (const f of names) if (re.test(f)) { try { const st = fs.statSync(path.join(ROOT, dir, f)); if (st.isFile()) files.push({ rel: `${dir}/${f}`, size: st.size, mtime: Math.round(st.mtimeMs) }); } catch {} }
+  }
+  codeList = { files }; codeAt = Date.now();
+  return codeList;
+}
+
+// 🖥 a whole render from the render queue on the project's helper PC, when that PC has the editor's code and is free for
+// it right now. The helper checks it sees every file the render needs (the footage on the NAS, the project's folder),
+// runs the render engine there and writes the finished file straight into the project's renders folder. The editor's
+// own LUTs come with its code copy (@code). Its lines arrive like a render here; a failure gives the render back here.
+const rqHelp = new Map(); // queue id -> farm task
+function renderOnHelper(it, onLine, finish) {
+  if (!farm.server || it.noHelper) return false;
+  const h = pickHelper(it.project, helperPCs(), helperOf, farmCfg().pins || {}, 'render');
+  if (!h || !farm.polls.some((p) => p.w.id === h.id && p.lane === 'render')) return false; // (not free for a render right now)
+  let job;
+  try { job = readJSON(it.jobFile, null); } catch { job = null; }
+  if (!job?.output) return false;
+  const pjText = JSON.stringify(job.project), luts = {}, need = [];
+  for (const [n, f] of Object.entries(job.luts || {})) {
+    if (!pjText.includes(JSON.stringify(n))) continue; // (only the LUTs this timeline uses)
+    const rel = path.relative(ROOT, f).split(path.sep).join('/');
+    luts[n] = !rel.startsWith('..') && codeManifest().files.some((x) => x.rel === rel) ? `@code/${rel}` : f;
+    if (!luts[n].startsWith('@code/')) need.push({ path: f });
+  }
+  for (const m of Object.values(job.media || {})) { let size = null; try { size = fs.statSync(m.path).size; } catch {} need.push({ path: m.path, size }); }
+  if (job.subtitlesPath) need.push({ path: job.subtitlesPath });
+  const t = { id: crypto.randomBytes(6).toString('hex'), kind: 'render', label: `${it.project}: ${it.out}`, lane: 'render', helper: h.id, proj: it.project,
+    job: { ...job, luts, farm: null }, need, dirs: [path.dirname(job.output), job.segCache ? path.dirname(job.segCache) : null].filter(Boolean),
+    out: job.output, onLine, state: 'waiting', limitMs: Math.max(1800, (it.duration || 60) * 120) * 1000 };
+  t.finish = (e) => { rqHelp.delete(it.id); finish(e, h.name); };
+  farm.tasks.set(t.id, t); farm.waiting.push(t); rqHelp.set(it.id, t); farmPump();
+  if (t.state !== 'taken') { rqHelp.delete(it.id); t.finish = () => {}; farmEnd(t, new Error('not taken')); return false; } // (the PC asked for something else meanwhile)
+  it.on = h.name;
+  return true;
+}
+// a helper that went off with work taken, or waiting for it: that work is done here (a preview copy would otherwise wait
+// minutes for a PC that is not there)
+setInterval(() => {
+  const gone = (id) => { const w = farm.workers.get(id); return !w || Date.now() - w.seen > FARM_SEEN_MS; };
+  for (const t of farm.tasks.values()) {
+    if (t.state === 'taken' && gone(t.worker)) farmEnd(t, new Error(`${farm.workers.get(t.worker)?.name || 'The helper'} went off`));
+    else if (t.state === 'waiting' && t.helper && gone(t.helper)) farmEnd(t, new Error('Its helper PC went off'));
+  }
+}, 10000).unref?.();
 function farmEnd(t, e) {
   if (t.state === 'done' || t.state === 'failed') return;
   clearTimeout(t.timer);
@@ -2198,10 +2354,20 @@ function startFarm() {
       if (u.pathname === '/farm/worker.mjs') return serveFile(req, res, path.join(ROOT, 'engine', 'worker.mjs'));
       if ((req.headers['x-farm-token'] || u.searchParams.get('t')) !== farmToken()) return send(res, 401, { error: 'Wrong farm token - copy it again from 👥 Team > Render farm' });
       let m;
+      // 🖥 the editor's code a helper renders and transcribes with: the list, then each changed file
+      if (req.method === 'GET' && u.pathname === '/farm/code') return send(res, 200, codeManifest());
+      if (req.method === 'GET' && u.pathname.startsWith('/farm/code/')) {
+        const rel = decodeURIComponent(u.pathname.slice('/farm/code/'.length));
+        if (!codeManifest().files.some((f) => f.rel === rel)) return send(res, 404, { error: 'not part of the code' });
+        return serveFile(req, res, path.join(ROOT, ...rel.split('/')));
+      }
       if (req.method === 'POST' && u.pathname === '/farm/hello') {
         const b = await readJson(req), id = String(b.id || crypto.randomBytes(5).toString('hex')).slice(0, 20);
         const old = farm.workers.get(id);
-        farm.workers.set(id, { ...old, id, name: String(b.name || 'Worker').slice(0, 40), host: req.socket.remoteAddress, slots: Math.max(1, Math.min(8, +b.slots || 1)), seen: Date.now(), busy: old?.busy || 0, done: old?.done || 0, failed: old?.failed || 0 });
+        // (🖥 a helper PC also says what it is - an older worker.mjs only renders shots)
+        const sp = b.specs && typeof b.specs === 'object' ? { cores: Math.max(1, Math.min(512, +b.specs.cores || 1)), cpu: String(b.specs.cpu || '').slice(0, 80), ramGB: Math.max(0, Math.min(4096, +b.specs.ramGB || 0)),
+          gpu: String(b.specs.gpu || '').slice(0, 80), nvenc: !!b.specs.nvenc, ffprobe: !!b.specs.ffprobe, render: !!b.specs.render, whisper: !!b.specs.whisper } : null;
+        farm.workers.set(id, { ...old, id, name: String(b.name || 'Worker').slice(0, 40), host: req.socket.remoteAddress, slots: Math.max(1, Math.min(8, +b.slots || 1)), specs: sp, seen: Date.now(), busy: old?.busy || 0, done: old?.done || 0, failed: old?.failed || 0 });
         return send(res, 200, { id, ffmpeg: true });
       }
       if (req.method === 'GET' && u.pathname === '/farm/next') {
@@ -2209,9 +2375,10 @@ function startFarm() {
         if (!w) return send(res, 409, { error: 'Say hello first' });
         w.seen = Date.now();
         // a long poll: answered with a task, or empty after 25s (the worker asks again)
-        const p = { w, res, timer: setTimeout(() => { farm.polls = farm.polls.filter((x) => x !== p); if (!res.headersSent) { res.writeHead(204); res.end(); } }, 25000) };
+        const p = { w, res, lane: LANES.includes(u.searchParams.get('lane')) ? u.searchParams.get('lane') : 'heavy', timer: setTimeout(() => { farm.polls = farm.polls.filter((x) => x !== p); if (!res.headersSent) { res.writeHead(204); res.end(); } }, 25000) };
         req.on('close', () => { clearTimeout(p.timer); farm.polls = farm.polls.filter((x) => x !== p); });
         farm.polls.push(p); farmPump();
+        if (p.lane === 'render' && !IS_WORKER) setImmediate(pumpQueue); // (🖥 a PC free for a whole render: the queue may have one for it)
         return;
       }
       if (req.method === 'GET' && (m = /^\/farm\/src\/([0-9a-f]+)\/(\d+)$/.exec(u.pathname))) {
@@ -2226,6 +2393,43 @@ function startFarm() {
         await new Promise((ok, bad) => { const ws = fs.createWriteStream(part); req.pipe(ws); ws.on('finish', ok); ws.on('error', bad); req.on('error', bad); });
         if (t.state !== 'taken' || !fs.statSync(part).size) { fs.rmSync(part, { force: true }); return send(res, 409, { error: 'Too late or empty' }); }
         fs.renameSync(part, t.out);
+        farmEnd(t, null);
+        return send(res, 200, { ok: true });
+      }
+      // 🖥 a helper's run: an output sent back (when the helper could not write it next to where it belongs) ...
+      if (req.method === 'PUT' && (m = /^\/farm\/out\/([0-9a-f]+)\/(\d+)$/.exec(u.pathname))) {
+        const t = farm.tasks.get(m[1]), f = t?.kind === 'tool' && t.outs[+m[2]];
+        if (!f || t.state !== 'taken') { req.resume(); return send(res, 409, { error: 'Too late - this was done here' }); }
+        const part = `${f}.up${crypto.randomBytes(3).toString('hex')}`;
+        try { await new Promise((ok, bad) => { const ws = fs.createWriteStream(part); req.pipe(ws); ws.on('finish', ok); ws.on('error', bad); req.on('error', bad); }); }
+        catch (e) { fs.rmSync(part, { force: true }); throw e; }
+        if (t.state !== 'taken') { fs.rmSync(part, { force: true }); return send(res, 409, { error: 'Too late' }); }
+        fs.renameSync(part, f);
+        return send(res, 200, { ok: true });
+      }
+      // ... how far a preview copy is ...
+      if (req.method === 'POST' && (m = /^\/farm\/progress\/([0-9a-f]+)$/.exec(u.pathname))) {
+        const t = farm.tasks.get(m[1]), b = await readJson(req).catch(() => ({}));
+        if (t?.state !== 'taken') return send(res, 200, { stop: true }); // (stopped, or done here meanwhile: the helper stops)
+        if (t.onLine) for (const l of [b.line, ...(Array.isArray(b.lines) ? b.lines : [])].filter((x) => typeof x === 'string').slice(0, 200)) t.onLine(l.slice(0, 500));
+        return send(res, 200, { ok: true });
+      }
+      // ... and done: outputs it wrote next to where they belong (<file><suffix>) are put in place, then the caller gets
+      // FFprobe's / FFmpeg's answer
+      if (req.method === 'POST' && (m = /^\/farm\/done\/([0-9a-f]+)$/.exec(u.pathname))) {
+        const t = farm.tasks.get(m[1]), b = await readJson(req).catch(() => ({}));
+        if (!['tool', 'render'].includes(t?.kind) || t.state !== 'taken') return send(res, 409, { error: 'Too late - this was done here' });
+        if (t.kind === 'render') {
+          if (!fs.existsSync(t.out) || !fs.statSync(t.out).size) { farmEnd(t, new Error(`The finished file is not at ${t.out}`)); return send(res, 409, { error: 'The finished file is not on the NAS' }); }
+          farmEnd(t, null); return send(res, 200, { ok: true });
+        }
+        try {
+          for (const [n, f] of t.outs.entries()) {
+            const sfx = b.direct?.[n];
+            if (sfx) { if (!/^\.h[0-9a-f]{6}(\.[\w]{1,6})?$/.test(sfx) || !fs.existsSync(f + sfx)) throw new Error(`${path.basename(f)} is not where the helper wrote it - does it see the same NAS?`); fs.renameSync(f + sfx, f); }
+          }
+        } catch (e) { farmEnd(t, e); return send(res, 409, { error: e.message }); }
+        t.result = { code: 0, stdout: String(b.stdout || ''), stderr: String(b.stderr || '') };
         farmEnd(t, null);
         return send(res, 200, { ok: true });
       }
@@ -2245,7 +2449,7 @@ function startFarm() {
 function stopFarm() {
   if (farm.server) { farm.server.close(); farm.server.closeAllConnections?.(); farm.server = null; }
   for (const t of farm.tasks.values()) farmEnd(t, new Error('Render farm turned off'));
-  farm.polls = []; farm.workers.clear();
+  farm.polls = []; farm.workers.clear(); helperOf.clear();
 }
 if (farmCfg().on && !process.env.VEDIT_NO_RESUME) resumeServer(startFarm, 'farm');
 
@@ -2590,7 +2794,7 @@ const routes = {
     if (Number.isInteger(b.hour) && b.hour >= 0 && b.hour <= 23) patch.hour = b.hour;
     if (+b.keep >= 3 && +b.keep <= 60) patch.keep = Math.round(+b.keep);
     // ⚙ project workers: how many after the next start (0 = off)
-    if (Number.isInteger(b.workers) && b.workers >= 0 && b.workers <= 16) { const c = config(); c.cluster = { ...(c.cluster || {}), workers: b.workers }; fs.writeFileSync(CONFIG, JSON.stringify(c, null, 1)); }
+    if (Number.isInteger(b.workers) && b.workers >= 0 && b.workers <= MAX_WORKERS) { const c = config(); c.cluster = { ...(c.cluster || {}), workers: b.workers }; fs.writeFileSync(CONFIG, JSON.stringify(c, null, 1)); }
     if (typeof b.dest === 'string') {
       const d = b.dest.trim();
       if (!path.isAbsolute(d)) throw err(400, 'Give a full folder path, e.g. Z:\\Limelight Backups');
@@ -2634,9 +2838,9 @@ const routes = {
     return healthView();
   },
   // (⚙ the project workers' jobs count too - a newer editor never replaces one with an edit running in a worker)
-  'GET /api/version': async () => ({ build: BUILD, busy: [...jobs.values()].filter((j) => j.status === 'running').length + (rqActive ? 1 : 0) + (await workerStates()).reduce((n, w) => n + (w.jobs?.length || 0), 0) }),
+  'GET /api/version': async () => ({ build: BUILD, busy: [...jobs.values()].filter((j) => j.status === 'running').length + (rqActive ? 1 : 0) + rqHelp.size + (await workerStates()).reduce((n, w) => n + (w.jobs?.length || 0), 0) }),
   'POST /api/shutdown': async (req, res) => {
-    const busy = [...jobs.values()].filter((j) => j.status === 'running').length + (rqActive ? 1 : 0) + (await workerStates()).reduce((n, w) => n + (w.jobs?.length || 0), 0);
+    const busy = [...jobs.values()].filter((j) => j.status === 'running').length + (rqActive ? 1 : 0) + rqHelp.size + (await workerStates()).reduce((n, w) => n + (w.jobs?.length || 0), 0);
     if (busy) return send(res, 409, { error: `${busy} job(s) running - not closing` });
     send(res, 200, { ok: true }); console.log('A newer version of the editor is starting - closing this one.'); setTimeout(() => process.exit(0), 300); },
 
@@ -3456,7 +3660,7 @@ const routes = {
       writeJSON(out, { ...j, model: b.model || 'medium', mediaId: m.id, at: Date.now() });
       fs.rmSync(tmp, { force: true }); fs.rmSync(path.join(dir, `${m.id}.srt`), { force: true });
       return { mediaId: m.id, segments: j.segments.length };
-    }, { project: name, label: m.name });
+    }, { project: name, label: m.name, helper: { proj: name, tool: 'transcribe', inputs: [analysisFile(name, m)], outs: [path.join(dir, `${m.id}.srt`), tmp] } });
   },
   // 🚀 Publish: accounts (never the tokens themselves), connect / disconnect, queue an upload, the history
   'GET /api/publish/accounts': () => {
@@ -4129,6 +4333,7 @@ const routes = {
     const it = rq.items.find((x) => x.id === q(u, 'id'));
     if (!it) throw err(404, 'not in the queue');
     if (it.state === 'rendering' && rqActive?.id === it.id) { it.state = 'cancelled'; killTree(rqActive.proc); }
+    else if (it.state === 'rendering' && rqHelp.has(it.id)) { it.state = 'cancelled'; farmEnd(rqHelp.get(it.id), new Error('Stopped')); } // (🖥 its helper stops at its next word)
     else if (it.state === 'waiting') { it.state = 'cancelled'; it.ended = Date.now(); fs.rmSync(it.jobFile, { force: true }); }
     saveQueue();
     return { ok: true };
@@ -4349,7 +4554,8 @@ const routes = {
     // json: the sentences with each word's time (Captions panel: karaoke captions)
     const json = b.json ? srt.replace(/\.srt$/, '.json') : null;
     if (json) args.push('--json', P(name, 'subs', json));
-    return startJob('transcribe', PYTHON, args, () => ({ subs: srt, json, segments: json ? readJSON(P(name, 'subs', json), {}).segments || [] : undefined }), { project: name });
+    return startJob('transcribe', PYTHON, args, () => ({ subs: srt, json, segments: json ? readJSON(P(name, 'subs', json), {}).segments || [] : undefined }), { project: name,
+      helper: { proj: name, tool: 'transcribe', inputs: [src], outs: [P(name, 'subs', srt), ...(json ? [P(name, 'subs', json)] : [])] } }); // (🖥 a helper PC's Whisper when there is one)
   },
 
   // ---------------- 🌐 translate captions (CC panel "Translate to…" makes a new caption track) ----------------
@@ -4418,9 +4624,25 @@ const routes = {
     if (b.newToken) { saveFarm({ token: crypto.randomBytes(12).toString('hex') }); for (const t of farm.tasks.values()) farmEnd(t, new Error('Token changed')); farm.workers.clear(); }
     if (b.on === true) { await startFarm(); saveFarm({ on: true }); }
     if (b.on === false) { stopFarm(); saveFarm({ on: false }); }
+    // 🖥 a project kept on one helper PC (by its name), or given back to the automatic choice (pc '')
+    if (b.pin && typeof b.pin.project === 'string') {
+      const pins = { ...(farmCfg().pins || {}) }, pr = needProject(b.pin.project), pc = String(b.pin.pc || '').slice(0, 40);
+      if (pc) pins[pr] = pc; else delete pins[pr];
+      saveFarm({ pins }); helperOf.delete(pr);
+    }
     return farmView();
   },
   'GET /api/farm/status': () => ({ on: !!farm.server, slots: farmWorkers().reduce((n, w) => n + (w.slots || 1), 0), workers: farmWorkers().length }),
+  // 🖥 helper PCs, for a project worker (⚙): how many runs they take at once, and one run (helperRun) - its progress
+  // lines and then { result } (null: do it here) as lines of JSON. Only from this computer.
+  'GET /api/helper/status': (req) => { if (!req.who?.local) throw err(403, 'Only on this computer'); return helperSlots(); },
+  'POST /api/helper/run': async (req, res) => {
+    if (!req.who?.local) throw err(403, 'Only on this computer');
+    const b = await readJson(req);
+    res.writeHead(200, { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-store' });
+    const r = await helperRun({ ...b, onLine: (line) => res.write(`${JSON.stringify({ line })}\n`) }).catch(() => null);
+    res.end(`${JSON.stringify({ result: r })}\n`);
+  },
   // body { label, inputs: [files], args, graph, out, limitSec }: answered when a worker has sent the piece back (200), or
   // 409 when no worker took it within a few seconds / it failed - render2 then renders the shot itself
   'POST /api/farm/run': async (req, res) => {

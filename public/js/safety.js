@@ -64,7 +64,7 @@ export async function openSafety(tab = 'health') {
       <p class="muted small">The dashed line is where it starts to feel slow. A tall bar = the editor started (${starts24.length} in the last 24 h${starts24.length ? `, last ${ago(starts24[0])}` : ''}).</p>
       <h4>Project workers</h4>
       <p class="muted small">Each project is kept by one worker process, so one project's heavy moment (a huge timeline, a slow NAS) only slows the projects of its own worker. Takes effect at the next start of the editor.</p>
-      <label class="sf-row">Workers <select data-k="workers">${[0, 2, 4, 6, 8].map((n) => `<option value="${n}" ${n === d.cluster.want ? 'selected' : ''}>${n ? n : 'Off (one process)'}</option>`).join('')}</select>
+      <label class="sf-row">Workers <select data-k="workers">${[0, 2, 4, 6, 8, 12, 16, 24, 32, 48, 64].map((n) => `<option value="${n}" ${n === d.cluster.want ? 'selected' : ''}>${n ? n : 'Off (one process)'}</option>`).join('')}</select>
         ${d.cluster.want !== d.cluster.on ? '<span class="sf-busy">restart the editor to apply</span>' : ''}</label>
       ${d.cluster.workers.length ? `<table class="sf-disks">${d.cluster.workers.map((w) => w.down ? `<tr><td>Worker ${w.k}</td><td colspan="3" class="bad">not answering - starting again</td></tr>`
         : `<tr><td>Worker ${w.k}</td><td class="${w.lag > 250 ? 'bad' : ''}">stuck ${w.lag} ms</td><td>${(w.rss / 1024).toFixed(1)} GB · ${w.jobs.length} jobs · ${w.queue} files waiting${w.starts > 1 ? ` · restarted ${w.starts - 1}×` : ''}</td><td class="muted">${esc(w.projects.map((x) => `${x.name}${x.people ? ` (${x.people})` : ''}`).join(', ') || 'no project open')}</td></tr>`).join('')}</table>` : ''}
