@@ -1,6 +1,13 @@
 // 🖥 helper PCs (Phase 23): which PC gets a project, and the editor's files swapped for placeholders (engine/helpers.mjs)
 import { test, assert, eq } from './harness.mjs';
-import { helperScore, pickHelper, toTaskArgs } from '../engine/helpers.mjs';
+import { helperScore, pickHelper, toTaskArgs, gpuProxyArgs } from '../engine/helpers.mjs';
+
+test('⚡ a preview copy on the NVIDIA card: GPU decode + scale_cuda + NVENC, same size and quality setting', () => {
+  const a = ['-hide_banner', '-y', '-i', 'in.mp4', '-map', '0:v:0', '-vf', "scale=-2:'min(ih,1080)',format=yuv420p", '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-g', '12', 'out.mp4'];
+  eq(gpuProxyArgs(a), ['-hide_banner', '-y', '-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda', '-i', 'in.mp4', '-map', '0:v:0', '-vf', "scale_cuda=-2:'min(ih,1080)':format=yuv420p",
+    '-c:v', 'h264_nvenc', '-preset', 'p4', '-rc', 'vbr', '-cq', '19', '-b:v', '0', '-g', '12', 'out.mp4']);
+  eq(gpuProxyArgs(['-i', 'x', '-vf', 'crop=10:10', '-c:v', 'libx264', 'o.mp4']), null, 'not a preview copy');
+});
 
 const pc = (id, cores, more = {}) => ({ id, name: `PC-${id}`, specs: { cores, ramGB: 16, nvenc: false, ffprobe: true, ...more } });
 

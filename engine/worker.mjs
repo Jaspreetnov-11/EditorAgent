@@ -18,14 +18,19 @@ import { fileURLToPath } from 'node:url';
 // (this file is fetched on its own by each PC - /farm/worker.mjs - so it imports nothing of the editor's)
 // the editor's {{INn}} / {{OUTn}} (engine/helpers.mjs toTaskArgs) swapped for where this PC reads / writes each file
 const fromTaskArgs = (args, ins, outs) => args.map((a) => String(a).replace(/^\{\{(IN|OUT)(\d+)\}\}$/, (_, k, n) => (k === 'IN' ? ins : outs)[+n]));
-// a preview copy on a PC with an NVIDIA card: its hardware encoder instead of libx264 (same size, about as sharp)
+// ⚡ a preview copy on a PC with an NVIDIA card: decoded, scaled and encoded on the card (engine/helpers.mjs
+// gpuProxyArgs - 5x faster for 4K HEVC camera files, as sharp); a file the card cannot decode is made the usual way
 function nvencArgs(args) {
-  const i = args.indexOf('libx264');
-  if (i < 1 || args[i - 1] !== '-c:v') return null;
-  const out = [...args], p = out.indexOf('-preset'), c = out.indexOf('-crf');
-  out[i] = 'h264_nvenc';
-  if (p >= 0) out[p + 1] = 'p4';
-  if (c >= 0) out.splice(c, 2, '-rc', 'vbr', '-cq', String(+out[c + 1] + 1), '-b:v', '0');
+  const i = args.indexOf('-i'), v = args.indexOf('-vf'), c = args.indexOf('libx264');
+  if (i < 0 || v < 0 || c < 1 || args[c - 1] !== '-c:v') return null;
+  const m = /^scale=-2:(.+),format=yuv420p$/.exec(args[v + 1]);
+  if (!m) return null;
+  const out = [...args];
+  out[v + 1] = `scale_cuda=-2:${m[1]}:format=yuv420p`;
+  out[c] = 'h264_nvenc';
+  const p = out.indexOf('-preset'); if (p >= 0) out[p + 1] = 'p4';
+  const q = out.indexOf('-crf'); if (q >= 0) out.splice(q, 2, '-rc', 'vbr', '-cq', String(+out[q + 1] + 1), '-b:v', '0');
+  out.splice(i, 0, '-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda');
   return out;
 }
 

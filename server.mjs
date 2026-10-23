@@ -39,7 +39,7 @@ import { readXmeml, aspectOf } from './engine/xmlimport.mjs';
 import { ensureSfx, listSfx, SFX_KINDS } from './engine/sfx.mjs';
 import { gyroflowExe, findLog, gyroSamples, stabilise, LOG_EXT as GF_LOG } from './engine/gyroflow.mjs';
 import { runNightly, mirrorLive, restoreProject, nights as backupNights, standbyState, liveDir, dayOf, safeDir } from './engine/safety.mjs';
-import { pickHelper, toTaskArgs } from './engine/helpers.mjs';
+import { pickHelper, toTaskArgs, gpuProxyArgs } from './engine/helpers.mjs';
 import { byPriority, lineIndex } from './engine/priority.mjs';
 import * as QC from './engine/qc.mjs';
 import { archiveRoutes } from './engine/archive.mjs';
@@ -790,6 +790,9 @@ function helpersOn() {
   }
   return helperAsk || Promise.resolve(helperCaps);
 }
+// whether this PC's FFmpeg can encode on an NVIDIA card (looked at once)
+let nvencLook = null;
+const nvencHere = () => (nvencLook ||= run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=s=256x256:d=0.1', '-frames:v', '1', '-c:v', 'h264_nvenc', '-f', 'null', '-']).then((r) => r.code === 0));
 async function runMedia(proj, tool, args, { inputs = [], outs = [], lane = 'light', tag = '', waitSec = 10, limitSec = 120, duration, onLine, helperOnly = false } = {}) {
   if (proj && (await helpersOn())[lane] > 0) {
     const ask = { proj, tool, args, inputs, outs, lane, tag, waitSec, limitSec, duration };
@@ -806,7 +809,11 @@ async function runMedia(proj, tool, args, { inputs = [], outs = [], lane = 'ligh
     if (r) return r;
     console.log(`🖥 ${proj}: ${tag || tool} ${path.basename(outs[0] || inputs[0] || '')} done here (no helper took it)`);
   }
-  return helperOnly ? null : run(tool, args, { onLine });
+  if (helperOnly) return null;
+  // ⚡ a preview copy here: on this PC's NVIDIA card when it has one (5x faster for 4K HEVC camera files), else as before
+  const gpu = tag === 'proxy' && tool === 'ffmpeg' && (await nvencHere()) ? gpuProxyArgs(args) : null;
+  if (gpu) { const r = await run(tool, gpu, { onLine }); if (r.code === 0) return r; }
+  return run(tool, args, { onLine });
 }
 // 🖥 a render2 job (nest, batch, QC, review copy, reels…): on the project's helper PC when one is free for a whole
 // render right now, else here - the same answer as run()

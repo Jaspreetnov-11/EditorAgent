@@ -26,6 +26,24 @@ export function pickHelper(proj, helpers, assigned, pins = {}, need = null) {
   return can(h) ? h : null;
 }
 
+// ⚡ a preview copy made wholly on the NVIDIA card: decoded (NVDEC), scaled (scale_cuda) and encoded (NVENC) there.
+// The slow part of a 4K HEVC 10-bit camera file is decoding it: on the CPU a 20 s DJI clip took 62 s, this way 12 s, as
+// sharp (SSIM 0.985). Answers null when the arguments are not a preview copy's; a file the card cannot decode (ProRes,
+// 4:2:2) fails and is made the usual way. (engine/worker.mjs has the same, for helper PCs.)
+export function gpuProxyArgs(args) {
+  const i = args.indexOf('-i'), v = args.indexOf('-vf'), c = args.indexOf('libx264');
+  if (i < 0 || v < 0 || c < 1 || args[c - 1] !== '-c:v') return null;
+  const m = /^scale=-2:(.+),format=yuv420p$/.exec(args[v + 1]);
+  if (!m) return null;
+  const out = [...args];
+  out[v + 1] = `scale_cuda=-2:${m[1]}:format=yuv420p`;
+  out[c] = 'h264_nvenc';
+  const p = out.indexOf('-preset'); if (p >= 0) out[p + 1] = 'p4';
+  const q = out.indexOf('-crf'); if (q >= 0) out.splice(q, 2, '-rc', 'vbr', '-cq', String(+out[q + 1] + 1), '-b:v', '0');
+  out.splice(i, 0, '-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda');
+  return out;
+}
+
 // the editor's arguments with its own files swapped for {{INn}} / {{OUTn}} (every argument that is exactly one of them);
 // the helper swaps them back for where it reads / writes each one (fromTaskArgs in engine/worker.mjs)
 export function toTaskArgs(args, inputs, outs) {
