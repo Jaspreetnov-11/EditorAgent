@@ -18,7 +18,7 @@ export const COMMANDS = [
   ['insert', 'Insert', 'Source monitor'], ['overwrite', 'Overwrite (overlay)', 'Source monitor'],
   ['selectTool', 'Selection tool', 'Tools'], ['razorTool', 'Razor tool', 'Tools'], ['typeTool', 'Type tool (write on the monitor)', 'Tools'],
   ['rippleTool', 'Ripple edit tool', 'Tools'], ['rollingTool', 'Rolling edit tool', 'Tools'], ['rateTool', 'Rate stretch tool', 'Tools'], ['penTool', 'Pen tool', 'Tools'], ['remixTool', 'Remix tool', 'Tools'],
-  ['slipTool', 'Slip tool', 'Tools'], ['slideTool', 'Slide tool', 'Tools'], ['handTool', 'Hand tool', 'Tools'], ['rectTool', 'Rectangle tool (draw on the monitor)', 'Tools'], ['ellipseTool', 'Ellipse tool (draw on the monitor)', 'Tools'], ['extendTool', 'Generative Extend tool', 'Tools'], ['zoomTool', 'Zoom tool', 'Tools'],
+  ['slipTool', 'Slip tool', 'Tools'], ['slideTool', 'Slide tool', 'Tools'], ['rectTool', 'Rectangle tool (draw on the monitor)', 'Tools'], ['ellipseTool', 'Ellipse tool (draw on the monitor)', 'Tools'], ['extendTool', 'Generative Extend tool', 'Tools'], ['zoomTool', 'Zoom tool', 'Tools'],
   ['trackFwdTool', 'Track select forward tool', 'Tools'], ['trackBackTool', 'Track select backward tool', 'Tools'],
   ['nudgeL', 'Nudge selected clips 1 frame left', 'Timeline'], ['nudgeR', 'Nudge selected clips 1 frame right', 'Timeline'],
   ['nudgeL5', 'Nudge selected clips 5 frames left', 'Timeline'], ['nudgeR5', 'Nudge selected clips 5 frames right', 'Timeline'],
@@ -34,7 +34,7 @@ export const COMMANDS = [
   ['selectAtPlayhead', 'Select clip at playhead', 'Timeline'], ['link', 'Link / unlink audio and video', 'Timeline'],
   ['enable', 'Enable / disable clip', 'Timeline'], ['audioGain', 'Audio gain…', 'Timeline'], ['snap', 'Snap in timeline', 'Timeline'], ['nest', 'Nest…', 'Timeline'],
   ['marker', 'Add marker', 'Markers'], ['nextMarker', 'Go to next marker', 'Markers'], ['prevMarker', 'Go to previous marker', 'Markers'], ['note', 'Add review note', 'Markers'],
-  ['zoomIn', 'Zoom in (timeline)', 'View'], ['zoomOut', 'Zoom out (timeline)', 'View'], ['zoomFit', 'Zoom to sequence', 'View'],
+  ['zoomIn', 'Zoom in (timeline)', 'View'], ['tracksTaller', 'Taller tracks (vertical zoom)', 'View'], ['tracksShorter', 'Shorter tracks (vertical zoom)', 'View'], ['tracksMin', 'Minimise all tracks', 'View'], ['tracksMax', 'Expand all tracks', 'View'], ['zoomOut', 'Zoom out (timeline)', 'View'], ['zoomFit', 'Zoom to sequence', 'View'],
   ['maximize', 'Maximize / restore the panel under the mouse', 'View'], ['fullscreen', 'Full screen (Program monitor)', 'View'],
 ].map(([id, label, group]) => ({ id, label, group }));
 export const CMD = Object.fromEntries(COMMANDS.map((c) => [c.id, c]));
@@ -45,7 +45,7 @@ const PREMIERE = {
   playStop: ['Space'], shuttleL: ['J'], shuttleStop: ['K'], shuttleR: ['L'], stepBack: ['Left'], stepFwd: ['Right'], stepBack5: ['Shift+Left'], stepFwd5: ['Shift+Right'],
   prevEdit: ['Up', 'PageUp'], nextEdit: ['Down', 'PageDown'], goStart: ['Home'], goEnd: ['End'], matchFrame: ['F'],
   markIn: ['I'], markOut: ['O'], goIn: ['Shift+I'], goOut: ['Shift+O'], clearInOut: ['Ctrl+Shift+X'], openXml: ['Ctrl+O'], speedDuration: ['Ctrl+R'], insert: [','], overwrite: ['.'],
-  selectTool: ['V'], razorTool: ['C'], typeTool: ['T'], rippleTool: ['B'], rollingTool: ['N'], rateTool: ['R'], penTool: ['P'], remixTool: [], slipTool: ['Y'], slideTool: ['U'], handTool: ['H'], rectTool: [], ellipseTool: [], extendTool: [], zoomTool: ['Z'],
+  selectTool: ['V'], razorTool: ['C'], typeTool: ['T'], rippleTool: ['B'], rollingTool: ['N'], rateTool: ['R'], penTool: ['P'], remixTool: [], slipTool: ['Y'], slideTool: ['U'], rectTool: [], ellipseTool: [], extendTool: [], zoomTool: ['Z'],
   trackFwdTool: ['A'], trackBackTool: ['Shift+A'], nudgeL: ['Alt+Left'], nudgeR: ['Alt+Right'], nudgeL5: ['Alt+Shift+Left'], nudgeR5: ['Alt+Shift+Right'], trackUp: ['Alt+Up'], trackDown: ['Alt+Down'],
   pasteInsert: ['Ctrl+Shift+V'], group: ['Ctrl+G'], ungroup: ['Ctrl+Shift+G'], trimMode: ['Shift+T'], replaceEdit: [], timecode: [], exportFrame: ['Ctrl+Shift+E'], closeGaps: [], nextGap: [], prevGap: [], clipMarker: [], rippleMarkers: [], history: [], autoReframe: [], seqSettings: [],
   lift: [';'], extract: ["'"], addEdit: ['Ctrl+K'], addEditAll: ['Ctrl+Shift+K'], rippleTrimPrev: ['Q'], rippleTrimNext: ['W'],
@@ -54,7 +54,7 @@ const PREMIERE = {
   clear: ['Delete', 'Backspace'], rippleDelete: ['Shift+Delete', 'Shift+Backspace'], duplicate: [], pasteAttr: ['Ctrl+Alt+V'], markersList: [], exportEdl: [], dupFrames: [], makeSubclip: ['Ctrl+U'], transition: ['Ctrl+D'],
   selectAtPlayhead: ['D'], link: ['Ctrl+L'], enable: ['Shift+E'], audioGain: ['G'], snap: ['S'], nest: [],
   marker: ['M'], nextMarker: ['Shift+M'], prevMarker: ['Ctrl+Shift+M'], note: ['Alt+M'],
-  zoomIn: ['='], zoomOut: ['-'], zoomFit: ['\\'], maximize: ['`'], fullscreen: ['Ctrl+`'],
+  zoomIn: ['='], zoomOut: ['-'], tracksTaller: ['Ctrl+='], tracksShorter: ['Ctrl+-'], tracksMin: ['Shift+-'], tracksMax: ['Shift+='], zoomFit: ['\\'], maximize: ['`'], fullscreen: ['Ctrl+`'],
 };
 const CLASSIC = {
   ...PREMIERE,
@@ -97,7 +97,14 @@ export const keyState = () => {
 export function setKeyState(st) { write({ ...st, delSwap: 2 }); rebuild(); }
 export function presetMap(id, st = keyState()) {
   if (BUILTIN[id]) return BUILTIN[id].map;
-  const c = st.custom[id]; return c ? c.map : PREMIERE;
+  const c = st.custom[id]; return c ? withNew(c.map) : PREMIERE;
+}
+// a preset made before a command existed (Alt+↑ / ↓ track moves, new tools…) gets that command's Premiere keys, where
+// the preset does not use those keys for something else; a command the owner cleared ([]) stays cleared
+export function withNew(map) {
+  const used = new Set(Object.values(map).flat()), out = { ...map };
+  for (const c of COMMANDS) if (!(c.id in map)) out[c.id] = (PREMIERE[c.id] || []).filter((k) => !used.has(k));
+  return out;
 }
 export const presetName = (id, st = keyState()) => BUILTIN[id]?.name || st.custom[id]?.name || id;
 // key -> command id (the active preset)

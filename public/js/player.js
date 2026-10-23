@@ -5,7 +5,7 @@ import { reportError } from './errlog.js';
 import * as SM from './sourcemon.js';
 import { useContext as audioOut } from './audioout.js';
 import { S, on, emit, layout, duration, commit } from './store.js';
-import { ASPECTS, fmtTC, fmtTime, fmt, clipDur, propAt, sourceAt, speedAt, rampPts, setAnimated, overlayTracks, audioTracks, evalKeys, BLEND_CSS } from './model.js';
+import { ASPECTS, fmtTC, fmtTime, fmt, clipDur, propAt, sourceAt, speedAt, rampPts, setAnimated, overlayTracks, audioTracks, evalKeys, BLEND_CSS, seqHash } from './model.js';
 import { stabState, stabBanner } from './stabprev.js';
 
 // 🎞 Full quality, like Premiere: a camera file the browser can decode itself - HEVC / H.265 (DJI drones, Sony, phones;
@@ -82,6 +82,7 @@ export function mountViewer(el) {
       <div class="lyr txt" id="lyOvText"></div>
       <img class="lyr logo" id="lyLogo" alt="">
       <div class="lyr look" id="lyLook"></div>
+      <video class="lyr rend" id="lyRend" playsinline preload="auto" muted hidden></video>
       <div class="lyr guides" id="lyGuides" hidden><i class="g-action"></i><i class="g-title"></i><i class="g-h"></i><i class="g-v"></i></div>
       <div class="lyr maskui" id="lyMaskUi" hidden></div>
       <div class="vw-msg" id="vwMsg" hidden></div>
@@ -112,7 +113,7 @@ export function mountViewer(el) {
     <span class="tc" id="vwDur"></span>
   </div>`;
   frame = $('#vwFrame', el);
-  for (const k of ['lyA', 'lyB', 'lyImg', 'lyCard', 'lyText', 'lyOv', 'lyOvImg', 'lyOvText', 'lyLogo', 'lyBlur', 'vwMsg', 'lyGrade', 'lyFx', 'lyOvStack', 'lyCap', 'lyMask', 'lyFxm', 'lyMaskUi', 'lyFxo', 'vwStab']) els[k] = $(`#${k}`, el);
+  for (const k of ['lyA', 'lyB', 'lyImg', 'lyCard', 'lyText', 'lyOv', 'lyOvImg', 'lyOvText', 'lyLogo', 'lyBlur', 'vwMsg', 'lyGrade', 'lyFx', 'lyOvStack', 'lyCap', 'lyMask', 'lyFxm', 'lyMaskUi', 'lyFxo', 'vwStab', 'lyRend']) els[k] = $(`#${k}`, el);
   try { grader = new Grader(els.lyGrade); } catch { grader = null; } // without WebGL2 the CSS approximation is used
   // a paused frame arrives after the seek finishes: redraw then so the graded canvas is up to date
   [els.lyA, els.lyB, els.lyImg].forEach((m) => m.addEventListener(m.tagName === 'IMG' ? 'load' : 'seeked', () => { if (mode === 'program' && !playing) drawProgram(S.playhead, false); }));
@@ -294,6 +295,7 @@ function hideAll() {
   // the program's colour layer and cinematic overlay must not show through the source monitor
   els.lyGrade.hidden = true; const lk = $('#lyLook', root); if (lk) lk.hidden = true;
   for (const v of [els.lyA, els.lyB, els.lyOv]) v.pause();
+  if (els.lyRend) { els.lyRend.hidden = true; els.lyRend.pause(); }
   for (const a of audioPool.values()) a.pause();
   for (const sl of ovSlots.values()) { sl.el.hidden = true; if (sl.el.tagName === 'VIDEO') sl.el.pause(); }
 }
@@ -968,6 +970,7 @@ function drawOverlays(t, isPlay) {
         if (typing?.id === c.id) ctx.clearRect(0, 0, FW, FH); // (being typed: the typing box shows it)
         else drawGraphic(ctx, FW, FH, c.gfx || {}, rel, x.end - x.start);
         el.style.opacity = String(fadeK(c, rel, x.end - x.start));
+        el.style.mixBlendMode = c.blend ? CSS_BLEND[c.blend] || c.blend : ''; // (🎭 text / shapes / templates blend as well)
         live.add(c.id); order.push(el); el.hidden = false; el.style.pointerEvents = 'none';
         continue;
       }
@@ -1001,8 +1004,22 @@ function drawOverlays(t, isPlay) {
 // 🛡 a clip the viewer cannot draw (missing file, odd data) is skipped - the editor keeps working; the error is logged once
 let drawErr = '';
 function drawProgram(t, isPlay) {
-  try { drawProgramNow(t, isPlay); }
+  try { drawProgramNow(t, isPlay); drawRendered(t, isPlay); }
   catch (e) { const k = String(e?.stack || e); if (k !== drawErr) { drawErr = k; reportError('Viewer (a clip could not be drawn)', e); } }
+}
+// 🟩 the rendered (Accurate) preview, like Premiere's green render bar: while the edit is as it was rendered, the monitor
+// shows that exact video at the playhead (blends, effects, colour as the export makes them) over the live layers; any
+// change to the edit and it is the live view again. (The sound stays the live mix.)
+let renderedOk = false;
+on('change', () => { const R = S.rendered; renderedOk = !!(R?.url && S.project && R.hash === seqHash(S.project)); });
+function drawRendered(t, isPlay) {
+  const v = els.lyRend, R = S.rendered; if (!v) return;
+  if (!(renderedOk && mode === 'program' && t >= R.a && t < R.b - 0.02)) { if (!v.hidden) { v.hidden = true; v.pause(); } return; }
+  if (v.dataset.src !== R.url) { v.src = R.url; v.dataset.src = R.url; }
+  v.hidden = false;
+  const want = t - R.a;
+  if (isPlay) { if (v.paused) v.play().catch(() => {}); if (Math.abs(v.currentTime - want) > 0.25) v.currentTime = want; }
+  else { if (!v.paused) v.pause(); if (Math.abs(v.currentTime - want) > 0.5 / (S.project.settings.fps || 30)) v.currentTime = want; }
 }
 function drawProgramNow(t, isPlay) {
   if (!S.project || mode !== 'program') return;

@@ -6,7 +6,8 @@ test('every tool once, Selection first, Premiere groups with their flyouts', () 
   const ids = TOOL_GROUPS.flat().map((x) => x[0]);
   same(ids.length, new Set(ids).size);
   same(ids[0], 'select');
-  for (const t of ['blade', 'ripple', 'rolling', 'rate', 'slip', 'slide', 'pen', 'rect', 'ellipse', 'hand', 'zoom', 'type', 'trackfwd', 'trackback', 'extend']) assert(ids.includes(t), `${t} missing`);
+  for (const t of ['blade', 'ripple', 'rolling', 'rate', 'slip', 'slide', 'pen', 'rect', 'ellipse', 'zoom', 'type', 'trackfwd', 'trackback', 'extend']) assert(ids.includes(t), `${t} missing`);
+  assert(!ids.includes('hand'), 'no Hand tool (the user: only the Selection / move tool)');
   same(TOOL_GROUPS.find((g) => g[0][0] === 'trackfwd').map((x) => x[0]), ['trackfwd', 'trackback']);
 });
 

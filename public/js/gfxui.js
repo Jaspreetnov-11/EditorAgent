@@ -3,7 +3,7 @@
 // the same picture over the video. A graphic is baked again only when it changes (the key is its fingerprint).
 import { S, commit, findClip, on, emit, layout } from './store.js';
 import { api, enc } from './api.js';
-import { ASPECTS, uid, clipDur, trackList, addTrack, parseTime, fmt } from './model.js';
+import { ASPECTS, uid, clipDur, trackList, addTrack, parseTime, fmt, BLEND_MODES } from './model.js';
 import { $, $$, esc, toast, modal, fieldsHTML, bindFields } from './ui.js';
 import { GFX, gfxFields, newGraphic, drawGraphic, gfxKey, setGfxAssets, setGfxVideo, gfxReady, brandOf, PINS, pinOk, rtimeOk, rtimeOf } from './graphics.js';
 import { compVideos } from './motion.js';
@@ -120,7 +120,7 @@ export function gfxInspector(c) {
     ...(g.tpl === 'shape' ? [] : [{ type: 'html', html: fontField(g.font) }]), // (🔤 any font on this computer, like Premiere's Essential Graphics)
     ...respFields(g),
   ], g)}</div>
-  <div class="fgrid">${fieldsHTML([{ k: 'start', label: 'Starts at', type: 'time', fmt, ph: '0:00.0' }, { k: 'dur', label: 'Length', type: 'num', min: 1, step: 0.5, unit: 'sec' }], c)}</div>
+  <div class="fgrid">${fieldsHTML([{ k: 'start', label: 'Starts at', type: 'time', fmt, ph: '0:00.0' }, { k: 'dur', label: 'Length', type: 'num', min: 1, step: 0.5, unit: 'sec' }, { k: 'blend', label: 'Blend Mode (with the tracks below)', type: 'select', options: BLEND_MODES }], c)}</div>
   <small class="hint">Numbers count up, bars grow and lines draw in during the first seconds; the last 0.4 s fades out. Hindi works too.</small></div>`;
 }
 export function bindGfxInspector(root, id, render) {

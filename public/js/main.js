@@ -10,7 +10,7 @@ import { api, enc } from './api.js';
 import { $, $$, h, esc, toast } from './ui.js';
 import { renderHome, openXmlFile } from './home.js';
 import { mountPool, refreshMedia, uploadFiles } from './mediapool.js';
-import { mountTimeline, splitAtPlayhead, trimAtPlayhead, deleteSelected, duplicateSelected, addTitle, setTool, setZoom, fitZoom, unlinkSelected, markRange, clearRange, rangeMark, liftExtract } from './timeline.js';
+import { mountTimeline, splitAtPlayhead, trimAtPlayhead, deleteSelected, duplicateSelected, addTitle, setTool, setZoom, fitZoom, setTrackZoom, trackZoom, unlinkSelected, markRange, clearRange, rangeMark, liftExtract } from './timeline.js';
 import { mountViewer, toggle, shuttle, seek, isPlaying, isPlayingProgram, viewerMode, pause, setMode, sourceKey, toggleFullscreen, editTextClip } from './player.js';
 import { mountInspector, deleteSelectedKeys } from './inspector.js';
 import { mountFxPanel } from './fxpanel.js';
@@ -434,7 +434,7 @@ const ACTIONS = {
   clearInOut: () => clearRange(), lift: () => liftExtract(false), extract: () => liftExtract(true), openXml: () => { openXmlFile().then((n) => n && emit('openProject', n)); }, insert: () => src(','), overwrite: () => src('.'),
   selectTool: () => setTool('select'), razorTool: () => setTool('blade'), typeTool: () => { setTool('type'); toast('T Type tool: click on the picture and type (Esc when done; V = back to selection)'); },
   rippleTool: () => setTool('ripple'), rollingTool: () => setTool('rolling'), rateTool: () => setTool('rate'), penTool: () => setTool('pen'), remixTool: () => setTool('remix'),
-  slipTool: () => setTool('slip'), slideTool: () => setTool('slide'), handTool: () => setTool('hand'), rectTool: () => setTool('rect'), ellipseTool: () => setTool('ellipse'), extendTool: () => setTool('extend'), zoomTool: () => setTool('zoom'),
+  slipTool: () => setTool('slip'), slideTool: () => setTool('slide'), rectTool: () => setTool('rect'), ellipseTool: () => setTool('ellipse'), extendTool: () => setTool('extend'), zoomTool: () => setTool('zoom'),
   trackFwdTool: () => setTool('trackfwd'), trackBackTool: () => setTool('trackback'),
   trackUp: () => moveSelectedTrack(1), trackDown: () => moveSelectedTrack(-1),
   nudgeL: () => nudgeSelected(-1), nudgeR: () => nudgeSelected(1), nudgeL5: () => nudgeSelected(-5), nudgeR5: () => nudgeSelected(5),
@@ -473,6 +473,7 @@ const ACTIONS = {
   }, markersList: () => import('./markers.js').then((x) => x.openMarkersList()), exportEdl: () => import('./edl.js').then((x) => x.exportEDL()), dupFrames: () => import('./timeline.js').then((x) => x.toggleDupFrames()),
   makeSubclip: () => Promise.all([import('./player.js'), import('./mediapool.js')]).then(([p, mp]) => mp.makeSubclip(p.sourceMediaId())),
   nextMarker: () => goMarker(1), prevMarker: () => goMarker(-1), note: () => addNote(),
+  tracksTaller: () => setTrackZoom(trackZoom() * 1.25), tracksShorter: () => setTrackZoom(trackZoom() * 0.8), tracksMin: () => setTrackZoom(0.4), tracksMax: () => setTrackZoom(2.5),
   zoomIn: () => setZoom(S.zoom * 1.25, true), zoomOut: () => setZoom(S.zoom / 1.25, true), zoomFit: () => fitZoom(),
   maximize: () => { // the panel under the mouse fills the window (again = back), like Premiere's ` key
     const cur = document.querySelector('.panel-max');
@@ -508,6 +509,9 @@ document.addEventListener('keydown', (e) => {
   const combo = keyOf(e); if (!combo) return;
   const id = commandFor(combo); if (!id) return;
   if (typing && id === 'speedDuration') { e.preventDefault(); return; } // (Ctrl+R in a text box: no reload either)
+  // ⇅ Alt+↑ / ↓ right after using a dropdown, tick box or slider in Effect Controls (Blend Mode…): the clips move -
+  // the focus there used to keep the keys (Alt+↓ opened the dropdown); only a text being typed keeps them
+  if (typing && (id === 'trackUp' || id === 'trackDown') && !(typing.isContentEditable || typing.tagName === 'TEXTAREA' || (typing.tagName === 'INPUT' && /^(text|search|number|email|url|password|)$/.test(typing.type || '')))) { typing.blur(); e.preventDefault(); ACTIONS[id](e); return; }
   if (typing && id !== 'save') return; // (typing a text: only Ctrl+S still saves)
   const r = ACTIONS[id]?.(e);
   if (r !== false) e.preventDefault();

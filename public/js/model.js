@@ -39,7 +39,9 @@ const START_TRACKS = ['V3', 'V2', 'V1', 'A1', 'A2'];
 export function trackList(project) {
   // every timeline shows V1-V3 and A1-A2 (older projects too); an empty, unnamed A3 stays out of the way until sound
   // effects (or a new audio track) need it
-  const has = Object.keys(project?.tracks || {}).filter((id) => !(id === 'A3' && !(project.tracks.A3 || []).length && !project.trackState?.A3?.name));
+  // (an empty A3 stays hidden only while there is no A4 or higher - A1 A2 A4 A5 looked like tracks were missing)
+  const above3 = Object.keys(project?.tracks || {}).some((id) => trackKind(id) === 'audio' && trackNum(id) > 3);
+  const has = Object.keys(project?.tracks || {}).filter((id) => !(id === 'A3' && !above3 && !(project.tracks.A3 || []).length && !project.trackState?.A3?.name));
   const ids = new Set([...START_TRACKS, ...has]);
   const v = [...ids].filter((id) => trackKind(id) === 'video').sort((a, b) => trackNum(b) - trackNum(a));
   const a = [...ids].filter((id) => trackKind(id) === 'audio').sort((x, y) => trackNum(x) - trackNum(y));
@@ -592,7 +594,10 @@ export function syncLinked(project, media, lead = null) {
 export function freeAudioTrack(project, media, t0, t1, skipId = null) {
   const P = placed(project, media);
   const free = (id) => !(P[id] || []).some((x) => x.clip.id !== skipId && x.start < t1 - 0.01 && x.end > t0 + 0.01);
-  return audioTracks(project).filter((id) => id !== 'A2').find(free) || addTrack(project, 'audio');
+  // (A3 too while it is hidden empty - a new A4 used to be made beside it)
+  const ids = [...new Set([...audioTracks(project), ...Object.keys(project.tracks).filter((id) => trackKind(id) === 'audio')])].sort((a, b) => trackNum(a) - trackNum(b));
+  const id = ids.filter((x) => x !== 'A2').find(free); if (id) { ensureTrack(project, id); return id; }
+  return addTrack(project, 'audio');
 }
 // the sound of a video clip as its own linked clip on an audio track (the video clip goes silent)
 export function linkAudioOf(project, media, V) {

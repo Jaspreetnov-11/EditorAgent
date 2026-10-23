@@ -27,10 +27,10 @@ export function mountMasterMeter(host) {
     if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
     const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.fillStyle = '#121110'; g.fillRect(0, 0, W, H);
-    const top = 16, bot = H - 14, h = bot - top, bw = Math.max(5, Math.min(10, (W - 26) / 2 - 2)), x0 = W - 4 - bw * 2 - 3;
+    const top = 16, bot = H - 14, h = bot - top, bw = Math.max(6, Math.min(18, (W - 30) / 2 - 2)), x0 = W - 4 - bw * 2 - 3;
     const yOf = (db) => bot - y01(db) * h;
     // the dB scale
-    g.font = '9px Segoe UI, sans-serif'; g.textAlign = 'right'; g.textBaseline = 'middle';
+    g.font = "10px Segoe UI, sans-serif"; g.textAlign = 'right'; g.textBaseline = 'middle';
     for (const t of TICKS) { const y = Math.round(yOf(t)) + 0.5; g.fillStyle = '#6f6a62'; g.fillText(String(t), x0 - 4, y); g.fillStyle = '#2a2724'; g.fillRect(x0 - 2, y, bw * 2 + 5, 1); }
     g.textAlign = 'center'; g.fillStyle = '#6f6a62'; g.fillText('dB', x0 - 10, H - 6);
     ch.forEach((c, i) => {

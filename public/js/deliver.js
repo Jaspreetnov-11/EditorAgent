@@ -376,17 +376,15 @@ async function render(preview, job = null) {
     });
     box.classList.add('done');
     // (🟩 render bar: this part of this sequence, as it is now, has been rendered)
-    if (preview) { const D = duration(), r = rangeOf(S.project, D); S.rendered = { hash: seqHash(S.project), a: r ? r.in : 0, b: r ? r.out : D }; emit('change', {}); }
+    if (preview) { const D = duration(), r = rangeOf(S.project, D); S.rendered = { hash: seqHash(S.project), a: r ? r.in : 0, b: r ? r.out : D, url: j.result.url }; emit('change', {}); }
     $('#dvJobL', root).textContent = preview ? 'Preview ready' : `Done: ${j.result.output}`;
     await loadRenders();
     // (a preview asked for from the Edit page plays only in its own window - not also, unseen, in Deliver's monitor)
     const elsewhere = preview && S.page !== 'deliver';
     if (/\.mp4$/i.test(j.result.output) && !elsewhere) play(j.result.url, preview ? 'Accurate preview (low-res)' : j.result.output);
-    if (elsewhere) {
-      const pv = modal('Accurate preview', `<video src="${j.result.url}" controls autoplay style="width:100%;max-height:70vh;background:#000"></video>`, { width: 900,
-        onClose: () => { const v = pv?.el.querySelector('video'); if (v) { v.pause(); v.removeAttribute('src'); v.load(); } } }); // closing it stops it
-    }
-    toast(preview ? 'Preview ready' : `Render complete: ${j.result.output}`);
+    // 🟩 from the Edit page: the Program monitor itself plays the exact render (green bar) from its start, like Premiere
+    if (elsewhere) emit('seek', S.rendered.a); // (playing starts with Space - a browser lets sound start only from a click / key)
+    toast(preview ? (elsewhere ? 'Preview ready - press Space: the monitor plays the exact render (green bar) until you change the edit' : 'Preview ready') : `Render complete: ${j.result.output}`);
     return true;
   } catch (e) {
     box.classList.add('error');

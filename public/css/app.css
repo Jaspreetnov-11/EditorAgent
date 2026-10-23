@@ -873,7 +873,7 @@ select.kfe { font-size: 10px; padding: 0 2px; height: 18px; width: auto; max-wid
 .rp-p { display: flex; flex-direction: column; align-items: stretch; gap: 2px; padding: 3px; font-size: 10px; line-height: 1.2; text-align: center; }
 .rp-p canvas { width: 100%; height: 34px; background: #0b0c0f; border-radius: 3px; }
 .rp-p.on { outline: 2px solid var(--accent); }
-.rp-graph { width: 100%; height: auto; aspect-ratio: 560 / 200; border-radius: 6px; cursor: crosshair; touch-action: none; }
+.rp-graph { width: 100%; height: auto; aspect-ratio: 620 / 340; border-radius: 6px; cursor: crosshair; touch-action: none; }
 
 /* ---------- ✨ Fusion page (fusionpage.js): library | viewer | inspector / node graph ---------- */
 .fu { position: absolute; inset: 0; padding: 6px; display: grid; gap: 6px; grid-template-columns: 220px minmax(0, 1fr) 320px; grid-template-rows: minmax(0, 1fr) minmax(220px, 40%);
@@ -1437,7 +1437,7 @@ html.ui2 .tl-row .clip.lab .clip-lbl, .tl-row .clip.lab .clip-lbl { background: 
 .clip.k-labs .clip-bg { opacity: .28; mix-blend-mode: luminosity; } /* (the Labs clip reads yellow; its frames show faintly) */
 .clip.k-labs .clip-lbl, .clip.k-labs .clip-dur { color: #1a1300; text-shadow: none; }
 /* 🎚 Audio Meters at the right of the timeline (mastermeter.js) */
-.tl-meter { flex: none; width: 52px; min-height: 0; border-left: 1px solid var(--line); background: #121110; }
+.tl-meter { flex: none; width: 78px; min-height: 0; border-left: 1px solid var(--line); background: #121110; }
 .tl-meter canvas { display: block; width: 100%; height: 100%; cursor: default; }
 /* ◆ selected keyframes (kfsel.js) and the box dragged over the lanes */
 .kl-k.sel { background: #fff; box-shadow: 0 0 0 1.5px var(--accent), 0 0 6px var(--accent); }
@@ -1500,3 +1500,18 @@ html.ui2 .tl-row .clip.lab .clip-lbl, .tl-row .clip.lab .clip-lbl { background: 
 .tag-ed-cur { min-height: 28px; margin-bottom: 10px; display: flex; flex-wrap: wrap; align-items: center; }
 .tag-ed-cur .tag-chip { font-size: 12px; padding: 2px 8px; }
 .tag-ed-sug { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+/* ⇕ track height (vertical zoom) under the track headers */
+.th-vz { display: flex; align-items: center; gap: 3px; padding: 0 4px 6px; }
+.th-vz button { flex: none; padding: 1px 5px; font-size: 10px; }
+.th-vz input { flex: 1; min-width: 30px; }
+.rp-num { display: inline-flex; align-items: center; gap: 3px; margin-left: 8px; font-size: 11px; color: var(--muted); }
+.rp-num input { width: 62px; padding: 1px 4px; }
+.lyr.rend { pointer-events: none; background: #000; }
+/* track headers keep exactly their track's height (a short track's header used to spill into the next one); short
+   tracks show less: no label / volume row (tiny), only the name and the eye / lock (mini) */
+.tl-heads .th { overflow: hidden; box-sizing: border-box; min-height: 0; flex: none; }
+.tl-heads .th.tiny .th-name span, .tl-heads .th.tiny .th-volrow { display: none; }
+.tl-heads .th.mini .th-btns > :not([data-tst="hide"]):not([data-tst="lock"]) { display: none; }
+/* the headers scroll exactly as far as the tracks (the tracks' horizontal scrollbar made them stop short: scrolled to
+   the bottom, every header sat 20 px below its track) */
+.tl-heads::after { content: ''; display: block; height: 160px; }

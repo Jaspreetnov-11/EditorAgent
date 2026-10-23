@@ -516,7 +516,7 @@ function bindMotion(id) {
     const el = box.querySelector(`[data-pv="${p}"]`); if (el) el.textContent = mShow(r, v, c);
     emit('live');
   };
-  const done = (p) => { const c = findClip(id)?.clip; if (!c) return; cleanup(c); doCommit(`Change ${def(p).label}`, `${id}:${p}`); };
+  const done = (p) => { const c = findClip(id)?.clip; if (!c) return; const n = c.keys?.[p]?.length || 0; cleanup(c); doCommit(`Change ${def(p).label}`, `${id}:${p}`); if (n) render(); }; // (a key made by the drag shows on the lane)
   box.querySelectorAll('[data-pv]').forEach((el) => {
     const p = el.dataset.pv, r = def(p);
     el.addEventListener('pointerdown', (e) => {
@@ -840,7 +840,7 @@ function onKeyClick(e, id) {
   if (!keys.length) delete c.keys[kf];
   if (!Object.keys(c.keys).length) delete c.keys;
   doCommit(i >= 0 ? 'Remove keyframe' : 'Add keyframe');
-  updateKeyUI();
+  render(); // (the lane shows the new / removed ◆ - it used to be added unseen, so the button looked dead)
   return true;
 }
 

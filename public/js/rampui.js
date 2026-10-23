@@ -26,8 +26,8 @@ const flat = (a, b) => Math.abs(Math.log(a[1]) - Math.log(b[1])) < 0.02; // (the
 // box: element to fill; clip(): the clip; live(): redraw the viewer; done(label): commit
 export function mountRamp(box, clip, live, done) {
   box.innerHTML = `<div class="rp-presets">${[['', 'None', null], ...Object.entries(RAMPS).map(([k, r]) => [k, r.label, r.pts])].map(([k, l]) => `<button class="rp-p" data-rp="${k}" title="${esc(l)}"><canvas width="84" height="34"></canvas><span>${esc(l.replace(/\s*\(.*\)/, ''))}</span></button>`).join('')}</div>
-    <div class="rp-bar"><b class="rp-read">Speed</b><span class="grow"></span><button class="small" data-rpa="key" title="A speed keyframe at the playhead (or Ctrl + click on the line)">◆ Keyframe at playhead</button><button class="small" data-rpa="reset" title="Back to 100% all the way">100% all</button></div>
-    <canvas class="rp-graph" width="620" height="220" tabindex="0" aria-label="Speed graph (Time Remapping)"></canvas>
+    <div class="rp-bar"><b class="rp-read">Speed</b><label class="rp-num" title="Type the speed (10% … 1000%): of the keyframe picked in the graph, or of the whole shot when none is picked"><input type="number" data-rpv min="10" max="1000" step="1" aria-label="Speed in percent"> %</label><span class="grow"></span><button class="small" data-rpa="key" title="A speed keyframe at the playhead (or Ctrl + click on the line)">◆ Keyframe at playhead</button><button class="small" data-rpa="reset" title="Back to 100% all the way">100% all</button></div>
+    <canvas class="rp-graph" width="620" height="340" tabindex="0" aria-label="Speed graph (Time Remapping)"></canvas>
     <div class="rp-ease"><span class="muted small" data-rpe-for>Ease (all ramps)</span>${RAMP_EASES.map(([k, l]) => `<button class="small" data-rpe="${k}" title="${esc(l)}${k === 'io' ? '' : k === 'in' ? ' (Shift+F9)' : k === 'out' ? ' (Ctrl+Shift+F9)' : ''}">${esc(l.replace(' (F9)', ''))}</button>`).join('')}</div>
     <div class="rp-info muted small"></div>
     <small class="hint">Drag a flat part up / down to change its speed · Ctrl + click the line for a keyframe · drag a keyframe sideways to widen the ramp · double-click one to remove it · Shift = 100%</small>`;
@@ -73,7 +73,10 @@ export function mountRamp(box, clip, live, done) {
     const x0 = clipStart(); if (x0 !== null) { const u = (S.playhead - x0) / d; if (u >= 0 && u <= 1) { g.strokeStyle = '#4f8cff'; g.lineWidth = 1; g.beginPath(); g.moveTo(xOf(u), pad); g.lineTo(xOf(u), h - pad); g.stroke(); } }
     $$('[data-rp]', box).forEach((b) => b.classList.toggle('on', (b.dataset.rp || '') === (c.ramp && c.ramp !== 'custom' ? c.ramp : c.ramp ? '__' : '')));
     const segs = P ? Q.slice(0, -1).map((p, i) => (flat(p, Q[i + 1]) ? pct(p[1]) : null)).filter(Boolean) : [];
-    $('.rp-info', box).textContent = P ? `${c.ramp === 'custom' ? 'Custom ramp' : RAMPS[c.ramp]?.label} · ${d.toFixed(2)} s on the timeline · ${Q.length} keyframes${segs.length ? ` · speeds ${[...new Set(segs)].join(' → ')}` : ''} · slowest ${pct(Math.min(...Q.map((p) => p[1])))} · fastest ${pct(Math.max(...Q.map((p) => p[1])))}` : 'No ramp - pick a preset, drag the line up / down, or Ctrl + click it for a keyframe.';
+    const nv = $('[data-rpv]', box); if (nv && document.activeElement !== nv) nv.value = Math.round((sel >= 0 && Q[sel] ? Q[sel][1] : at(Q, 0.5)) * 100);
+    // (faster than the file has frames for: the shot ends sooner - say so, it reads as "the speed did not go up")
+    const m = S.mediaById[c.mediaId], ran = P && m?.duration && Math.abs((c.out ?? m.duration) - m.duration) < 0.02 && Math.max(...Q.map((p) => p[1])) > 1;
+    $('.rp-info', box).textContent = (ran ? '⚠ The file ends here: at this speed there are not enough frames, so the shot is shorter on the timeline - start it earlier in the file (Slip) to keep its length. ' : '') + (P ? `${c.ramp === 'custom' ? 'Custom ramp' : RAMPS[c.ramp]?.label} · ${d.toFixed(2)} s on the timeline · ${Q.length} keyframes${segs.length ? ` · speeds ${[...new Set(segs)].join(' → ')}` : ''} · slowest ${pct(Math.min(...Q.map((p) => p[1])))} · fastest ${pct(Math.max(...Q.map((p) => p[1])))}` : 'No ramp - pick a preset, drag the line up / down, or Ctrl + click it for a keyframe.');
   }
   // where this clip starts on the timeline (for the playhead line / keyframe at playhead)
   function clipStart() {
@@ -161,6 +164,14 @@ export function mountRamp(box, clip, live, done) {
     const u = (S.playhead - x0) / D(); if (u <= 0.005 || u >= 0.995) return;
     set(addKey(u)); done('Speed keyframe'); draw();
   };
+  // ⌨ the typed speed: the picked keyframe, or the whole shot at one speed
+  box.querySelector('[data-rpv]').addEventListener('change', (e) => {
+    const c = clip(), v = Math.max(MIN, Math.min(MAX, (+e.target.value || 100) / 100)); if (!c || S.readOnly) return;
+    let P = pts();
+    if (sel >= 0 && rampPts(c) && P[sel]) P[sel][1] = v; else P = [[0, v], [1, v]];
+    set(P); done(`Speed ${Math.round(v * 100)}%`); live(); draw();
+  });
+  box.querySelector('[data-rpv]').addEventListener('keydown', (e) => e.stopPropagation()); // (the editor's keys stay out)
   box.querySelector('[data-rpa="reset"]').onclick = () => { const c = clip(); if (!c) return; setRamp(c, '', S.mediaById); done('No speed ramp'); draw(); };
   draw();
   return { draw };

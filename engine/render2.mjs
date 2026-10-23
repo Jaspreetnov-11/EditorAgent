@@ -842,6 +842,15 @@ ovl.filter((x) => x.clip.type === 'graphic').forEach((x, k) => {
   if (!job.gfxDir || !fs.existsSync(f)) die('a motion graphic is not prepared - open the project in the editor and render again');
   const i = n++, st = x.start.toFixed(3), en = x.end.toFixed(3);
   inputs.push('-i', f);
+  if (x.clip.blend) {
+    // 🎭 Blend Mode on a graphic: the frame under it and the graphic blended (both full frame from 0 s), then kept only
+    // where the graphic is (its alpha) and laid over the frame - transparent parts stay as they were
+    g.push(`[${i}:v]scale=${W}:${H}:force_original_aspect_ratio=decrease,format=rgba,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black@0,setpts=PTS-STARTPTS,tpad=start_duration=${st}:color=black@0,split[gc${k}][ga${k}]`,
+      `[ga${k}]alphaextract[gm${k}]`, `[gc${k}]format=gbrp[gp${k}]`, `[${v}]split[gu${k}][gb${k}]`, `[gb${k}]format=gbrp[gq${k}]`,
+      `[gq${k}][gp${k}]blend=${blendFF(x.clip.blend)}:eof_action=pass,format=rgba[gr${k}]`, `[gr${k}][gm${k}]alphamerge[gx${k}]`,
+      `[gu${k}][gx${k}]overlay=eof_action=pass:enable='between(t,${st},${en})',format=yuv420p[vg${k}]`); v = `vg${k}`;
+    return;
+  }
   g.push(`[${i}:v]scale=${W}:${H}:force_original_aspect_ratio=decrease,format=rgba,setpts=PTS-STARTPTS+${st}/TB[gx${k}]`);
   g.push(`[${v}][gx${k}]overlay=x=(W-w)/2:y=(H-h)/2:eof_action=pass:enable='between(t,${st},${en})'[vg${k}]`); v = `vg${k}`;
 });

@@ -15,8 +15,7 @@ export const TOOL_GROUPS = [
   [['pen', 'Pen Tool', 'P', '<b>✒</b>', 'Click on a clip to put a keyframe on its opacity (video) / volume (audio) line - higher = more'],
     ['rect', 'Rectangle Tool', '', '<b>▭</b>', 'Drag on the Program monitor to draw a rectangle (a shape graphic on a free overlay track; Shift: square)'],
     ['ellipse', 'Ellipse Tool', '', '<b>◯</b>', 'Drag on the Program monitor to draw an ellipse (Shift: circle)']],
-  [['hand', 'Hand Tool', 'H', '<b>✋</b>', 'Drag to scroll the timeline'],
-    ['zoom', 'Zoom Tool', 'Z', '<b>⌕</b>', 'Click to zoom in where you click, Alt+click to zoom out']],
+  [['zoom', 'Zoom Tool', 'Z', '<b>⌕</b>', 'Click to zoom in where you click, Alt+click to zoom out']],
   [['type', 'Type Tool', 'T', '<b>T</b>', 'Click on the Program monitor and type - text where you click']],
   [['extend', 'Generative Extend Tool', '', '<b>⇲</b>', "Click a video clip: it carries on past its end for up to 1 s (made from its own motion) into the empty space after it"]],
 ];

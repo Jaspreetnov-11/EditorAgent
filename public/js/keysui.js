@@ -1,7 +1,7 @@
 // ⌨ Keyboard Shortcuts window (Ctrl+Alt+K, or ⚙ in the header) - like Premiere's: a keyboard showing what each key does
 // (with Ctrl / Shift / Alt), the commands with their keys, click "+" and press keys to give a command a shortcut,
 // "Save as" your own preset. Changing a built-in preset makes "My shortcuts" (a copy) - the built-ins never change.
-import { COMMANDS, CMD, GROUPS, BUILTIN, keyState, setKeyState, presetMap, presetName, keyOf } from './keys.js';
+import { COMMANDS, CMD, GROUPS, BUILTIN, keyState, setKeyState, presetMap, presetName, keyOf, withNew } from './keys.js';
 import { esc, toast, modal } from './ui.js';
 
 const ROWS = [
@@ -48,7 +48,7 @@ export function openShortcuts() {
   const owner = (combo) => COMMANDS.find((c) => (map()[c.id] || []).includes(combo));
   // a built-in can't change: the first change makes (or reuses) "My shortcuts", a copy of it
   const editable = () => {
-    if (!BUILTIN[st.preset]) return map();
+    if (!BUILTIN[st.preset] && st.custom[st.preset]) { const c = st.custom[st.preset]; c.map = withNew(c.map); return c.map; } // (commands added since it was made, in place)
     const id = 'mine', copy = JSON.parse(JSON.stringify(map()));
     st.custom[id] = { name: 'My shortcuts', map: copy }; st.preset = id;
     toast('Changes go into your own preset "My shortcuts" - the Premiere default stays as it is');

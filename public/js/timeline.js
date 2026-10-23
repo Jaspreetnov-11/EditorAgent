@@ -17,7 +17,6 @@ import { TOOL_GROUPS, groupClick, MANY_SELECT } from './toolgroups.js';
 import { clipDur, uid, fmtTC, fmt, trackList, trackKind, trackNum, ensureTrack, frameScale, addTrack, syncLinked, linkAudioOf, linkedPartner, linkedIds, groupedIds, syncShift, rippleMarkers, evalKeys, fmtTime, freeAudioTrack, RAMPS, setRamp, rampPts, rampPart, profileAt, TRANSITIONS, setTransition, trHandles, propAt, keepLength, sourceAt } from './model.js';
 import { $, $$, h, esc, clamp, toast, modal } from './ui.js';
 import { api, enc } from './api.js';
-import { openTemplates } from './titlesui.js';
 import { openGraphics } from './gfxui.js';
 import { GFX } from './graphics.js';
 import { autoSoundDesign } from './sfxui.js';
@@ -30,9 +29,18 @@ import { typeTimecode, replaceEdit, groupSelected, ungroupSelected, addClipMarke
 // track heights: drag the bottom edge of a track header (double-click = back to normal); kept in this browser
 const ROW_DEF = (id) => (id === 'V1' ? 66 : trackKind(id) === 'video' ? 46 : id === 'A1' || id === 'A2' ? 44 : 36);
 let rowSizes = (() => { try { return JSON.parse(localStorage.getItem('ve-track-h') || '{}'); } catch { return {}; } })();
-const rowH = (id) => rowSizes[id] || ROW_DEF(id);
+// ⇕ vertical zoom (Premiere: Alt + wheel over the track headers, Ctrl+= / Ctrl+- taller / shorter, Shift+- / Shift+=
+// minimise / expand all): one factor on every track's height, kept in this browser
+let vZoom = (() => { try { return +localStorage.getItem('ve-track-vz') || 1; } catch { return 1; } })();
+const rowH = (id) => Math.round(Math.max(18, Math.min(480, (rowSizes[id] || ROW_DEF(id)) * vZoom)));
+export function setTrackZoom(z) {
+  vZoom = +clamp(z, 0.4, 5).toFixed(3);
+  try { localStorage.setItem('ve-track-vz', String(vZoom)); } catch {}
+  render(); drawWaves();
+}
+export const trackZoom = () => vZoom;
 function setRowH(id, h) {
-  if (h) rowSizes[id] = Math.round(Math.max(24, Math.min(240, h))); else delete rowSizes[id];
+  if (h) rowSizes[id] = Math.round(Math.max(24, Math.min(240, h / vZoom))); else delete rowSizes[id];
   try { localStorage.setItem('ve-track-h', JSON.stringify(rowSizes)); } catch {}
   render();
 }
@@ -58,7 +66,7 @@ export function mountTimeline(el) {
       <button data-act="delete" title="Delete selected (Del)">${ICON.trash}<span>Delete</span></button>
       <button data-act="dup" title="Duplicate (Ctrl+D)">${ICON.copy}<span>Duplicate</span></button>
       <span class="sep"></span>
-      <button data-act="title" title="Titles, lower thirds and cards - pick a template (T adds a plain title)">${ICON.text}<span>Title</span></button>
+      <button data-act="title" title="Type tool (T): click on the Program monitor and type - text right there (title templates: Graphics and Titles menu)">${ICON.text}<span>Text</span></button>
       <button data-act="gfx" title="Motion graphics: counters, charts, callouts, route lines"><b>📊</b><span>Graphic</span></button>
       <button data-act="adjust" title="Adjustment layer: colour / effects for every track below it, at the playhead"><b>◩</b><span>Adjust</span></button>
       <button data-act="ramp" title="Speed ramp: pick a preset for the selected video clips (slow-mo hit, bullet time, whoosh…)"><b>⏩</b><span>Ramp</span></button>
@@ -74,7 +82,7 @@ export function mountTimeline(el) {
       <span class="tl-tc" id="tlTC" title="Click and type a timecode: 1:10:00 or 11000 goes there, +15 / -1:00 moves by that (the selected clips, else the playhead)">00:00:00:00</span><span class="tl-dur" id="tlDur"></span>
       <span class="grow"></span>
       <button data-act="fit" title="Fit the whole edit (Shift+Z)">Fit</button>
-      <label class="zoom" title="Zoom (+ / -)">${ICON.zoomOut}<input type="range" id="tlZoom" min="2" max="300" step="1" aria-label="Timeline zoom">${ICON.zoomIn}</label>
+      <label class="zoom" title="Zoom (+ / -)">${ICON.zoomOut}<input type="range" id="tlZoom" min="0" max="1000" step="1" aria-label="Timeline zoom">${ICON.zoomIn}</label>
     </div>
   </div>
   <div class="tl-main">
@@ -116,7 +124,7 @@ export function mountTimeline(el) {
     if (a === 'trimEnd') trimAtPlayhead('end');
     if (a === 'delete') deleteSelected();
     if (a === 'dup') duplicateSelected();
-    if (a === 'title') openTemplates();
+    if (a === 'title') { setTool('type'); toast('T Type tool: click on the picture and type (Esc when done; V = back to the Selection tool)'); } // (templates: Graphics and Titles menu)
     if (a === 'gfx') openGraphics();
     if (a === 'adjust') addAdjustmentLayer();
     if (a === 'ramp') { const r = e.target.closest('[data-act]').getBoundingClientRect(); rampMenu({ clientX: r.right + 4, clientY: r.top }); }
@@ -131,8 +139,8 @@ export function mountTimeline(el) {
   // ⌨ the timecode is a field, like Premiere's: click it and type where to go / how far to move
   $('#tlTC', el).addEventListener('click', () => typeTimecode($('#tlTC', el)));
   const z = $('#tlZoom', el);
-  z.value = S.zoom;
-  z.oninput = () => setZoom(+z.value, true);
+  z.value = toSlider(S.zoom);
+  z.oninput = () => setZoom(fromSlider(+z.value), true);
   // 🔍 the zoom slider (with Fit) sits at the bottom left, on the page bar beside Media · Edit · Motion (Edit page only)
   const pb = document.querySelector('.pagebar');
   if (pb) {
@@ -163,7 +171,7 @@ export function mountTimeline(el) {
   // the track headers scroll the tracks up / down with the wheel, Ctrl + wheel too (like Premiere's track header area;
   // Ctrl + wheel was let through and zoomed the whole browser page - the headers piled up on each other)
   headsEl.addEventListener('wheel', (e) => {
-    if (e.altKey) return;
+    if (e.altKey) { e.preventDefault(); setTrackZoom(vZoom * (e.deltaY < 0 ? 1.12 : 1 / 1.12)); return; } // ⇕ taller / shorter tracks
     e.preventDefault();
     scroller.scrollTop += (e.deltaMode === 1 ? e.deltaY * 32 : e.deltaY);
     headsEl.scrollTop = scroller.scrollTop;
@@ -277,10 +285,15 @@ function closeSeqTab(id) {
 // opening a sequence from anywhere (🎞 menu, a nested clip) shows its tab again
 on('seq', () => { if (!S.project) return; const open = seqList(S.project).find((x) => x.open)?.id, c = closedTabs(); if (open && c.delete(open)) saveClosed(c); });
 
+// 🔍 px per second: 0.05 (about 3 hours on a screen) to 3000 (a frame 100 px wide at 30 fps); the slider moves along the
+// log of it, so each step zooms by the same share wherever it is
+export const ZMIN = 0.05, ZMAX = 3000;
+export const toSlider = (z) => Math.round((Math.log(z / ZMIN) / Math.log(ZMAX / ZMIN)) * 1000);
+export const fromSlider = (v) => ZMIN * Math.exp((v / 1000) * Math.log(ZMAX / ZMIN));
 export function setZoom(z, keepPlayhead = false, anchorX = null) {
   const old = S.zoom;
-  S.zoom = clamp(z, 2, 300);
-  const zs = document.getElementById('tlZoom'); if (zs) zs.value = S.zoom; // (on the page bar - pbZoom)
+  S.zoom = clamp(z, ZMIN, ZMAX);
+  const zs = document.getElementById('tlZoom'); if (zs) zs.value = toSlider(S.zoom); // (on the page bar - pbZoom)
   const rect = scroller.getBoundingClientRect();
   const ax = anchorX !== null ? anchorX - rect.left : keepPlayhead ? S.playhead * old - scroller.scrollLeft : 0;
   const t = (scroller.scrollLeft + ax) / old;
@@ -479,7 +492,8 @@ let headsKey = '';
 // video and one audio track, picked with the small target button at the left of a track's name. Nothing picked: as
 // before (Insert on V1 / A2, Overwrite as an overlay on V2 / A1). Kept per browser.
 const TG_KEY = 've-targets';
-export function targets() { try { return JSON.parse(localStorage.getItem(TG_KEY) || '{}'); } catch { return {}; } }
+// (🎞 video tracks have no target box any more - plain layers: only an audio target is kept)
+export function targets() { try { const t = JSON.parse(localStorage.getItem(TG_KEY) || '{}'); delete t.v; return t; } catch { return {}; } }
 function setTarget(kind, id) {
   const t = targets(); if (t[kind] === id) delete t[kind]; else t[kind] = id;
   try { localStorage.setItem(TG_KEY, JSON.stringify(t)); } catch {}
@@ -493,8 +507,8 @@ function drawHeads(TR, ts) {
   headsKey = key;
   headsEl.innerHTML = `<div class="th-ruler"></div>` + TR.map((t) => {
     const st = ts[t.id] || {};
-    return `<div class="th ${t.kind}${st.lock ? ' locked' : ''}" style="height:${rowH(t.id)}px" data-track="${t.id}" title="Right-click: rename, add or delete a track">
-      <div class="th-name"><button class="th-tg${tg[t.kind === 'video' ? 'v' : 'a'] === t.id ? ' on' : ''}" data-tg="${t.id}" title="Target: Insert / Overwrite from the Source monitor go to ${t.name} (click again: off)">${t.kind === 'video' ? 'V' : 'A'}</button><b>${t.name}</b><span>${esc(t.label)}</span></div>
+    return `<div class="th ${t.kind}${st.lock ? ' locked' : ''}${rowH(t.id) < 44 ? ' tiny' : ''}${rowH(t.id) < 30 ? ' mini' : ''}" style="height:${rowH(t.id)}px" data-track="${t.id}" title="Right-click: rename, add or delete a track">
+      <div class="th-name">${t.kind === 'video' ? '' : `<button class="th-tg${tg.a === t.id ? ' on' : ''}" data-tg="${t.id}" title="Target: Insert / Overwrite from the Source monitor go to ${t.name} (click again: off)">A</button>`}<b>${t.name}</b>${t.kind === 'video' ? (st.name ? `<span>${esc(st.name)}</span>` : '') : `<span>${esc(t.label)}</span>`}</div>
       <div class="th-btns">
         ${t.kind === 'video' ? `<button class="tbtn${st.hide ? ' on' : ''}" data-tst="hide" title="Hide track">${st.hide ? ICON.eyeOff : ICON.eye}</button>` : ''}
         <button class="tbtn${st.mute ? ' on' : ''}" data-tst="mute" title="${t.kind === 'video' ? 'Mute clip sound' : 'Mute track'}">M</button>
@@ -542,7 +556,13 @@ function drawHeads(TR, ts) {
     r.ondblclick = () => { r.value = 1; r.oninput(); r.onchange(); };
   });
 
-  headsEl.insertAdjacentHTML('beforeend', '<div class="th-add"><button class="small" data-addtrack="video" title="Add a video track on top">+ Video track</button><button class="small" data-addtrack="audio" title="Add an audio track at the bottom">+ Audio track</button></div>');
+  headsEl.insertAdjacentHTML('beforeend', '<div class="th-add"><button class="small" data-addtrack="video" title="Add a video track on top">+ Video track</button><button class="small" data-addtrack="audio" title="Add an audio track at the bottom">+ Audio track</button></div>'
+    + `<div class="th-vz" title="Track height (vertical zoom) - also Alt + mouse wheel over these headers, Ctrl+= / Ctrl+-"><button class="small" data-vz="min" title="Minimise all tracks (Shift+-)">▁</button><button class="small" data-vz="-" aria-label="Shorter tracks">−</button><input type="range" data-vz="r" min="0" max="100" value="${Math.round(((Math.log(vZoom) - Math.log(0.4)) / (Math.log(5) - Math.log(0.4))) * 100)}" aria-label="Track height"><button class="small" data-vz="+" aria-label="Taller tracks">+</button><button class="small" data-vz="max" title="Expand all tracks (Shift+=)">▇</button></div>`);
+  headsEl.querySelectorAll('[data-vz]').forEach((b) => {
+    const k = b.dataset.vz;
+    if (k === 'r') b.oninput = () => setTrackZoom(Math.exp(Math.log(0.4) + (+b.value / 100) * (Math.log(5) - Math.log(0.4))));
+    else b.onclick = () => setTrackZoom(k === 'min' ? 0.4 : k === 'max' ? 2.5 : vZoom * (k === '+' ? 1.25 : 0.8));
+  });
   $$('[data-addtrack]', headsEl).forEach((b) => (b.onclick = () => { const id = addTrack(S.project, b.dataset.addtrack); commit(`Add track ${id}`); toast(`${id} added`); }));
   headsEl.querySelectorAll('.th[data-track]').forEach((h) => h.addEventListener('contextmenu', (e) => trackMenu(e, h.dataset.track)));
 }
@@ -702,8 +722,8 @@ function drawRuler() {
     if (rg.in !== undefined && xa > -6 && xa < w + 6) { g.fillRect(xa, 12, 2, 16); g.fillRect(xa, 12, 6, 2); g.fillRect(xa, 26, 6, 2); }
     if (rg.out !== undefined && xb > -6 && xb < w + 6) { g.fillRect(xb - 2, 12, 2, 16); g.fillRect(xb - 6, 12, 6, 2); g.fillRect(xb - 6, 26, 6, 2); }
   }
-  const steps = [1 / 30, 0.1, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
-  const major = steps.find((s) => s * S.zoom >= 90) || 600;
+  const steps = [1 / 30, 0.1, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1200, 1800, 3600, 7200];
+  const major = steps.find((s) => s * S.zoom >= 90) || 7200;
   const minor = steps.filter((s) => s < major).reverse().find((s) => s * S.zoom >= 12) || major / 5;
   const t0 = scroller.scrollLeft / S.zoom, t1 = t0 + w / S.zoom;
   g.strokeStyle = '#3a4150'; g.fillStyle = '#8b93a3'; g.font = '11px Segoe UI, sans-serif';
@@ -1030,7 +1050,9 @@ function onRowsDown(e) {
     // where on the clip it was taken (sec from its start) - from the timeline, not the element: select() above has
     // already redrawn the clips, so `el` may be a removed one (its position read as 0 and drops landed seconds off)
     grab: timeAt(e.clientX) - (layout()[track]?.find((x) => x.clip.id === id)?.start ?? f.clip.start ?? 0),
-    others: [...S.sel].filter((s) => s !== id && !(f.clip.link && findClip(s)?.clip.link === f.clip.link)).map((s) => ({ id: s, ...findClip(s) })).filter((o) => o.track !== 'V1').map((o) => ({ id: o.id, start: o.clip.start || 0 })) };
+    others: [...S.sel].filter((s) => s !== id && !(f.clip.link && findClip(s)?.clip.link === f.clip.link)).map((s) => ({ id: s, ...findClip(s) })).filter((o) => o.track !== 'V1').map((o) => ({ id: o.id, start: o.clip.start || 0 })),
+    // ⇄ the other selected main-story clips: they go along as one block (their gaps between them kept)
+    v1Others: [...S.sel].filter((s) => s !== id && findClip(s)?.track === 'V1' && !findClip(s).clip.gap && !findClip(s).clip.locked) };
   window.addEventListener('pointermove', onDragMove);
   window.addEventListener('pointerup', onDragUp, { once: true });
 }
@@ -1369,6 +1391,7 @@ function onDragMove(e) {
   }
   // move - onto another track only once the mouse has clearly gone up / down (a clip taken near its top edge used to
   // jump onto the track above at the first wobble and show there as a faded copy)
+  dragEdgeScroll(e);
   let overTrack = Math.abs(e.clientY - drag.y0) < 12 ? f.track : rowAt(e.clientY);
   if (!overTrack && Math.abs(e.clientY - drag.y0) >= 12) overTrack = edgeTrack(e.clientY, KIND[drag.track]);
   const overOverlay = overTrack && trackKind(overTrack) === 'video' && overTrack !== 'V1';
@@ -1403,6 +1426,7 @@ function onDragMove(e) {
   const delta = ns - (o.start || 0);
   c.start = +ns.toFixed(3);
   for (const ot of drag.others) { const x = findClip(ot.id); if (x && x.track !== 'V1') x.clip.start = +Math.max(0, ot.start + delta).toFixed(3); }
+  if (drag.v1Others?.length) requestAnimationFrame(() => { if (drag) for (const id of drag.v1Others) { const el = root.querySelector(`.clip[data-id="${id}"]`); if (el) { el.style.transform = `translate(${delta * S.zoom}px, 0)`; el.classList.add('dragging'); } } });
   if (c.link) syncLinked(S.project, S.mediaById, drag.id);
   if (target !== f.track && !drag.others.length) {
     S.project.tracks[f.track].splice(f.index, 1);
@@ -1436,14 +1460,27 @@ function groupToTrack(f, target) {
 // the clip shows on it; one that is still empty when the clip is let go is taken away again (onDragUp).
 function edgeTrack(y, kind) {
   const rows = $$('.tl-row', rowsEl); if (!rows.length) return null;
-  const list = trackList(S.project), up = kind === 'video';
-  if (up ? y >= rows[0].getBoundingClientRect().top : y < rows[rows.length - 1].getBoundingClientRect().bottom) return null;
+  const list = trackList(S.project), up = kind === 'video', sr = scroller.getBoundingClientRect();
+  // (with more tracks than fit, the edge row is scrolled out of sight: the drag scrolls there first - dragEdgeScroll -
+  // and a new track comes only once the top / last row is in view and the mouse is past it)
+  const top = rows[0].getBoundingClientRect(), last = rows[rows.length - 1].getBoundingClientRect();
+  if (up ? scroller.scrollTop > 2 || y >= Math.max(top.top, sr.top + 28) : last.bottom > sr.bottom + 2 || y < last.bottom) return null;
   const end = up ? list.find((t) => t.kind === 'video') : [...list].reverse().find((t) => t.kind === 'audio');
   if (end && drag.made.includes(end.id)) return end.id; // (the one this drag made already)
   const id = `${up ? 'V' : 'A'}${trackNum(end?.id || (up ? 'V1' : 'A1')) + 1}`;
   ensureTrack(S.project, id); drag.made.push(id);
   render();
+  if (up) scroller.scrollTop = 0; else scroller.scrollTop = scroller.scrollHeight;
   return id;
+}
+// near the top / bottom of the tracks while dragging a clip: they scroll (like Premiere), so tracks out of sight - and
+// the edge where a new track is made - can be reached
+let edgeTimer = null;
+function dragEdgeScroll(e) {
+  clearInterval(edgeTimer); edgeTimer = null;
+  const sr = scroller.getBoundingClientRect(), d = e.clientY < sr.top + 40 ? -1 : e.clientY > sr.bottom - 24 ? 1 : 0;
+  if (!d || (d < 0 ? scroller.scrollTop <= 0 : scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 1)) return;
+  edgeTimer = setInterval(() => { if (!drag) { clearInterval(edgeTimer); edgeTimer = null; return; } scroller.scrollTop += d * 10; }, 30);
 }
 // 🔗 a linked picture moved to another video track: its sound goes as many tracks the same way (V2 -> V3 with A2 -> A3),
 // onto a new audio track when there is none - if that track is free at its time
@@ -1475,6 +1512,28 @@ function v1Target(e, pts, live, from, yOff) {
     ins.style.top = `${rowTop('V1')}px`; ins.style.height = `${rowH('V1')}px`;
   } else ins.hidden = true;
   live.style.transform = `translate(${(at - from) * S.zoom}px, ${yOff}px)`; live.classList.add('dragging');
+  groupGhost((at - from) * S.zoom, yOff);
+}
+// the other selected clips drawn where they will go (a main-story group moves only by drawing until it is let go)
+function groupGhost(dx, dy) {
+  for (const id of [...(drag.v1Others || []), ...drag.others.map((o) => o.id)]) {
+    const el = root.querySelector(`.clip[data-id="${id}"]`); if (!el) continue;
+    const v1 = (drag.v1Others || []).includes(id);
+    el.style.transform = `translate(${dx}px, ${v1 ? dy : 0}px)`; el.classList.add('dragging');
+  }
+}
+// ⇄ several main-story clips moved by dt as one block: each is lifted (a gap stays, nothing else moves) and laid over
+// the spot dt later / earlier, in order - their spacing stays. Returns how many moved.
+function moveV1Group(ids, dt) {
+  if (Math.abs(dt) < 0.005) return 0;
+  const L = layout().V1, list = ids.map((id) => L.find((p) => p.clip.id === id)).filter(Boolean).sort((a, b) => a.start - b.start);
+  if (!list.length) return 0;
+  dt = Math.max(dt, -list[0].start); // (none before 0)
+  const lifted = list.map((x) => ({ c: x.clip, t: x.start + dt }));
+  for (const x of [...list].reverse()) { const V1 = S.project.tracks.V1, i = V1.indexOf(x.clip); if (i >= 0) V1.splice(i, 1, gapClip(x.end - x.start - (x.overlap || 0))); }
+  tidyGaps();
+  for (const { c, t } of lifted) overwriteV1(c, +t.toFixed(3));
+  return lifted.length;
 }
 // an empty stretch of the main story (black, silent) - what a clip leaves behind when it is lifted out of V1
 export const gapClip = (len) => ({ id: uid(), type: 'title', gap: true, text: '', bg: '#000000', dur: +Math.max(0.04, len).toFixed(3) });
@@ -1542,6 +1601,7 @@ function onDragUp(e) {
       if (x && Math.abs(d.dropT - x.start) < 0.01) return render();
       // (the other selected clips - overlays, sound - go along by as much)
       if (x) for (const o of d.others) { const y = findClip(o.id); if (y && y.track !== 'V1') y.clip.start = +Math.max(0, o.start + d.dropT - x.start).toFixed(3); }
+      if (x && d.v1Others?.length) { moveV1Group([d.id, ...d.v1Others], d.dropT - x.start); commit(`Move ${d.v1Others.length + 1} clips`); return; }
       const [c] = S.project.tracks.V1.splice(f.index, 1, gapClip(v1Len(d.id)));
       overwriteV1(c, d.dropT);
     }
@@ -1565,6 +1625,7 @@ function onDragUp(e) {
     commit('Move to V1'); return;
   }
   if (f.track !== d.from && KIND[f.track] === 'video' && !d.others.length) soundFollows(f.clip, d.from, f.track); // (a group took its sound along already)
+  if (d.v1Others?.length) moveV1Group(d.v1Others, (f.clip.start || 0) - (d.orig.start || 0));
   commit('Move clip');
 }
 
