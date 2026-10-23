@@ -20,7 +20,7 @@ import zlib from 'node:zlib';
 import { newProject, uid, placed, clipDur, seqOf, seqHash, ASPECTS, normalizeProject, rangeOf, totalDuration } from './public/js/model.js';
 import { gfxKey } from './public/js/graphics.js';
 import { CAPTION_LANGS, translatePrompt, parseTranslation } from './public/js/captions.js';
-import { stabOf, usesPython } from './public/js/effects.js';
+import { stabOf, usesPython, VFX } from './public/js/effects.js';
 import { ensureLuts, guessLogLut } from './engine/lutgen.mjs';
 import { listFonts, fontFile } from './engine/fontnames.mjs';
 import { ensureLooks } from './engine/looklut.mjs';
@@ -274,6 +274,48 @@ function serveFile(req, res, file, cache = false) {
   }
   return serveMedia(req, res, file, cache);
 }
+// 💽 preview copies of projects on the NAS are also kept on this PC's own drive (<data>/PreviewCache), copied the first
+// time one is played: every later play / scrub from any PC is read from the local SSD, and the NAS only serves camera
+// files. The NAS copy stays the real one (the standby PC, helper PCs, moves and Pack use it); a copy made again (new
+// size / time) is copied again. The local copy keeps the NAS copy's time, so its ETag - and the browsers' caches - stay
+// good. Kept to config.localPreviewGB (300 GB), least recently played first out; never fills the drive below 50 GB free.
+const PREVIEW_CACHE = path.join(DATA, 'PreviewCache');
+const localUsed = new Map(), localCopying = new Set();
+let localTrimAt = 0;
+// file -> the local copy when there is one (else the file itself, and a copy is started - wait: true waits for it)
+async function localPreview(file, { wait = false } = {}) {
+  if (!remoteDrives().some((d) => underDrive(file, d))) return file; // (a project on this PC's own drive: already local)
+  let st; try { st = await fs.promises.stat(file); } catch { return file; }
+  const loc = path.join(PREVIEW_CACHE, `${crypto.createHash('sha1').update(file.toLowerCase()).digest('hex').slice(0, 24)}-${st.size.toString(36)}-${Math.round(st.mtimeMs).toString(36)}.mp4`);
+  if (await fs.promises.access(loc).then(() => true, () => false)) { localUsed.set(loc, Date.now()); return loc; }
+  if (localCopying.has(loc) || (!wait && localCopying.size >= 3)) return file;
+  localCopying.add(loc);
+  const job = (async () => {
+    const free = await fs.promises.statfs(path.parse(PREVIEW_CACHE).root).then((s) => s.bavail * s.bsize, () => 0);
+    if (free < 50e9 + st.size) return false;
+    await fs.promises.mkdir(PREVIEW_CACHE, { recursive: true });
+    const part = `${loc}.${process.pid}.part`;
+    await fs.promises.copyFile(file, part);
+    await fs.promises.utimes(part, st.atime, st.mtime);
+    await fs.promises.rename(part, loc);
+    localUsed.set(loc, Date.now());
+    if (Date.now() - localTrimAt > 10 * 60e3) { localTrimAt = Date.now(); await trimLocalPreviews(); }
+    return true;
+  })().catch(() => false).finally(() => localCopying.delete(loc));
+  return wait && (await job) ? loc : file;
+}
+async function trimLocalPreviews() {
+  const max = (+config().localPreviewGB || 300) * 1e9;
+  const list = await Promise.all((await fs.promises.readdir(PREVIEW_CACHE).catch(() => [])).map(async (f) => {
+    const p = path.join(PREVIEW_CACHE, f), s = await fs.promises.stat(p).catch(() => null);
+    return s && { p, size: s.size, used: f.endsWith('.part') && Date.now() - s.mtimeMs > 3600e3 ? 0 : localUsed.get(p) || s.birthtimeMs || s.mtimeMs };
+  }));
+  let total = list.reduce((n, x) => n + (x?.size || 0), 0);
+  for (const x of list.filter(Boolean).sort((a, b) => a.used - b.used)) {
+    if (total <= max * 0.9 && !(x.p.endsWith('.part') && x.used === 0)) break;
+    await fs.promises.rm(x.p, { force: true }).catch(() => {}); total -= x.size;
+  }
+}
 // a camera file / preview copy - every scrub and playback chunk of every PC comes here. One asynchronous look at the
 // file (an existsSync + two statSync on the NAS for each chunk held the whole process while the NAS was slow), and a
 // read error (the NAS dropping, a file deleted) ends that answer instead of becoming an uncaught error.
@@ -282,9 +324,16 @@ async function serveMedia(req, res, file, cache) {
   if (file) try { st = await fs.promises.stat(file); } catch {}
   if (!st?.isFile()) return send(res, 404, { error: 'not found' });
   const size = st.size, type = MIME[path.extname(file).toLowerCase()] || 'application/octet-stream';
-  const base = { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Cache-Control': cache ? 'max-age=31536000' : 'no-store' };
+  // 💾 each PC's browser keeps what it has played (no-cache = keep it, but ask first): the next play / scrub / loop of the
+  // same clip is a 304 from this one stat - nothing read from the NAS. It used to be no-store, so every replay on every
+  // PC streamed the file again. A preview copy made again or a relinked file has a new size / time, so a new ETag.
+  const etag = `"${size.toString(36)}-${Math.round(st.mtimeMs).toString(36)}"`;
+  const base = { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Cache-Control': cache ? 'max-age=31536000' : 'private, no-cache', ETag: etag, 'Last-Modified': st.mtime.toUTCString() };
+  if (String(req.headers['if-none-match'] || '').split(/\s*,\s*/).includes(etag)) { res.writeHead(304, { ETag: etag, 'Cache-Control': base['Cache-Control'] }); return res.end(); }
   const pipe = (s) => { s.on('error', () => { if (!res.headersSent) send(res, 500, { error: 'The file could not be read' }); else res.destroy(); }); return track(s, file, res).pipe(res); };
-  const m = /bytes=(\d*)-(\d*)/.exec(req.headers.range || '');
+  // (If-Range: the browser has part of an older version - send the whole new one rather than a piece of it)
+  const ifRange = req.headers['if-range'];
+  const m = ifRange && ifRange !== etag && ifRange !== base['Last-Modified'] ? null : /bytes=(\d*)-(\d*)/.exec(req.headers.range || '');
   if (m) {
     const start = m[1] ? +m[1] : size - +m[2], end = m[1] && m[2] ? +m[2] : size - 1;
     if (start >= size || end >= size || start > end) { res.writeHead(416, { 'Content-Range': `bytes */${size}` }); return res.end(); }
@@ -485,6 +534,10 @@ function scanFolder(dir, { max = 5000, depth = 8, other = null } = {}) {
     ents.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
     for (const e of ents) {
       if (e.name.startsWith('.') || e.name.startsWith('$') || /^(System Volume Information|node_modules)$/i.test(e.name)) continue;
+      // (folders other programs fill on their own - never footage: a NAS recycle bin / its thumbnails, Premiere's preview
+      // renders and auto-saves, After Effects' auto-saves, Resolve's cache. A folder import once brought ~10,000 Premiere
+      // preview renders from Z:\@Recycle into two projects, and their preview copies filled the queue)
+      if (e.isDirectory() && /^(@recycle|#recycle|@eadir|#snapshot|adobe premiere pro (video|audio) previews|adobe premiere pro auto-save|adobe after effects auto-save|cacheclip|\.?proxymedia)$/i.test(e.name)) continue;
       const full = path.join(d, e.name);
       if (e.isDirectory()) walk(full, rel ? `${rel}/${e.name}` : e.name, lvl + 1);
       else if (['video', 'image', 'audio'].includes(EXT_KIND(path.extname(e.name)))) found.push({ file: full, bin: rel });
@@ -1028,16 +1081,17 @@ async function processProxy(proj, id) {
     '-movflags', '+faststart', '-progress', 'pipe:1', '-nostats', tmp],
   { inputs: [m.path], outs: [tmp], lane: 'heavy', tag: 'proxy', waitSec: 300, limitSec: Math.max(600, Math.round((m.duration || 60) * 15)), onLine: (l) => { const k = /^out_time_ms=(\d+)/.exec(l); if (k && m.duration && !lite) m.proxyPct = Math.min(99, Math.round((+k[1] / 1e6 / m.duration) * 100)); } });
   if (lite) {
-    if (r.code === 0 && fs.existsSync(tmp)) { fs.renameSync(tmp, out); m.lite = 'ready'; } else { fs.rmSync(tmp, { force: true }); m.lite = 'error'; }
+    if (r.code === 0 && fs.existsSync(tmp)) { fs.renameSync(tmp, out); m.lite = 'ready'; localPreview(out); } else { fs.rmSync(tmp, { force: true }); m.lite = 'error'; }
     return;
   }
   if (up) {
-    if (r.code === 0 && fs.existsSync(tmp)) { fs.renameSync(tmp, out); m.proxyH = PROXY_H; m.mtimeProxy = Date.now(); } else fs.rmSync(tmp, { force: true });
+    if (r.code === 0 && fs.existsSync(tmp)) { fs.renameSync(tmp, out); m.proxyH = PROXY_H; m.mtimeProxy = Date.now(); localPreview(out); } else fs.rmSync(tmp, { force: true });
     delete m.proxyUp;
     return;
   }
   if (r.code === 0 && fs.existsSync(tmp)) {
     fs.renameSync(tmp, out); m.proxy = 'ready'; m.proxyPct = 100; m.proxyH = PROXY_H;
+    localPreview(out); // (💽 its copy on this PC's drive now, so even its first play does not read the NAS)
     if (m.hasAudio && !m.wave) m.wave = await makeWave(out, P(proj, 'cache', 'waves', `${id}.png`), proj);
     // the agent's per-second analysis, from the small proxy right away, so the agent never has to read the camera file
     await analyzeClip(out, P(proj, 'cache', 'analysis', `${id}.json`), { hasAudio: m.hasAudio, duration: m.duration }).catch(() => {});
@@ -1090,10 +1144,10 @@ async function pump() {
   }
   // proxies wait until the open project's files have all been read (thumbnails first, then previews)
   const openPending = activeProject && quickQ.some((x) => x.proj === activeProject);
-  // while an agent reads footage, only one proxy at a time: both read the same (often slow, external) drive. (It used to
-  // be none at all - with several people editing, some agent is nearly always running and new footage never got previews.)
-  const agentBusy = [...jobs.values()].some((j) => j.kind === 'agent' && j.status === 'running' && !j.waiting);
-  while (proxyActive < (agentBusy ? 1 : PROXY_WORKERS) + helperShare(hc.heavy) && proxyQ.length && !openPending) {
+  // (an agent running no longer cuts this to one at a time: with several people editing some agent nearly always runs,
+  // so new footage hardly ever got its preview copies - and the agent itself then had to read the camera files. The NAS
+  // guard (helpers' nasMax) still keeps the NAS from being swamped.)
+  while (proxyActive < PROXY_WORKERS + helperShare(hc.heavy) && proxyQ.length && !openPending) {
     proxyActive++;
     const { proj, id } = takeNext(proxyQ, true);
     (async () => {
@@ -1127,6 +1181,29 @@ async function resumeProjects() {
   }
 }
 if (!(process.env.VEDIT_NO_RESUME && !IS_WORKER)) setImmediate(() => resumeProjects().catch((e) => logCrash('resume', e)));
+// 🌙 the night shift (1-6 am, once a night; each project worker for its own projects): what tomorrow's editing plays is
+// made ready while the NAS is quiet - old 540p / too heavy preview copies made again (upgradeProxies, which otherwise
+// waits until the project is opened) and the preview copies of every clip on its timelines copied to this PC's drive
+// (💽 PreviewCache), one at a time, so the first play of the day does not read the NAS either.
+let nightDone = '';
+async function nightShift() {
+  const now = new Date(), day = now.toDateString();
+  if (now.getHours() < 1 || now.getHours() >= 6 || nightDone === day || process.env.VEDIT_NO_RESUME || STANDBY) return;
+  nightDone = day;
+  let n = 0;
+  for (const proj of allProjects().filter(owns)) {
+    try {
+      upgradeProxies(proj);
+      for (const id of timelineIds(proj)) {
+        if (new Date().getHours() >= 6) return; // (the day starts: the rest waits for tomorrow night)
+        const m = mediaItem(proj, id);
+        if (m?.kind === 'video' && m.proxy === 'ready' && (await localPreview(P(proj, 'cache', 'proxies', `${id}.mp4`), { wait: true })) !== P(proj, 'cache', 'proxies', `${id}.mp4`)) n++;
+      }
+    } catch (e) { logCrash(`night shift ${proj}`, e); }
+  }
+  console.log(`🌙 Night shift: ${n} preview copies of the timelines are on this PC's drive`);
+}
+setInterval(() => nightShift().catch((e) => logCrash('night shift', e)), 10 * 60e3).unref?.();
 pump();
 
 // Media as the browser needs it (no absolute paths needed client side except for display).
@@ -4155,6 +4232,47 @@ const routes = {
       return { name: f, url: `/pf/${encodeURIComponent(name)}/frames/${encodeURIComponent(f)}`, width: w, height: h };
     }, { project: name });
   },
+  // 🎯 the Program monitor's exact layer (player.js exactLayer): effects the live monitor cannot draw (Lens, Wave, Twirl,
+  // Echo, Color Balance… - a third of the video effects) are seen as soon as the playhead stands still. Only that clip's
+  // picture at the playhead is made, by FFmpeg with the same filters the render uses (effects.js ff), from the same file
+  // the monitor plays - half a second of it, so effects that look back in time (Echo, Strobe) are right, with t the
+  // clip's own time. The other layers, Motion and the CSS effects stay live. JPEG out; well under a second.
+  // body { mediaId, file: 'play' | 'orig', srcT (s in the file), rel (s into the clip), w, h, effects: [{ type, p, from, to }] }
+  'POST /api/frame/layer': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req);
+    const m = mediaItem(name, b.mediaId); if (!m) throw err(404, 'media not found');
+    const proxy = P(name, 'cache', 'proxies', `${m.id}.mp4`);
+    const src = b.file === 'orig' || m.kind === 'image' || m.proxy !== 'ready' || !fs.existsSync(proxy) ? m.path : proxy;
+    const W = Math.max(16, Math.min(3840, Math.round(+b.w || m.width || 1920))), H = Math.max(16, Math.min(2160, Math.round(+b.h || m.height || 1080)));
+    const F = 30, rel = Math.max(0, +b.rel || 0), srcT = Math.max(0, +b.srcT || 0), back = Math.min(0.5, srcT, rel);
+    const g = [`[0:v]scale=${W}:${H},setsar=1,setpts=PTS-STARTPTS+${(rel - back).toFixed(3)}/TB[v0]`];
+    let cur = 'v0', k = 0;
+    for (const e of (b.effects || []).slice(0, 12)) {
+      const fx = VFX[e?.type]; if (!fx?.ff || fx.key || fx.py) continue;
+      const r = fx.ff(e.p || {}, { W, H, F, clip: {}, name: m.name, font: () => 'C\\:/Windows/Fonts/arial.ttf', textfile: () => '' });
+      if (!r || r === 'null') continue;
+      const out = `e${k++}`, timed = e.from !== undefined || e.to !== undefined, s = timed ? `${out}b` : cur, d = timed ? `${out}x` : out;
+      if (timed) g.push(`[${cur}]split[${out}a][${out}b]`);
+      g.push(typeof r === 'string' ? `[${s}]${r}[${d}]` : r.graph(s, d));
+      if (timed) g.push(`[${out}a][${out}x]overlay=eof_action=pass:enable='between(t,${(+e.from || 0).toFixed(3)},${(+(e.to ?? 1e6)).toFixed(3)})'[${out}]`);
+      cur = out;
+    }
+    g.push(`[${cur}]select='gte(t,${(rel - 0.001).toFixed(3)})',format=yuvj420p[o]`);
+    const args = ['-v', 'error', ...(m.kind === 'image' ? ['-loop', '1', '-t', String(back + 0.2)] : ['-ss', (srcT - back).toFixed(3), '-t', (back + 0.2).toFixed(3)]), '-i', src,
+      '-filter_complex', g.join(';'), '-map', '[o]', '-frames:v', '1', '-q:v', '3', '-f', 'image2pipe', '-c:v', 'mjpeg', 'pipe:1'];
+    const p = spawn('ffmpeg', args, { windowsHide: true });
+    const chunks = []; let errText = '';
+    p.stdout.on('data', (d) => chunks.push(d)); p.stderr.on('data', (d) => { errText += d; });
+    const kill = setTimeout(() => p.kill(), 15000);
+    res.on('close', () => { if (!res.writableFinished) p.kill(); }); // (the monitor moved on)
+    const code = await new Promise((ok) => { p.on('close', ok); p.on('error', () => ok(-1)); });
+    clearTimeout(kill);
+    if (res.destroyed) return;
+    const jpg = Buffer.concat(chunks);
+    if (code !== 0 || !jpg.length) throw err(500, `This effect could not be shown here - use Accurate preview (${errText.trim().split(/\r?\n/).pop() || 'no picture'})`);
+    res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store', 'Content-Length': jpg.length });
+    res.end(jpg);
+  },
   // an exported frame into Media (folder "Frames"), like Premiere's "Import into project"
   'POST /api/frame/import': async (req, res, u) => {
     const name = needProject(q(u, 'p')), b = await readJson(req), f = P(name, 'output', 'frames', path.basename(String(b.name || '')));
@@ -5806,7 +5924,9 @@ async function handle(req, res, who) {
       const C = (d, f) => P(proj, 'cache', d, f);
       if (m[3] === 'peaks') {
         const f = C('waves', `${it.id}.peaks`);
-        if (!fs.existsSync(f) && !(it.hasAudio && fs.existsSync(it.path) && (await makePeaks(it.path, f)))) return send(res, 404, { error: 'no sound' });
+        // (from the small preview copy when there is one: the camera file was read whole from the NAS just for its sound)
+        const px = it.proxy === 'ready' && fs.existsSync(C('proxies', `${it.id}.mp4`)) ? await localPreview(C('proxies', `${it.id}.mp4`)) : null;
+        if (!fs.existsSync(f) && !(it.hasAudio && (px || fs.existsSync(it.path)) && (await makePeaks(px || it.path, f)))) return send(res, 404, { error: 'no sound' });
         return serveFile(req, res, f, true);
       }
       const file = { thumb: C('thumbs', `${it.id}.jpg`), strip: C('strips', `${it.id}.jpg`), wave: C('waves', `${it.id}.png`), orig: it.path,
@@ -5814,6 +5934,7 @@ async function handle(req, res, who) {
           // over the internet a heavy file plays from its light copy once made (ensureLite); here, the file itself
           : it.lite === 'ready' && !req.who?.local && fs.existsSync(C('proxies', `${it.id}.mp4`)) ? C('proxies', `${it.id}.mp4`) : it.path }[m[3]];
       if (!file) return send(res, 409, { error: 'proxy not ready yet' });
+      if (m[3] === 'play' && file === C('proxies', `${it.id}.mp4`)) return serveFile(req, res, await localPreview(file), false); // (💽 from this PC's drive once copied)
       return serveFile(req, res, file, m[3] !== 'play' && m[3] !== 'orig');
     }
     // 🎞 a Library template's thumbnail / preview: /lg/<id>/<thumb.png|preview.webm>

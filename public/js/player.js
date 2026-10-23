@@ -96,6 +96,7 @@ export function mountViewer(el) {
       <img class="lyr logo" id="lyLogo" alt="">
       <div class="lyr look" id="lyLook"></div>
       <video class="lyr rend" id="lyRend" playsinline preload="auto" muted hidden></video>
+      <div id="vwExact" hidden style="position:absolute;right:8px;bottom:8px;z-index:5;padding:3px 8px;border-radius:4px;background:rgba(0,0,0,.65);color:#fff;font-size:11px;pointer-events:none"></div>
       <div class="lyr guides" id="lyGuides" hidden><i class="g-action"></i><i class="g-title"></i><i class="g-h"></i><i class="g-v"></i></div>
       <div class="lyr maskui" id="lyMaskUi" hidden></div>
       <div class="vw-msg" id="vwMsg" hidden></div>
@@ -144,7 +145,7 @@ export function mountViewer(el) {
     </span>
   </div>`;
   frame = $('#vwFrame', el);
-  for (const k of ['lyA', 'lyB', 'lyImg', 'lyCard', 'lyText', 'lyOv', 'lyOvImg', 'lyOvText', 'lyLogo', 'lyBlur', 'vwMsg', 'lyGrade', 'lyFx', 'lyOvStack', 'lyCap', 'lyMask', 'lyFxm', 'lyMaskUi', 'lyFxo', 'vwStab', 'lyRend']) els[k] = $(`#${k}`, el);
+  for (const k of ['lyA', 'lyB', 'lyImg', 'lyCard', 'lyText', 'lyOv', 'lyOvImg', 'lyOvText', 'lyLogo', 'lyBlur', 'vwMsg', 'lyGrade', 'lyFx', 'lyOvStack', 'lyCap', 'lyMask', 'lyFxm', 'lyMaskUi', 'lyFxo', 'vwStab', 'lyRend', 'vwExact']) els[k] = $(`#${k}`, el);
   try { grader = new Grader(els.lyGrade); } catch { grader = null; } // without WebGL2 the CSS approximation is used
   // a paused frame arrives after the seek finishes: redraw then so the graded canvas is up to date
   [els.lyA, els.lyB, els.lyImg].forEach((m) => m.addEventListener(m.tagName === 'IMG' ? 'load' : 'seeked', () => { if (mode === 'program' && !playing) drawProgram(S.playhead, false); }));
@@ -338,6 +339,7 @@ function hideAll() {
   els.lyGrade.hidden = true; const lk = $('#lyLook', root); if (lk) lk.hidden = true;
   for (const v of [els.lyA, els.lyB, els.lyOv]) v.pause();
   if (els.lyRend) { els.lyRend.hidden = true; els.lyRend.pause(); }
+  if (els.vwExact) els.vwExact.hidden = true;
   for (const a of audioPool.values()) a.pause();
   for (const sl of ovSlots.values()) { sl.el.hidden = true; if (sl.el.tagName === 'VIDEO') sl.el.pause(); }
 }
@@ -774,11 +776,64 @@ export const editTextClip = (id) => { const c = findClipAny(id); if (c?.gfx?.tpl
 const pixCanvas = new WeakMap(); // picture element -> its canvas
 let pixStage = null; // (a graphics-card canvas the frame is made small on before its pixels are read - see pixFx)
 const hexRgb = (hx) => { const v = parseInt(String(hx || '#00ff00').replace('#', '').padEnd(6, '0').slice(0, 6), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; };
+// 🎯 effects neither CSS nor a canvas can draw here (Lens, Wave, Twirl, Echo, Strobe, Color Balance, Auto Levels… - a
+// third of the video effects) used to show no change until an Accurate preview. While the playhead stands still, that
+// clip's picture at the playhead is made by FFmpeg with the render's own filters (POST /api/frame/layer - one clip, one
+// frame, well under a second) and shown in its place, with its Motion and CSS effects; the other layers stay live.
+// Playing shows the live picture again. The newest 40 pictures are kept, so going back to one is instant.
+const liveFx = (e) => e.type === 'mirror' || e.type === 'chromakey' || !!VFX[e.type]?.css || !!VFX[e.type]?.pix;
+const exactPics = new Map(); // key -> object URL of the picture
+const exactAsk = new Map(); // element -> { key, timer, ac } (its picture being made)
+const exactBadge = () => { const b = els.vwExact; if (!b) return; const n = [...exactAsk.values()].filter((x) => x.ac || x.timer).length; b.hidden = !n; b.textContent = 'Effect preview…'; };
+function exactLayer(el, c, after, rel) {
+  const hide = () => { const im = pixCanvas.get(el); if (im?.tagName === 'IMG') im.hidden = true; const w = exactAsk.get(el); if (w) { clearTimeout(w.timer); w.ac?.abort(); exactAsk.delete(el); exactBadge(); } return null; };
+  if (playing || el.hidden || !c.mediaId || rel === undefined) return hide();
+  const all = (c.effects || []).filter((e) => e.on !== false && VFX[e.type]);
+  const fx = all.filter((e) => !liveFx(e) && !VFX[e.type].key && !VFX[e.type].py);
+  if (!fx.some((e) => inWindow(e, rel)) || all.some((e) => VFX[e.type].key || e.mask?.shape)) return hide(); // (keys and masked effects: the live way)
+  const m = S.mediaById[c.mediaId], vid = el.tagName === 'VIDEO', w = vid ? el.videoWidth : el.naturalWidth, h = vid ? el.videoHeight : el.naturalHeight;
+  if (!m || !w || !h) return hide();
+  const file = vid && /\/orig(\?|$)/.test(el.currentSrc || el.src || '') ? 'orig' : 'play';
+  const srcT = m.kind === 'image' ? 0 : sourceAt(c, rel, clipDur(c, S.mediaById));
+  const body = { mediaId: m.id, file, srcT: +srcT.toFixed(3), rel: +rel.toFixed(3), w, h, effects: fx.map(({ type, p, from, to }) => ({ type, p, from, to })) };
+  const key = JSON.stringify(body), url = exactPics.get(key);
+  if (url) {
+    let im = pixCanvas.get(el);
+    if (!im || im.tagName !== 'IMG') { im?.remove(); im = document.createElement('img'); im.className = 'lyr pixfx'; im.alt = ''; im.style.objectFit = 'contain'; pixCanvas.set(el, im); }
+    if (im.previousSibling !== after) after.after(im);
+    if (im.getAttribute('src') !== url) im.src = url;
+    exactPics.delete(key); exactPics.set(key, url); // (most recently used last)
+    const wk = exactAsk.get(el); if (wk) { clearTimeout(wk.timer); wk.ac?.abort(); exactAsk.delete(el); exactBadge(); }
+    return showPix(im, el, el);
+  }
+  // not made yet: the live picture meanwhile; asked for once the playhead has stood still for a moment
+  const old = pixCanvas.get(el); if (old?.tagName === 'IMG') old.hidden = true;
+  const wk = exactAsk.get(el);
+  if (wk?.key === key) return null;
+  if (wk) { clearTimeout(wk.timer); wk.ac?.abort(); }
+  const job = { key, ac: null, timer: setTimeout(async () => {
+    job.timer = 0; job.ac = new AbortController(); exactBadge();
+    try {
+      const r = await fetch(`/api/frame/layer?p=${encodeURIComponent(S.proj)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: key, signal: job.ac.signal });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+      const u2 = URL.createObjectURL(await r.blob());
+      exactPics.set(key, u2);
+      while (exactPics.size > 40) { const [k0, u0] = exactPics.entries().next().value; URL.revokeObjectURL(u0); exactPics.delete(k0); }
+      if (exactAsk.get(el) === job) { exactAsk.delete(el); exactBadge(); if (!playing && mode === 'program') drawProgram(S.playhead, false); }
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+      if (exactAsk.get(el) === job) { exactAsk.delete(el); exactBadge(); const b = els.vwExact; if (b) { b.hidden = false; b.textContent = 'This effect shows in Accurate preview'; b.title = e.message; setTimeout(() => { if (!exactAsk.size) b.hidden = true; }, 3000); } }
+    }
+  }, 120) };
+  exactAsk.set(el, job); exactBadge();
+  return null;
+}
 function pixFx(el, c, after = el, rel) {
+  const ex = exactLayer(el, c, after, rel); if (ex) return ex; // (🎯 an effect only the render engine draws: its exact picture)
   const fx = (c.effects || []).filter((e) => e.on !== false && !e.mask?.shape && inWindow(e, rel) && (e.type === 'mirror' || e.type === 'chromakey' || VFX[e.type]?.pix));
   let cv = pixCanvas.get(el);
   if (!fx.length || el.hidden) { if (cv) cv.hidden = true; el.style.visibility = el._gradeHidden ? 'hidden' : ''; return null; }
-  if (!cv) { cv = document.createElement('canvas'); cv.className = 'lyr pixfx'; pixCanvas.set(el, cv); }
+  if (!cv || cv.tagName !== 'CANVAS') { cv?.remove(); cv = document.createElement('canvas'); cv.className = 'lyr pixfx'; pixCanvas.set(el, cv); }
   if (cv.previousSibling !== after) after.after(cv);
   // the source: the shot, or its exact colour layer when that is showing
   const src = el._gradeHidden && !els.lyGrade.hidden ? els.lyGrade : el;

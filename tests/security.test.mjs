@@ -30,12 +30,14 @@ test('guard: start a test editor (own ports, own data folder)', async () => {
   ff(['-f', 'lavfi', '-i', 'testsrc2=s=320x180:r=25:d=2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', path.join(tmp, 'shoot', 'A.mp4')]);
   ff(['-f', 'lavfi', '-i', 'smptebars=s=320x180:r=25:d=2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', path.join(tmp, 'B.mp4')]);
   fs.writeFileSync(path.join(tmp, 'notes.txt'), 'not a clip');
+  for (const junk of ['Adobe Premiere Pro Video Previews', '@Recycle']) { fs.mkdirSync(path.join(tmp, 'shoot', junk)); fs.copyFileSync(path.join(tmp, 'shoot', 'A.mp4'), path.join(tmp, 'shoot', junk, 'Rendered.mp4')); }
   srv = spawn(process.execPath, [path.join(ROOT, 'server.mjs')], { cwd: ROOT, env: { ...process.env, PORT: String(PORT), TEAM_PORT: String(TEAM), VEDIT_DATA: tmp, VEDIT_NO_RESUME: '1', VEDIT_CLUSTER: '0' }, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
   let log = ''; srv.stdout.on('data', (d) => { log += d; }); srv.stderr.on('data', (d) => { log += d; });
   for (let i = 0; ; i++) { try { if ((await call(L, 'GET', '/api/version')).status === 200) break; } catch {} if (i > 60) throw new Error(`test editor did not start:\n${log.slice(-800)}`); await sleep(500); }
   same((await call(L, 'POST', '/api/projects', { name: NAME, folder: path.join(tmp, 'shoot') })).status, 200);
   for (let i = 0; i < 80; i++) { const m = (await call(L, 'GET', `/api/media?p=${P}`)).body.items || []; clip = m.find((x) => x.name === 'A.mp4'); if (clip?.status === 'ready') break; await sleep(400); }
   assert(clip?.status === 'ready', 'the clip was read');
+  same((await call(L, 'GET', `/api/media?p=${P}`)).body.items.map((x) => x.name), ['A.mp4']); // (Premiere previews / NAS recycle bin left out)
   for (const u of [{ name: 'Ravi', password: 'ravi-pass-1', role: 'editor' }]) same((await call(L, 'PUT', '/api/team', { addUser: u })).status, 200);
   same((await call(L, 'PUT', '/api/team', { on: true })).status, 200);
 });
@@ -70,6 +72,11 @@ test('guard: media files - a byte range, and a missing file is a clean 404', asy
   const m = (await call(L, 'GET', `/api/media?p=${P}`)).body.items.find((x) => x.id === clip.id);
   const r = await fetch(L + m.urls.play.replace(/\/play$/, '/orig'), { headers: { Range: 'bytes=0-99' } });
   same(r.status, 206); same((await r.arrayBuffer()).byteLength, 100);
+  // 💾 the browser keeps it: asked again with its ETag -> 304, nothing read; an older ETag with If-Range -> the whole file
+  const tag = r.headers.get('etag');
+  assert(tag && /no-cache/.test(r.headers.get('cache-control')), 'cacheable, with an ETag');
+  same((await fetch(L + m.urls.play.replace(/\/play$/, '/orig'), { headers: { 'If-None-Match': tag } })).status, 304);
+  same((await fetch(L + m.urls.play.replace(/\/play$/, '/orig'), { headers: { Range: 'bytes=0-99', 'If-Range': '"old-version"' } })).status, 200);
   fs.renameSync(path.join(tmp, 'B.mp4'), path.join(tmp, 'B-gone.mp4'));
   try { same((await fetch(L + m.urls.play.replace(/\/play$/, '/orig'))).status, 404); }
   finally { fs.renameSync(path.join(tmp, 'B-gone.mp4'), path.join(tmp, 'B.mp4')); }
