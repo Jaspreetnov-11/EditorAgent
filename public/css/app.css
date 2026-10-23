@@ -1635,3 +1635,8 @@ html.ui2 .viewer .vw-row { display: none; }
 .vclone .vc-src select { flex: 1; min-width: 0; }
 .vclone .vc-src button.on { color: #ff6b5e; border-color: #ff6b5e; }
 .vclone textarea { width: 100%; box-sizing: border-box; }
+
+/* 🧰 toolbar: action groups (corner = the others) and the M / F / L letter buttons */
+.tl-tools [data-agrp] { position: relative; }
+.tl-tools .tl-letter b { font: 700 12px/1 var(--ui-font, system-ui), sans-serif; letter-spacing: 0; }
+.tl-tools .tl-letter:hover b { color: var(--accent); }

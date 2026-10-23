@@ -126,7 +126,7 @@ export function mountTimeline(el) {
   runActRef = (a, b) => runAct(a, b);
   bindActGroups(el);
   function runAct(a, btn) {
-    if (a === 'seq') seqMenu(e.target.closest('[data-act]'));
+    if (a === 'seq') seqMenu(btn);
     if (a === 'split') splitAtPlayhead();
     if (a === 'trimStart') trimAtPlayhead('start');
     if (a === 'trimEnd') trimAtPlayhead('end');
