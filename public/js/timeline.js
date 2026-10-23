@@ -168,7 +168,7 @@ export function mountTimeline(el) {
     const up = e.ctrlKey || e.shiftKey, d = (e.deltaMode === 1 ? e.deltaY * 32 : e.deltaY) * (up ? 1 : 1.5);
     if (up) scroller.scrollTop += d; else scroller.scrollLeft += d;
   }, { passive: false });
-  new ResizeObserver(() => { if (pendingFit && scroller.clientWidth >= 80) fitZoom(); else drawRuler(); }).observe(scroller);
+  new ResizeObserver(() => { if (pendingCenter && scroller.clientHeight >= 80) centerTracks(); if (pendingFit && scroller.clientWidth >= 80) fitZoom(); else drawRuler(); }).observe(scroller);
   // the track headers scroll the tracks up / down with the wheel, Ctrl + wheel too (like Premiere's track header area;
   // Ctrl + wheel was let through and zoomed the whole browser page - the headers piled up on each other)
   headsEl.addEventListener('wheel', (e) => {
@@ -300,7 +300,16 @@ export function setZoom(z, keepPlayhead = false, anchorX = null) {
   render();
   scroller.scrollLeft = Math.max(0, t * S.zoom - ax);
 }
-let pendingFit = false;
+let pendingFit = false, pendingCenter = false;
+// a project opens with the line between V1 and A1 in the middle of the tracks you can see (videos above, sound below)
+export function centerTracks() {
+  const a1 = rowsEl?.querySelector('[data-track="A1"]');
+  if (!scroller || !a1 || scroller.clientHeight < 80) { pendingCenter = true; return; }
+  pendingCenter = false;
+  const rh = ruler?.offsetHeight || 28; // (the ruler covers the top of the scroll area)
+  scroller.scrollTop = Math.max(0, rowTop('A1') - (rh + scroller.clientHeight) / 2);
+  headsEl.scrollTop = scroller.scrollTop;
+}
 export function fitZoom() {
   // while the Edit page is hidden the timeline has no width: fit once it becomes visible
   if (!scroller || scroller.clientWidth < 80) { pendingFit = true; return; }
@@ -508,7 +517,7 @@ function drawHeads(TR, ts) {
   headsEl.innerHTML = `<div class="th-ruler"></div>` + TR.map((t) => {
     const st = ts[t.id] || {};
     return `<div class="th ${t.kind}${st.lock ? ' locked' : ''}${rowH(t.id) < 44 ? ' tiny' : ''}${rowH(t.id) < 30 ? ' mini' : ''}" style="height:${rowH(t.id)}px" data-track="${t.id}" title="Right-click: rename, add or delete a track">
-      <div class="th-name">${t.kind === 'video' ? '' : `<button class="th-tg${tg.a === t.id ? ' on' : ''}" data-tg="${t.id}" title="Target: Insert / Overwrite from the Source monitor go to ${t.name} (click again: off)">A</button>`}<b>${t.name}</b>${t.kind === 'video' ? (st.name ? `<span>${esc(st.name)}</span>` : '') : `<span>${esc(t.label)}</span>`}</div>
+      <div class="th-name"${t.kind === 'video' ? '' : ` title="${esc(t.label)}"`}>${t.kind === 'video' ? '' : `<button class="th-tg${tg.a === t.id ? ' on' : ''}" data-tg="${t.id}" title="Target: Insert / Overwrite from the Source monitor go to ${t.name} (click again: off)">A</button>`}<b>${t.name}</b>${t.kind === 'video' ? (st.name ? `<span>${esc(st.name)}</span>` : '') : `<span>${esc(t.label)}</span>`}</div>
       <div class="th-btns">
         ${t.kind === 'video' ? `<button class="tbtn${st.hide ? ' on' : ''}" data-tst="hide" title="Hide track">${st.hide ? ICON.eyeOff : ICON.eye}</button>` : ''}
         <button class="tbtn${st.mute ? ' on' : ''}" data-tst="mute" title="${t.kind === 'video' ? 'Mute clip sound' : 'Mute track'}">M</button>

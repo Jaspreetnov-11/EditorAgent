@@ -11,7 +11,7 @@ import { api, enc } from './api.js';
 import { $, $$, h, esc, toast } from './ui.js';
 import { renderHome, openXmlFile } from './home.js';
 import { mountPool, refreshMedia, uploadFiles } from './mediapool.js';
-import { mountTimeline, splitAtPlayhead, trimAtPlayhead, deleteSelected, duplicateSelected, addTitle, setTool, setZoom, fitZoom, setTrackZoom, trackZoom, unlinkSelected, markRange, clearRange, rangeMark, liftExtract } from './timeline.js';
+import { mountTimeline, centerTracks, splitAtPlayhead, trimAtPlayhead, deleteSelected, duplicateSelected, addTitle, setTool, setZoom, fitZoom, setTrackZoom, trackZoom, unlinkSelected, markRange, clearRange, rangeMark, liftExtract } from './timeline.js';
 import { mountViewer, toggle, shuttle, seek, isPlaying, isPlayingProgram, viewerMode, pause, setMode, sourceKey, toggleFullscreen, editTextClip } from './player.js';
 import { mountInspector, deleteSelectedKeys } from './inspector.js';
 import { mountFxPanel } from './fxpanel.js';
@@ -348,7 +348,7 @@ async function openProject(name) {
     if (!editorEl.querySelector('.top')) safely('Building the editor', shell);
     homeEl.hidden = true; editorEl.hidden = false;
     $('#pName').textContent = name;
-    document.title = `${name} - Limelight`;
+    document.title = matchMedia('(display-mode: standalone)').matches ? name : `${name} - Limelight`; // (the installed app's window already starts with "Limelight")
     history.replaceState(null, '', `#/p/${enc(name)}`);
     // recovered changes go to the server like any other change (only what differs from the saved project)
     if (recovered) { delete recovered._rev; S.project = recovered; commit('Recovered changes'); }
@@ -366,7 +366,7 @@ async function openProject(name) {
     safely('Render queue', pollQueue); // renders still running / waiting in the background queue
     safely('Phone notes', watchPhoneNotes); // notes sent from a phone (📱 review)
     emit('change', {}); emit('save');
-    setTimeout(fitZoom, 50);
+    setTimeout(() => { fitZoom(); centerTracks(); }, 50); // (V1 / A1 in the middle of the tracks)
   } catch (e) { console.error('openProject: a step failed - the project stays open', e); toast(`Something in this project could not be shown (${e.message}) - the rest works`, 'err'); }
 }
 

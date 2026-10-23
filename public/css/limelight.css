@@ -187,3 +187,91 @@ html.ui2[data-look="limelight"] .pf-chip.add { border: 0; box-shadow: 0 0 0 1px 
 html.ui2[data-look="limelight"] .proj-th { border-radius: 14px 14px 0 0; }
 html.ui2[data-look="limelight"] .lw-item.on { border-color: rgba(255,194,26,.5); background: rgba(255,194,26,.08); }
 html.ui2[data-look="limelight"] :is(.lw-sw, .lbt-clip) { background: var(--y-grad); color: #111; }
+
+/* ---------- monitor header: dropdowns at their own width (the Fast / Full one stretched over the bar and squeezed the rest) ---------- */
+html.ui2[data-look="limelight"] .vw-head select { width: auto; flex: none; max-width: 120px; }
+html.ui2[data-look="limelight"] .vw-head .vw-title { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+
+/* ---------- timeline track heads: name on its own line under the chip, quiet buttons, a yellow icon when on ---------- */
+html.ui2[data-look="limelight"] .tl-heads .th { padding: 0 6px 0 10px; }
+html.ui2[data-look="limelight"] .tl-heads .th::before { opacity: .8; top: 6px; bottom: 6px; }
+html.ui2[data-look="limelight"] .tl-heads .th-name { flex-wrap: wrap; row-gap: 3px; align-content: center; }
+html.ui2[data-look="limelight"] .tl-heads .th-name b { color: var(--text); background: #1a1a1e; border: 0; box-shadow: 0 0 0 1px var(--hair-2) inset; padding: 3px 6px; border-radius: 5px; font: 600 10.5px/1 var(--ui-font); letter-spacing: .02em; }
+html.ui2[data-look="limelight"] .tl-heads .th-name span { flex-basis: 100%; font-size: 10px; color: var(--faint); line-height: 1.1; }
+html.ui2[data-look="limelight"] .tl-heads .th.tiny .th-name span { display: none; }
+html.ui2[data-look="limelight"] .tl-heads .th-tg { width: 16px; height: 16px; border-radius: 4px; border: 0; background: transparent; box-shadow: 0 0 0 1px var(--hair-2) inset; color: var(--faint); font: 600 9px/16px var(--ui-font); }
+html.ui2[data-look="limelight"] .tl-heads .th-tg.on { background: var(--y-grad); color: #111; box-shadow: none; }
+html.ui2[data-look="limelight"] .tl-heads .th-btns { gap: 2px; }
+html.ui2[data-look="limelight"] .tl-heads .tbtn { width: 18px; height: 18px; border: 0; border-radius: 5px; background: transparent; box-shadow: none; color: #6e6e75; font: 600 9.5px/1 var(--ui-font); }
+html.ui2[data-look="limelight"] .tl-heads .th.audio .tbtn { width: 17px; }
+html.ui2[data-look="limelight"] .tl-heads .tbtn:hover:not(:disabled) { background: #1d1d21; color: var(--text); }
+html.ui2[data-look="limelight"] .tl-heads .tbtn.on { background: transparent; border: 0; box-shadow: none; color: var(--accent); }
+html.ui2[data-look="limelight"] .tl-heads .th-btns .tbtn.solo.on { background: var(--accent); color: #111; }
+html.ui2[data-look="limelight"] .tl-heads .th-btns .tbtn.rec.on { color: #ff5a64; }
+
+/* ---------- the page bar: graphite charcoal, a hairline on top, the Limelight yellow for the open page (asked for) ---------- */
+html.ui2[data-look="limelight"] .pagebar { background: #141416; border-top: 1px solid rgba(255,255,255,.06); }
+html.ui2[data-look="limelight"] .pagebar button { color: #8e8e95; }
+html.ui2[data-look="limelight"] .pagebar button:hover { color: #e4e4e7; }
+html.ui2[data-look="limelight"] .pagebar button[aria-current="true"] { color: #fff; border-top-color: var(--accent); }
+html.ui2[data-look="limelight"] .pagebar .pb-zoom button { background: #1d1d21; border: 0; box-shadow: 0 0 0 1px var(--hair-2) inset; border-radius: 6px; color: var(--text); }
+html.ui2[data-look="limelight"] .pagebar .pb-zoom input[type=range] { accent-color: var(--accent); }
+html.ui2[data-look="limelight"] .pagebar .pb-zoom .zoom { color: #8e8e95; }
+/* (the page bar sets its own classic tokens, so the yellow is written out here) */
+html.ui2[data-look="limelight"] .pagebar button[aria-current="true"] { border-top-color: #ffc21a; }
+html.ui2[data-look="limelight"] .pagebar .pb-zoom input[type=range] { accent-color: #ffc21a; }
+/* audio heads are full of buttons: the target and the track chip stay on one line, the track's name is in the tooltip */
+html.ui2[data-look="limelight"] .tl-heads .th.audio .th-name { flex-wrap: nowrap; }
+html.ui2[data-look="limelight"] .tl-heads .th.audio .th-name span { display: none; }
+html.ui2[data-look="limelight"] .tl-heads .th.audio { gap: 0 4px; padding-right: 4px; }
+html.ui2[data-look="limelight"] .tl-heads .th.audio .th-btns { gap: 0; }
+html.ui2[data-look="limelight"] .tl-heads .th.audio .tbtn { width: 15px; }
+html.ui2[data-look="limelight"] .tl-heads .th.audio .tbtn svg { width: 11px; height: 11px; }
+html.ui2[data-look="limelight"] .tl-heads .th.audio .th-name { gap: 3px; }
+html.ui2[data-look="limelight"] .tl-heads .th.audio .th-name b { padding: 3px 5px; }
+
+/* ---------- timeline: all the tools in one row on the timeline bar, beside the sequence tabs (asked for), not a column on the left ---------- */
+html.ui2[data-look="limelight"] .timeline { display: flex; flex-direction: column; }
+html.ui2[data-look="limelight"] .timeline .tl-top { display: flex; align-items: stretch; flex: none; min-height: 38px; border-bottom: 1px solid var(--hair); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+html.ui2[data-look="limelight"] .timeline .tl-tools { grid-column: auto; grid-row: auto; flex-direction: row; align-items: center; gap: 1px; padding: 0 6px; flex: none;
+  background: transparent; border: 0; border-right: 1px solid var(--hair); border-radius: 0; overflow: visible; }
+html.ui2[data-look="limelight"] .timeline .tl-tools .segbtns { flex-direction: row; gap: 1px; }
+html.ui2[data-look="limelight"] .timeline .tl-tools button { width: 28px; height: 28px; min-height: 28px; border-radius: 7px; }
+html.ui2[data-look="limelight"] .timeline .tl-tools button[aria-pressed="true"], html.ui2[data-look="limelight"] .timeline .tl-tools button.on { color: var(--accent); background: rgba(255,194,26,.1); border-color: transparent; box-shadow: 0 0 0 1px rgba(255,194,26,.35) inset; }
+html.ui2[data-look="limelight"] .timeline .tl-tools .sep { width: 1px; height: 18px; margin: 0 5px; background: var(--hair-2); }
+html.ui2[data-look="limelight"] .timeline .tl-bar { flex: 1; min-width: 0; grid-column: auto; grid-row: auto; border-bottom: 0; }
+html.ui2[data-look="limelight"] .timeline .tl-main { flex: 1; min-height: 0; grid-column: auto; grid-row: auto; }
+
+/* ---------- the Color page and the page bar: graphite charcoal and the Limelight yellow too (asked for: "har jagah") ----------
+   ui2.css brings the classic navy greys and orange back inside them; here they get this look's tokens instead. */
+html.ui2[data-look="limelight"] #colorPage, html.ui2[data-look="limelight"] .pagebar {
+  --bg: #050505; --bg-2: #0a0a0b; --panel: #0e0e10; --panel-2: #17171a; --panel-3: #222226; --line: #1f1f23; --line-2: #2c2c31;
+  --text: #f7f7f8; --muted: #9b9ba1; --faint: #6e6e75; --accent: #ffc21a; --accent-2: #ffd252; --accent-ink: #111111;
+  --accent-soft: rgba(255,194,26,.1); --accent-line: rgba(255,194,26,.5); --tc: #f7f7f8;
+  font-family: var(--ui-font); letter-spacing: .005em; -webkit-font-smoothing: antialiased;
+}
+html.ui2[data-look="limelight"] #colorPage { background: var(--bg); }
+html.ui2[data-look="limelight"] #colorPage .panel { background: linear-gradient(180deg, #111113, #0d0d0f 140px); border-color: transparent; box-shadow: 0 0 0 1px var(--hair) inset; border-radius: 12px; }
+html.ui2[data-look="limelight"] #colorPage :is(button, select, input:not([type=range]):not([type=checkbox])) { border-color: transparent; box-shadow: 0 0 0 1px var(--hair) inset; border-radius: 8px; }
+html.ui2[data-look="limelight"] #colorPage button { background: #151518; }
+html.ui2[data-look="limelight"] #colorPage button:hover:not(:disabled) { background: #1e1e22; }
+html.ui2[data-look="limelight"] #colorPage :is(button.on, button.tog.on, button[aria-pressed="true"]) { background: rgba(255,194,26,.1); color: #ffd252; box-shadow: 0 0 0 1px rgba(255,194,26,.45) inset; }
+html.ui2[data-look="limelight"] #colorPage button.accent { background: rgba(255,194,26,.08); color: #ffd252; box-shadow: 0 0 0 1px rgba(255,194,26,.45) inset; }
+html.ui2[data-look="limelight"] #colorPage button.primary { background: var(--y-grad); color: #111; box-shadow: none; }
+html.ui2[data-look="limelight"] #colorPage :is(select, input:not([type=range]):not([type=checkbox])) { background: #0a0a0c; }
+html.ui2[data-look="limelight"] #colorPage input[type=range], html.ui2[data-look="limelight"] #colorPage input[type=checkbox] { accent-color: #ffc21a; }
+html.ui2[data-look="limelight"] #colorPage h2, html.ui2[data-look="limelight"] #colorPage h3 { color: var(--faint); letter-spacing: .09em; }
+
+/* ---------- the classic orange left in app.css highlights, in the Limelight yellow ---------- */
+html.ui2[data-look="limelight"] :is(.fmt input:checked + span, .seg2 input:checked + span, .ag-type input:checked + span) { border-color: rgba(255,194,26,.6); background: rgba(255,194,26,.08); }
+html.ui2[data-look="limelight"] .fmt input:checked + span i { border-color: #ffc21a; }
+html.ui2[data-look="limelight"] :is(.rl-card:has(input:checked), .re-box.hi) { border-color: rgba(255,194,26,.6); background: rgba(255,194,26,.06); }
+html.ui2[data-look="limelight"] .as-msg.me { background: rgba(255,194,26,.12); border-color: rgba(255,194,26,.3); }
+html.ui2[data-look="limelight"] .fx.on { border-color: rgba(255,194,26,.4); }
+html.ui2[data-look="limelight"] :is(.mo-comp.on, .mo-lrow.on) { background: rgba(255,194,26,.1); }
+html.ui2[data-look="limelight"] .tl-fxzone { border-color: #ffc21a; }
+html.ui2[data-look="limelight"] input[type=range], html.ui2[data-look="limelight"] input[type=checkbox], html.ui2[data-look="limelight"] input[type=radio] { accent-color: #ffc21a; }
+/* the Color page's segmented choices (Waveform / Parade..., Wheels / Curves / Hue): the chosen one a soft yellow pill, readable */
+html.ui2[data-look="limelight"] #colorPage .segbtns button { background: transparent; box-shadow: none; }
+html.ui2[data-look="limelight"] #colorPage .segbtns button:is([aria-selected="true"], [aria-pressed="true"]), html.ui2[data-look="limelight"] #colorPage :is(button[aria-selected="true"], button[aria-pressed="true"]) {
+  background: rgba(255,194,26,.12); color: #ffd252; box-shadow: 0 0 0 1px rgba(255,194,26,.45) inset; }
