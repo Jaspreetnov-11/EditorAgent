@@ -5,11 +5,11 @@ import { S, commit, findClip, on, emit, layout } from './store.js';
 import { api, enc } from './api.js';
 import { ASPECTS, uid, clipDur, trackList, addTrack, parseTime, fmt, BLEND_MODES } from './model.js';
 import { $, $$, esc, toast, modal, fieldsHTML, bindFields } from './ui.js';
-import { GFX, gfxFields, newGraphic, drawGraphic, gfxKey, setGfxAssets, setGfxVideo, gfxReady, brandOf, PINS, pinOk, rtimeOk, rtimeOf } from './graphics.js';
+import { GFX, gfxFields, newGraphic, drawGraphic, gfxKey, setGfxAssets, setGfxVideo, gfxReady, setFontLoader, brandOf, PINS, pinOk, rtimeOk, rtimeOf } from './graphics.js';
 import { compVideos } from './motion.js';
 import { fusionVideos } from './fusion.js';
 import * as CV from './compvideo.js';
-import { fontField, pickFont } from './fontpick.js';
+import { fontField, pickFont, ensureFont } from './fontpick.js';
 
 // logos inside graphics come from the media pool (full-size image); a frame is drawn again when one has loaded
 setGfxAssets((id) => S.mediaById[id]?.urls?.play || null, () => emit('live'));
@@ -106,6 +106,9 @@ export function addShapeAt(shape, x, y, w, h) {
   emit('select');
   return c;
 }
+
+// 🔤 fonts from the editor's computer / Google: loaded when a graphic needs one; the monitor draws again when it arrives
+setFontLoader((fam) => ensureFont(fam, () => emit('mix')));
 
 // ---- Effect Controls ----
 export function gfxInspector(c) {

@@ -34,7 +34,12 @@ function gfxImage(id) {
   return x.complete && x.naturalWidth ? x : null;
 }
 // before baking: wait until the graphic's images are loaded
+// 🔤 a font the graphic uses that this browser may not have (a font of the editor's computer, a Google font): gfxui.js
+// sets the loader (fontpick.js ensureFont) - drawing asks for it (the monitor draws again once it is there), a bake waits
+let fontLoader = null;
+export function setFontLoader(fn) { fontLoader = fn; }
 export async function gfxReady(g) {
+  if (g?.font && fontLoader) await fontLoader(g.font);
   const ids = [g?.logo, ...(g?.tpl === 'comp' ? compMedia(g.comp) : [])].filter(Boolean);
   await Promise.all(ids.map((id) => { gfxImage(id); const x = IMGS.get(assetUrl(id)); return x && !x.complete ? new Promise((ok) => { x.addEventListener('load', ok, { once: true }); x.addEventListener('error', ok, { once: true }); }) : null; }));
 }
@@ -190,6 +195,7 @@ export function drawGraphic(ctx, W, H, g, t, dur, extra = {}) {
   if (g.tpl === 'fusion') return g.fusion ? drawFusion(ctx, W, H, g.fusion, t, { img: gfxImage, video: extra.video || gfxVideo, cut: cutOut }) : ctx.clearRect(0, 0, W, H);
   const th = g.theme === 'brand' ? brandTheme(g.brand) : THEMES[g.theme] || THEMES.mygov;
   FAM = `${g.font ? `"${String(g.font).replace(/"/g, '')}", ` : ''}"Nirmala UI", "Segoe UI", Arial, sans-serif`;
+  if (g.font && fontLoader) fontLoader(g.font);
   ctx.clearRect(0, 0, W, H);
   const fade = g.tpl === 'text' || g.tpl === 'shape' ? 1 : clamp((dur - t) / 0.4); // (Type tool text: no built-in fade, like Premiere)
   ctx.save();

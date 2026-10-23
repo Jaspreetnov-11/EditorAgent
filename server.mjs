@@ -22,6 +22,7 @@ import { gfxKey } from './public/js/graphics.js';
 import { CAPTION_LANGS, translatePrompt, parseTranslation } from './public/js/captions.js';
 import { stabOf, usesPython } from './public/js/effects.js';
 import { ensureLuts, guessLogLut } from './engine/lutgen.mjs';
+import { listFonts, fontFile } from './engine/fontnames.mjs';
 import { ensureLooks } from './engine/looklut.mjs';
 import { keywords, searchStock, downloadStock } from './engine/stock.mjs';
 import { measure, autoGrade, looksLog, matchGrade } from './engine/colorstats.mjs';
@@ -204,7 +205,7 @@ let aiVoiceSetup = null;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml',
-  '.json': 'application/json', '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm', '.m4v': 'video/mp4',
+  '.json': 'application/json', '.ttf': 'font/ttf', '.otf': 'font/otf', '.ttc': 'font/collection', '.woff2': 'font/woff2', '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm', '.m4v': 'video/mp4',
   '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.flac': 'audio/flac',
   '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json', '.srt': 'text/plain; charset=utf-8', '.ass': 'text/plain; charset=utf-8',
 };
@@ -2947,6 +2948,30 @@ function liveForget(name) { const L = live.get(name); if (L) { clearTimeout(L.ti
 
 // ---------------- routes ----------------
 const q = (u, k) => u.searchParams.get(k);
+// 🔤 fonts (GET /api/fonts): this computer's families, read once (a second or so) and again after 10 minutes
+let pcFontCache = null, pcFontAt = 0;
+function pcFonts() {
+  if (!pcFontCache || Date.now() - pcFontAt > 10 * 60e3) {
+    const fams = listFonts(), out = {};
+    for (const [fam, faces] of Object.entries(fams)) { const seen = new Set(); out[fam] = faces.filter((x) => { const k = `${x.weight}${x.italic}`; if (seen.has(k)) return false; seen.add(k); return true; }); }
+    pcFontCache = out; pcFontAt = Date.now();
+  }
+  return pcFontCache;
+}
+// Google Fonts' family list (their public metadata), kept in cache/google-fonts.json for a week
+let googleCache = null;
+async function googleFonts() {
+  const file = path.join(DATA, 'cache', 'google-fonts.json');
+  if (!googleCache) googleCache = readJSON(file, null);
+  if (googleCache && Date.now() - (googleCache.at || 0) < 7 * 86400e3) return googleCache.families;
+  try {
+    const t = await (await fetch('https://fonts.google.com/metadata/fonts', { signal: AbortSignal.timeout(8000) })).text();
+    const j = JSON.parse(t.replace(/^\)\]\}'/, ''));
+    const families = (j.familyMetadataList || []).map((x) => x.family).filter(Boolean).sort();
+    if (families.length) { googleCache = { at: Date.now(), families }; fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(googleCache)); }
+  } catch {}
+  return googleCache?.families || [];
+}
 // 📊 Sessions (engine/presence.mjs): who worked when, for how long - the last 31 days, in sessions-log.json
 const PRESENCE = path.join(DATA, 'sessions-log.json');
 const presence = (() => { try { return JSON.parse(fs.readFileSync(PRESENCE, 'utf8')); } catch { return { sessions: [], logins: [] }; } })();
@@ -3760,6 +3785,10 @@ const routes = {
   },
 
   // LUTs & colour
+  // 🔤 the font picker (fontpick.js): every font family installed on this computer - their files served below, so an
+  // editor on any PC can use (and bake) them - and Google Fonts' families (fetched once a week, kept; none when offline)
+  'GET /api/fonts': async () => ({ pc: pcFonts(), google: await googleFonts() }),
+  'GET /api/fonts/file': (req, res, u) => { const file = fontFile(q(u, 'f')); if (!file) throw err(404, 'No such font file'); return serveFile(req, res, file, true); },
   'GET /api/luts': (req, res, u) => Object.keys(lutMap(needProject(q(u, 'p')))).sort(),
   'GET /api/lut/file': (req, res, u) => {
     const f = lutMap(needProject(q(u, 'p')))[q(u, 'name')];

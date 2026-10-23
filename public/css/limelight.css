@@ -286,3 +286,7 @@ html.ui2 .tl-bar .tl-stab :is(.stab-x, .stab-team) { flex: none; }
 html.ui2 .tl-bar :is(.tl-seq, .tl-tc, .tl-dur) { flex: none; }
 html.ui2 .timeline .tl-bar > .grow { display: none; } /* (the tabs take the free room; the timecode is pinned instead:) */
 html.ui2 .timeline .tl-bar .tl-tc { margin-left: auto; }
+
+/* 🔤 font picker sections: the editor computer's fonts, then Google Fonts */
+.fp-list .fp-h { flex: none; padding: 8px 8px 3px; font: 600 10px 'Segoe UI', sans-serif; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.fontpick { width: 320px; max-height: 420px; }

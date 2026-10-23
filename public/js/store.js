@@ -189,7 +189,7 @@ window.addEventListener('pointerdown', () => { pointerDown = true; }, true);
 window.addEventListener('pointerup', () => { pointerDown = false; setTimeout(drainWaiting, 0); }, true);
 window.addEventListener('pointercancel', () => { pointerDown = false; setTimeout(drainWaiting, 0); }, true);
 document.addEventListener('focusout', () => setTimeout(drainWaiting, 0), true);
-const typing = () => { const a = document.activeElement; return !!a && (a.tagName === 'TEXTAREA' || a.isContentEditable || (a.tagName === 'INPUT' && /^(text|search|number|)$/.test(a.type || ''))); };
+const typing = () => { const a = document.activeElement; return !!a && (a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || a.isContentEditable || (a.tagName === 'INPUT' && /^(text|search|number|)$/.test(a.type || ''))); };
 const busy = () => pointerDown || typing();
 function drainWaiting() {
   if (busy() || !waiting.length) return;

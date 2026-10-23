@@ -492,7 +492,7 @@ function motionVal(c, p, rel) { return hasKeys(c, p) && rel !== null ? propAt(c,
 function blendHTML(c, track) {
   const v1 = track === 'V1';
   return `<div class="pm-row pm-blend"><span></span><span class="pm-n">Blend Mode</span>
-    <select data-blend${v1 ? ' disabled title="On the main story there is nothing below to blend with - put the clip on V2 or higher"' : ' title="How this clip mixes with the tracks below it. Darken / Multiply… make it darker, Lighten / Screen / Add lighter, Overlay / Soft Light add contrast. Exact in Accurate preview and the render."'}>${BLEND_MODES.map(([k, l]) => `<option value="${k}"${(c.blend || '') === k ? ' selected' : ''}>${l}</option>`).join('')}</select></div>`;
+    <select data-blend${v1 ? ' title="Blends with the tracks below it - a main-story (V1) clip has only black below, so for a visible blend move it up a track (Alt+↑) over another clip"' : ' title="How this clip mixes with the tracks below it. Darken / Multiply… make it darker, Lighten / Screen / Add lighter, Overlay / Soft Light add contrast. Exact in Accurate preview and the render."'}>${BLEND_MODES.map(([k, l]) => `<option value="${k}"${(c.blend || '') === k ? ' selected' : ''}>${l}</option>`).join('')}</select></div>`;
 }
 function motionHTML(c, D, isVid, blendTrack) {
   const rel = relTime(c.id), ks = kSel.id === c.id ? kSel.list : [];
@@ -542,6 +542,7 @@ function bindMotion(id) {
     const c = findClip(id)?.clip; if (!c) return;
     if (e.target.value) c.blend = e.target.value; else delete c.blend;
     doCommit(`Blend mode: ${BLEND_MODES.find(([k]) => k === e.target.value)?.[1] || 'Normal'}`);
+    if (e.target.value && findClip(id)?.track === 'V1') toast('Blend mode set - it mixes with the tracks below: on V1 there is only black, so move the clip up a track (Alt+↑) over the shot it should blend with');
   });
   // ⏱ animate on (a first keyframe at the playhead, with the value now) / off (its keyframes go, the value stays)
   box.querySelectorAll('[data-sw]').forEach((b) => b.addEventListener('click', () => {
