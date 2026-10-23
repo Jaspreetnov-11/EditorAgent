@@ -177,7 +177,7 @@ function movable() {
 }
 function bindDirectMove() {
   const fps = () => S.project.settings.fps || 30;
-  // only the Selection tool moves a clip here; the Hand tool moves the view (never the clip), like Premiere
+  // only the Selection tool moves a clip here
   frame.addEventListener('pointermove', (e) => { if (!e.buttons) frame.classList.toggle('can-move', monitorDrag(S.tool, 0, false) === 'move' && !!movable()); });
   frame.addEventListener('pointerdown', (e) => {
     if (monitorDrag(S.tool, e.button, false) !== 'move') return;
@@ -203,7 +203,7 @@ function bindDirectMove() {
     setViewZoom(cur * (e.deltaY < 0 ? 1.15 : 1 / 1.15), { x: e.clientX, y: e.clientY });
   }, { passive: false });
   $('[data-vzoom]', root).addEventListener('change', (e) => setViewZoom(e.target.value === 'fit' ? 'fit' : +e.target.value));
-  // middle-drag (or a drag with the Hand tool) moves around a zoomed-in picture
+  // middle-drag moves around a zoomed-in picture
   stage.addEventListener('pointerdown', (e) => {
     if (monitorDrag(S.tool, e.button, viewZoom !== 'fit') !== 'pan') return;
     e.preventDefault();

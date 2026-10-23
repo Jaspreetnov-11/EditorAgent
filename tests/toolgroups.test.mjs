@@ -22,8 +22,7 @@ test('a click on a group button: a plain click sets its tool; the ◢ corner or 
 test('Program monitor: the Hand tool pans and never moves the clip; only the Selection tool moves it', async () => {
   const { monitorDrag } = await import('../public/js/toolgroups.js');
   same(monitorDrag('select', 0, false), 'move');
-  same(monitorDrag('hand', 0, true), 'pan');
-  same(monitorDrag('hand', 0, false), null);
+  same(monitorDrag('hand', 0, true), null, 'there is no Hand tool any more');
   same(monitorDrag('select', 1, true), 'pan');
   same(monitorDrag('ripple', 0, false), null);
 });

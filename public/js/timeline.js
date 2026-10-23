@@ -187,7 +187,6 @@ export function mountTimeline(el) {
   scroller.addEventListener('pointerdown', (e) => {
     if (e.button !== 0 || e.target.closest('#tlRows, .tl-ruler, #tlPlayhead, .tl-marquee, .tr-box, .clip, button, input, select')) return;
     if (e.offsetX > scroller.clientWidth || e.offsetY > scroller.clientHeight) return; // (its scrollbars)
-    if (S.tool === 'hand') { handDrag(e); return; } // ✋ the Hand only scrolls - no selection box
     marqueeStart(e);
   });
   rowsEl.addEventListener('contextmenu', onContext);
@@ -917,8 +916,8 @@ function trackSelect(e, el) {
 
 function onRowsDown(e) {
   if (e.button !== 0) return;
-  // ✋ Hand: drag the timeline around; ⌕ Zoom: click to zoom in there, Alt+click out (like Premiere's H / Z)
-  if (S.tool === 'hand') { handDrag(e); return; }
+  // ⌕ Zoom: click to zoom in there, Alt+click out (like Premiere's Z). (There is no Hand tool - the user wanted only
+  // the Selection tool to move things; the timeline scrolls with its scrollbars and the wheel.)
   if (S.tool === 'zoom') { e.preventDefault(); setZoom(S.zoom * (e.altKey ? 1 / 1.6 : 1.6), true, e.clientX); return; }
   // ⧓ an end of a transition box: drag it to make that side longer / shorter, on its own - the left end is how long
   // it runs before the cut, the right end after it (like Premiere); the cut and every shot stay put
@@ -1182,14 +1181,6 @@ function clipLabel() {
   });
 }
 
-function handDrag(e) {
-  e.preventDefault();
-  const x0 = e.clientX, y0 = e.clientY, l0 = scroller.scrollLeft, t0 = scroller.scrollTop;
-  root.classList.add('grabbing');
-  const move = (ev) => { scroller.scrollLeft = l0 - (ev.clientX - x0); scroller.scrollTop = t0 - (ev.clientY - y0); };
-  window.addEventListener('pointermove', move);
-  window.addEventListener('pointerup', () => { window.removeEventListener('pointermove', move); root.classList.remove('grabbing'); }, { once: true });
-}
 // ↔ Slip: the clip keeps its place and length and shows another part of its file (In and Out move together, as far
 // as the file goes). ⇆ Slide (main story): the clip moves between its neighbours - the one before grows into it as much
 // as the one after shrinks (or the other way), from their spare frames - so the rest of the story stays where it is.

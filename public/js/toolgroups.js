@@ -31,9 +31,9 @@ export function groupClick({ held = false, corner = false, many = false }) {
 // the tools whose click selects many clips at once: picking one says so
 export const MANY_SELECT = new Set(['trackfwd', 'trackback']);
 
-// a press on the Program monitor: what a drag does. Only the Selection tool moves the clip; the Hand tool (or the
-// middle button) moves around a zoomed-in picture and never the clip - they were mixed up before.
+// a press on the Program monitor: what a drag does. Only the Selection tool moves the clip; the middle button moves
+// around a zoomed-in picture and never the clip. (No Hand tool - removed at the user's wish.)
 export function monitorDrag(tool, button, zoomed) {
-  if (button === 1 || (button === 0 && tool === 'hand')) return zoomed ? 'pan' : null;
+  if (button === 1) return zoomed ? 'pan' : null;
   return button === 0 && tool === 'select' ? 'move' : null;
 }
