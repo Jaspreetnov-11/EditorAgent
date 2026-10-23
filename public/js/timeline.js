@@ -1007,6 +1007,10 @@ function onRowsDown(e) {
   if (S.tool === 'extend') { select(id, false); if (findClip(id)?.clip.type === 'video') morphOrExtend(id, 'extend'); else toast('Generative Extend works on video clips'); return; }
   if (S.tool === 'pen' && !e.target.closest('[data-trim]')) { penKey(id, track, e, el); return; }
   if (S.tool === 'slip' || S.tool === 'slide') { select(id, false); slipSlide(e, id, track); return; }
+  // a plain press on a clip that is already one of several selected keeps them all (they may be dragged together); let
+  // go without moving and it is a click - then only that clip is selected, like Premiere. (It used to keep the whole old
+  // selection, so the next Shift+clicks took clips OFF it and the user's group was not the one that moved.)
+  const collapse = S.sel.has(id) && S.sel.size > 1 && !(e.shiftKey || e.ctrlKey || e.altKey);
   if (!S.sel.has(id) || e.shiftKey || e.ctrlKey || e.altKey) select(id, e.shiftKey || e.ctrlKey, e.altKey);
   S.linkLead = id; // (the linked half follows the one you drag / trim)
   const trim = e.target.closest('[data-trim]')?.dataset.trim;
@@ -1045,7 +1049,7 @@ function onRowsDown(e) {
       roll = { aId: A.id, bId: B.id, a0: JSON.parse(JSON.stringify(A)), b0: JSON.parse(JSON.stringify(B)), cut0: L0[iB].start };
     }
   }
-  drag = { id, track, from: track, made: [], el, x0: e.clientX, y0: e.clientY, moved: false, trim, v1, roll, multi, rate: !!trim && S.tool === 'rate', remix: !!trim && S.tool === 'remix' && f.clip.type === 'audio', orig: JSON.parse(JSON.stringify(f.clip)), index: f.index,
+  drag = { id, track, from: track, made: [], el, x0: e.clientX, y0: e.clientY, moved: false, trim, v1, roll, multi, collapse, rate: !!trim && S.tool === 'rate', remix: !!trim && S.tool === 'remix' && f.clip.type === 'audio', orig: JSON.parse(JSON.stringify(f.clip)), index: f.index,
     // where on the clip it was taken (sec from its start) - from the timeline, not the element: select() above has
     // already redrawn the clips, so `el` may be a removed one (its position read as 0 and drops landed seconds off)
     grab: timeAt(e.clientX) - (layout()[track]?.find((x) => x.clip.id === id)?.start ?? f.clip.start ?? 0),
@@ -1402,7 +1406,10 @@ function onDragMove(e) {
     drag.toTrack = overTrack;
     drag.newStart = snap(Math.max(0, timeAt(e.clientX) - drag.grab), pts); // (it used to stay where it was taken from)
     const from = layout().V1.find((x) => x.clip.id === drag.id)?.start || 0;
-    live.style.transform = `translate(${(drag.newStart - from) * S.zoom}px, ${rowTop(overTrack) - rowTop('V1')}px)`; live.classList.add('dragging');
+    const move = `translate(${(drag.newStart - from) * S.zoom}px, ${rowTop(overTrack) - rowTop('V1')}px)`;
+    live.style.transform = move; live.classList.add('dragging');
+    // (the other selected main-story clips go up with it - they used to stay on V1 while only the grabbed one moved)
+    for (const id of drag.v1Others || []) { const el = root.querySelector(`.clip[data-id="${id}"]`); if (el) { el.style.transform = move; el.classList.add('dragging'); } }
     return;
   }
   if (target === 'V1') {
@@ -1554,7 +1561,7 @@ function onDragUp(e) {
   const d = drag; drag = null;
   // (tracks this drag made at the edge that ended up empty go again)
   const dropMade = () => { for (const id of d?.made || []) if (!S.project.tracks[id]?.length) { delete S.project.tracks[id]; delete S.project.trackState?.[id]; } };
-  if (!d || !d.moved) { dropMade(); S.linkLead = null; if (d?.made.length) render(); return; }
+  if (!d || !d.moved) { dropMade(); S.linkLead = null; if (d?.collapse && !d.trim) select(d.id, false); else if (d?.made.length) render(); return; }
   dropMade();
   // 🎬 let go over the Source / Program monitor: the clip opens in the Source monitor at its In, and stays where it was
   const overMon = e && !d.trim && !d.roll && !d.rate && !d.multi?.length && document.elementFromPoint(e.clientX, e.clientY)?.closest('.srcmon, .mon-dock, .edit-grid.ws-monsrc .viewer');
@@ -1599,13 +1606,17 @@ function onDragUp(e) {
     commit('Move clip'); return;
   }
   if (d.toTrack && d.toTrack !== 'V1' && f.track === 'V1') {
-    // up from V1 onto an overlay track: a gap stays in its place, so the rest of the story does not move
-    const [c] = S.project.tracks.V1.splice(f.index, 1, gapClip(v1Len(d.id)));
+    // up from V1 onto an overlay track: a gap stays in its place, so the rest of the story does not move. The other
+    // selected main-story clips go up with it, each as far in time as the grabbed one; selected overlays move as much.
+    const L = layout().V1, x0 = L.find((p) => p.clip.id === d.id), dt = d.newStart - (x0?.start ?? 0);
+    const group = [d.id, ...(d.v1Others || [])].map((id) => L.find((p) => p.clip.id === id)).filter(Boolean).sort((a, b) => a.start - b.start);
+    const lifted = group.map((x) => ({ c: x.clip, t: Math.max(0, x.start + dt), len: v1Len(x.clip.id) }));
+    for (const { c, len } of [...lifted].reverse()) { const V1 = S.project.tracks.V1, i = V1.indexOf(c); if (i >= 0) V1.splice(i, 1, gapClip(len)); }
     tidyGaps();
-    delete c.transitionIn; c.start = +d.newStart.toFixed(3);
-    ensureTrack(S.project, d.toTrack); S.project.tracks[d.toTrack].push(c);
-    soundFollows(c, 'V1', d.toTrack);
-    commit(`Move to ${d.toTrack}`); return;
+    ensureTrack(S.project, d.toTrack);
+    for (const { c, t } of lifted) { delete c.transitionIn; c.start = +t.toFixed(3); S.project.tracks[d.toTrack].push(c); soundFollows(c, 'V1', d.toTrack); }
+    for (const o of d.others) { const y = findClip(o.id); if (y && y.track !== 'V1') y.clip.start = +Math.max(0, o.start + dt).toFixed(3); }
+    commit(lifted.length > 1 ? `Move ${lifted.length} clips to ${d.toTrack}` : `Move to ${d.toTrack}`); return;
   }
   if (d.toTrack === 'V1' && f.track !== 'V1') {
     const [c] = S.project.tracks[f.track].splice(f.index, 1);
