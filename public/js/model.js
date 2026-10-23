@@ -522,6 +522,28 @@ export function setTransition(project, media, i, type, dur, sides = null) {
   return B.transitionIn;
 }
 
+// ⧓ a main-story clip about to be moved: the transitions on its two cuts are taken off properly first (the frames each
+// shot lent are given back, so no shot comes out longer and nothing on the timeline moves) and handed back, so they go
+// with the clip - its In transition is c.transitionIn, its Out one is on the clip after it. -> { head, tail } or nulls
+export function takeTransitions(project, media, c) {
+  const V1 = project.tracks.V1, i = V1.indexOf(c), next = V1[i + 1];
+  if (i < 0) return { head: null, tail: null };
+  const keep = (tr) => (tr && tr.type && tr.type !== 'cut' ? { type: tr.type, dur: tr.dur, ...trHandles(tr) } : null);
+  const tail = next && !next.gap ? keep(next.transitionIn) : null;
+  if (next?.transitionIn) setTransition(project, media, i + 1, null, 0);
+  const head = keep(c.transitionIn);
+  if (c.transitionIn) setTransition(project, media, i, null, 0);
+  return { head, tail };
+}
+// ...and put back on the clip's cuts where it landed: with a shot next to it, the same transition on that cut; with a gap
+// or nothing there, a fade from / to black as long (the look stays, there is nothing to mix with)
+export function giveTransitions(project, media, c, { head, tail } = {}) {
+  const V1 = project.tracks.V1, i = V1.indexOf(c); if (i < 0) return;
+  const prev = V1[i - 1], next = V1[i + 1];
+  if (head) { if (prev && !prev.gap) setTransition(project, media, i, head.type, 0, { hA: head.hA, hB: head.hB }); else c.fadeIn = +Math.min(5, head.dur).toFixed(2); }
+  if (tail) { if (next && !next.gap) setTransition(project, media, i + 1, tail.type, 0, { hA: tail.hA, hB: tail.hB }); else c.fadeOut = +Math.min(5, tail.dur).toFixed(2); }
+}
+
 export function placed(project, media) {
   const out = { V1: layoutV1(project, media) };
   for (const id of Object.keys(project?.tracks || {})) if (id !== 'V1')

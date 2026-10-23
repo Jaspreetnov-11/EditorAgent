@@ -14,7 +14,7 @@ import { sharedSeqId } from './store.js';
 import { openAudioGain, soundClips } from './audiogain.js';
 import { copyClips, pasteClips, clipboard } from './clipboard.js';
 import { TOOL_GROUPS, groupClick, MANY_SELECT } from './toolgroups.js';
-import { clipDur, uid, fmtTC, fmt, trackList, trackKind, trackNum, ensureTrack, frameScale, addTrack, syncLinked, linkAudioOf, linkedPartner, linkedIds, groupedIds, syncShift, rippleMarkers, evalKeys, fmtTime, freeAudioTrack, RAMPS, setRamp, rampPts, rampPart, profileAt, TRANSITIONS, setTransition, trHandles, propAt, keepLength, sourceAt } from './model.js';
+import { clipDur, uid, fmtTC, fmt, trackList, trackKind, trackNum, ensureTrack, frameScale, addTrack, syncLinked, linkAudioOf, linkedPartner, linkedIds, groupedIds, syncShift, rippleMarkers, evalKeys, fmtTime, freeAudioTrack, RAMPS, setRamp, rampPts, rampPart, profileAt, TRANSITIONS, setTransition, trHandles, takeTransitions, giveTransitions, propAt, keepLength, sourceAt } from './model.js';
 import { $, $$, h, esc, clamp, toast, modal } from './ui.js';
 import { api, enc } from './api.js';
 import { openGraphics } from './gfxui.js';
@@ -1510,7 +1510,13 @@ function v1Target(e, pts, live, from, yOff) {
     ins.style.top = `${rowTop('V1')}px`; ins.style.height = `${rowH('V1')}px`;
   } else ins.hidden = true;
   live.style.transform = `translate(${(at - from) * S.zoom}px, ${yOff}px)`; live.classList.add('dragging');
+  trBoxesGo(drag.id, `translate(${(at - from) * S.zoom}px, ${yOff}px)`);
   groupGhost((at - from) * S.zoom, yOff);
+}
+// ⧓ a main-story clip's transition boxes (on its In cut and its Out cut) drawn going along with it while it is dragged
+function trBoxesGo(id, tf) {
+  const V1 = S.project.tracks.V1, i = V1.findIndex((c) => c.id === id); if (i < 0) return;
+  for (const c of [V1[i], V1[i + 1]]) { const b = c && !c.gap && root.querySelector(`.tr-box[data-trans="${c.id}"]`); if (b) { b.style.transform = tf; b.style.pointerEvents = 'none'; } }
 }
 // the other selected clips drawn where they will go (a main-story group moves only by drawing until it is let go)
 function groupGhost(dx, dy) {
@@ -1518,19 +1524,23 @@ function groupGhost(dx, dy) {
     const el = root.querySelector(`.clip[data-id="${id}"]`); if (!el) continue;
     const v1 = (drag.v1Others || []).includes(id);
     el.style.transform = `translate(${dx}px, ${v1 ? dy : 0}px)`; el.classList.add('dragging');
+    if (v1) trBoxesGo(id, `translate(${dx}px, ${dy}px)`);
   }
 }
 // ⇄ several main-story clips moved by dt as one block: each is lifted (a gap stays, nothing else moves) and laid over
 // the spot dt later / earlier, in order - their spacing stays. Returns how many moved.
 function moveV1Group(ids, dt) {
   if (Math.abs(dt) < 0.005) return 0;
-  const L = layout().V1, list = ids.map((id) => L.find((p) => p.clip.id === id)).filter(Boolean).sort((a, b) => a.start - b.start);
-  if (!list.length) return 0;
+  const L0 = layout().V1, clips = ids.map((id) => L0.find((p) => p.clip.id === id)).filter(Boolean).sort((a, b) => a.start - b.start).map((x) => x.clip);
+  if (!clips.length) return 0;
+  // ⧓ their transitions go with them (the ones between two of them as well): taken off first, put back where they land
+  const trs = new Map([...clips].reverse().map((c) => [c, takeTransitions(S.project, S.mediaById, c)]));
+  const L = layout().V1, list = clips.map((c) => L.find((p) => p.clip === c)).filter(Boolean);
   dt = Math.max(dt, -list[0].start); // (none before 0)
   const lifted = list.map((x) => ({ c: x.clip, t: x.start + dt }));
   for (const x of [...list].reverse()) { const V1 = S.project.tracks.V1, i = V1.indexOf(x.clip); if (i >= 0) V1.splice(i, 1, gapClip(x.end - x.start - (x.overlap || 0))); }
   tidyGaps();
-  for (const { c, t } of lifted) overwriteV1(c, +t.toFixed(3));
+  for (const { c, t } of lifted) { overwriteV1(c, +t.toFixed(3)); giveTransitions(S.project, S.mediaById, c, trs.get(c)); }
   return lifted.length;
 }
 // an empty stretch of the main story (black, silent) - what a clip leaves behind when it is lifted out of V1
@@ -1600,8 +1610,10 @@ function onDragUp(e) {
       // (the other selected clips - overlays, sound - go along by as much)
       if (x) for (const o of d.others) { const y = findClip(o.id); if (y && y.track !== 'V1') y.clip.start = +Math.max(0, o.start + d.dropT - x.start).toFixed(3); }
       if (x && d.v1Others?.length) { moveV1Group([d.id, ...d.v1Others], d.dropT - x.start); commit(`Move ${d.v1Others.length + 1} clips`); return; }
-      const [c] = S.project.tracks.V1.splice(f.index, 1, gapClip(v1Len(d.id)));
+      const trs = takeTransitions(S.project, S.mediaById, f.clip); // (⧓ its transitions go with it)
+      const i = S.project.tracks.V1.indexOf(f.clip), [c] = S.project.tracks.V1.splice(i, 1, gapClip(v1Len(d.id)));
       overwriteV1(c, d.dropT);
+      giveTransitions(S.project, S.mediaById, c, trs);
     }
     commit('Move clip'); return;
   }
