@@ -37,7 +37,8 @@ function limiter(n) {
   return (fn) => new Promise((ok, no) => { wait.push(() => fn().then(ok, no).finally(() => { active--; next(); })); next(); });
 }
 
-// ctx: { opts, media: {id: item}, cacheDir, subsDir, python, root, luts, log(msg), progress(pct) }
+// ctx: { opts, media: {id: item}, cacheDir, subsDir, python, root, luts, log(msg), progress(pct), remote, lanes }
+// (remote / lanes: 🖥 helper PCs - analyze.mjs runs a clip's FFmpeg on whichever helper is free; lanes() = how many at once)
 export async function runAgent(ctx) {
   const { opts, media, cacheDir, python, root, log, progress } = ctx;
   let clips = (opts.clips || []).map((id) => media[id]).filter((m) => m && (m.kind === 'video' || m.kind === 'image'));
@@ -110,11 +111,14 @@ export async function runAgent(ctx) {
   let skipped = skipsAt(ctx.skips?.() || 0);
   // camera originals live on a slow network drive: two read at a time measured fastest (70 MB/s, vs 63 for one and 61
   // for four - the drive and the 4K decode both limit); proxies and cached clips go 6 at a time
-  const camLane = limiter(+opts.camReads || 2);
-  await Promise.all(Array.from({ length: 6 }, async () => {
+  // (🖥 with helper PCs on, as many clips at once as they have slots - each reads the NAS itself, and the editor keeps
+  // the NAS from being overrun: farm nasMax)
+  const remote = ctx.remote || null, lanes = Math.max(6, Math.min(48, +ctx.lanes?.() || 0));
+  const camLane = limiter(remote && lanes > 6 ? lanes : +opts.camReads || 2);
+  await Promise.all(Array.from({ length: lanes }, async () => {
     while (pool.length && !skipped()) {
       const m = pool.shift();
-      const go = () => analyzeClip(src(m), path.join(cacheDir, 'analysis', `${m.id}.json`), { hasAudio: m.hasAudio, duration: m.duration, keyOnly: keyOnly(m), framesDir: path.join(cacheDir, 'agent', 'frames', m.id) });
+      const go = () => analyzeClip(src(m), path.join(cacheDir, 'analysis', `${m.id}.json`), { hasAudio: m.hasAudio, duration: m.duration, keyOnly: keyOnly(m), framesDir: path.join(cacheDir, 'agent', 'frames', m.id), remote });
       facts[m.id] = await (cost(m) === 2 ? camLane(go) : go());
       progress(2 + (23 * ++done) / clips.length);
       if (pool.length && done % 10 === 0) log(`Analysing clips… ${done}/${clips.length} (press Skip to edit with these)`);
@@ -345,10 +349,10 @@ export async function runAgent(ctx) {
     if (out.length) { fpool = fpool.filter(ready); clips = clips.filter(ready); skippedIds.push(...out.map((m) => m.id)); report.warnings.push(`Quick mode: ${out.length} more clips without a preview copy were left out - the edit uses ${clips.length}`); }
   }
   skipped = skipsAt(ctx.skips?.() || 0);
-  await Promise.all(Array.from({ length: 6 }, async () => {
+  await Promise.all(Array.from({ length: lanes }, async () => {
     while (fpool.length && !skipped()) {
       const m = fpool.shift();
-      const go = () => extractFrames(src(m), path.join(cacheDir, 'agent', 'frames', m.id), { duration: m.duration, image: m.kind === 'image', keyOnly: keyOnly(m) });
+      const go = () => extractFrames(src(m), path.join(cacheDir, 'agent', 'frames', m.id), { duration: m.duration, image: m.kind === 'image', keyOnly: keyOnly(m), remote });
       frames[m.id] = await (keyOnly(m) ? camLane(go) : go());
       progress(48 + (8 * ++done) / clips.length);
     }

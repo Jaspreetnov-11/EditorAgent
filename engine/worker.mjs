@@ -11,6 +11,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -44,6 +45,13 @@ if (!BASE || !TOKEN) {
   console.log('Usage: node worker.mjs http://<editor computer>:3200 <token> [--slots 2] [--name "Edit PC 2"]\nThe link and token are in the editor: 👥 Team > 🖥 Render farm.');
   process.exit(1);
 }
+// one helper per PC: a second one (an old launcher's window and the hidden one, or a double-click) stops at once with
+// exit code 4 - the launcher then waits and tries again later, in case the first one is closed meanwhile
+await new Promise((ok) => {
+  const l = net.createServer();
+  l.once('error', () => { console.log(`${new Date().toLocaleTimeString()}  🖥 this PC is already helping the editor (another helper runs here) - this one stops`); process.exit(4); });
+  l.listen(+opt('lock-port', 3299), '127.0.0.1', () => { l.unref(); ok(); });
+});
 const FFMPEG = opt('ffmpeg', 'ffmpeg');
 const FFPROBE = opt('ffprobe', FFMPEG === 'ffmpeg' ? 'ffprobe' : path.join(path.dirname(FFMPEG), `ffprobe${path.extname(FFMPEG)}`));
 const NAME = opt('name', os.hostname());
@@ -54,7 +62,10 @@ const url = (p) => new URL(p, BASE).href;
 const src = (p) => `${url(p)}?t=${encodeURIComponent(TOKEN)}`;
 const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
 const log = (m) => console.log(`${new Date().toLocaleTimeString()}  ${m}`);
-const post = (p, body) => fetch(url(p), { method: 'POST', headers: { ...H, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+// (every request gives up after a while - an editor that went off or a network that hangs never leaves a slot stuck)
+const post = (p, body) => fetch(url(p), { method: 'POST', headers: { ...H, 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(30000) });
+// an upload: 2 minutes, plus a second for every 2 MB (about 16 Mbit/s at the least)
+const upTime = (bytes) => AbortSignal.timeout(120000 + Math.round(bytes / 2e6) * 1000);
 
 const works = (exe, args) => spawnSync(exe, args, { windowsHide: true, timeout: 20000 }).status === 0;
 if (!works(FFMPEG, ['-hide_banner', '-version'])) {
@@ -112,7 +123,7 @@ let codeSync = null;
 function syncCode() {
   codeSync ||= (async () => {
     try {
-      const r = await fetch(url('/farm/code'), { headers: H });
+      const r = await fetch(url('/farm/code'), { headers: H, signal: AbortSignal.timeout(30000) });
       if (!r.ok) return false;
       const { files } = await r.json(), mf = path.join(CODE, '.manifest.json');
       let had = {}; try { had = JSON.parse(fs.readFileSync(mf, 'utf8')); } catch {}
@@ -122,7 +133,7 @@ function syncCode() {
       for (const x of files) {
         const to = path.join(CODE, ...x.rel.split('/'));
         if (had[x.rel] === `${x.size}:${x.mtime}` && fs.existsSync(to)) continue;
-        const g = await fetch(url(`/farm/code/${x.rel.split('/').map(encodeURIComponent).join('/')}`), { headers: H });
+        const g = await fetch(url(`/farm/code/${x.rel.split('/').map(encodeURIComponent).join('/')}`), { headers: H, signal: AbortSignal.timeout(120000) });
         if (!g.ok) throw new Error(`${x.rel}: HTTP ${g.status}`);
         fs.mkdirSync(path.dirname(to), { recursive: true });
         fs.writeFileSync(`${to}.part`, Buffer.from(await g.arrayBuffer())); fs.renameSync(`${to}.part`, to);
@@ -168,7 +179,8 @@ function exec(exe, args, cwd, onLine, o = {}) {
       if (out.length < 2e6) out += d;
       if (onLine) { const ls = (part + d).split(/\r?\n/); part = ls.pop(); ls.forEach(onLine); }
     });
-    p.stderr.on('data', (d) => { err = (err + d).slice(-4000); });
+    // (o.fullErr: all of it, up to 8 MB - the Agent's clip analysis reads every line FFmpeg prints)
+    p.stderr.on('data', (d) => { err = o.fullErr ? (err.length < 8e6 ? err + d : err) : (err + d).slice(-4000); });
     p.on('error', (e) => ok({ code: -1, stdout: out, stderr: String(e) }));
     p.on('close', (code) => ok({ code, stdout: out, stderr: err }));
   });
@@ -183,7 +195,7 @@ async function doTask(t) {
     const r = await exec(FFMPEG, ['-hide_banner', '-y', '-loglevel', 'error', ...args, out], dir);
     if (r.code !== 0) throw new Error(r.stderr.trim().split('\n').pop() || `ffmpeg exit ${r.code}`);
     const size = fs.statSync(out).size;
-    const up = await fetch(url(`/farm/result/${t.id}`), { method: 'PUT', headers: { ...H, 'Content-Type': 'video/mp4', 'Content-Length': String(size) }, body: fs.createReadStream(out), duplex: 'half' });
+    const up = await fetch(url(`/farm/result/${t.id}`), { method: 'PUT', headers: { ...H, 'Content-Type': 'video/mp4', 'Content-Length': String(size) }, body: fs.createReadStream(out), duplex: 'half', signal: upTime(size) });
     if (!up.ok) throw new Error((await up.json().catch(() => ({}))).error || `upload HTTP ${up.status}`);
     log(`✓ ${t.label} (${((Date.now() - t0) / 1000).toFixed(1)}s, ${(size / 1048576).toFixed(1)} MB)`);
   } catch (e) {
@@ -222,7 +234,7 @@ async function doTool(t) {
     const onLine = ai ? rep.line : t.tag === 'proxy' ? (l) => { if (/^out_time_ms=/.test(l) && Date.now() - last > 2000) { last = Date.now(); post(`/farm/progress/${t.id}`, { line: l }).catch(() => {}); } } : null;
     const exe = ai ? PY : t.tool === 'ffprobe' ? FFPROBE : FFMPEG;
     if (ai) args = [path.join(CODE, 'engine', script || 'transcribe.py'), ...args];
-    const o = { both: ai, started: (p) => { proc = p; } };
+    const o = { both: ai, fullErr: !!t.fullErr, started: (p) => { proc = p; } };
     let r = null;
     const hw = t.tag === 'proxy' && NVENC ? nvencArgs(args) : null;
     if (hw) { r = await exec(exe, hw, dir, onLine, o); if (r.code !== 0) for (const x of outs) fs.rmSync(x.file, { force: true }); }
@@ -232,11 +244,11 @@ async function doTool(t) {
     for (const [n, o] of outs.entries()) {
       if (o.direct || !fs.existsSync(o.file)) continue;
       const size = fs.statSync(o.file).size;
-      const up = await fetch(url(o.url), { method: 'PUT', headers: { ...H, 'Content-Type': 'application/octet-stream', 'Content-Length': String(size) }, body: fs.createReadStream(o.file), duplex: 'half' });
+      const up = await fetch(url(o.url), { method: 'PUT', headers: { ...H, 'Content-Type': 'application/octet-stream', 'Content-Length': String(size) }, body: fs.createReadStream(o.file), duplex: 'half', signal: upTime(size) });
       if (!up.ok) throw new Error((await up.json().catch(() => ({}))).error || `upload ${n} HTTP ${up.status}`);
     }
     const direct = Object.fromEntries(outs.map((o, n) => [n, o.direct && fs.existsSync(o.file) ? `${suffix}${path.extname(o.path)}` : null]));
-    const d = await post(`/farm/done/${t.id}`, { stdout: r.stdout, stderr: r.stderr.slice(-2000), direct });
+    const d = await post(`/farm/done/${t.id}`, { stdout: r.stdout, stderr: t.fullErr ? r.stderr : r.stderr.slice(-2000), direct });
     if (!d.ok) throw new Error((await d.json().catch(() => ({}))).error || `HTTP ${d.status}`);
     if (t.tag === 'proxy' || ai || VERBOSE) log(`✓ ${t.label}${hw ? ' (NVIDIA)' : ''}${allLocal ? ' (read directly)' : ' (over the network)'} ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   } catch (e) {
@@ -278,7 +290,7 @@ async function slot(lane) {
   for (;;) {
     if (paused || stale) { await sleep(5000); continue; }
     try {
-      const r = await fetch(`${url('/farm/next')}?w=${encodeURIComponent(ID)}&lane=${lane}`, { headers: H });
+      const r = await fetch(`${url('/farm/next')}?w=${encodeURIComponent(ID)}&lane=${lane}`, { headers: H, signal: AbortSignal.timeout(45000) }); // (the editor holds it up to 25 s)
       if (r.status === 204) continue;
       if (r.status === 409) { await hello(); continue; }      // the editor restarted: introduce ourselves again
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);

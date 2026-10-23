@@ -18,5 +18,9 @@
 /Chats/*
 !/Chats/*.md
 !/Chats/LINKS.txt
+# (the helper PCs' launcher - copied to Z:\Limelight Render Farm; tools/ itself holds FFmpeg and models)
+!/tools/
+/tools/*
+!/tools/farm/
 *.zip
 *.log

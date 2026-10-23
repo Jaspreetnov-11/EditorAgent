@@ -41,6 +41,7 @@ import { ensureSfx, listSfx, SFX_KINDS } from './engine/sfx.mjs';
 import { gyroflowExe, findLog, gyroSamples, stabilise, LOG_EXT as GF_LOG } from './engine/gyroflow.mjs';
 import { runNightly, mirrorLive, restoreProject, nights as backupNights, standbyState, liveDir, dayOf, safeDir } from './engine/safety.mjs';
 import { pickHelper, toTaskArgs, gpuProxyArgs } from './engine/helpers.mjs';
+import { inNight, nightSource, recentProjects } from './engine/nightshift.mjs';
 import { byPriority, lineIndex } from './engine/priority.mjs';
 import * as QC from './engine/qc.mjs';
 import { archiveRoutes } from './engine/archive.mjs';
@@ -893,13 +894,14 @@ function helpersOn() {
 // whether this PC's FFmpeg can encode on an NVIDIA card (looked at once)
 let nvencLook = null;
 const nvencHere = () => (nvencLook ||= run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=s=256x256:d=0.1', '-frames:v', '1', '-c:v', 'h264_nvenc', '-f', 'null', '-']).then((r) => r.code === 0));
-async function runMedia(proj, tool, args, { inputs = [], outs = [], lane = 'light', tag = '', waitSec = 10, limitSec = 120, duration, onLine, helperOnly = false } = {}) {
+async function runMedia(proj, tool, args, { inputs = [], outs = [], lane = 'light', tag = '', waitSec = 10, limitSec = 120, duration, onLine, helperOnly = false, spread = false, fullErr = false } = {}) {
   if (proj && (await helpersOn())[lane] > 0) {
-    const ask = { proj, tool, args, inputs, outs, lane, tag, waitSec, limitSec, duration };
+    const ask = { proj, tool, args, inputs, outs, lane, tag, waitSec, limitSec, duration, spread, fullErr };
     let r = null;
     if (!IS_WORKER) r = await helperRun({ ...ask, onLine }).catch(() => null);
     else try {
-      const res = await fetch(`${APP_URL}/api/helper/run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ask) });
+      const res = await fetch(`${APP_URL}/api/helper/run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ask),
+        signal: AbortSignal.timeout(((+waitSec || 10) + (+limitSec || 120)) * 2000 + 60000) }); // (two tries and some slack, then it is done here)
       let buf = '';
       for await (const chunk of res.body) {
         buf += Buffer.from(chunk).toString('utf8');
@@ -2526,14 +2528,16 @@ const FARM_PORT = +process.env.FARM_PORT || 3200;
 const farmCfg = () => config().farm || {};
 const saveFarm = (f) => { const c = config(); c.farm = { ...farmCfg(), ...f }; saveConfig(c); };
 const farm = { server: null, workers: new Map(), tasks: new Map(), waiting: [], polls: [] }; // polls: workers waiting for a task
-const FARM_SEEN_MS = 40000;
+// (a helper says hello every 10 s and asks for work every 25 s: 30 s without a word = that PC went off - its work goes
+// to another helper or is done here, see the sweep below)
+const FARM_SEEN_MS = 30000;
 const farmWorkers = () => [...farm.workers.values()].filter((w) => Date.now() - w.seen < FARM_SEEN_MS);
 const farmToken = () => { let t = farmCfg().token; if (!t) { t = crypto.randomBytes(12).toString('hex'); saveFarm({ token: t }); } return t; };
 const farmView = () => ({ on: !!farm.server, port: FARM_PORT, token: farm.server ? farmToken() : null,
   urls: farm.server ? lanHosts().map((ip) => `http://${ip}:${FARM_PORT}`) : [],
   workers: farmWorkers().map(({ id, name, host, busy, done, failed, slots, specs, helped, load, paused }) => ({ id, name, host, busy, done, failed, slots, specs: specs || null, helped: helped || 0, load: load || 0, paused: !!paused,
     projects: specs ? [...helperOf].filter(([, h]) => h === id).map(([p]) => p).sort() : [] })),
-  pins: farmCfg().pins || {}, nasMax: nasMax(), waiting: farm.waiting.length, running: [...farm.tasks.values()].filter((t) => t.state === 'taken').length });
+  pins: farmCfg().pins || {}, nasMax: nasMax(), waiting: farm.waiting.length, running: [...farm.tasks.values()].filter((t) => t.state === 'taken').length, night: nightAiView() });
 // a task to a worker that is waiting for one (or to the next one that asks): the same lane (a helper's long / short
 // runs), and a project's run only to that project's helper
 // 🛡 the NAS (hard disks) is shared by every PC: at most nasMax long runs that read it (preview copies, renders, AI) are
@@ -2557,7 +2561,7 @@ function farmPump() {
     t.state = 'taken'; t.worker = p.w.id; t.takenAt = Date.now(); p.w.busy = (p.w.busy || 0) + 1;
     // taken but never finished (the worker computer went off): the shot is rendered here
     t.timer = setTimeout(() => farmEnd(t, new Error(`${p.w.name} did not finish in time`)), t.limitMs);
-    if (t.kind === 'tool') send(p.res, 200, { id: t.id, kind: 'tool', label: t.label, tool: t.tool, tag: t.tag, args: t.args,
+    if (t.kind === 'tool') send(p.res, 200, { id: t.id, kind: 'tool', label: t.label, tool: t.tool, tag: t.tag, args: t.args, fullErr: !!t.fullErr,
       ins: t.inputs.map((f, n) => ({ path: f, size: t.sizes[n], url: `/farm/src/${t.id}/${n}` })), outs: t.outs.map((f, n) => ({ path: f, url: `/farm/out/${t.id}/${n}` })) });
     else if (t.kind === 'render') send(p.res, 200, { id: t.id, kind: 'render', label: t.label, job: t.job, need: t.need, dirs: t.dirs });
     else send(p.res, 200, { id: t.id, label: t.label, args: t.args, graph: t.graph, inputs: t.inputs.map((_, n) => `/farm/src/${t.id}/${n}`) });
@@ -2578,28 +2582,85 @@ const helperSlots = () => { const hs = farm.server ? helperPCs().filter((w) => !
 // what a run needs on the PC: FFprobe, Whisper on an NVIDIA card, or the editor's code (a whole render)
 const NEEDS = { ffprobe: 'ffprobe', transcribe: 'whisper' };
 const toolNeeds = (tool, args) => (tool === 'py' ? PY_NEEDS[args?.[0]] : NEEDS[tool]) || null;
-async function helperRun({ proj, tool, args, inputs = [], outs = [], lane = 'light', tag = '', waitSec = 10, limitSec = 120, duration, onLine }) {
+// spread: any free helper takes it, not only the project's own PC - the Agent's clip analysis, many clips of one project
+// at once over every helper that is on. fullErr: the helper sends back all FFmpeg printed (the analysis reads it).
+async function helperRun(ask) {
+  const r = await helperRunOnce(ask);
+  // (its PC switched off half way: once more on another helper that is on - the gone one is no longer among them - else here)
+  return r?.gone ? helperRunOnce(ask).then((x) => (x?.gone ? null : x)) : r;
+}
+async function helperRunOnce({ proj, tool, args, inputs = [], outs = [], lane = 'light', tag = '', waitSec = 10, limitSec = 120, duration, onLine, spread = false, fullErr = false }) {
   if (tool === 'render') { // (a whole render: args [job file] - Export and the monitor's preview)
     const p = helperRender({ proj, jobFile: args?.[0], duration, label: tag, onLine });
     return p && !(await p) ? { code: 0, stdout: '', stderr: '' } : null;
   }
   if (!farm.server || !['ffmpeg', 'ffprobe', 'transcribe', 'py'].includes(tool) || !proj) return null;
   if (tool === 'py' && !PY_NEEDS[args?.[0]]) return null; // (only the listed tools)
-  const h = pickHelper(String(proj), helperPCs(), helperOf, farmCfg().pins || {}, toolNeeds(tool, args));
+  const need = [].concat(toolNeeds(tool, args) || []);
+  const h = spread ? helperPCs().find((x) => x.specs && !x.paused && need.every((k) => x.specs[k])) : pickHelper(String(proj), helperPCs(), helperOf, farmCfg().pins || {}, toolNeeds(tool, args));
   if (!h) return null;
   let sizes;
   try { sizes = inputs.map((f) => fs.statSync(f).size); } catch { return null; }
   const t = { id: crypto.randomBytes(6).toString('hex'), kind: 'tool', label: `${proj}: ${tag || tool} ${path.basename(outs[0] || inputs[0] || '')}`, tool, tag,
-    args: toTaskArgs(args, inputs, outs), inputs, sizes, outs, lane: LANES.includes(lane) ? lane : 'light', helper: h.id, proj, onLine,
+    args: toTaskArgs(args, inputs, outs), inputs, sizes, outs, lane: LANES.includes(lane) ? lane : 'light', helper: spread ? null : h.id, proj, onLine, fullErr: !!fullErr,
     state: 'waiting', limitMs: Math.max(30, +limitSec || 120) * 1000 };
   const done = new Promise((ok) => { t.finish = ok; });
   farm.tasks.set(t.id, t); farm.waiting.push(t); farmPump();
   const idle = setTimeout(() => { if (t.state === 'waiting') farmEnd(t, new Error('The helper is busy')); }, Math.max(1, +waitSec || 10) * 1000);
   const e = await done; clearTimeout(idle);
-  if (e) return null;
-  const w = farm.workers.get(h.id); if (w) w.helped = (w.helped || 0) + 1; // (its record is made again at each hello)
+  if (e) return e.gone ? { gone: true } : null;
+  const w = farm.workers.get(t.worker || h.id); if (w) w.helped = (w.helped || 0) + 1; // (its record is made again at each hello)
   return t.result;
 }
+// 🌙 the night analysis (engine/nightshift.mjs) - apart from nightShift() above, which makes the preview copies in
+// each project worker from 1 to 6: in the night window, while helper PCs are on and have nothing else waiting,
+// the recent projects' clips get their ✨ Agent analysis and CLIP frames made on the helpers (spread over all of them) -
+// a morning Agent edit then starts at once. Only on helpers (a clip no helper takes waits for the next night); it reads
+// the projects' media lists and writes only cache files, so project workers and editing are never in its way.
+const NIGHT_AI = { running: false, done: 0, skipped: 0, at: 0, night: '' };
+const nightAiCfg = () => ({ on: true, from: 21, to: 7, ...(farmCfg().night || {}) });
+const framesDone = (dir) => { try { return fs.readdirSync(dir).some((f) => f.startsWith('done-')); } catch { return false; } };
+async function nightAnalysis() {
+  if (IS_WORKER || NIGHT_AI.running || !farm.server) return;
+  const c = nightAiCfg(), now = new Date();
+  if (!c.on || !inNight(now, +c.from, +c.to)) return;
+  const slots = helperSlots().heavy;
+  if (!slots || farm.waiting.length) return; // (no helper on, or they have other work: that comes first)
+  const tag = new Date(now.getTime() - (+c.to || 0) * 36e5).toDateString(); // (one night = one count, over midnight)
+  if (NIGHT_AI.night !== tag) Object.assign(NIGHT_AI, { night: tag, done: 0, skipped: 0 });
+  NIGHT_AI.running = true;
+  const done0 = NIGHT_AI.done;
+  try {
+    const { analyzeClip, extractFrames } = await import('./engine/analyze.mjs');
+    const list = allProjects().map((name) => { try { return { name, mtime: fs.statSync(P(name, 'project.json')).mtimeMs }; } catch { return { name, mtime: 0 }; } });
+    const todo = [];
+    for (const name of recentProjects(list)) {
+      for (const m of readJSON(P(name, 'media.json'), { items: [] }).items || []) {
+        const afile = P(name, 'cache', 'analysis', `${m.id}.json`), fdir = P(name, 'cache', 'agent', 'frames', m.id);
+        if (fs.existsSync(afile) && framesDone(fdir)) continue;
+        const s = nightSource(m, P(name, 'cache', 'proxies', `${m.id}.mp4`), fs.existsSync);
+        if (s && fs.existsSync(s.file)) todo.push({ name, m, ...s, afile, fdir });
+        if (todo.length >= slots * 2) break;
+      }
+      if (todo.length >= slots * 2) break;
+    }
+    await Promise.all(Array.from({ length: Math.min(slots, todo.length) }, async () => {
+      for (let t; (t = todo.shift());) {
+        const remote = (args, { inputs, outs }) => runMedia(t.name, 'ffmpeg', args, { inputs, outs, lane: 'heavy', tag: 'night', spread: true, fullErr: true, helperOnly: true, waitSec: 60, limitSec: 900 });
+        const o = { duration: t.m.duration, keyOnly: t.keyOnly, remote, onlyRemote: true };
+        let ok = !!(await analyzeClip(t.file, t.afile, { ...o, hasAudio: t.m.hasAudio, framesDir: t.keyOnly ? t.fdir : null }).catch(() => null));
+        if (ok && !framesDone(t.fdir)) ok = !!(await extractFrames(t.file, t.fdir, o).catch(() => null));
+        NIGHT_AI[ok ? 'done' : 'skipped']++;
+      }
+    }));
+  } finally {
+    NIGHT_AI.running = false; NIGHT_AI.at = Date.now();
+    if (NIGHT_AI.done > done0) setTimeout(() => nightAnalysis().catch((e) => logCrash('night analysis', e)), 3000).unref?.(); // (it got some done: the next batch at once, not in a minute)
+  }
+}
+if (!IS_WORKER) setInterval(() => nightAnalysis().catch((e) => logCrash('night analysis', e)), 60000).unref?.();
+const nightAiView = () => ({ ...nightAiCfg(), running: NIGHT_AI.running, done: NIGHT_AI.done, skipped: NIGHT_AI.skipped, at: NIGHT_AI.at || null });
+
 // the worker.mjs helpers should run: a PC with another one restarts, and its launcher fetches this one
 let workerV = null;
 function workerVersion() {
@@ -2668,10 +2729,10 @@ function renderOnHelper(it, onLine, finish) {
 setInterval(() => {
   const gone = (id) => { const w = farm.workers.get(id); return !w || Date.now() - w.seen > FARM_SEEN_MS; };
   for (const t of farm.tasks.values()) {
-    if (t.state === 'taken' && gone(t.worker)) farmEnd(t, new Error(`${farm.workers.get(t.worker)?.name || 'The helper'} went off`));
-    else if (t.state === 'waiting' && t.helper && gone(t.helper)) farmEnd(t, new Error('Its helper PC went off'));
+    if (t.state === 'taken' && gone(t.worker)) farmEnd(t, Object.assign(new Error(`${farm.workers.get(t.worker)?.name || 'The helper'} went off`), { gone: true }));
+    else if (t.state === 'waiting' && t.helper && gone(t.helper)) farmEnd(t, Object.assign(new Error('Its helper PC went off'), { gone: true }));
   }
-}, 10000).unref?.();
+}, 5000).unref?.();
 function farmEnd(t, e) {
   if (t.state === 'done' || t.state === 'failed') return;
   clearTimeout(t.timer);
@@ -2780,8 +2841,19 @@ function startFarm() {
   });
   return new Promise((ok, bad) => {
     srv.once('error', (e) => bad(err(500, e.code === 'EADDRINUSE' ? `Port ${FARM_PORT} is busy` : e.message)));
-    srv.listen(FARM_PORT, process.env.FARM_HOST || '0.0.0.0', () => { farm.server = srv; srv.requestTimeout = 0; console.log(`Render farm on: ${lanIps().map((ip) => `http://${ip}:${FARM_PORT}`).join('  ')}`); ok(); });
+    srv.listen(FARM_PORT, process.env.FARM_HOST || '0.0.0.0', () => { farm.server = srv; srv.requestTimeout = 0; console.log(`Render farm on: ${lanIps().map((ip) => `http://${ip}:${FARM_PORT}`).join('  ')}`); writeFarmLinks(); ok(); });
   });
+}
+// 🖥 where helper PCs find this editor: its name and LAN addresses, written next to the helpers' launcher on the NAS
+// (tools/farm/Start Render Worker.bat reads it at every start) - the launcher used to know only an old IP, so a PC
+// whose network could not resolve the name never joined. Not from a test editor (own data folder).
+const FARM_SHARE = process.env.FARM_SHARE || 'Z:\\Limelight Render Farm';
+function writeFarmLinks() {
+  if (process.env.VEDIT_DATA || IS_WORKER) return;
+  try {
+    if (!fs.existsSync(FARM_SHARE)) return;
+    fs.writeFileSync(path.join(FARM_SHARE, 'editor.txt'), `${lanHosts().map((h) => `http://${h}:${FARM_PORT}`).join('\r\n')}\r\n`);
+  } catch (e) { console.log(`  (could not write ${FARM_SHARE}\\editor.txt: ${e.message})`); }
 }
 function stopFarm() {
   if (farm.server) { farm.server.close(); farm.server.closeAllConnections?.(); farm.server = null; }
@@ -5150,6 +5222,14 @@ const routes = {
     if (b.on === true) { await startFarm(); saveFarm({ on: true }); }
     if (b.on === false) { stopFarm(); saveFarm({ on: false }); }
     if (Number.isInteger(b.nasMax) && b.nasMax >= 1 && b.nasMax <= 64) { saveFarm({ nasMax: b.nasMax }); farmPump(); } // (🛡 long runs reading the NAS at once)
+    // 🌙 the night shift: { on, from, to } (whole hours, 0-23)
+    if (b.night && typeof b.night === 'object') {
+      const n = { ...nightAiCfg() }, hr = (v) => (Number.isInteger(v) && v >= 0 && v <= 23 ? v : null);
+      if (typeof b.night.on === 'boolean') n.on = b.night.on;
+      if (hr(b.night.from) !== null) n.from = b.night.from;
+      if (hr(b.night.to) !== null) n.to = b.night.to;
+      saveFarm({ night: n });
+    }
     // 🖥 a project kept on one helper PC (by its name), or given back to the automatic choice (pc '')
     if (b.pin && typeof b.pin.project === 'string') {
       const pins = { ...(farmCfg().pins || {}) }, pr = needProject(b.pin.project), pc = String(b.pin.pc || '').slice(0, 40);
@@ -5272,7 +5352,11 @@ const routes = {
       const { runAgent } = await import(`./engine/agent.mjs?v=${Math.round(fs.statSync(agentFile).mtimeMs)}`);
       const log = (m) => { job.log.push(m); job.stage = m; };
       const mediaNow = () => Object.fromEntries(mediaDb(name).items.map((m) => [m.id, { ...m, proxyPath: m.proxy === 'ready' ? P(name, 'cache', 'proxies', `${m.id}.mp4`) : null }]));
-      const go = (o, scale = [0, 100]) => runAgent({ opts: o, media: mediaNow(), cacheDir: P(name, 'cache'), subsDir: P(name, 'subs'), python: PYTHON, root: ROOT, luts: lutMap(name),
+      // 🖥 helper PCs on: each clip's analysis (FFmpeg) goes to whichever helper is free - spread over all of them, not
+      // only this project's PC - and as many clips at once as they have slots; one no helper takes is done here
+      const caps = await helpersOn();
+      const remote = caps.heavy > 0 ? (args, { inputs, outs }) => runMedia(name, 'ffmpeg', args, { inputs, outs, lane: 'heavy', tag: 'agent', spread: true, fullErr: true, helperOnly: true, waitSec: 20, limitSec: 900 }) : null;
+      const go = (o, scale = [0, 100]) => runAgent({ opts: o, media: mediaNow(), cacheDir: P(name, 'cache'), subsDir: P(name, 'subs'), python: PYTHON, root: ROOT, luts: lutMap(name), remote, lanes: () => caps.heavy,
         log, skips: () => job.skips || 0, progress: (p) => { job.progress = Math.round(scale[0] + (p / 100) * (scale[1] - scale[0])); } });
       const o = { ...opts };
       // reference video: its cutting style is copied (engine/refstyle.mjs) but never its shots

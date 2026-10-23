@@ -5,6 +5,8 @@ import { $, esc, toast, modal } from './ui.js';
 import { pickFolder } from './mediapool.js';
 import { openSessions } from './sessionsui.js';
 
+// 🌙 the night shift's hours (0-23) as <option>s
+const hours = (sel) => Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${h === +sel ? 'selected' : ''}>${String(h).padStart(2, '0')}:00</option>`).join('');
 const ROLES = [['editor', 'Editor - edits, renders, imports'], ['viewer', 'Viewer - watches only'], ['owner', 'Owner - also settings, accounts, team']];
 
 export async function openTeam() {
@@ -75,6 +77,9 @@ node worker.mjs ${u} ${f.token}` : '';
           ${Object.keys(f.pins).length ? `<p class="small">${Object.entries(f.pins).map(([p, pc]) => `${esc(p)} → ${esc(pc)}`).join(' · ')}</p>` : ''}
           <div class="row-in"><span class="small">NAS: at most</span><select data-nasmax>${[2, 4, 6, 8, 10, 12, 16, 24].map((n) => `<option ${n === f.nasMax ? 'selected' : ''}>${n}</option>`).join('')}</select>
             <span class="muted small grow">long runs (preview copies, renders, AI) read the NAS at once - more only slows every one of them down</span></div>` : ''}
+        ${f.night ? `<div class="row-in"><label class="chk small"><input type="checkbox" data-night ${f.night.on ? 'checked' : ''}> 🌙 Night shift from</label>
+            <select data-nfrom>${hours(f.night.from)}</select><span class="small">to</span><select data-nto>${hours(f.night.to)}</select>
+            <span class="muted small grow">idle helper PCs get the recent projects' footage ready for the Agent (analysis + frames) - never on this PC${f.night.done || f.night.skipped ? ` · tonight: ${f.night.done} clips ready${f.night.skipped ? `, ${f.night.skipped} left for later` : ''}` : ''}${f.night.running ? ' · <span class="good">working</span>' : ''}</span></div>` : ''}
         <p class="muted small">Final render shots (not previews) are also rendered on connected computers. Shots that can't be sent out (stabilise, LUT, text file) or that fail are rendered here - a render never waits for the farm. Footage is read from this computer over the network with the token.</p>
         <div class="dv-actions"><button data-ftok title="Workers using the old token will stop">New token</button><button data-fon="0">Turn off farm</button></div>`
       : `<p class="muted">Final render shots can also be rendered on other office computers - more computers, faster renders. Each computer runs a small worker that reads the footage from this computer over the network.</p>
@@ -83,7 +88,14 @@ node worker.mjs ${u} ${f.token}` : '';
   const load = async (b) => { try { f = await api(b ? 'PUT' : 'GET', '/api/farm', b); draw(); } catch (e) { toast(e.message, 'err'); } };
   load();
   const timer = setInterval(() => { if (!document.body.contains(box)) return clearInterval(timer); if (f?.on) load(); }, 3000);
-  box.addEventListener('change', async (e) => { if (e.target.matches('[data-nasmax]')) { await load({ nasMax: +e.target.value }); toast(`NAS: ${e.target.value} at once`); } });
+  box.addEventListener('change', async (e) => {
+    if (e.target.matches('[data-nasmax]')) { await load({ nasMax: +e.target.value }); toast(`NAS: ${e.target.value} at once`); }
+    // 🌙 night shift on / off and its hours
+    if (e.target.matches('[data-night], [data-nfrom], [data-nto]')) {
+      await load({ night: { on: $('[data-night]', box).checked, from: +$('[data-nfrom]', box).value, to: +$('[data-nto]', box).value } });
+      toast(f.night.on ? `🌙 Night shift ${f.night.from}:00 - ${f.night.to}:00` : '🌙 Night shift off');
+    }
+  });
   box.addEventListener('click', async (e) => {
     const b = e.target.closest('button'); if (!b) return;
     if (b.dataset.fon) { b.disabled = true; await load({ on: b.dataset.fon === '1' }); toast(b.dataset.fon === '1' ? 'Render farm on' : 'Render farm off'); }
