@@ -15,6 +15,7 @@ import { sharedSeqId } from './store.js';
 import { openAudioGain, soundClips } from './audiogain.js';
 import { copyClips, pasteClips, clipboard } from './clipboard.js';
 import { TOOL_GROUPS, groupClick, MANY_SELECT } from './toolgroups.js';
+import { pickTabs } from './seqtabs.js';
 import { clipDur, uid, fmtTC, fmt, trackList, trackKind, trackNum, ensureTrack, frameScale, addTrack, syncLinked, linkAudioOf, linkedPartner, linkedIds, groupedIds, syncShift, rippleMarkers, evalKeys, fmtTime, freeAudioTrack, RAMPS, setRamp, rampPts, rampPart, profileAt, TRANSITIONS, setTransition, trHandles, takeTransitions, giveTransitions, propAt, keepLength, sourceAt } from './model.js';
 import { $, $$, h, esc, clamp, toast, modal } from './ui.js';
 import { api, enc } from './api.js';
@@ -79,9 +80,8 @@ export function mountTimeline(el) {
     <div class="tl-bar">
       <div class="tl-seqtabs" id="tlSeqTabs" role="tablist" aria-label="Sequences"></div>
       <button data-act="seq" class="tl-seq" title="Sequences: switch, make a new one, copy / paste a timeline, manage" aria-haspopup="menu"><b>${ic('film')}</b><span id="tlSeqName"></span><i class="tl-seq-caret">▾</i></button>
-      <span class="sep"></span>
-      <span class="tl-tc" id="tlTC" title="Click and type a timecode: 1:10:00 or 11000 goes there, +15 / -1:00 moves by that (the selected clips, else the playhead)">00:00:00:00</span><span class="tl-dur" id="tlDur"></span>
       <span class="grow"></span>
+      <span class="tl-tc" id="tlTC" title="Click and type a timecode: 1:10:00 or 11000 goes there, +15 / -1:00 moves by that (the selected clips, else the playhead)">00:00:00:00</span><span class="tl-dur" id="tlDur"></span>
       <button data-act="fit" title="Fit the whole edit (Shift+Z)">Fit</button>
       <label class="zoom" title="Zoom (+ / -)">${ICON.zoomOut}<input type="range" id="tlZoom" min="0" max="1000" step="1" aria-label="Timeline zoom">${ICON.zoomIn}</label>
     </div>
@@ -262,7 +262,7 @@ function syncBar() {
     try { localStorage.setItem(okey, JSON.stringify(order)); } catch {}
     // ✕ closed tabs are hidden here (the sequence itself stays - 🎞 ▾ opens it again, which shows its tab again)
     const closed = closedTabs(); for (const x of list0) if (x.open) closed.delete(x.id);
-    const list = [...list0].filter((x) => !closed.has(x.id)).sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id)), team = sharedSeqId(), html = list.map((x) => `<button role="tab" class="tl-stab" data-stab="${esc(x.id)}" aria-selected="${x.open}" title="${esc(x.name)}${x.id === team ? ' (team main sequence)' : ''} - double-click to rename"><span>${esc(x.name)}</span>${list0.length - closed.size > 1 ? `<i class="stab-x" data-sclose="${esc(x.id)}" title="Close this tab (the sequence stays - ▾ opens it again)">✕</i>` : ''}</button>`).join('');
+    const list = pickTabs([...list0].filter((x) => !closed.has(x.id)).sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))), team = sharedSeqId(), html = list.map((x) => `<button role="tab" class="tl-stab" data-stab="${esc(x.id)}" aria-selected="${x.open}" title="${esc(x.name)}${x.id === team ? ' (team main sequence)' : ''} - double-click to rename"><span>${esc(x.name)}</span>${list0.length - closed.size > 1 ? `<i class="stab-x" data-sclose="${esc(x.id)}" title="Close this tab (the sequence stays - ▾ opens it again)">✕</i>` : ''}</button>`).join('');
     if (tabs.__html !== html) { tabs.innerHTML = html; tabs.__html = html; const cur = tabs.querySelector('[aria-selected="true"]'); if (cur && (cur.offsetLeft < tabs.scrollLeft || cur.offsetLeft + cur.offsetWidth > tabs.scrollLeft + tabs.clientWidth)) tabs.scrollLeft = Math.max(0, cur.offsetLeft - 40); }
   }
   $('[data-act="snap"]', root).classList.toggle('on', S.snap);
