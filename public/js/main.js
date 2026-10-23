@@ -476,6 +476,8 @@ const ACTIONS = {
     if (!p) return toast('Point the mouse at a panel, then press the ` key');
     p.classList.add('panel-max'); window.dispatchEvent(new Event('resize'));
   },
+  // 📏 rulers on the monitor you last clicked (the Source monitor when it is the active one, else the Program monitor)
+  rulers: () => import('./sourcemon.js').then((sm) => (sm.srcMonActive() ? sm.toggleRulers() : import('./player.js').then((p) => p.toggleRulers()))),
   // Ctrl+`: like Premiere, the panel under the mouse goes full screen (timeline, media, effects…); the Program monitor
   // shows just the picture. Again or Esc = back. (The page goes full screen, so menus and dialogs still work in it.)
   fullscreen: () => {

@@ -9,9 +9,10 @@ import { fmtTC, fmt, clipDur } from './model.js';
 import { $, esc, toast } from './ui.js';
 import { placeMedia, targets } from './timeline.js';
 import { uploadFiles, refreshMedia } from './mediapool.js';
+import { monitorRulers } from './monruler.js';
 
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
-let root = null, id = null, active = false, virt = 0, recent = [], raf = 0;
+let root = null, id = null, active = false, virt = 0, recent = [], raf = 0, rul = null;
 const el = {};
 const media = () => S.mediaById[id];
 const playable = () => { const m = media(); return !!m && m.kind !== 'image' && m.playable; };
@@ -33,6 +34,7 @@ export function mountSourceMonitor(host) {
     <span class="sm-label">Source</span>
     <select class="sm-pick" aria-label="Open clip"><option value="">(no clip)</option></select>
     <span class="grow"></span>
+    <button class="icon-btn sm-rul" data-sm="rulers" title="Rulers (like Premiere's Show Rulers): the clip's pixels along the top and left. Drag a guide out of a ruler, drag it back to remove it; right-click a ruler: clear guides" aria-label="Rulers">${ico('ruler')}</button>
     <button class="icon-btn sm-close" data-sm="close" title="Close this clip" aria-label="Close clip">✕</button>
   </div>
   <div class="sm-stage">
@@ -80,7 +82,7 @@ export function mountSourceMonitor(host) {
   root.addEventListener('click', (e) => {
     const a = e.target.closest('[data-sm]')?.dataset.sm; if (!a) return;
     ({ close, in: () => mark('in'), out: () => mark('out'), goin: () => seekTo(marks().in ?? 0), goout: () => seekTo(marks().out ?? dur()),
-      back: () => stepF(-1), fwd: () => stepF(1), play: toggle, insert: () => put('insert'), overlay: () => put('overlay'), append: () => put('append') })[a]?.();
+      back: () => stepF(-1), fwd: () => stepF(1), play: toggle, rulers: () => rul?.toggle(), insert: () => put('insert'), overlay: () => put('overlay'), append: () => put('append') })[a]?.();
   });
   el.pick.addEventListener('change', () => { if (el.pick.value) open(el.pick.value); });
   // scrubbing
@@ -94,7 +96,7 @@ export function mountSourceMonitor(host) {
   });
   // drag the picture onto the timeline (the drop reads S.sourceMarks: the clip comes trimmed)
   el.frame.addEventListener('dragstart', (e) => {
-    if (!id) return e.preventDefault();
+    if (!id || rul?.busy()) return e.preventDefault();
     e.dataTransfer.setData('text/x-media-id', id); e.dataTransfer.effectAllowed = 'copy';
     const o = takeOnly(); if (o) e.dataTransfer.setData('text/x-media-only', o);
   });
@@ -129,6 +131,9 @@ export function mountSourceMonitor(host) {
   on('openSource', (x) => { if (!srcMonOn()) return; typeof x === 'object' && x ? open(x.id, x.t) : open(x); });
   on('media', () => { if (id && !media()) close(); else if (id) { load(false); } });
   new ResizeObserver(fit).observe(root.querySelector('.sm-stage'));
+  // 📏 rulers in the clip's own pixels (monruler.js)
+  rul = monitorRulers({ key: 'source', host: root, stage: root.querySelector('.sm-stage'), frame: el.frame, size: () => { const m = media(); if (!m?.width) return null; return Math.abs(m.rotation || 0) === 90 ? [m.height, m.width] : [m.width, m.height]; }, onToggle: () => { fit(); syncRul(); } });
+  syncRul();
 }
 
 // files from outside: uploaded into the project, then the first one opens here once the editor has read it
@@ -182,11 +187,14 @@ function strip() {
 // the picture keeps the clip's shape inside the stage
 function fit() {
   const st = root?.querySelector('.sm-stage'); if (!st) return;
-  const m = media(), W = st.clientWidth - 12, H = st.clientHeight - 12;
+  const m = media(), pad = rul?.pad() || 0, W = st.clientWidth - 12 - pad, H = st.clientHeight - 12 - pad;
   let w = m?.width || 16, h = m?.height || 9; if (Math.abs(m?.rotation || 0) === 90) [w, h] = [h, w];
   const k = Math.min(W / w, H / h);
   el.frame.style.width = `${Math.max(0, Math.floor(w * k))}px`; el.frame.style.height = `${Math.max(0, Math.floor(h * k))}px`;
+  rul?.draw();
 }
+const syncRul = () => root?.querySelector('.sm-rul')?.classList.toggle('on', !!rul?.on());
+export const toggleRulers = () => rul?.toggle();
 // a light ruler under the scrub bar (about 10 marks)
 function ticks() {
   const d = dur(), box = root.querySelector('.sm-ticks'); if (!d) { box.innerHTML = ''; return; }
@@ -265,6 +273,7 @@ function ico(k) {
     back: '<path d="M10.5 4 6 8l4.5 4"/>', fwd: '<path d="M5.5 4 10 8l-4.5 4"/>',
     in: '<path d="M6 3H4v10h2"/><path d="M9 8h4"/>', out: '<path d="M10 3h2v10h-2"/><path d="M3 8h4"/>',
     goin: '<path d="M4 3v10"/><path d="M12 4 7 8l5 4"/>', goout: '<path d="M12 3v10"/><path d="M4 4l5 4-5 4"/>',
+    ruler: '<path d="M2 2h12v4H6v8H2z"/><path d="M5 2v2M8 2v2M11 2v2M2 5h2M2 8h2M2 11h2"/>',
     vid: '<rect x="2" y="4" width="12" height="8" rx="1"/><path d="M5 4v8M11 4v8"/>', aud: '<path d="M2 8h1M5 5v6M8 3v10M11 6v4M14 8h.5"/>',
   };
   return `<svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[k]}</svg>`;

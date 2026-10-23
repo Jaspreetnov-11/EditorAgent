@@ -45,9 +45,10 @@ import { effectsCss, maskedEffectsCss, grainCss, VFX, inWindow, blendOf } from '
 import { maskAlpha, movedMask, unmovedMask, maskKey } from './shapemask.js';
 import { captionAt, capTracks, capStack } from './captions.js';
 import { monitorDrag } from './toolgroups.js';
+import { monitorRulers } from './monruler.js';
 import { fitMap, framingOf, srcSize, boxAt, srcTimeAt, pinAt, quadMatrix, orderQuad } from './tracking.js';
 
-let root, frame, els = {}, mode = 'program', srcId = null, grader = null;
+let root, frame, els = {}, mode = 'program', srcId = null, grader = null, rul = null;
 export const sourceMediaId = () => srcId; // (the file open in the Source monitor - ✂ Make Subclip)
 let lookFilter = ''; // the film look, roughly (CSS); added to every picture layer in program mode
 let playing = false, wall0 = 0, t0 = 0, raf = 0;
@@ -69,6 +70,7 @@ export function mountViewer(el) {
     <select class="small vw-zoom" data-vzoom title="Zoom level, like Premiere's: Fit shows the whole frame. The mouse wheel over the picture zooms in / out where the mouse is (Alt + wheel scales the selected clip); middle-drag or the scrollbars move around"><option value="fit">Fit</option>${ZOOMS.map((z) => `<option value="${z}">${Math.round(z * 100)}%</option>`).join('')}</select>
     <select class="small vw-pb" data-pb title="Playback: Fast plays the light 1080p preview copies (quick to load and scrub, easy on the NAS when the whole office works); Full plays the camera files themselves where the browser can (sharpest, much heavier)"><option value="fast">Fast</option><option value="full">Full</option></select>
     <button class="tog small" data-act="guides" title="Title/action-safe guides">Guides</button>
+    <button class="tog small" data-act="rulers" title="Rulers (like Premiere's Show Rulers): frame pixels along the top and left. Drag a guide out of a ruler, drag it back to remove it; right-click a ruler: clear guides">Rulers</button>
     <select class="small vw-pq" data-pq title="Accurate preview quality: 1080p from the camera files (sharp), or Fast 720p from the small proxy copies (much quicker - for checking timing)"><option value="hq">1080p</option><option value="fast">Fast 720p</option></select>
     <button class="small" data-act="accurate" title="Render the exact result with FFmpeg (quality: the choice next to it)">Accurate preview</button>
   </div>
@@ -137,6 +139,7 @@ export function mountViewer(el) {
     ({ play: toggle, start: () => seek(0), end: () => seek(curDuration()), back: () => step(-1), fwd: () => step(1),
       in: () => mark('in'), out: () => mark('out'), insert: () => sourceTo('insert'), append: () => sourceTo('append'), overlay: () => sourceTo('overlay'),
       guides: () => { const g = $('#lyGuides'); g.hidden = !g.hidden; e.target.closest('button').classList.toggle('on', !g.hidden); },
+      rulers: () => rul?.toggle(),
       accurate: () => emit('accuratePreview'), frame: () => import('./editing.js').then((x) => x.exportFrame()) })[a]?.();
   });
   $('#srcBar', el).addEventListener('pointerdown', (e) => {
@@ -146,6 +149,9 @@ export function mountViewer(el) {
     window.addEventListener('pointermove', go); window.addEventListener('pointerup', up);
   });
   new ResizeObserver(sizeFrame).observe($('#vwStage', el));
+  // 📏 rulers (monruler.js): the stage makes room for them, so the picture is fitted inside what is left
+  rul = monitorRulers({ key: 'program', host: el, stage: $('#vwStage', el), frame, size: () => (S.project ? frameWH() : null), onToggle: () => { sizeFrame(); syncRulBtn(); } });
+  syncRulBtn();
   { const pb = $('[data-pb]', el); pb.value = playback; pb.onchange = () => { playback = pb.value; try { localStorage.setItem('ve-playback', playback); } catch {} if (mode === 'program') drawProgram(S.playhead, false); else loadSource(); }; }
   { const pq = $('[data-pq]', el); try { pq.value = localStorage.getItem('ve-preview-q') === 'fast' ? 'fast' : 'hq'; } catch {} pq.onchange = () => { try { localStorage.setItem('ve-preview-q', pq.value); } catch {} }; }
   // ⏱ Program monitor's time ruler (like Premiere's): timecodes along the whole edit; drag anywhere on it to scrub
@@ -264,7 +270,7 @@ function frameWH() {
 // z: 'fit' or a level; at: the screen point that stays put (the mouse), else the middle of the view
 function setViewZoom(z, at = null) {
   const st = $('#vwStage', root); if (!st || !S.project) return;
-  const [w, h] = frameWH(), fitK = Math.min((st.clientWidth - 16) / w, (st.clientHeight - 16) / h);
+  const [w, h] = frameWH(), pad = rul?.pad() || 0, fitK = Math.min((st.clientWidth - 16 - pad) / w, (st.clientHeight - 16 - pad) / h);
   if (z !== 'fit') { z = Math.min(8, Math.max(0.05, z)); if (z <= fitK * 1.001) z = 'fit'; } // (smaller than fitting: back to Fit)
   const b0 = frame.getBoundingClientRect(), sr = st.getBoundingClientRect();
   const p = at || { x: sr.left + sr.width / 2, y: sr.top + sr.height / 2 }, u = (p.x - b0.left) / b0.width, v = (p.y - b0.top) / b0.height;
@@ -280,11 +286,14 @@ function setViewZoom(z, at = null) {
 }
 function sizeFrame() {
   const st = $('#vwStage', root); if (!st || !S.project) return;
-  const [w, h] = frameWH(), W = st.clientWidth - 16, H = st.clientHeight - 16, k = viewZoom === 'fit' ? Math.min(W / w, H / h) : viewZoom;
+  const [w, h] = frameWH(), pad = rul?.pad() || 0, W = st.clientWidth - 16 - pad, H = st.clientHeight - 16 - pad, k = viewZoom === 'fit' ? Math.min(W / w, H / h) : viewZoom;
   st.classList.toggle('zoomed', viewZoom !== 'fit');
   frame.style.width = `${Math.max(10, w * k)}px`; frame.style.height = `${Math.max(10, h * k)}px`;
   frame.style.setProperty('--fh', `${h * k}px`);
+  rul?.draw();
 }
+const syncRulBtn = () => $('[data-act="rulers"]', root)?.classList.toggle('on', !!rul?.on());
+export const toggleRulers = () => rul?.toggle();
 
 export function setMode(m) {
   if (m === 'source' && !srcId) { toast('Double-click a clip in Media to open it here'); return; }

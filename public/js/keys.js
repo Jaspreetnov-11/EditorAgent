@@ -35,7 +35,7 @@ export const COMMANDS = [
   ['enable', 'Enable / disable clip', 'Timeline'], ['audioGain', 'Audio gain…', 'Timeline'], ['snap', 'Snap in timeline', 'Timeline'], ['nest', 'Nest…', 'Timeline'],
   ['marker', 'Add marker', 'Markers'], ['nextMarker', 'Go to next marker', 'Markers'], ['prevMarker', 'Go to previous marker', 'Markers'], ['note', 'Add review note', 'Markers'],
   ['zoomIn', 'Zoom in (timeline)', 'View'], ['tracksTaller', 'Taller tracks (vertical zoom)', 'View'], ['tracksShorter', 'Shorter tracks (vertical zoom)', 'View'], ['tracksMin', 'Minimise all tracks', 'View'], ['tracksMax', 'Expand all tracks', 'View'], ['zoomOut', 'Zoom out (timeline)', 'View'], ['zoomFit', 'Zoom to sequence', 'View'],
-  ['maximize', 'Maximize / restore the panel under the mouse', 'View'], ['fullscreen', 'Full screen (Program monitor)', 'View'],
+  ['maximize', 'Maximize / restore the panel under the mouse', 'View'], ['fullscreen', 'Full screen (Program monitor)', 'View'], ['rulers', 'Show rulers (Program / Source monitor)', 'View'],
 ].map(([id, label, group]) => ({ id, label, group }));
 export const CMD = Object.fromEntries(COMMANDS.map((c) => [c.id, c]));
 
@@ -54,7 +54,7 @@ const PREMIERE = {
   clear: ['Delete', 'Backspace'], rippleDelete: ['Shift+Delete', 'Shift+Backspace'], duplicate: [], pasteAttr: ['Ctrl+Alt+V'], markersList: [], exportEdl: [], dupFrames: [], makeSubclip: ['Ctrl+U'], transition: ['Ctrl+D'],
   selectAtPlayhead: ['D'], link: ['Ctrl+L'], enable: ['Shift+E'], audioGain: ['G'], snap: ['S'], nest: [],
   marker: ['M'], nextMarker: ['Shift+M'], prevMarker: ['Ctrl+Shift+M'], note: ['Alt+M'],
-  zoomIn: ['='], zoomOut: ['-'], tracksTaller: ['Ctrl+='], tracksShorter: ['Ctrl+-'], tracksMin: ['Shift+-'], tracksMax: ['Shift+='], zoomFit: ['\\'], maximize: ['`'], fullscreen: ['Ctrl+`'],
+  zoomIn: ['='], zoomOut: ['-'], tracksTaller: ['Ctrl+='], tracksShorter: ['Ctrl+-'], tracksMin: ['Shift+-'], tracksMax: ['Shift+='], zoomFit: ['\\'], maximize: ['`'], fullscreen: ['Ctrl+`'], rulers: [],
 };
 const CLASSIC = {
   ...PREMIERE,
