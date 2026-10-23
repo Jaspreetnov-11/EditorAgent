@@ -1898,7 +1898,7 @@ function onContext(e) {
     ...(S.sel.size > 1 ? [['nest', `Nest ${S.sel.size} clips…`], ['group', 'Group', 'Ctrl+G']] : []), ...(c.grp ? [['ungroup', 'Ungroup', 'Ctrl+Shift+G']] : []),
     '-',
     ['spdlg', 'Speed / Duration…', 'Ctrl+R'],
-    ...(c.type === 'video' || c.type === 'image' ? [['frameFit', 'Set to Frame Size (fit)'], ['frameScale', 'Scale to Frame Size'], ['frameFill', 'Fill Frame']] : []),
+    ...(c.type === 'video' || c.type === 'image' ? [['frameFit', 'Set to Frame Size (fit)'], ['frameScale', 'Scale to Frame Size'], ['frameFill', 'Fill Frame'], ['cmatch', '🎨 Color match to a reference…']] : []),
     ...(soundClips([id]).length ? [['gain', 'Audio gain…', 'G']] : []),
     ...((c.type === 'video' || c.type === 'audio') && !linkedPartner(S.project, c) ? [['mute', c.mute ? 'Unmute' : 'Mute']] : []),
     ...(linkedPartner(S.project, c) ? [['unlink', 'Unlink audio / video']] : c.type === 'video' && S.mediaById[c.mediaId]?.hasAudio && !c.link ? [['linkA', 'Separate audio (linked)']] : c.type === 'video' && c.link && S.mediaById[c.mediaId]?.hasAudio ? [['linkA', 'Bring back its sound (linked)']] : []),
@@ -1940,6 +1940,7 @@ function onContext(e) {
     if (a === 'nest') nestSelected();
     if (a === 'hold' || a === 'holdIns') frameHold(id, a === 'holdIns');
     if (a === 'label') clipLabel();
+    if (a === 'cmatch') import('./colormatch.js').then((x) => x.openColorMatch(S.sel.has(id) ? [...S.sel] : [id])); // (🎨 the selected picture clips)
     if (a === 'scenes') sceneEdits(id);
     if (a === 'morph' || a === 'extend') morphOrExtend(id, a);
     if (a === 'matte') trackMatteFromClips([...S.sel], findClip);

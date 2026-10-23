@@ -10,6 +10,7 @@ import { wheelToRGB, rgbToWheel, parseCube, isNeutral } from './colormath.js';
 import { mountCurves } from './curvesui.js';
 import { mountLumetri } from './lumetri.js';
 import { activeGrade } from './colormath.js';
+import { refOptions, refOf, matchClips, uploadStill } from './colormatch.js';
 
 let wpane = 'wheels', curvesUI = [], lm = null, lookCube = null, picking = false;
 let root, grader, video, img, scopeType = 'waveform', clipId = null, playing = false, raf = 0, lastScope = 0, busy = false;
@@ -95,6 +96,7 @@ export function mountColor(el) {
   $('#cpStr', el).oninput = (e) => ($('#cpStrV', el).textContent = `${Math.round(e.target.value * 100)}%`);
   $('#cpLut', el).onchange = (e) => setProp('lut', e.target.value || undefined, 'LUT');
   $('#cpLutFile', el).onchange = importLut;
+  $('#cpRef', el).onchange = (e) => { if (e.target.value === 'still') pickStill(); }; // (📷 a reference still: picked, uploaded, then chosen)
   video.addEventListener('seeked', () => redraw(true));
   video.addEventListener('loadeddata', () => { sizeCanvas(); redraw(true); });
   img.addEventListener('load', () => { sizeCanvas(); redraw(true); });
@@ -223,9 +225,9 @@ function renderStrip() {
 function renderTools() {
   const c = curClip()?.color || {};
   $('#cpLut', root).innerHTML = `<option value="">No LUT</option>${S.luts.map((l) => `<option${l === c.lut ? ' selected' : ''}>${esc(l)}</option>`).join('')}`;
-  const others = gradeable().filter((x) => x.clip.id !== clipId);
+  // 🎨 any reference: another clip on the timeline, a video / photo in Media, or a still uploaded for it (colormatch.js)
   const prev = $('#cpRef', root).value;
-  $('#cpRef', root).innerHTML = others.length ? others.map((x) => `<option value="${x.clip.id}"${x.clip.id === prev ? ' selected' : ''}>Clip ${String(gradeable().indexOf(x) + 1).padStart(2, '0')} · ${esc(S.mediaById[x.clip.mediaId]?.name || '')}</option>`).join('') : '<option value="">Need another clip</option>';
+  $('#cpRef', root).innerHTML = refOptions(new Set([clipId]), prev);
   $$('.cp-tools button', root).forEach((b) => { if (['auto', 'match', 'copy', 'reset', 'all'].includes(b.dataset.ca)) b.disabled = !curClip() || busy; });
   $('[data-ca="autoAll"]', root).disabled = !gradeable().length || busy;
   $('[data-ca="paste"]', root).disabled = !curClip() || !S.colorClipboard;
@@ -306,18 +308,19 @@ async function autoColor(list) {
 }
 
 async function matchShot() {
-  const refId = $('#cpRef', root).value, ref = gradeable().find((x) => x.clip.id === refId), t = cur();
-  if (!ref || !t) return toast('Choose a reference clip', 'err');
+  const sel = $('#cpRef', root), ref = refOf(sel.value), t = cur();
+  if (!ref || !t) return toast('Choose a reference', 'err');
   busy = true; renderTools();
   try {
-    const g = await api('POST', `/api/color/match?p=${enc(S.proj)}`, {
-      target: { mediaId: t.clip.mediaId, in: t.clip.in, out: t.clip.out, color: t.clip.color },
-      ref: { mediaId: ref.clip.mediaId, in: ref.clip.in, out: ref.clip.out, color: ref.clip.color },
-    });
-    t.clip.color = g; tidy(t.clip);
-    commit('Shot match'); toast('Matched to the reference clip');
+    await matchClips([t.clip], ref, 'Shot match', tidy);
+    toast(`Matched to ${sel.selectedOptions[0]?.textContent || 'the reference'}`);
   } catch (err) { toast(err.message, 'err'); }
   finally { busy = false; renderTools(); }
+}
+// 📷 "Upload a reference still…" in the reference list: the file picker, then that still is the reference
+async function pickStill() {
+  const k = await uploadStill();
+  $('#cpRef', root).innerHTML = refOptions(new Set([clipId]), k || '');
 }
 
 async function importLut(e) {

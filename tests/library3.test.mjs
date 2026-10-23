@@ -118,6 +118,23 @@ test('🎞 rendered over the shot below: the box where the template is, the shot
   assert(b3 > 200 && r3 < 40, `moved away: blue where the box was (${[r3, b3]})`);
 });
 
+test('🎨 color match to any reference: a still uploaded into Media › Colour references, or another file in the pool', async () => {
+  if (!ON) return 'skip';
+  const still = path.join(tmp, 'warm.png');
+  ff(['-f', 'lavfi', '-i', 'color=c=0xd08040:s=640x360', '-frames:v', '1', still]);
+  const up = await api('POST', `/api/upload?p=${P}&name=warm.png&bin=${encodeURIComponent('Colour references')}`, fs.readFileSync(still), true);
+  same([up.kind, up.bin], ['image', 'Colour references']);
+  for (let i = 0; i < 40 && (await api('GET', `/api/media?p=${P}`)).items.find((m) => m.id === up.id)?.status !== 'ready'; i++) await sleep(300);
+  const blue = media.find((m) => m.name === 'Blue.mp4'), red = media.find((m) => m.name === 'Red.mp4');
+  const target = { mediaId: blue.id, in: 0, out: 4 };
+  const g = await api('POST', `/api/color/match?p=${P}`, { target, ref: { mediaId: up.id, in: 0, out: 0 } });
+  assert(g.offset.r > 0.3 && g.offset.b < 0 && g.offset.r > g.offset.g, `blue towards the warm still: ${JSON.stringify(g)}`);
+  const g2 = await api('POST', `/api/color/match?p=${P}`, { target, ref: { mediaId: red.id, in: 0, out: 3 } });
+  assert(g2.offset.r > g.offset.r && g2.offset.b < -0.4 && g2.offset.g <= 0, `towards the red clip from the pool: ${JSON.stringify(g2)}`);
+  let e = null; try { await api('POST', `/api/color/match?p=${P}`, { target, ref: { mediaId: 'nope' } }); } catch (x) { e = x; }
+  same(e?.status, 400);
+});
+
 test('🎞 stop the library test editor and remove its folder', async () => {
   if (!ON) return 'skip';
   srv?.kill(); await sleep(800);
