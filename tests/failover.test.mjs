@@ -5,13 +5,16 @@
 import { test, eq as same, assert } from './harness.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ON = process.env.VEDIT_TEST_SERVER === '1';
-const PORT = 3931, FARM = 3932, B = `http://127.0.0.1:${PORT}`;
+// (the farm port: the first free one from 3932 - another program on this PC once held 3932 and the test could not start)
+const freePort = (p) => new Promise((ok) => { const s = net.createServer(); s.once('error', () => ok(freePort(p + 1))); s.listen(p, '0.0.0.0', () => s.close(() => ok(p))); });
+const PORT = 3931, FARM = ON ? await freePort(3932) : 3932, B = `http://127.0.0.1:${PORT}`;
 let srv = null, tmp = null, token = null;
 const helpers = new Map(); // name -> process
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

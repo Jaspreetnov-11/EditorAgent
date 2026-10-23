@@ -259,7 +259,25 @@ on('save', () => {
   const el = $('#saveState'); if (!el) return;
   el.textContent = { saved: 'All changes saved', saving: 'Saving…', dirty: 'Saving…', error: 'Not saved - is the editor running?' }[S.saveState];
   el.className = `save ${S.saveState}`;
+  offlineBar(S.saveState === 'error');
 });
+// 🔌 the editor not answering (restarting, the server PC down, the network): after a few seconds a bar says so - the
+// changes are kept in this tab and sent by themselves once it answers (store.js tries every few seconds), and a standby
+// PC takes over within about 2 minutes. It goes away by itself as soon as a change gets through.
+let offTimer = 0;
+function offlineBar(down) {
+  const bar = document.getElementById('offlineBar');
+  if (!down) { clearTimeout(offTimer); offTimer = 0; bar?.remove(); return; }
+  if (bar || offTimer) return;
+  offTimer = setTimeout(() => {
+    offTimer = 0;
+    if (S.saveState !== 'error' || document.getElementById('offlineBar')) return;
+    const b = document.createElement('div');
+    b.id = 'offlineBar'; b.className = 'ro-banner'; b.setAttribute('role', 'status');
+    b.textContent = 'The editor is not answering - your changes are kept in this tab and are sent by themselves as soon as it answers. If the main editor PC is down, the standby PC takes over within about 2 minutes: keep working, nothing is lost.';
+    document.body.prepend(b);
+  }, 5000);
+}
 on('change', () => { $('[data-a="undo"]').disabled = !canUndo(); $('[data-a="redo"]').disabled = !canRedo(); });
 // ⚡ a slider / Motion value dragged: the monitor is drawn again once per screen frame, not on every mouse event (a
 // full redraw per pointermove - a hundred a second on a fast mouse - made it trail behind the mouse)

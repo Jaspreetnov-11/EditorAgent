@@ -367,16 +367,56 @@ function run(cmd, args, { onLine, cwd } = {}) {
 // Each process has its own .tmp: the editor and a project worker saving the same media.json at once shared one, and the
 // second rename found it gone - ENOENT, an uncaught crash.)
 const SLEEP = new Int32Array(new SharedArrayBuffer(4));
-const writeJSON = (file, obj) => {
-  const data = JSON.stringify(obj, null, 1), tmp = `${file}.${process.pid}.tmp`;
+function writeOut(file, data) {
+  const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, data);
   for (let k = 0; k < 4; k++) {
     try { fs.renameSync(tmp, file); return; }
     catch (e) { if (!['EPERM', 'EACCES', 'EBUSY'].includes(e.code)) throw e; if (k < 3) Atomics.wait(SLEEP, 0, 0, 15 * (k + 1)); }
   }
   fs.writeFileSync(file, data); fs.rmSync(tmp, { force: true });
+}
+// 💾 the NAS down (it stops answering, or its drive is gone): a save of a file on it is kept on this PC instead
+// (<data>/PendingSaves, the newest per file) and written back as soon as the NAS answers again (pendingTick, every 20 s) -
+// the edits of open projects are not lost while the NAS is away, and a restart meanwhile reads the kept copy. A folder
+// that is simply not there while the NAS answers (a deleted project) is not held.
+const PENDING_DIR = path.join(DATA, 'PendingSaves');
+const NET_ERR = new Set(['EIO', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH', 'EHOSTDOWN', 'ECONNRESET', 'ENOTCONN', 'UNKNOWN', 'ENODEV', 'ENXIO', 'EBADF']);
+const pendingFile = (file) => path.join(PENDING_DIR, `${crypto.createHash('sha1').update(path.resolve(file).toLowerCase()).digest('hex').slice(0, 24)}.json`);
+const pendingSet = new Set((() => { try { return fs.readdirSync(PENDING_DIR).filter((f) => f.endsWith('.json')).map((f) => path.join(PENDING_DIR, f)); } catch { return []; } })());
+function onNas(file) { try { return remoteDrives().some((d) => underDrive(file, d)); } catch { return false; } }
+// (down = a network error, or the NAS place itself - Z:\ - is gone; not a missing folder inside a NAS that answers)
+function nasDown(file, e) { if (NET_ERR.has(e?.code)) return true; try { const d = remoteDrives().find((x) => underDrive(file, x)); return !fs.statSync(d || path.parse(path.resolve(file)).root).isDirectory(); } catch { return true; } }
+const writeJSON = (file, obj) => {
+  const data = JSON.stringify(obj, null, 1);
+  try { writeOut(file, data); }
+  catch (e) {
+    if (!onNas(file) || !nasDown(file, e)) throw e;
+    const pf = pendingFile(file);
+    fs.mkdirSync(PENDING_DIR, { recursive: true });
+    fs.writeFileSync(`${pf}.${process.pid}.tmp`, JSON.stringify({ file: path.resolve(file), at: Date.now(), data }));
+    fs.renameSync(`${pf}.${process.pid}.tmp`, pf);
+    pendingSet.add(pf);
+    return;
+  }
+  if (pendingSet.size) { const pf = pendingFile(file); if (pendingSet.delete(pf)) fs.rmSync(pf, { force: true }); } // (written for real: an older kept copy is not wanted)
 };
-const readJSON = (file, dflt) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return dflt; } };
+const readJSON = (file, dflt) => {
+  if (pendingSet.size) { const pf = pendingFile(file); if (pendingSet.has(pf)) try { return JSON.parse(JSON.parse(fs.readFileSync(pf, 'utf8')).data); } catch {} }
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return dflt; }
+};
+// the kept saves back onto the NAS once it answers (each process its own and the others' - the newest kept copy wins)
+async function pendingTick() {
+  let list = []; try { list = (await fs.promises.readdir(PENDING_DIR)).filter((f) => f.endsWith('.json')).map((f) => path.join(PENDING_DIR, f)); } catch { return; }
+  for (const pf of list) {
+    let p; try { p = JSON.parse(await fs.promises.readFile(pf, 'utf8')); } catch { continue; }
+    if (!(await fs.promises.access(path.dirname(p.file)).then(() => true, () => false))) continue; // (still away - or a deleted folder: kept)
+    try { writeOut(p.file, p.data); await fs.promises.rm(pf, { force: true }); pendingSet.delete(pf); console.log(`💾 Back on the NAS: ${p.file} (kept here since ${new Date(p.at).toLocaleTimeString()})`); }
+    catch (e) { if (!nasDown(p.file, e)) logCrash('pending save', e); }
+  }
+}
+setInterval(() => pendingTick().catch((e) => logCrash('pending saves', e)), 20e3).unref?.();
+const pendingSaves = () => { try { return fs.readdirSync(PENDING_DIR).filter((f) => f.endsWith('.json')).length; } catch { return 0; } };
 
 // ---------------- projects ----------------
 const projDir = (name) => {
@@ -394,7 +434,8 @@ function ensureProjectDirs(name) {
     fs.mkdirSync(P(name, d), { recursive: true });
 }
 function needProject(name) {
-  if (!name || !fs.existsSync(P(name, 'project.json'))) throw err(404, `project "${name}" not found`);
+  // (💾 an open project whose NAS stopped answering stays open: its edits are kept here until the NAS is back)
+  if (!name || (!fs.existsSync(P(name, 'project.json')) && !(live.has(name) && nasDown(P(name, 'project.json'))))) throw err(404, `project "${name}" not found`);
   return name;
 }
 
@@ -1700,7 +1741,7 @@ startHealth(path.join(DATA, 'logs'), IS_WORKER ? `-w${WORKER_K}` : ''); // (⚙ 
 function safetyCfg() {
   const s = config().safety || {};
   const dest = s.dest || (fs.existsSync('Z:\\') ? 'Z:\\Limelight Backups' : ''); // (the NAS, when this PC has it)
-  return { on: s.on !== false && !!dest, dest, hour: Number.isInteger(s.hour) ? s.hour : 2, keep: Math.max(3, Math.min(60, +s.keep || 14)), mirror: !!s.mirror && !!dest };
+  return { on: s.on !== false && !!dest, dest, hour: Number.isInteger(s.hour) ? s.hour : 2, keep: Math.max(3, Math.min(60, +s.keep || 14)), mirror: !!s.mirror && !!dest, replica: s.replica || null };
 }
 function saveSafety(patch) { const c = config(); c.safety = { ...(c.safety || {}), ...patch }; saveConfig(c); }
 const safetyRun = { busy: null, last: null, failedAt: 0, mirrorAt: 0, mirrorErr: null, mirrored: new Map(), pull: null };
@@ -1709,9 +1750,13 @@ const safeProjects = () => allProjects().map((name) => ({ name, dir: projDir(nam
 // from its data folder (its Library and LUTs are its own)
 const appOf = (night) => (night
   ? { files: [[PLACES_FILE, 'project-places.json'], [path.join(DATA, 'project-folders.json'), 'project-folders.json']], dirs: [[LIB, 'Library'], [GLOBAL_LUTS, 'LUTs']], config: config() }
-  : { files: [[path.join(DATA, 'project-folders.json'), 'project-folders.json']], config: config() });
+  // (the live mirror also carries the sign-ins - hashes of the cookies, never the cookies - so a standby that takes over
+  // lets everyone carry on without signing in again)
+  : { files: [[path.join(DATA, 'project-folders.json'), 'project-folders.json'], [SESS_FILE, 'team-sessions.json']], config: config() });
 // (⚙ with project workers: each worker saves what it keeps)
-async function flushLive() { for (const [name, L] of live) { try { liveWrite(name, L, true); } catch {} } if (CLUSTER && !IS_WORKER) await Promise.all([...Array(WORKERS)].map((_, i) => askWorker(i + 1, 'flush').catch(() => {}))); }
+// (only projects with a save still pending: every open project used to be written again - a new time each run - so
+// with the mirror every 30 s each one went to the NAS and into the mirror over and over)
+async function flushLive() { for (const [name, L] of live) { if (!L.timer) continue; try { liveWrite(name, L, true); } catch {} } if (CLUSTER && !IS_WORKER) await Promise.all([...Array(WORKERS)].map((_, i) => askWorker(i + 1, 'flush').catch(() => {}))); }
 
 async function nightlyBackup(force = false) {
   const s = safetyCfg();
@@ -1756,6 +1801,16 @@ async function mirrorTick(all = false) {
       for (const p of changed) safetyRun.mirrored.set(p.name, keys.get(p.name));
     }
     safetyRun.mirrorAt = Date.now(); safetyRun.mirrorErr = null;
+    // 🗄 a second NAS (config.safety.replica, e.g. W:\Limelight Replica): the same live mirror there too, every 15 min, so
+    // a standby can start from it while the first NAS is down (engine/standby.mjs --mirror <replica>\live). Footage
+    // itself is copied by the NAS's own replication.
+    if (s.replica && Date.now() - (safetyRun.replicaAt || 0) > 15 * 60e3) {
+      safetyRun.replicaAt = Date.now();
+      safetyRun.replicated ||= new Map();
+      const rc = safeProjects().filter((p) => safetyRun.replicated.get(p.name) !== keys.get(p.name));
+      try { await mirrorLive({ dest: s.replica, projects: rc, app: appOf(false), host: os.hostname() }); for (const p of rc) safetyRun.replicated.set(p.name, keys.get(p.name)); safetyRun.replicaErr = null; }
+      catch (e) { safetyRun.replicaErr = e.message; logCrash('replica', e); }
+    }
   } catch (e) { safetyRun.mirrorErr = e.message; logCrash('live mirror', e); }
   finally { safetyRun.mirroring = false; }
 }
@@ -1829,7 +1884,9 @@ async function standbyTick() {
 if (!process.env.VEDIT_NO_RESUME) {
   setTimeout(() => { standbyTick().then(() => mirrorTick()).catch(() => {}); nightlyBackup().catch(() => {}); }, 60000);
   setInterval(() => nightlyBackup().catch((e) => logCrash('nightly backup', e)), 10 * 60e3).unref?.();
-  setInterval(() => mirrorTick().catch((e) => logCrash('live mirror', e)), 5 * 60e3).unref?.();
+  // (every 30 s, was 5 min: a standby taking over lost up to 5 minutes of edits. Only changed projects are copied,
+  // looked at asynchronously, so this stays light on the NAS)
+  setInterval(() => mirrorTick().catch((e) => logCrash('live mirror', e)), 30e3).unref?.();
   setInterval(() => standbyTick().catch((e) => logCrash('standby', e)), 30000).unref?.();
 }
 // the server-errors.log of the last 24 h: how many, and the latest few
@@ -1862,6 +1919,7 @@ async function healthView() {
   const st = s.dest ? readJSON(path.join(s.dest, 'status.json'), null) : null, lastOk = (st?.history || []).find((x) => x.ok), last = safetyRun.last || st?.last || null;
   const recent = h.samples.slice(-10), warn = [];
   const W = (level, text) => warn.push({ level, text });
+  { const n = pendingSaves(); if (n) W('bad', `The NAS is not answering: ${n} save${n > 1 ? 's are' : ' is'} kept on this PC and will be written back when it answers again`); }
   if (standbyHold) W('bad', standbyHold.pending ? `Edits made on the standby PC ${standbyHold.host} are being brought back${standbyHold.error ? ` - failed: ${standbyHold.error}` : ''}` : `The standby PC ${standbyHold.host} is running the editor (since ${new Date(standbyHold.since).toLocaleString()}) - this one only shows until it hands back`);
   for (const d of disks) {
     if (d.error) { W('warn', `${d.root} (${d.what.join(', ')}) does not answer`); continue; }
@@ -1874,6 +1932,7 @@ async function healthView() {
     else if (last && !last.ok) W('bad', `Last night's backup failed: ${(last.errors || [])[0] || 'see the errors'}`);
     else if (!lastOk || Date.now() - lastOk.at > 30 * 3600e3) W('warn', lastOk ? `No backup since ${new Date(lastOk.at).toLocaleString()}` : 'No backup has been made yet');
     if (s.mirror && safetyRun.mirrorErr) W('bad', `Live mirror for the standby PC failed: ${safetyRun.mirrorErr}`);
+    if (s.replica && safetyRun.replicaErr) W('bad', `Copy to the second NAS (${s.replica}) failed: ${safetyRun.replicaErr}`);
   }
   const lagNow = Math.max(0, ...recent.map((x) => x.lag)), p95Now = Math.max(0, ...recent.map((x) => x.p95));
   if (lagNow > 1000) W('bad', `The editor is getting stuck (up to ${(lagNow / 1000).toFixed(1)} s in the last 10 minutes)`); else if (lagNow > 250) W('warn', `The editor is slow to answer at times (${lagNow} ms stalls)`);
@@ -3067,7 +3126,8 @@ const loadStyle = (n) => listStyles().find((x) => x.name === n) || null;
 const live = new Map(); // project -> { rev, pj, mtime, log: [{ rev, client, name, label, ops }], subs: Map(client -> sub), timer }
 const LIVE_COLORS = ['#ff7a45', '#36cfc9', '#9254de', '#f759ab', '#73d13d', '#ffc53d', '#40a9ff', '#ff4d4f', '#13c2c2', '#d3adf7', '#95de64', '#ffd666'];
 function liveOf(name) {
-  const f = P(name, 'project.json'), mt = fs.statSync(f).mtimeMs;
+  const f = P(name, 'project.json');
+  let mt; try { mt = fs.statSync(f).mtimeMs; } catch (e) { if (live.has(name) && owns(name) && nasDown(f, e)) return live.get(name); throw e; } // (💾 NAS away: the open copy carries on)
   // ⚙ kept by another process (its worker): a look at the saved file, never written from here (liveWrite skips it)
   if (!owns(name)) return { rev: 0, pj: normalizeProject(readJSON(f)), mtime: mt, log: [], subs: new Map(), timer: null, colorN: 0, view: true };
   let L = live.get(name);
@@ -3087,7 +3147,7 @@ function liveSend(L, msg, only = null) {
 function liveWrite(name, L, now = false) {
   if (L.view) { logCrash('live save', `${name}: not written here - its project worker keeps it`); return; }
   clearTimeout(L.timer);
-  const go = () => { L.timer = null; L.pj.modified = Date.now(); writeJSON(P(name, 'project.json'), L.pj); L.mtime = fs.statSync(P(name, 'project.json')).mtimeMs; };
+  const go = () => { L.timer = null; L.pj.modified = Date.now(); writeJSON(P(name, 'project.json'), L.pj); try { L.mtime = fs.statSync(P(name, 'project.json')).mtimeMs; } catch {} }; // (💾 NAS down: kept in PendingSaves)
   if (now) go(); else L.timer = setTimeout(() => { try { go(); } catch (e) { logCrash('live save', e); } }, 400);
 }
 const livePeople = (L) => [...L.subs.entries()].map(([client, x]) => ({ client, name: x.who.name, role: x.who.role, color: x.color, ...x.at }));
@@ -3133,7 +3193,12 @@ function savePresence() {
     try { fs.writeFileSync(PRESENCE + '.tmp', JSON.stringify(presence)); fs.renameSync(PRESENCE + '.tmp', PRESENCE); } catch (e) { logCrash('sessions log', e); }
   }, 5000);
 }
-const ipOf = (req) => String(req.socket?.remoteAddress || '').replace(/^::ffff:/, '');
+// (🚪 through the office gateway - engine/gateway.mjs, its address in config.team.gateway - the person's own address is
+// the one it passes on: else everyone would be the gateway, for the sign-in limits and the Sessions view alike)
+const ipOf = (req) => {
+  const ip = String(req.socket?.remoteAddress || '').replace(/^::ffff:/, ''), gw = teamCfg().gateway;
+  return gw && ip === gw && req.headers['x-forwarded-for'] ? String(req.headers['x-forwarded-for']).split(',')[0].trim().replace(/^::ffff:/, '') : ip;
+};
 // the request comes from this computer itself - also through the team link (the PC's own LAN address). One that came
 // through a tunnel / proxy (cloudflared on this PC also connects from 127.0.0.1) says where it really came from.
 // ⭐ work started on the server PC itself goes first (render queue, AI job lines); in a ⚙ project worker the main process says
@@ -3242,8 +3307,15 @@ const routes = {
       try { fs.mkdirSync(d, { recursive: true }); fs.writeFileSync(path.join(d, '.write-test'), 'ok'); fs.rmSync(path.join(d, '.write-test')); } catch (e) { throw err(400, `Cannot write in ${d}: ${e.message}`); }
       patch.dest = d;
     }
+    // 🗄 the second NAS for the live mirror (empty = none)
+    if (typeof b.replica === 'string') {
+      const d = b.replica.trim();
+      if (d && !path.isAbsolute(d)) throw err(400, 'Give a full folder path on the second NAS, e.g. W:\\Limelight Replica');
+      if (d) try { fs.mkdirSync(d, { recursive: true }); fs.writeFileSync(path.join(d, '.write-test'), 'ok'); fs.rmSync(path.join(d, '.write-test')); } catch (e) { throw err(400, `Cannot write in ${d}: ${e.message}`); }
+      patch.replica = d || null; safetyRun.replicaAt = 0; safetyRun.replicated = new Map();
+    }
     saveSafety(patch);
-    if (patch.mirror) setTimeout(() => mirrorTick(true).catch(() => {}), 500); // (the first full mirror starts now)
+    if (patch.mirror || patch.replica) setTimeout(() => mirrorTick(true).catch(() => {}), 500); // (the first full mirror starts now)
     return healthView();
   },
   'POST /api/safety/backup': () => {
