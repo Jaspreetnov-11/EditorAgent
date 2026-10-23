@@ -7,6 +7,7 @@
 //   subs/ renders/ backups/ luts/
 import http from 'node:http';
 import https from 'node:https';
+import { Worker } from 'node:worker_threads';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -64,10 +65,26 @@ let placesCache = null;
 let placesMt = 0;
 // (read again when the file changed - ⚙ project workers and the main process each keep a copy)
 const projectPlaces = () => { let mt = 0; try { mt = fs.statSync(PLACES_FILE).mtimeMs; } catch {} if (!placesCache || mt !== placesMt) { placesCache = readJSON(PLACES_FILE, {}); placesMt = mt; } return placesCache; };
-function setPlace(name, dir) { const pl = { ...projectPlaces() }; if (dir) pl[name] = dir; else delete pl[name]; placesCache = pl; writeJSON(PLACES_FILE, pl); }
+function setPlace(name, dir) { const pl = { ...projectPlaces() }; if (dir) pl[name] = dir; else delete pl[name]; placesCache = pl; writeJSON(PLACES_FILE, pl); placeSeen.delete(name); }
 // every project: the ones in Projects, then the ones saved elsewhere (a drive that is not connected right now is left out)
+// 🛡 whether a project saved elsewhere (the NAS) is there is looked at in the background every 15 s (placeSeen), not on
+// each call: a busy NAS took 3-6 s to answer a synchronous look at 46 projects, and the main process - which every PC's
+// every request passes through - stood still that long each time (the editor "stuck" on the other PCs). A project not
+// looked at yet is looked at once, right away.
+const placeSeen = new Map(); // project -> its project.json was there at the last look
+const seenPlace = (n, d) => { if (!placeSeen.has(n)) placeSeen.set(n, fs.existsSync(path.join(d, 'project.json'))); return placeSeen.get(n); };
+let placesLooking = null; // (the look in progress: a second caller waits for it)
+function lookAtPlaces() {
+  placesLooking ||= (async () => {
+    try { await Promise.all(Object.entries(projectPlaces()).map(async ([n, d]) => placeSeen.set(n, await fs.promises.access(path.join(d, 'project.json')).then(() => true, () => false)))); }
+    finally { placesLooking = null; }
+  })();
+  return placesLooking;
+}
+setInterval(() => lookAtPlaces().catch(() => {}), 15000).unref?.();
+setImmediate(() => lookAtPlaces().catch(() => {})); // (at start - once this file is read - so the first Home finds them looked at)
 const allProjects = () => [...fs.readdirSync(PROJECTS).filter((n) => fs.existsSync(path.join(PROJECTS, n, 'project.json'))),
-  ...Object.entries(projectPlaces()).filter(([n, d]) => !fs.existsSync(path.join(PROJECTS, n, 'project.json')) && fs.existsSync(path.join(d, 'project.json'))).map(([n]) => n)];
+  ...Object.entries(projectPlaces()).filter(([n, d]) => !fs.existsSync(path.join(PROJECTS, n, 'project.json')) && seenPlace(n, d)).map(([n]) => n)];
 // 🗑 the Recycle Bin: deleted projects wait here (next to Projects) until restored or deleted for good. An older
 // "Deleted projects" folder is taken in once.
 const recycleBin = () => path.join(DATA, 'Recycle Bin');
@@ -1023,13 +1040,29 @@ async function pump() {
 }
 
 // On start, resume anything left unfinished last time (VEDIT_NO_RESUME=1: a second test server leaves that to the main one).
-for (const proj of process.env.VEDIT_NO_RESUME && !IS_WORKER ? [] : allProjects().filter(owns)) { // (⚙ a worker: its own projects)
-  ensureProjectDirs(proj);
-  for (const m of mediaDb(proj).items) {
-    if (m.status !== 'ready' && m.status !== 'offline') { m.status = 'queued'; quickQ[m.kind === 'audio' ? 'unshift' : 'push']({ proj, id: m.id }); }
-    else if (['queued', 'making', 'pending'].includes(m.proxy)) { m.proxy = 'queued'; proxyQ.push({ proj, id: m.id }); }
+// 🛡 in the background, one project after another, read with fs.promises: a project worker answers right away. It used to
+// read every one of its projects' folders and media lists from the NAS before it took a single request - minutes on a
+// busy NAS, while those projects said "this project's worker is restarting" on every PC.
+async function resumeProjects() {
+  await lookAtPlaces(); // (which NAS projects are there, without a synchronous look)
+  for (const proj of allProjects().filter(owns)) { // (⚙ a worker: its own projects)
+    try {
+      await Promise.all(['imports', 'cache/thumbs', 'cache/strips', 'cache/waves', 'cache/proxies', 'cache/analysis', 'subs', 'renders', 'output', 'backups', 'luts']
+        .map((d) => fs.promises.mkdir(P(proj, d), { recursive: true })));
+      if (!mediaCache.has(proj)) {
+        const text = await fs.promises.readFile(P(proj, 'media.json'), 'utf8').catch(() => null);
+        let db = null; try { db = text ? JSON.parse(text) : { items: [] }; } catch {} // (half written: read later the usual way)
+        if (db && !mediaCache.has(proj)) { mediaCache.set(proj, db); mediaRead.set(proj, Date.now()); }
+      }
+      for (const m of mediaDb(proj).items) {
+        if (m.status !== 'ready' && m.status !== 'offline') { m.status = 'queued'; quickQ[m.kind === 'audio' ? 'unshift' : 'push']({ proj, id: m.id }); }
+        else if (['queued', 'making', 'pending'].includes(m.proxy)) { m.proxy = 'queued'; proxyQ.push({ proj, id: m.id }); }
+      }
+      pump();
+    } catch (e) { logCrash(`resume ${proj}`, e); }
   }
 }
+if (!(process.env.VEDIT_NO_RESUME && !IS_WORKER)) setImmediate(() => resumeProjects().catch((e) => logCrash('resume', e)));
 pump();
 
 // Media as the browser needs it (no absolute paths needed client side except for display).
@@ -1387,6 +1420,61 @@ function projectSummary(name) {
     thumb: thumbM ? `/pm/${encodeURIComponent(name)}/${thumbM.id}/thumb` : null };
 }
 
+// 🛡 the same for Home, without stopping the process: read with fs.promises, a few projects at a time, and kept until
+// the project's project.json or media.json changes - Home read every project's files (MBs for a big media list) from the
+// NAS synchronously each time anyone opened it, and the editor stood still for everyone for up to half a minute.
+// (kept on disk too - summaries.json - so after a restart only projects that changed are read; several people opening
+// Home at once wait for one reading of a project, not one each)
+const SUMMARIES = path.join(DATA, 'summaries.json');
+const summaryCache = new Map(IS_WORKER ? [] : Object.entries(readJSON(SUMMARIES, {}))); // project -> { key, s }
+const summaryReads = new Map(); // project -> the reading in progress
+let summarySave = null;
+const keepSummaries = () => { summarySave ||= setTimeout(() => { summarySave = null; try { writeJSON(SUMMARIES, Object.fromEntries(summaryCache)); } catch {} }, 5000); };
+function projectSummaryAsync(name) {
+  if (!summaryReads.has(name)) summaryReads.set(name, readSummary(name).finally(() => summaryReads.delete(name)));
+  return summaryReads.get(name);
+}
+async function readSummary(name) {
+  const dir = projDir(name), pf = path.join(dir, 'project.json'), mf = path.join(dir, 'media.json');
+  const [st, sm] = await Promise.all([fs.promises.stat(pf).catch(() => null), fs.promises.stat(mf).catch(() => null)]);
+  if (!st) return null;
+  const key = `${dir}|${st.mtimeMs}|${sm?.mtimeMs || 0}`, c = summaryCache.get(name);
+  if (c?.key === key) return c.s;
+  // (read and parsed in a thread - engine/summarize.mjs - so a big media list is never the main process's moment)
+  let s;
+  try { s = await inThread({ name, pf, mf }); } catch { return c?.s || null; } // (a file being written right now: the last summary, or left out this once)
+  Object.assign(s, { folder: dir, modified: st.mtimeMs });
+  summaryCache.set(name, { key, s }); keepSummaries();
+  return s;
+}
+// two summary threads, started when first needed; a thread that stops is started again
+const threads = [], threadWait = new Map();
+let threadSeq = 0;
+function summaryThread(k) {
+  if (threads[k]) return threads[k];
+  const w = new Worker(new URL('./engine/summarize.mjs', import.meta.url));
+  w.on('message', ({ id, s, error }) => { const t = threadWait.get(id); if (!t) return; threadWait.delete(id); error ? t.bad(new Error(error)) : t.ok(s); });
+  w.on('error', (e) => logCrash('summary thread', e));
+  w.on('exit', () => { threads[k] = null; for (const [id, t] of threadWait) if (t.k === k) { threadWait.delete(id); t.bad(new Error('summary thread stopped')); } });
+  w.unref();
+  return (threads[k] = w);
+}
+function inThread(msg) {
+  const id = ++threadSeq, k = id % 2;
+  return new Promise((ok, bad) => {
+    threadWait.set(id, { ok, bad, k });
+    setTimeout(() => { if (threadWait.delete(id)) bad(new Error('summary took too long')); }, 120000).unref?.();
+    summaryThread(k).postMessage({ id, ...msg });
+  });
+}
+// every project's summary, 6 read at a time (the NAS is shared by everyone)
+async function allSummaries() {
+  const names = allProjects(), out = new Array(names.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: 6 }, async () => { for (let i; (i = next++) < names.length;) out[i] = await projectSummaryAsync(names[i]).catch(() => null); }));
+  return out.filter(Boolean);
+}
+
 function createProject({ name, aspect, fps, place }) {
   const n = safeName(name);
   if (fs.existsSync(P(n, 'project.json')) || fs.existsSync(path.join(PROJECTS, n, 'project.json'))) throw err(409, `A project called "${n}" already exists`);
@@ -1460,7 +1548,7 @@ function safetyCfg() {
 }
 function saveSafety(patch) { const c = config(); c.safety = { ...(c.safety || {}), ...patch }; fs.writeFileSync(CONFIG, JSON.stringify(c, null, 1)); }
 const safetyRun = { busy: null, last: null, failedAt: 0, mirrorAt: 0, mirrorErr: null, mirrored: new Map(), pull: null };
-const safeProjects = () => allProjects().map((name) => ({ name, dir: projDir(name) })).filter((p) => fs.existsSync(path.join(p.dir, 'project.json')));
+const safeProjects = () => allProjects().map((name) => ({ name, dir: projDir(name) })); // (allProjects has looked at each one)
 // what goes with the projects: into each night everything; into the live mirror only what a standby's editor reads
 // from its data folder (its Library and LUTs are its own)
 const appOf = (night) => (night
@@ -1502,11 +1590,14 @@ async function mirrorTick(all = false) {
   safetyRun.mirroring = true;
   try {
     await flushLive();
-    const key = (p) => ['project.json', 'media.json'].map((f) => { try { return fs.statSync(path.join(p.dir, f)).mtimeMs; } catch { return 0; } }).join('|');
-    const changed = safeProjects().filter((p) => all || safetyRun.mirrored.get(p.name) !== key(p));
+    // (🛡 looked at with fs.promises: a synchronous look at every project on a busy NAS stopped the main process for seconds)
+    const key = async (p) => (await Promise.all(['project.json', 'media.json'].map((f) => fs.promises.stat(path.join(p.dir, f)).then((s) => s.mtimeMs, () => 0)))).join('|');
+    const keys = new Map();
+    for (const p of safeProjects()) keys.set(p.name, await key(p));
+    const changed = safeProjects().filter((p) => all || safetyRun.mirrored.get(p.name) !== keys.get(p.name));
     if (changed.length || Date.now() - safetyRun.mirrorAt > 30 * 60e3) {
       await mirrorLive({ dest: s.dest, projects: changed, app: appOf(false), host: os.hostname() });
-      for (const p of changed) safetyRun.mirrored.set(p.name, key(p));
+      for (const p of changed) safetyRun.mirrored.set(p.name, keys.get(p.name));
     }
     safetyRun.mirrorAt = Date.now(); safetyRun.mirrorErr = null;
   } catch (e) { safetyRun.mirrorErr = e.message; logCrash('live mirror', e); }
@@ -2075,10 +2166,12 @@ function addBatch(name, ids, actions, opts = {}, runAt = null) {
 }
 // 👁 watch folders: every minute, new files in a project's watched folder are imported (bin "Watched/…") and queued
 const autoFile = (name) => P(name, 'automation.json');
+// (⚙ each process for the projects it keeps - the main process keeps none with project workers - and the NAS looked at
+// in the background: this ran in every process every minute, with a synchronous look at every project's folder)
 async function watchTick() {
-  for (const name of allProjects()) {
+  for (const name of allProjects().filter(owns)) {
     const f = autoFile(name);
-    if (!fs.existsSync(f)) continue;
+    if (!(await fs.promises.access(f).then(() => true, () => false))) continue;
     const a = readJSON(f, {});
     if (!a.watch?.on || !a.watch.folder || !fs.existsSync(a.watch.folder)) continue;
     const added = [];
@@ -2915,8 +3008,8 @@ const routes = {
     send(res, 200, { ok: true }); console.log('A newer version of the editor is starting - closing this one.'); setTimeout(() => process.exit(0), 300); },
 
   // projects
-  'GET /api/projects': () => { const pf = projectFolders(), pl = projectPlaces(); return allProjects()
-    .map(projectSummary).filter(Boolean).map((p) => ({ ...p, group: pf.map[p.name] || null, place: pl[p.name] || null })).sort((a, b) => b.modified - a.modified); },
+  'GET /api/projects': async () => { const pf = projectFolders(), pl = projectPlaces(); return (await allSummaries())
+    .map((p) => ({ ...p, group: pf.map[p.name] || null, place: pl[p.name] || null })).sort((a, b) => b.modified - a.modified); },
   // 📂 a project folder saved anywhere (another drive, the NAS, a shared PC folder) taken into the list. Body { dir }
   'POST /api/projects/open-folder': async (req) => {
     const dir = path.resolve(String((await readJson(req)).dir || ''));
