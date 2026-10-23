@@ -35,6 +35,7 @@ import { addTextAt, addShapeAt } from './gfxui.js';
 import { effectsCss, maskedEffectsCss, grainCss, VFX, inWindow, blendOf } from './effects.js';
 import { maskAlpha, movedMask, unmovedMask, maskKey } from './shapemask.js';
 import { captionAt, capTracks, capStack } from './captions.js';
+import { monitorDrag } from './toolgroups.js';
 import { fitMap, framingOf, srcSize, boxAt, srcTimeAt, pinAt, quadMatrix, orderQuad } from './tracking.js';
 
 let root, frame, els = {}, mode = 'program', srcId = null, grader = null;
@@ -175,9 +176,11 @@ function movable() {
 }
 function bindDirectMove() {
   const fps = () => S.project.settings.fps || 30;
-  frame.addEventListener('pointermove', (e) => { if (!e.buttons) frame.classList.toggle('can-move', !!movable()); });
+  // only the Selection tool moves a clip here; the Hand tool moves the view (never the clip), like Premiere
+  frame.addEventListener('pointermove', (e) => { if (!e.buttons) frame.classList.toggle('can-move', monitorDrag(S.tool, 0, false) === 'move' && !!movable()); });
   frame.addEventListener('pointerdown', (e) => {
-    const m = movable(); if (!m || e.button !== 0) return;
+    if (monitorDrag(S.tool, e.button, false) !== 'move') return;
+    const m = movable(); if (!m) return;
     e.preventDefault(); try { frame.setPointerCapture(e.pointerId); } catch {}
     const b = frame.getBoundingClientRect(), x0 = +propAt(m.c, 'transform.x', m.rel) || 0, y0 = +propAt(m.c, 'transform.y', m.rel) || 0;
     let moved = false;
@@ -199,9 +202,9 @@ function bindDirectMove() {
     setViewZoom(cur * (e.deltaY < 0 ? 1.15 : 1 / 1.15), { x: e.clientX, y: e.clientY });
   }, { passive: false });
   $('[data-vzoom]', root).addEventListener('change', (e) => setViewZoom(e.target.value === 'fit' ? 'fit' : +e.target.value));
-  // middle-drag moves around a zoomed-in picture (like the Hand)
+  // middle-drag (or a drag with the Hand tool) moves around a zoomed-in picture
   stage.addEventListener('pointerdown', (e) => {
-    if (e.button !== 1 || viewZoom === 'fit') return;
+    if (monitorDrag(S.tool, e.button, viewZoom !== 'fit') !== 'pan') return;
     e.preventDefault();
     const x0 = e.clientX, y0 = e.clientY, l0 = stage.scrollLeft, t0 = stage.scrollTop;
     const mv = (ev) => { stage.scrollLeft = l0 - (ev.clientX - x0); stage.scrollTop = t0 - (ev.clientY - y0); };

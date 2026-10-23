@@ -542,6 +542,7 @@ label.btn:hover, .btn:hover { border-color: var(--accent); }
 .bin-row { display: flex; gap: 4px; align-items: center; } .bin-row select { flex: 1; min-width: 0; }
 .ag-pct { display: flex; align-items: baseline; gap: 10px; } .ag-pct b { font-size: 28px; color: var(--accent); font-variant-numeric: tabular-nums; }
 .vw-frame.can-move { cursor: move; }
+body:has(.timeline[data-tool="hand"]) .vw-stage.zoomed .vw-frame { cursor: grab; }
 .mc-pick { max-height: 260px; margin-bottom: 10px; }
 .mc-pick i { display: grid; place-items: center; color: var(--muted); font-style: normal; }
 select.kfe { font-size: 10px; padding: 0 2px; height: 18px; width: auto; max-width: 74px; }

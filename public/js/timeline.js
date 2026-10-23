@@ -179,6 +179,7 @@ export function mountTimeline(el) {
   scroller.addEventListener('pointerdown', (e) => {
     if (e.button !== 0 || e.target.closest('#tlRows, .tl-ruler, #tlPlayhead, .tl-marquee, .tr-box, .clip, button, input, select')) return;
     if (e.offsetX > scroller.clientWidth || e.offsetY > scroller.clientHeight) return; // (its scrollbars)
+    if (S.tool === 'hand') { handDrag(e); return; } // ✋ the Hand only scrolls - no selection box
     marqueeStart(e);
   });
   rowsEl.addEventListener('contextmenu', onContext);

@@ -17,3 +17,12 @@ test('a click on a group button: a plain click sets its tool; the ◢ corner or 
   same(groupClick({ corner: true, many: false }), 'set'); // (a one-tool group has no corner to peek in)
   assert(MANY_SELECT.has('trackfwd') && MANY_SELECT.has('trackback') && !MANY_SELECT.has('select'), 'track select tools say how they select');
 });
+
+test('Program monitor: the Hand tool pans and never moves the clip; only the Selection tool moves it', async () => {
+  const { monitorDrag } = await import('../public/js/toolgroups.js');
+  same(monitorDrag('select', 0, false), 'move');
+  same(monitorDrag('hand', 0, true), 'pan');
+  same(monitorDrag('hand', 0, false), null);
+  same(monitorDrag('select', 1, true), 'pan');
+  same(monitorDrag('ripple', 0, false), null);
+});
