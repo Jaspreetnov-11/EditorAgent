@@ -290,3 +290,46 @@ html.ui2 .timeline .tl-bar .tl-tc { margin-left: auto; }
 /* 🔤 font picker sections: the editor computer's fonts, then Google Fonts */
 .fp-list .fp-h { flex: none; padding: 8px 8px 3px; font: 600 10px 'Segoe UI', sans-serif; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .fontpick { width: 320px; max-height: 420px; }
+
+/* T Type tool text in Effect Controls, laid out like Premiere's Essential Graphics > Text (gfxui.js textPanel) */
+.fgrid.tx-panel { display: flex; flex-direction: column; gap: 8px; }
+.tx-head { font-weight: 700; font-size: 12.5px; letter-spacing: .02em; }
+.tx-text { width: 100%; min-height: 52px; resize: vertical; }
+.tx-panel .fld.wide { margin: 0; }
+.tx-panel .fld.wide > span:empty { display: none; }
+.tx-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tx-weight { flex: 1 1 120px; min-width: 110px; }
+.tx-tg { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel-2); }
+.tx-tg button { min-width: 28px; height: 26px; padding: 0 6px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font-size: 12.5px; }
+.tx-tg button:hover { color: var(--text); background: #ffffff10; }
+.tx-tg button[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft, #ffffff14); }
+.tx-tg svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; vertical-align: middle; }
+.tx-size { display: grid; grid-template-columns: auto 1fr 64px; align-items: center; gap: 8px; }
+.tx-size > span, .tx-l { color: var(--muted); font-size: 12px; }
+.tx-size input[type="number"] { width: 64px; }
+.tx-num { display: inline-flex; align-items: center; gap: 4px; }
+.tx-num i { font-style: normal; font-size: 10.5px; color: var(--muted); min-width: 18px; text-align: right; }
+.tx-num input { width: 62px; }
+.tx-sec { border-top: 1px solid var(--line); padding-top: 6px; }
+.tx-sec > summary { cursor: pointer; font-weight: 700; font-size: 12.5px; padding: 3px 0; list-style: none; }
+.tx-sec > summary::before { content: '▸'; display: inline-block; width: 14px; color: var(--muted); transition: transform .15s; }
+.tx-sec[open] > summary::before { transform: rotate(90deg); }
+.tx-body { display: flex; flex-direction: column; gap: 8px; padding: 6px 0 4px 14px; }
+.tx-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tx-line input[type="color"] { width: 34px; height: 24px; padding: 0; border-radius: 5px; }
+.tx-chk { display: inline-flex; align-items: center; gap: 6px; min-width: 100px; font-size: 12.5px; }
+.tx-l { min-width: 100px; }
+
+/* 🧭 Effect Controls sections (inspector.js sumHTML): an icon, the name with its status tag, a line on what it is for */
+#inspector .isec > summary { display: flex; align-items: center; gap: 10px; padding-top: 8px; padding-bottom: 8px; }
+#inspector .isec > summary .is-ic { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); }
+#inspector .isec[open] > summary .is-ic, #inspector .isec > summary:hover .is-ic { color: var(--accent); border-color: var(--accent-line, var(--line)); }
+#inspector .isec > summary .is-ic svg { width: 15px; height: 15px; }
+#inspector .isec > summary .is-t { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+#inspector .isec > summary .is-t > span { display: flex; align-items: center; gap: 6px; }
+#inspector .isec > summary .is-t small { font-weight: 400; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#inspector .is-group { margin: 12px 2px 2px; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+#inspector .is-group:first-child { margin-top: 2px; }
+#inspector .iactions.ia-icons { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 6px; }
+#inspector .iactions.ia-icons button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+#inspector .iactions.ia-icons svg { width: 14px; height: 14px; }

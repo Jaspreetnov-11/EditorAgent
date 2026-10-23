@@ -111,8 +111,37 @@ export function addShapeAt(shape, x, y, w, h) {
 setFontLoader((fam) => ensureFont(fam, () => emit('mix')));
 
 // ---- Effect Controls ----
+// T the Type tool's text, laid out like Premiere's Essential Graphics: Text (font, style, size, alignment, spacing), then
+// Appearance and Align and Transform that fold away. The inputs are ordinary fields (data-k, bound with the others);
+// the style / alignment buttons set their key at once (bindTextPanel).
+const WEIGHTS = [[300, 'Light'], [400, 'Regular'], [500, 'Medium'], [600, 'Semibold'], [700, 'Bold'], [800, 'Extra Bold'], [900, 'Black']];
+const ALIGN_IC = { left: '<svg viewBox="0 0 16 16"><path d="M2 3h12M2 6.5h8M2 10h12M2 13.5h8"/></svg>', center: '<svg viewBox="0 0 16 16"><path d="M2 3h12M4 6.5h8M2 10h12M4 13.5h8"/></svg>', right: '<svg viewBox="0 0 16 16"><path d="M2 3h12M6 6.5h8M2 10h12M6 13.5h8"/></svg>' };
+const txOpen = new Set(['appear']); // (folded sections stay as the editor left them)
+function textPanel(g) {
+  const w = g.weight || (g.bold === false ? 400 : 700), on = (b) => (b ? ' aria-pressed="true"' : ' aria-pressed="false"');
+  const num = (k, v, step, title, ic, min = '', max = '') => `<label class="tx-num" title="${title}"><i>${ic}</i><input type="number" data-k="${k}" data-type="num" step="${step}" min="${min}" max="${max}" value="${v}"></label>`;
+  const sec = (key, title, body) => `<details class="tx-sec" data-txsec="${key}"${txOpen.has(key) ? ' open' : ''}><summary>${title}</summary><div class="tx-body">${body}</div></details>`;
+  return `<div class="tx-head">Text</div>
+    <textarea class="tx-text" data-k="text" data-type="area" rows="2" placeholder="Type here - or with the Type tool on the monitor">${esc(g.text || '')}</textarea>
+    ${fontField(g.font).replace('<span>Font</span>', '')}
+    <div class="tx-row"><select class="tx-weight" data-k="weight" data-type="select" title="Font style (weight)">${WEIGHTS.map(([v, l]) => `<option value="${v}"${v === w ? ' selected' : ''}>${l}</option>`).join('')}</select>
+      <div class="tx-tg"><button data-txb="bold" title="Bold"${on(w >= 600)}><b>B</b></button><button data-txb="italic" title="Italic"${on(g.italic)}><i>I</i></button><button data-txb="caps" title="All Caps"${on(g.caps)}>TT</button><button data-txb="underline" title="Underline"${on(g.underline)}><u>U</u></button></div></div>
+    <div class="tx-size"><span>Font Size</span><input type="range" data-k="size" data-type="range" min="8" max="400" step="1" value="${g.size ?? 90}"><input type="number" data-mirror="size" min="8" max="600" step="1" value="${g.size ?? 90}"></div>
+    <div class="tx-row"><div class="tx-tg tx-align">${['left', 'center', 'right'].map((a) => `<button data-txa="${a}" title="Align ${a}"${on((g.align || 'center') === a)}>${ALIGN_IC[a]}</button>`).join('')}</div>
+      ${num('track', g.track ?? 0, 1, 'Tracking (space between letters)', 'VA↔', -10, 60)}${num('lead', g.lead ?? 1.2, 0.05, 'Leading (space between lines)', '↕A', 0.8, 2.5)}</div>
+    ${sec('appear', 'Appearance', `
+      <div class="tx-line"><span class="tx-l">Fill</span><input type="color" data-k="color" value="${esc(g.color || '#ffffff')}"></div>
+      <div class="tx-line"><label class="tx-chk"><input type="checkbox" data-k="stroke" data-type="check"${g.stroke ? ' checked' : ''}> Stroke</label><input type="color" data-k="strokeColor" value="${esc(g.strokeColor || '#000000')}">${num('strokeW', g.strokeW ?? 6, 1, 'Stroke width', '⎯', 1, 40)}</div>
+      <div class="tx-line"><label class="tx-chk"><input type="checkbox" data-k="bg" data-type="check"${g.bg ? ' checked' : ''}> Background</label><input type="color" data-k="bgColor" value="${esc(g.bgColor || '#000000')}">${num('bgOpacity', g.bgOpacity ?? 0.6, 0.05, 'Background opacity (0 - 1)', '◐', 0, 1)}</div>
+      <div class="tx-line"><label class="tx-chk"><input type="checkbox" data-k="shadow" data-type="check"${g.shadow ? ' checked' : ''}> Shadow</label></div>`)}
+    ${sec('xform', 'Align and Transform', `<div class="tx-line">${num('x', g.x ?? 50, 0.5, 'Position across (% of the frame)', 'X', -20, 120)}${num('y', g.y ?? 50, 0.5, 'Position down (% of the frame)', 'Y', -20, 120)}</div>
+      <div class="fgrid tx-resp">${fieldsHTML(respFields(g), g)}</div>`)}`;
+}
 export function gfxInspector(c) {
   const g = c.gfx || {};
+  // T Type tool text: Premiere's Text panel layout
+  if (g.tpl === 'text') return `<div class="isec"><div class="fgrid tx-panel">${textPanel(g)}</div>
+  <div class="fgrid">${fieldsHTML([{ k: 'start', label: 'Starts at', type: 'time', fmt, ph: '0:00.0' }, { k: 'dur', label: 'Length', type: 'num', min: 1, step: 0.5, unit: 'sec' }, { k: 'blend', label: 'Blend Mode (with the tracks below)', type: 'select', options: BLEND_MODES }], c)}</div></div>`;
   // 🎬 a Motion comp: edited on the Motion page
   if (g.tpl === 'comp' || g.tpl === 'fusion') return `<div class="isec"><p><b>${g.tpl === 'fusion' ? `${esc(g.fusion?.name || 'Fusion')}</b> <span class="muted small">- ${g.fusion?.nodes?.length || 0} nodes</span>` : `${esc(g.comp?.name || 'Composition')}</b> <span class="muted small">- ${g.comp?.layers?.length || 0} layers</span>`}</p>
     <button class="accent" data-open-comp>${g.tpl === 'fusion' ? 'Open in Fusion' : 'Open in Motion'}</button><div class="fgrid">${fieldsHTML([{ k: 'start', label: 'Starts at', type: 'time', fmt, ph: '0:00.0' }], c)}</div>
@@ -126,8 +155,21 @@ export function gfxInspector(c) {
   <div class="fgrid">${fieldsHTML([{ k: 'start', label: 'Starts at', type: 'time', fmt, ph: '0:00.0' }, { k: 'dur', label: 'Length', type: 'num', min: 1, step: 0.5, unit: 'sec' }, { k: 'blend', label: 'Blend Mode (with the tracks below)', type: 'select', options: BLEND_MODES }], c)}</div>
   <small class="hint">Numbers count up, bars grow and lines draw in during the first seconds; the last 0.4 s fades out. Hindi works too.</small></div>`;
 }
+function bindTextPanel(box, id, render) {
+  const g = () => findClip(id)?.clip.gfx;
+  box.querySelectorAll('[data-txb]').forEach((b) => b.addEventListener('click', () => {
+    const x = g(); if (!x) return; const k = b.dataset.txb;
+    if (k === 'bold') { const wNow = x.weight || (x.bold === false ? 400 : 700); x.weight = wNow >= 600 ? 400 : 700; x.bold = x.weight >= 600; }
+    else x[k] = !x[k] || undefined;
+    commit(`Text: ${b.title}`); emit('live'); render();
+  }));
+  box.querySelectorAll('[data-txa]').forEach((b) => b.addEventListener('click', () => { const x = g(); if (!x) return; x.align = b.dataset.txa; commit('Text: align'); emit('live'); render(); }));
+  box.querySelectorAll('[data-txsec]').forEach((d) => d.addEventListener('toggle', () => (d.open ? txOpen.add(d.dataset.txsec) : txOpen.delete(d.dataset.txsec))));
+  box.querySelector('[data-k="weight"]')?.addEventListener('change', (e) => { const x = g(); if (x) x.bold = +e.target.value >= 600; });
+}
 export function bindGfxInspector(root, id, render) {
   const box = root.querySelector('.isec');
+  if (findClip(id)?.clip.gfx?.tpl === 'text') bindTextPanel(box, id, render);
   if (['comp', 'fusion'].includes(findClip(id)?.clip.gfx?.tpl)) {
     box.querySelector('[data-open-comp]').onclick = () => emit(findClip(id).clip.gfx.tpl === 'fusion' ? 'openFusion' : 'openComp', findClip(id).clip);
     bindFields(box.querySelector('.fgrid'), () => findClip(id)?.clip, { parse: { start: parseTime }, live: () => emit('live'), commit: () => commit('Comp timing') });

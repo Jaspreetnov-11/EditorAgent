@@ -54,7 +54,26 @@ export function mountInspector(el) {
   render();
 }
 
-const sec = (key, title, body, extra = '') => `<details class="isec" data-sec="${key}"${openSections.has(key) ? ' open' : ''}><summary>${title}${extra}</summary><div class="fgrid">${body}</div></details>`;
+// 🧭 each section of Effect Controls: an icon and a line on what it is for, so the list reads at a glance
+const SEC_INFO = { transform: ['transform', 'Position, scale, rotation, opacity, blend'], ramp: ['ramp', 'Fast and slow inside the shot'], cutfx: ['bolt', 'A punch, flash or shake on the cut into it'],
+  vfx: ['adjust', 'Blur, glow, keying, looks and more'], omask: ['mask', 'Show only a shape of the shot'], text: ['edit', 'The words and their look'], audio: ['speaker', 'Volume, fades and clean-up'],
+  aeffects: ['wave', 'EQ, reverb, compressor and more'], trk: ['target', 'Make text or a graphic follow something'], gyro: ['shake', 'Smooth shaky footage with gyro data'], ai: ['sparkle', 'Remove or add things with AI'] };
+const sumHTML = (key, title, extra = '') => { const i = SEC_INFO[key]; return i ? `<span class="is-ic">${ic(i[0])}</span><span class="is-t"><span>${title}${extra}</span><small>${i[1]}</small></span>` : `${title}${extra}`; };
+const sec = (key, title, body, extra = '') => `<details class="isec" data-sec="${key}"${openSections.has(key) ? ' open' : ''}><summary>${sumHTML(key, title, extra)}</summary><div class="fgrid">${body}</div></details>`;
+// the everyday sections first, the smart tools (tracking, gyro, AI) together under their own heading
+const SEC_ORDER = ['transform', 'ramp', 'cutfx', 'vfx', 'omask', 'text', 'audio', 'aeffects', 'trk', 'gyro', 'ai'], SMART = new Set(['trk', 'gyro', 'ai']);
+function arrangeSections(body) {
+  const secs = [...body.querySelectorAll(':scope > details.isec')]; if (secs.length < 2) return;
+  const rank = (d) => { const i = SEC_ORDER.indexOf(d.dataset.sec); return i < 0 ? 50 : i; };
+  secs.sort((a, b) => rank(a) - rank(b));
+  const smart = secs.filter((d) => SMART.has(d.dataset.sec)), basic = secs.filter((d) => !SMART.has(d.dataset.sec));
+  const head = (t) => Object.assign(document.createElement('div'), { className: 'is-group', textContent: t });
+  const frag = document.createDocumentFragment();
+  if (smart.length && basic.length) frag.append(head('Basics'));
+  basic.forEach((d) => frag.append(d));
+  if (smart.length) { frag.append(head('Smart tools')); smart.forEach((d) => frag.append(d)); }
+  body.insertBefore(frag, body.querySelector(':scope > .iactions'));
+}
 const timeDef = (k, label, ph) => ({ k, label, type: 'time', fmt: (v) => (v === undefined ? '' : fmt(v)), ph });
 
 function doCommit(label, key) { selfCommit = true; commit(label, key); selfCommit = false; }
@@ -109,7 +128,7 @@ function renderClip(id) {
   if (isVid || isImg) clipDefs.push({ k: 'fit', label: 'Framing', type: 'select', options: [['', 'Project default'], ['fit', 'Fit (letterbox)'], ['fill', 'Fill (crop)'], ['blur', 'Blur background']] },
     ...(track !== 'V1' ? [{ k: 'blend', label: 'Blend mode', type: 'select', options: BLEND_MODES }] : []));
   if (isImg) clipDefs.push({ k: 'kenburns', label: 'Ken Burns', type: 'select', options: [['', 'Project default'], ['in', 'Zoom in'], ['out', 'Zoom out'], [false, 'Static']] });
-  if (isVid) html += `<details class="isec" data-sec="ramp"${openSections.has('ramp') || c.ramp ? ' open' : ''}><summary>Speed ramp${c.ramp ? ' <span class="tag">on</span>' : ''}</summary><div class="ramp-ed" data-ramp-ed></div></details>`;
+  if (isVid) html += `<details class="isec" data-sec="ramp"${openSections.has('ramp') || c.ramp ? ' open' : ''}><summary>${sumHTML('ramp', 'Speed ramp', c.ramp ? ' <span class="tag">on</span>' : '')}</summary><div class="ramp-ed" data-ramp-ed></div></details>`;
   // (the 'Clip' section was removed on request - speed ramp stays in its own section above)
   void clipDefs;
 
@@ -183,10 +202,11 @@ function renderClip(id) {
       { k: 'fadeOut', label: 'Fade out', type: 'num', min: 0, step: 0.25, unit: 'sec' },
     ], obj));
   }
-  html += `<div class="iactions">${c.mediaId ? '<button data-a="replace" title="Swap this clip for another one - same place, length and effects">Replace…</button>' : ''}<button data-a="split">Split at playhead</button><button data-a="dup">Duplicate</button><button class="danger" data-a="del">Delete</button></div>`;
+  html += `<div class="iactions ia-icons">${c.mediaId ? `<button data-a="replace" title="Swap this clip for another one - same place, length and effects">${ic('swap')}Replace…</button>` : ''}<button data-a="split" title="Cut the clip in two at the playhead">${ic('scissors')}Split</button><button data-a="dup" title="A copy right after it">${ic('copy')}Duplicate</button><button class="danger" data-a="del">${ic('trash')}Delete</button></div>`;
   // (the same clip drawn again - after adding a mask, an effect… - stays scrolled where it was)
   const keep = lastClip === id ? [root.scrollTop, root.querySelector('.ibody')?.scrollTop || 0] : null; lastClip = id;
   root.innerHTML = head + `<div class="ibody">${html}</div>`;
+  arrangeSections(root.querySelector('.ibody'));
   if (keep) { root.scrollTop = keep[0]; const ib = root.querySelector('.ibody'); if (ib) ib.scrollTop = keep[1]; }
   // ⏩ the speed ramp graph (presets + draw your own)
   const rampBox = root.querySelector('[data-ramp-ed]');

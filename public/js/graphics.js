@@ -322,6 +322,10 @@ const DRAW = {
       if (g.stroke) { ctx.strokeStyle = g.strokeColor || '#000000'; ctx.lineWidth = (+g.strokeW || 6) * L.k * 2; ctx.strokeText(line, ax, y); ctx.shadowColor = 'transparent'; }
       ctx.fillStyle = g.color || '#ffffff'; ctx.fillText(line, ax, y);
       ctx.shadowColor = 'transparent';
+      if (g.underline && line.trim()) { // (U Underline: under each line, as wide as it)
+        const lw = L.widths[i], x0 = g.align === 'left' ? L.x : g.align === 'right' ? L.x + L.w - lw : L.cx - lw / 2;
+        ctx.fillRect(x0, y + L.px * 0.42, lw, Math.max(1, L.px * 0.06));
+      }
     });
     if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
   },
@@ -774,10 +778,10 @@ export function textLayout(ctx, W, H, g) {
 function textLayoutAt(ctx, W, H, g, s = 1) {
   const k = (Math.min(W, H) / 1080) * s, px = Math.max(4, (+g.size || 90) * k), lh = px * (+g.lead || 1.2);
   const fam = `${g.font ? `"${String(g.font).replace(/"/g, '')}", ` : ''}"Nirmala UI", "Segoe UI", Arial, sans-serif`;
-  const font = `${g.italic ? 'italic ' : ''}${g.bold === false ? 400 : 700} ${Math.round(px)}px ${fam}`;
+  const font = `${g.italic ? 'italic ' : ''}${g.weight || (g.bold === false ? 400 : 700)} ${Math.round(px)}px ${fam}`;
   ctx.font = font;
   if ('letterSpacing' in ctx) ctx.letterSpacing = `${((+g.track || 0) * px) / 100}px`;
-  const lines = String(g.text ?? '').split(/\r?\n/);
+  const lines = String(g.text ?? '').split(/\r?\n/).map((l) => (g.caps ? l.toLocaleUpperCase() : l)); // (TT All Caps)
   const widths = lines.map((l) => ctx.measureText(l || ' ').width), w = Math.max(px * 0.5, ...widths), h = lh * lines.length;
   const cx = ((g.x ?? 50) / 100) * W, cy = ((g.y ?? 50) / 100) * H;
   return { lines, widths, px, lh, font, k, x: cx - w / 2, y: cy - h / 2, w, h, cx, cy };
