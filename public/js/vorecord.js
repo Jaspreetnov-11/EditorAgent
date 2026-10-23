@@ -14,6 +14,8 @@ export const recording = () => rec?.track || null;
 export async function toggleRecord(track) {
   if (rec) return stop();
   if (S.readOnly) return toast('This project is read-only for you', 'err');
+  // (the browser gives the microphone only on a secure link - an http:// address of the editing PC has no mic at all)
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) return toast('Recording needs the secure link: open https://editor.limelightcorp.in on this PC (the http:// address cannot use the microphone).', 'err');
   let stream;
   try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }); }
   catch (e) { return toast(`No microphone: ${e.message}. Allow the mic for this page (the in the address bar).`, 'err'); }

@@ -249,7 +249,19 @@ function run(cmd, args, { onLine, cwd } = {}) {
     p.on('close', (code) => ok({ code, stdout: out, stderr: errOut }));
   });
 }
-const writeJSON = (file, obj) => { const tmp = `${file}.tmp`; fs.writeFileSync(tmp, JSON.stringify(obj, null, 1)); fs.renameSync(tmp, file); };
+// (a project on the NAS: replacing a file by renaming over it fails with EPERM whenever anything has it open for a
+// moment - a backup or mirror copy, a virus scan, another reader - and now and then just after. That failed the save
+// of a project's media list, so a voice-over take or an upload was lost. A few short tries, then it is written over in place.)
+const SLEEP = new Int32Array(new SharedArrayBuffer(4));
+const writeJSON = (file, obj) => {
+  const data = JSON.stringify(obj, null, 1), tmp = `${file}.tmp`;
+  fs.writeFileSync(tmp, data);
+  for (let k = 0; k < 4; k++) {
+    try { fs.renameSync(tmp, file); return; }
+    catch (e) { if (!['EPERM', 'EACCES', 'EBUSY'].includes(e.code)) throw e; if (k < 3) Atomics.wait(SLEEP, 0, 0, 15 * (k + 1)); }
+  }
+  fs.writeFileSync(file, data); fs.rmSync(tmp, { force: true });
+};
 const readJSON = (file, dflt) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return dflt; } };
 
 // ---------------- projects ----------------
@@ -284,7 +296,12 @@ const saveTimers = new Map();
 function saveMedia(name, now = false) {
   clearTimeout(saveTimers.get(name));
   // the project folder may have been deleted meanwhile - then there is nothing to save
-  const write = () => { const db = mediaCache.get(name); saveTimers.delete(name); if (db && fs.existsSync(projDir(name))) writeJSON(P(name, 'media.json'), db); };
+  // (a save that still fails - the NAS away for a moment - is tried again in 3 s instead of stopping the editor's process)
+  const write = () => {
+    const db = mediaCache.get(name); saveTimers.delete(name);
+    try { if (db && fs.existsSync(projDir(name))) writeJSON(P(name, 'media.json'), db); }
+    catch (e) { if (now) throw e; logCrash('media save', e); if (!saveTimers.has(name)) saveTimers.set(name, setTimeout(write, 3000)); }
+  };
   if (now) write(); else saveTimers.set(name, setTimeout(write, 500));
 }
 const mediaItem = (name, id) => mediaDb(name).items.find((m) => m.id === id);
