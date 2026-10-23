@@ -16,7 +16,7 @@ import { openAudioGain, soundClips } from './audiogain.js';
 import { copyClips, pasteClips, clipboard } from './clipboard.js';
 import { TOOL_GROUPS, groupClick, MANY_SELECT } from './toolgroups.js';
 import { pickTabs } from './seqtabs.js';
-import { clipDur, uid, fmtTC, fmt, trackList, trackKind, trackNum, ensureTrack, frameScale, addTrack, syncLinked, linkAudioOf, linkedPartner, linkedIds, groupedIds, syncShift, rippleMarkers, evalKeys, fmtTime, freeAudioTrack, RAMPS, setRamp, rampPts, rampPart, profileAt, TRANSITIONS, setTransition, trHandles, takeTransitions, giveTransitions, propAt, keepLength, sourceAt } from './model.js';
+import { clipDur, uid, fmtTC, fmt, trackList, trackKind, trackNum, ensureTrack, frameScale, addTrack, syncLinked, linkAudioOf, linkedPartner, linkedIds, groupedIds, syncShift, shiftStory, rippleMarkers, evalKeys, fmtTime, freeAudioTrack, RAMPS, setRamp, rampPts, rampPart, profileAt, TRANSITIONS, setTransition, trHandles, takeTransitions, giveTransitions, propAt, keepLength, sourceAt } from './model.js';
 import { $, $$, h, esc, clamp, toast, modal } from './ui.js';
 import { api, enc } from './api.js';
 import { openGraphics } from './gfxui.js';
@@ -523,7 +523,7 @@ function drawHeads(TR, ts) {
       <div class="th-btns">
         <button class="tbtn lk${st.lock ? ' on' : ''}" data-tst="lock" title="Lock track">${ICON.lock}</button>
         ${t.kind === 'audio' ? `<button class="th-tname${tg.a === t.id ? ' on' : ''}" data-tg="${t.id}" title="${esc(label ? `${label} - ` : '')}Target: Insert / Overwrite from the Source monitor go to ${t.name} (click again: off)">${t.name}</button>` : `<b class="th-tname">${t.name}</b>`}
-        ${t.id !== 'V1' ? `<button class="tbtn sync${st.sync ? ' on' : ''}" data-tst="sync" title="Sync Lock: when the main story ripples (Ripple delete, Q / W, Insert, ripple trim, Paste Insert, Trim mode) the clips on ${t.name} after that point move along with it">${ic('sync')}</button>` : '<i class="tbtn-gap"></i>'}
+        <button class="tbtn sync${st.sync ? ' on' : ''}" data-tst="sync" title="${t.id === 'V1' ? 'Sync Lock: when another track ripples (Ripple delete on it), the main story moves along too - across empty stretches only, it never cuts a shot' : `Sync Lock: when the main story or another track ripples (Ripple delete, Q / W, Insert, ripple trim, Paste Insert, Trim mode) the clips on ${t.name} after that point move along with it`}">${ic('sync')}</button>
         ${t.kind === 'video' ? `<button class="tbtn${st.hide ? ' on' : ''}" data-tst="hide" title="Hide track">${st.hide ? ICON.eyeOff : ICON.eye}</button>` : ''}
         <button class="tbtn${st.mute ? ' on' : ''}" data-tst="mute" title="${t.kind === 'video' ? 'Mute clip sound' : 'Mute track'}">M</button>
         ${t.kind === 'audio' ? `<button class="tbtn solo${st.solo ? ' on' : ''}" data-tst="solo" title="Solo Track: hear only the soloed tracks">S</button><button class="tbtn rec" data-rec="${t.id}" title="Voice-over record: 3-2-1, then the edit plays and your voice goes onto ${t.name} from the playhead (click again or Esc to stop)">${ic('mic')}</button>` : ''}
@@ -537,7 +537,7 @@ function drawHeads(TR, ts) {
     const id = b.closest('.th').dataset.track, k = b.dataset.tst;
     ts[id] = { ...ts[id], [k]: !ts[id]?.[k] };
     commit(k === 'sync' ? 'Sync Lock' : `Track ${k}`);
-    if (k === 'sync') toast(ts[id].sync ? `Sync Lock on ${id}: its clips move along when the main story ripples` : `Sync Lock off on ${id}: its clips stay where they are`);
+    if (k === 'sync') toast(ts[id].sync ? `Sync Lock on ${id}: its clips move along when ${id === 'V1' ? 'another track' : 'the main story or another track'} ripples` : `Sync Lock off on ${id}: its clips stay where they are`);
     emit('mix'); // (the preview mix follows mute / solo at once)
   }));
   // 🎚 track volume keyframe at the playhead: the value the line has there (1 = the fader as it is)
@@ -1734,6 +1734,7 @@ Ctrl+Z brings them back. A backup of the project is saved first.`)) return;
   }
   let n = 0;
   const L1 = layout().V1, closed = []; // [where, seconds] the main story closed up (⇋ Sync Lock follows it)
+  const rippled = []; // [track, where, seconds] another track closed up (Ripple delete on it, like Premiere)
   for (const id of [...S.sel]) {
     const f = findClip(id);
     if (!f || S.project.trackState[f.track]?.lock || f.clip.locked) continue; // (🔒 locked track / clip)
@@ -1744,11 +1745,20 @@ Ctrl+Z brings them back. A backup of the project is saved first.`)) return;
     } else {
       S.project.tracks[f.track].splice(f.index, 1);
       if (x) closed.push([x.end, len]);
+      // (a linked sound follows its picture, so only an unlinked clip ripples its own track)
+      else if (ripple && !f.clip.link && !f.clip.gap) rippled.push([f.track, (f.clip.start || 0) + len, len]);
     }
     n++;
     if (f.track === 'V1' && f.index === 0 && S.project.tracks.V1[0]) delete S.project.tracks.V1[0].transitionIn;
   }
   for (const [at, len] of closed.sort((a, b) => b[0] - a[0])) syncShift(S.project, at, -len); // (latest first: each moves only what is after it)
+  let held = false;
+  for (const [tr, at, len] of rippled.sort((a, b) => b[1] - a[1])) {
+    for (const c of S.project.tracks[tr]) if ((c.start || 0) >= at - 0.01) c.start = +Math.max(0, c.start - len).toFixed(3);
+    syncShift(S.project, at, -len, tr);
+    if (S.project.trackState.V1?.sync && !S.project.trackState.V1?.lock && !shiftStory(S.project, S.mediaById, at, -len)) held = true;
+  }
+  if (held) toast('Sync Lock: V1 has shots in that stretch, so the main story stayed where it was', 'err');
   tidyGaps();
   S.sel.clear();
   if (n) commit(ripple ? `Ripple delete ${n} clip${n > 1 ? 's' : ''}` : `Delete ${n} clip${n > 1 ? 's' : ''}`);

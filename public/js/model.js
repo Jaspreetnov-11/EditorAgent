@@ -687,19 +687,49 @@ export function rippleMarkers(project, at, by) {
 // Insert, a ripple trim, Paste Insert, Trim mode - the clips on a sync-locked track that start at / after `at` move by
 // `by` seconds too, so titles, music and B-roll stay with the shots they belong to. Off unless turned on (clips never
 // move on their own). A sound linked to a V1 picture follows its picture anyway (syncLinked). Returns how many moved.
-export function syncShift(project, at, by) {
+// from: the track that rippled (V1, or the track of a Ripple delete) - it is not moved again here; the main story
+// follows a ripple on another track through shiftStory()
+export function syncShift(project, at, by, from = 'V1') {
   if (!by || Math.abs(by) < 1e-4) return 0;
   rippleMarkers(project, at, by);
   const ts = project.trackState || {}, v1Links = new Set((project.tracks.V1 || []).map((c) => c.link).filter(Boolean));
   let n = 0;
   for (const [id, list] of Object.entries(project.tracks)) {
-    if (id === 'V1' || !ts[id]?.sync || ts[id]?.lock) continue;
+    if (id === 'V1' || id === from || !ts[id]?.sync || ts[id]?.lock) continue;
     for (const c of list) {
       if (c.link && v1Links.has(c.link)) continue;
       if ((c.start || 0) >= at - 0.01) { c.start = +Math.max(0, (c.start || 0) + by).toFixed(3); n++; }
     }
   }
   return n;
+}
+
+// ⇋ the main story (V1) follows a ripple on another track when its own Sync Lock is on: `by` > 0 opens a gap at `at`;
+// `by` < 0 closes up the stretch just before `at` - only where V1 is empty there (a gap, or past its end). Where a shot
+// is in the way it stays and false comes back (like Premiere, it does not cut into the story to keep sync).
+export function shiftStory(project, media, at, by) {
+  const V1 = project.tracks.V1 || [], L = placed(project, media).V1 || [];
+  if (!by || Math.abs(by) < 1e-4 || !L.length) return true;
+  const end = L[L.length - 1].end;
+  if (by > 0) {
+    if (at >= end - 1e-3) return true;
+    const i = L.findIndex((x) => x.start >= at - 0.01); if (i < 0) return true;
+    const prev = L[i - 1];
+    if (prev?.clip.gap && Math.abs(prev.end - L[i].start) < 0.01) prev.clip.dur = +(prev.clip.dur + by).toFixed(3);
+    else V1.splice(V1.indexOf(L[i].clip), 0, { id: uid(), type: 'title', gap: true, text: '', bg: '#000000', dur: +by.toFixed(3) });
+    return true;
+  }
+  const a = at + by;
+  if (a >= end - 1e-3) return true;
+  const cuts = [];
+  for (const x of L) {
+    const o = Math.min(x.end, at) - Math.max(x.start, a);
+    if (o <= 0.01) continue;
+    if (!x.clip.gap) return false;
+    cuts.push([x.clip, o]);
+  }
+  for (const [c, o] of cuts) { c.dur = +(c.dur - o).toFixed(3); if (c.dur < 0.04) V1.splice(V1.indexOf(c), 1); }
+  return true;
 }
 
 export function fmtTC(s, fps = 30) {

@@ -1544,7 +1544,6 @@ canvas.mruler { cursor: copy; }
 #tlHeads .th.pp { display: flex; flex-direction: column; justify-content: center; align-items: stretch; gap: 2px; padding: 0 4px 0 9px; }
 #tlHeads .th.pp .th-btns { display: flex; align-items: center; gap: 2px; min-width: 0; }
 #tlHeads .th.pp .tbtn { flex: none; }
-#tlHeads .th.pp .tbtn-gap { flex: none; width: 18px; }
 #tlHeads .th-tname { flex: none; min-width: 26px; height: 20px; padding: 0 5px; margin: 0 2px; display: inline-grid; place-items: center; border: 0; border-radius: 4px;
   font: 600 10.5px/1 var(--ui-font, system-ui, sans-serif); letter-spacing: .02em; color: var(--text, #e8e6e3); background: #1a1a1e; box-shadow: 0 0 0 1px var(--hair-2, #ffffff1a) inset; cursor: default; }
 #tlHeads button.th-tname { cursor: pointer; }
@@ -1561,8 +1560,8 @@ canvas.mruler { cursor: copy; }
 #tlHeads .th.pp .tbtn[data-tst="mute"].on, #tlHeads .th.pp .tbtn[data-tst="mute"].on:hover { background: #2fbf71; color: #08140d; }
 #tlHeads .th.pp .tbtn.solo.on, #tlHeads .th.pp .tbtn.solo.on:hover { background: var(--y-grad, var(--accent, #f5c518)); color: #111; }
 #tlHeads .th.pp.audio .tbtn[data-tst="mute"], #tlHeads .th.pp.audio .tbtn.solo { font-weight: 700; }
-@container (max-width: 150px) { #tlHeads .th.pp.audio .tbtn.rec, #tlHeads .th.pp.audio .tbtn.tkey { display: none; } }
-@container (max-width: 118px) { #tlHeads .th.pp.audio .tbtn.sync { display: none; } }
+@container (max-width: 150px) { #tlHeads .th.pp .tbtn.rec, #tlHeads .th.pp .tbtn.tkey { display: none; }
+  #tlHeads .th.pp .tbtn { width: 15px; } #tlHeads .th.pp .th-tname { min-width: 22px; padding: 0 3px; margin: 0 1px; } #tlHeads .th.pp .th-btns { gap: 1px; } }
 
 /* 🎚 a monitor's zoom / scroll bar under its time ruler (monzoom.js), and the wrench's menu */
 .mz-bar { position: relative; height: 12px; margin: 1px 15px 3px; flex: none; border-radius: 6px; background: #ffffff08; cursor: pointer; touch-action: none; user-select: none; }
