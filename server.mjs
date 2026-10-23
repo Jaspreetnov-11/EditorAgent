@@ -4242,9 +4242,11 @@ const routes = {
     const name = needProject(q(u, 'p')), b = await readJson(req);
     const m = mediaItem(name, b.mediaId); if (!m) throw err(404, 'media not found');
     const proxy = P(name, 'cache', 'proxies', `${m.id}.mp4`);
-    const src = b.file === 'orig' || m.kind === 'image' || m.proxy !== 'ready' || !fs.existsSync(proxy) ? m.path : proxy;
+    const src = b.file === 'orig' || m.kind === 'image' || m.proxy !== 'ready' || !fs.existsSync(proxy) ? m.path : await localPreview(proxy); // (💽 this PC's copy when there is one)
     const W = Math.max(16, Math.min(3840, Math.round(+b.w || m.width || 1920))), H = Math.max(16, Math.min(2160, Math.round(+b.h || m.height || 1080)));
-    const F = 30, rel = Math.max(0, +b.rel || 0), srcT = Math.max(0, +b.srcT || 0), back = Math.min(0.5, srcT, rel);
+    // (only effects that look at earlier frames - Echo, Posterize Time - need the half second before; the rest just this frame)
+    const past = (b.effects || []).some((e) => ['echo', 'posterizetime'].includes(e?.type));
+    const F = 30, rel = Math.max(0, +b.rel || 0), srcT = Math.max(0, +b.srcT || 0), back = past ? Math.min(0.5, srcT, rel) : 0;
     const g = [`[0:v]scale=${W}:${H},setsar=1,setpts=PTS-STARTPTS+${(rel - back).toFixed(3)}/TB[v0]`];
     let cur = 'v0', k = 0;
     for (const e of (b.effects || []).slice(0, 12)) {
@@ -4258,7 +4260,7 @@ const routes = {
       cur = out;
     }
     g.push(`[${cur}]select='gte(t,${(rel - 0.001).toFixed(3)})',format=yuvj420p[o]`);
-    const args = ['-v', 'error', ...(m.kind === 'image' ? ['-loop', '1', '-t', String(back + 0.2)] : ['-ss', (srcT - back).toFixed(3), '-t', (back + 0.2).toFixed(3)]), '-i', src,
+    const args = ['-v', 'error', ...(m.kind === 'image' ? ['-loop', '1', '-t', String(back + (past ? 0.5 : 0.1))] : ['-ss', (srcT - back).toFixed(3), '-t', (back + (past ? 0.5 : 0.1)).toFixed(3)]), '-i', src,
       '-filter_complex', g.join(';'), '-map', '[o]', '-frames:v', '1', '-q:v', '3', '-f', 'image2pipe', '-c:v', 'mjpeg', 'pipe:1'];
     const p = spawn('ffmpeg', args, { windowsHide: true });
     const chunks = []; let errText = '';
