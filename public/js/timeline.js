@@ -1005,8 +1005,9 @@ function onRowsDown(e) {
   if (S.tool === 'trackfwd' || S.tool === 'trackback') {
     if (el && S.project.trackState[el.dataset.track]?.lock) { toast(`${el.dataset.track} is locked`); return; }
     trackSelect(e, el);
-    // an overlay clip can be dragged at once (all the selected overlay clips go along); a main-story one stays put
-    if (!el || e.shiftKey || el.dataset.track === 'V1' || el.classList.contains('t-gap')) return;
+    // the press goes straight on into a drag of everything just selected, like Premiere - main-story clips too (they
+    // used to stay put: A selected them and nothing moved). Shift+click only selects that track.
+    if (!el || e.shiftKey || el.classList.contains('t-gap')) return;
   }
   if (!el) { marqueeStart(e); return; }
   const id = el.dataset.id, track = el.dataset.track;
@@ -1024,7 +1025,8 @@ function onRowsDown(e) {
   // a plain press on a clip that is already one of several selected keeps them all (they may be dragged together); let
   // go without moving and it is a click - then only that clip is selected, like Premiere. (It used to keep the whole old
   // selection, so the next Shift+clicks took clips OFF it and the user's group was not the one that moved.)
-  const collapse = S.sel.has(id) && S.sel.size > 1 && !(e.shiftKey || e.ctrlKey || e.altKey);
+  // (not with Track Select: its click is the selection - a click without moving keeps it all)
+  const collapse = S.sel.has(id) && S.sel.size > 1 && !(e.shiftKey || e.ctrlKey || e.altKey) && !MANY_SELECT.has(S.tool);
   if (!S.sel.has(id) || e.shiftKey || e.ctrlKey || e.altKey) select(id, e.shiftKey || e.ctrlKey, e.altKey);
   S.linkLead = id; // (the linked half follows the one you drag / trim)
   const trim = e.target.closest('[data-trim]')?.dataset.trim;
@@ -1608,6 +1610,9 @@ function onDragUp(e) {
     const end0 = (d.v1?.s0 || 0) + clipDur(d.orig, S.mediaById);
     syncShift(S.project, end0, clipDur(f.clip, S.mediaById) - clipDur(d.orig, S.mediaById));
   }
+  // (a stretch the next shot blocked changed nothing - it used to end silently, as if the tool did not work)
+  const same = (a, b) => ['in', 'out', 'dur'].every((k) => Math.abs((+a[k] || 0) - (+b[k] || 0)) < 0.002) && Math.abs((+a.speed || 1) - (+b.speed || 1)) < 0.002;
+  if (d.rate && same(f.clip, d.orig)) { toast('No room to stretch - the next clip is in the way. Hold Ctrl as you drag to push the rest of the story along'); return render(); }
   if (d.trim || d.roll || d.rate) { commit(d.roll ? 'Rolling edit' : d.rate ? 'Rate stretch' : 'Trim'); return; }
   // the length a V1 clip takes on the timeline (what it leaves as a gap when it is lifted out)
   const v1Len = (id) => { const x = layout().V1.find((p) => p.clip.id === id); return x ? x.end - x.start - (x.overlap || 0) : 0; };
