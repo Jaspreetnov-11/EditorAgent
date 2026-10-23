@@ -50,6 +50,14 @@ export function trackList(project) {
 // overlay video tracks, bottom to top (V2 first)
 export const overlayTracks = (project) => trackList(project).filter((t) => t.kind === 'video' && t.id !== 'V1').map((t) => t.id).reverse();
 export const audioTracks = (project) => trackList(project).filter((t) => t.kind === 'audio').map((t) => t.id);
+// 🎚 Mute / Solo, like Premiere: a muted track is silent; once any track that carries sound (A1, A2… and V1, whose clips
+// have their own sound) is soloed, only the soloed ones are heard. The live mix (player.js) and the render (render2.mjs) both ask here.
+export function trackAudible(ts, id) {
+  ts = ts || {};
+  if (ts[id]?.mute) return false;
+  const anySolo = Object.entries(ts).some(([k, x]) => (k[0] === 'A' || k === 'V1') && x?.solo);
+  return !anySolo || !!ts[id]?.solo;
+}
 // 🎚 adjustment layers copying a reference's looks (refstyle.mjs refAdjustLayers): the old ones go, the new ones sit
 // on the first video track that is free over their time and above every overlay used there (so the look reaches the
 // B-roll too); a new track when there is none. Returns the track id.

@@ -1554,3 +1554,12 @@ canvas.mruler { cursor: copy; }
 #tlHeads .th-label { padding-left: 22px; font-size: 10px; color: var(--faint, #8a857c); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.1; }
 #tlHeads .th.pp.tiny .th-label { display: none; }
 #tlHeads .th.pp.mini .th-btns > :not([data-tst="hide"]):not([data-tst="lock"]):not(.th-tname) { display: none; }
+
+/* 🎚 Mute / Solo on every audio track, like Premiere: M on = green, S on = yellow, filled so the state reads at a glance;
+   on narrow headers the mic and keyframe buttons go first, then sync - M and S always stay */
+#tlHeads { container-type: inline-size; }
+#tlHeads .th.pp .tbtn[data-tst="mute"].on, #tlHeads .th.pp .tbtn[data-tst="mute"].on:hover { background: #2fbf71; color: #08140d; }
+#tlHeads .th.pp .tbtn.solo.on, #tlHeads .th.pp .tbtn.solo.on:hover { background: var(--y-grad, var(--accent, #f5c518)); color: #111; }
+#tlHeads .th.pp.audio .tbtn[data-tst="mute"], #tlHeads .th.pp.audio .tbtn.solo { font-weight: 700; }
+@container (max-width: 150px) { #tlHeads .th.pp.audio .tbtn.rec, #tlHeads .th.pp.audio .tbtn.tkey { display: none; } }
+@container (max-width: 118px) { #tlHeads .th.pp.audio .tbtn.sync { display: none; } }

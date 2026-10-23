@@ -14,7 +14,7 @@ import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
-import { ASPECTS, clipDur, placed, totalDuration, keysExpr, rampPts, sourceAt, overlayTracks, audioTracks, syncLinked, blendFF } from '../public/js/model.js';
+import { ASPECTS, clipDur, placed, totalDuration, keysExpr, rampPts, sourceAt, overlayTracks, audioTracks, syncLinked, blendFF, trackAudible } from '../public/js/model.js';
 import { fxFilters } from '../public/js/audiofx.js';
 import { aeffectFilters, fadeCurve } from '../public/js/audioeffects.js';
 import { colorFilters, stager } from './color.mjs';
@@ -570,8 +570,7 @@ try { syncLinked(project, media); } catch (e) { console.log(`  (linked audio: ${
 const P = placed(project, media);
 const D = Math.max(0.5, totalDuration(project, media));
 // 🎚 Solo (S on an audio track): when any track is soloed only the soloed ones are heard, like the preview
-const anySolo = Object.entries(ts).some(([k, x]) => k[0] === 'A' && x?.solo);
-const audible = (id) => !ts[id]?.mute && (!anySolo || !!ts[id]?.solo);
+const audible = (id) => trackAudible(ts, id);
 const v1 = ts.V1?.hide ? [] : P.V1;
 // overlay tracks bottom to top (V2, V3, …; hidden ones left out); every entry remembers its track
 const ovl = overlayTracks(project).filter((id) => !ts[id]?.hide).flatMap((id) => (P[id] || []).map((x) => ({ ...x, track: id })));
@@ -665,7 +664,7 @@ console.log(`  [${++step}/${total}] finishing (joining, overlays, titles, audio 
 let n = inputs.filter((x) => x === '-i').length, v = 'jvout';
 // (+ 🎛 the track's effect slots - trackState.aeffects, Audio page)
 const fxOf = (id) => { const f = [...fxFilters(ts[id]?.fx), ...aeffectFilters(ts[id]?.aeffects)]; return f.length ? `${f.join(',')},` : ''; };
-const v1Vol = ts.V1?.mute || (anySolo && !ts.V1?.solo) ? 0 : ts.V1?.volume ?? 1; // (🎚 + its volume keyframes, on the timeline's clock)
+const v1Vol = !audible('V1') ? 0 : ts.V1?.volume ?? 1; // (🎚 + its volume keyframes, on the timeline's clock)
 const speechParts = [`[jaout]${fxOf('V1')}${v1Vol && ts.V1?.volKeys?.length ? `volume='${v1Vol}*(${keysExpr(ts.V1.volKeys, 't')})':eval=frame` : `volume=${v1Vol}`},${AFMT}[orig]`];
 const speechLabels = ['orig'];
 

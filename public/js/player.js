@@ -6,7 +6,7 @@ import { reportError } from './errlog.js';
 import * as SM from './sourcemon.js';
 import { useContext as audioOut } from './audioout.js';
 import { S, on, emit, layout, duration, commit } from './store.js';
-import { ASPECTS, fmtTC, fmtTime, fmt, clipDur, propAt, sourceAt, speedAt, rampPts, setAnimated, overlayTracks, audioTracks, evalKeys, BLEND_CSS, seqHash } from './model.js';
+import { ASPECTS, fmtTC, fmtTime, fmt, clipDur, propAt, sourceAt, speedAt, rampPts, setAnimated, overlayTracks, audioTracks, evalKeys, BLEND_CSS, seqHash, trackAudible as audibleIn } from './model.js';
 import { stabState, stabBanner } from './stabprev.js';
 
 // 🎞 Full quality, like Premiere: a camera file the browser can decode itself - HEVC / H.265 (DJI drones, Sony, phones;
@@ -1292,11 +1292,7 @@ function route(el, track) {
   if (el._track !== track) { try { el._g.disconnect(); } catch {} el._g.connect(chains[track].fx.input); el._track = track; }
   el.volume = 1;
 }
-function trackAudible(id) {
-  const ts = S.project.trackState || {};
-  if (ts[id]?.mute) return false;
-  return !Object.values(ts).some((x) => x?.solo) || !!ts[id]?.solo;
-}
+const trackAudible = (id) => audibleIn(S.project.trackState, id); // (🎚 Mute / Solo: model.js)
 // 🔊 a clip's own audio effects (clip.aeffects) between its element and its gain - rebuilt only when they change
 function clipAudio(el, c) {
   if (!actx || !el._src) return;
