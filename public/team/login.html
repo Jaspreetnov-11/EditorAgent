@@ -11,9 +11,11 @@
   /* Limelight Black: true black, a hairline-edged card, Helvetica type, the logo's yellow triangle */
   :root { --bg: #050505; --panel: #0e0e10; --hair: rgba(255,255,255,.08); --text: #f7f7f8; --muted: #9b9ba1; --faint: #5f5f66; --accent: #ffc21a;
     --y-grad: linear-gradient(180deg, #ffd85a 0%, #ffc21a 60%, #f4ad00 100%); --red: #ff6369; color-scheme: dark; }
+  @font-face { font-family: "LL Helvetica Now Text"; src: local("Helvetica Now Text"), url(/css/fonts/HelveticaNowText-Regular.otf) format("opentype"); font-weight: 400; }
+  @font-face { font-family: "LL Helvetica Now Text"; src: local("Helvetica Now Text Medium"), url(/css/fonts/HelveticaNowText-Medium.otf) format("opentype"); font-weight: 500 700; }
   * { box-sizing: border-box; }
   body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: radial-gradient(800px 420px at 50% -10%, rgba(255,194,26,.09), transparent 62%), var(--bg); color: var(--text);
-    font: 14.5px/1.5 "Helvetica Now Text", "Helvetica Neue", Helvetica, "Inter", Arial, "Nirmala UI", sans-serif; letter-spacing: 0; padding: 16px; position: relative; overflow: hidden; }
+    font: 14.5px/1.5 "LL Helvetica Now Text", "Helvetica Now Text", "Helvetica Neue", Helvetica, "Inter", Arial, "Nirmala UI", sans-serif; letter-spacing: 0; padding: 16px; position: relative; overflow: hidden; }
   /* the logo's triangle, large and faint, like a beam of light behind the card */
   body::before { content: ""; position: absolute; width: 760px; height: 760px; right: -220px; top: -260px; background: url(/img/limelight-triangle.svg) center / contain no-repeat; opacity: .05; transform: rotate(8deg); pointer-events: none; }
   form { width: min(380px, 100%); background: linear-gradient(180deg, #121214, #0d0d0f); border-radius: 18px; padding: 32px 28px 26px; display: grid; gap: 12px;

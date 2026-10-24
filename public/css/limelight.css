@@ -8,6 +8,15 @@
 @font-face { font-family: "LL Inter"; src: url(/fonts/Inter-SemiBold.ttf) format("truetype"); font-weight: 600; font-display: swap; }
 @font-face { font-family: "LL Inter"; src: url(/fonts/Inter-Bold.ttf) format("truetype"); font-weight: 700; font-display: swap; }
 @font-face { font-family: "LL Inter"; src: url(/fonts/Inter-ExtraBold.ttf) format("truetype"); font-weight: 800; font-display: swap; }
+/* Helvetica Now comes with the editor, so every PC shows it (a PC that has it installed uses its own copy first) */
+@font-face { font-family: "LL Helvetica Now Text"; src: local("Helvetica Now Text"), url(/css/fonts/HelveticaNowText-Regular.otf) format("opentype"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "LL Helvetica Now Text"; src: local("Helvetica Now Text Medium"), url(/css/fonts/HelveticaNowText-Medium.otf) format("opentype"); font-weight: 500 600; font-display: swap; }
+@font-face { font-family: "LL Helvetica Now Text"; src: local("Helvetica Now Text Bold"), url(/css/fonts/HelveticaNowText-Bold.otf) format("opentype"); font-weight: 650 700; font-display: swap; }
+@font-face { font-family: "LL Helvetica Now Text"; src: local("Helvetica Now Text ExtraBold"), url(/css/fonts/HelveticaNowText-ExtraBold.otf) format("opentype"); font-weight: 750 900; font-display: swap; }
+@font-face { font-family: "LL Helvetica Now Display"; src: local("Helvetica Now Display"), url(/css/fonts/HelveticaNowDisplay-Regular.otf) format("opentype"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "LL Helvetica Now Display"; src: local("Helvetica Now Display Medium"), url(/css/fonts/HelveticaNowDisplay-Medium.otf) format("opentype"); font-weight: 500 600; font-display: swap; }
+@font-face { font-family: "LL Helvetica Now Display"; src: local("Helvetica Now Display Bold"), url(/css/fonts/HelveticaNowDisplay-Bold.otf) format("opentype"); font-weight: 650 700; font-display: swap; }
+@font-face { font-family: "LL Helvetica Now Display"; src: local("Helvetica Now Display ExtraBold"), url(/css/fonts/HelveticaNowDisplay-ExtraBold.otf) format("opentype"); font-weight: 750 900; font-display: swap; }
 
 html.ui2[data-look="limelight"] {
   --bg: #050505; --bg-2: #0a0a0b; --panel: #0e0e10; --panel-2: #17171a; --panel-3: #222226; --line: #1c1c1f; --line-2: #2a2a2e;
@@ -22,8 +31,8 @@ html.ui2[data-look="limelight"] {
   --clip-vb: #10263a; --clip-vl: #0d6fa8; --clip-vs: #1a86c4; --clip-ab: #13291c; --clip-al: #2f7d4f; --clip-as: #3a9761; --clip-tl: #5d5d66;
   --tc: #f7f7f8; --r: 12px; --hdr: 48px;
   /* Helvetica Now (installed on the editing PC); PCs without it fall back to Helvetica Neue / Helvetica, then the bundled Inter */
-  --ui-font: "Helvetica Now Text", "Helvetica Neue", Helvetica, "LL Inter", Arial, "Nirmala UI", sans-serif;
-  --brand-font: "Helvetica Now Display", "Helvetica Neue", Helvetica, "LL Inter", Arial, sans-serif;
+  --ui-font: "LL Helvetica Now Text", "Helvetica Now Text", "Helvetica Neue", Helvetica, "LL Inter", Arial, "Nirmala UI", sans-serif;
+  --brand-font: "LL Helvetica Now Display", "Helvetica Now Display", "Helvetica Neue", Helvetica, "LL Inter", Arial, sans-serif;
   --tri: url(/img/limelight-triangle.svg);
   --mono: "Cascadia Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
   --shadow-lg: 0 0 0 1px var(--hair-2) inset, 0 32px 80px -24px rgba(0,0,0,.95);
