@@ -371,7 +371,7 @@ function effectsHTML(c, track) {
     const def = VFX[e.type]; if (!def) return '';
     const params = Object.entries(def.params).map(([k, p]) => {
       const v = e.p?.[k] ?? p.def;
-      if (p.type === 'color') return `<label class="fld"><span>${esc(p.label)}</span><input type="color" data-ep="${k}" value="${esc(v)}"></label>`;
+      if (p.type === 'color') return `<label class="fld"><span>${esc(p.label)}</span><input type="color" list="brandSw" data-ep="${k}" value="${esc(v)}"></label>`;
       if (p.type === 'select') return `<label class="fld"><span>${esc(p.label)}</span><select data-ep="${k}">${p.options.map(([o, l]) => `<option value="${esc(o)}"${o === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
       return `<label class="fld"><span>${esc(p.label)} <b data-ev="${k}">${v}${p.unit || ''}</b></span><input type="range" data-ep="${k}" min="${p.min}" max="${p.max}" step="${p.step}" value="${v}"></label>`;
     }).join('');

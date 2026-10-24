@@ -229,6 +229,7 @@ export function newProjectDialog(openProject) {
         `<label class="fmt"><input type="radio" name="aspect" value="${v}"${i === 0 ? ' checked' : ''}><span><i style="width:${w}px;height:${hh}px"></i><b>${v}</b><small>${l}</small></span></label>`).join('')}
     </div></div>
     <label class="fld"><span>Start from a template</span><select name="template"><option value="">Blank project</option></select></label>
+    <label class="fld"><span>Brand pack <button type="button" class="link small" data-packs title="Make or change a client's brand pack">Manage…</button></span><select name="pack"><option value="">None</option></select></label>
     <label class="fld"><span>Frame rate</span><select name="fps"><option>24</option><option>25</option><option selected>30</option><option>50</option><option>60</option></select></label>
     <div class="fld wide"><span>Save project in</span>
       <div class="row-in"><input name="place" readonly><button type="button" data-browse>Browse…</button><button type="button" data-def title="Back to your own folder">My folder</button></div>
@@ -237,6 +238,10 @@ export function newProjectDialog(openProject) {
   </form>`);
   const dlg = modal('New project', body, { width: 620 });
   api('GET', '/api/library').then((l) => { body.template.insertAdjacentHTML('beforeend', (l.templates || []).map((t) => `<option value="${esc(t.name)}">${esc(t.name)}${t.aspect ? ` (${esc(t.aspect)})` : ''}</option>`).join('')); }).catch(() => {});
+  // 🏷 a client's brand pack: logo, intro / outro, colours, font, caption and lower-third style from the start
+  const loadPacks = () => api('GET', '/api/library/brandpacks').then((l) => { const v = body.pack.value; body.pack.innerHTML = `<option value="">None</option>${l.map((p) => `<option value="${esc(p.id)}"${p.id === v ? ' selected' : ''}>${esc(p.name)}${p.client ? ` - ${esc(p.client)}` : ''}</option>`).join('')}`; }).catch(() => {});
+  loadPacks();
+  $('[data-packs]', body).onclick = () => import('./library.js').then((m) => m.openBrandKit(null, { onClose: loadPacks }));
   const showPlace = () => { body.place.value = place; };
   showPlace();
   myFolder().then((f) => { home = f; if (!touched) { place = f; showPlace(); } });
@@ -246,7 +251,7 @@ export function newProjectDialog(openProject) {
     e.preventDefault();
     const btn = $('[type=submit]', body); btn.disabled = true; btn.textContent = 'Creating…';
     try {
-      const r = await api('POST', '/api/projects', { name: body.name.value.trim(), aspect: body.aspect.value, fps: +body.fps.value, place, template: body.template.value });
+      const r = await api('POST', '/api/projects', { name: body.name.value.trim(), aspect: body.aspect.value, fps: +body.fps.value, place, template: body.template.value, pack: body.pack.value });
       dlg.close();
       // (an editor not restarted since this option came saves in Projects - say so instead of quietly ignoring the folder)
       if (place && !String(r.folder || '').toLowerCase().startsWith(place.toLowerCase())) toast(`Saved in ${r.folder || 'Projects'} - saving in another folder works after the editor is restarted`, 'err');

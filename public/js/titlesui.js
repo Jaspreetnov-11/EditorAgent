@@ -20,13 +20,16 @@ export function openTemplates({ target = null } = {}) {
   const groups = [...new Set(TEMPLATES.map((t) => t.group))];
   const tc = target && findClip(target)?.clip;
   const list = TEMPLATES.filter((t) => !tc || (tc.type === 'title' && findClip(target).track === 'V1' ? t.track === 'V1' : t.track === 'V2'));
+  // 🏷 the brand pack's lower third first, in its colours
+  const br = S.project.brand, mine = br?.lt && list.find((t) => t.id === br.lt);
+  const packTile = mine ? `<h4>Brand pack${br.pack?.name ? `: ${esc(br.pack.name)}` : ''}</h4><button class="tpl" data-t="${mine.id}">${preview({ ...mine, props: brandTitle({ type: 'title', ...mine.props }) })}<small>${esc(mine.label)}</small></button>` : '';
   const body = h(`<div><p class="muted small">${tc ? 'Pick a look - the text stays the same.' : 'Pick one: it is added at the playhead. Double-click it on the timeline later to change the words.'}</p>
-    <div class="tpl-grid">${groups.map((g) => { const ts = list.filter((t) => t.group === g); return ts.length ? `<h4>${g}</h4>${ts.map((t) => `<button class="tpl" data-t="${t.id}">${preview(t)}<small>${esc(t.label)}</small></button>`).join('')}` : ''; }).join('')}</div></div>`);
+    <div class="tpl-grid">${packTile}${groups.map((g) => { const ts = list.filter((t) => t.group === g); return ts.length ? `<h4>${g}</h4>${ts.map((t) => `<button class="tpl" data-t="${t.id}">${preview(t)}<small>${esc(t.label)}</small></button>`).join('')}` : ''; }).join('')}</div></div>`);
   const d = modal(tc ? 'Change the title style' : 'Titles & lower thirds', body, { width: 860 });
   body.addEventListener('click', (e) => {
     const b = e.target.closest('[data-t]'); if (!b) return;
     const t = templateById(b.dataset.t);
-    if (tc) { applyTemplate(tc, t); commit(`Title style: ${t.label}`); d.close(); return; }
+    if (tc) { applyTemplate(tc, t); brandTitle(tc); commit(`Title style: ${t.label}`); d.close(); return; }
     const c = brandTitle({ id: uid(), type: 'title', dur: t.dur, ...t.props, template: t.id });
     if (t.track === 'V2') {
       c.start = +S.playhead.toFixed(3);
