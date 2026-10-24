@@ -19,7 +19,7 @@ export function brandTheme(b = {}) {
   const text = b.text || '#ffffff';
   return { card: hex(b.primary, 0.94) || THEMES.mygov.card, text, sub: hex(text, 0.78) || '#c9d6ea', accent: b.accent || '#ff9933', c2: b.accent2 || '#138808', c3: '#4f8cff', grid: hex(text, 0.15) || 'rgba(255,255,255,0.14)', solid: b.primary || '#0b2545' };
 }
-export const brandOf = (project) => (project?.brand?.primary ? { primary: project.brand.primary, accent: project.brand.accent, text: project.brand.text } : null);
+export const brandOf = (project) => (project?.brand?.primary ? { primary: project.brand.primary, accent: project.brand.accent, text: project.brand.text, ...(project.brand.accent2 ? { accent2: project.brand.accent2 } : {}) } : null);
 
 // images inside graphics (a logo): loaded once, drawn when ready. setGfxAssets(fn) tells this module how a media id
 // becomes a link; onAsset is called when one finishes loading (the viewer draws the frame again).

@@ -45,6 +45,8 @@ import { inNight, nightSource, recentProjects } from './engine/nightshift.mjs';
 import { projectOwner, canSee, requestProject } from './engine/access.mjs';
 import { byPriority, lineIndex } from './engine/priority.mjs';
 import * as QC from './engine/qc.mjs';
+import * as BP from './engine/brandpacks.mjs';
+import { applyPack, PACK_SLOTS } from './public/js/brandpack.js';
 import { archiveRoutes } from './engine/archive.mjs';
 import * as GL from './engine/gfxlib.mjs';
 import { startHealth, noteRequest, healthSeries } from './engine/health.mjs';
@@ -124,12 +126,31 @@ fs.mkdirSync(path.join(LIB, 'templates'), { recursive: true });
 // 🎞 custom templates (MOGRT / logo animations / videos with transparency, engine/gfxlib.mjs); a test editor keeps its own
 const GFXLIB = path.join(DATA === ROOT ? LIB : path.join(DATA, 'Library'), 'graphics');
 fs.mkdirSync(GFXLIB, { recursive: true });
+// 🏷 client brand packs (engine/brandpacks.mjs) - a test editor keeps its own
+const PACKS = path.join(DATA === ROOT ? LIB : path.join(DATA, 'Library'), 'brandpacks');
 // a template's import (upload or path) as a job; a failed one leaves nothing behind
 function templateTask(src, orig, id, { name = '', fps = 30, by = '', temp = false } = {}) {
   const dir = path.join(GFXLIB, id);
   return startTask('template', (job) => GL.importTemplate({ src, origName: orig, dir, name: name || '', fps, by: by || '', onStage: (t) => { job.stage = t; job.log.push(t); } })
     .catch(async (e) => { await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {}); throw e; })
     .finally(() => (temp ? fs.promises.rm(src, { force: true }).catch(() => {}) : null)));
+}
+// a pack's files into a project: copied into imports/brand/<pack id>/ (a render - here or on a helper PC - finds them
+// there) and into Media (bin "Brand/<pack>"); returns { logo, intro, outro } media items (a missing file is left out)
+function packIntoProject(name, pack) {
+  const out = {}, to = P(name, 'imports', 'brand', pack.id);
+  for (const s of PACK_SLOTS) {
+    const src = BP.packFile(PACKS, pack, s);
+    if (!src) continue;
+    fs.mkdirSync(to, { recursive: true });
+    const file = path.join(to, `${safeName(pack.name)} ${s}${path.extname(src).toLowerCase()}`);
+    const a = fs.statSync(src), b = fs.existsSync(file) && fs.statSync(file);
+    if (!b || b.size !== a.size || a.mtimeMs > b.mtimeMs) fs.copyFileSync(src, file); // (a pack file changed since: copied again)
+    const it = addMediaFile(name, file, { bin: `Brand/${safeName(pack.name)}` }) || mediaDb(name).items.find((m) => m.path.toLowerCase() === path.resolve(file).toLowerCase());
+    if (it) out[s] = it;
+  }
+  saveMedia(name, true);
+  return out;
 }
 const pick = (o, ks) => Object.fromEntries(ks.filter((k) => o && k in o).map((k) => [k, o[k]]));
 // 🏷 tags on media, projects and templates: short free-text labels, each once (case ignored), at most 20
@@ -240,6 +261,7 @@ function ownerOf(name) {
   return 1 + (h % WORKERS);
 }
 const owns = (name) => !CLUSTER || (IS_WORKER && ownerOf(name) === WORKER_K); // this process keeps the project in memory
+if (!IS_WORKER) BP.migrateBrandKit(PACKS, path.join(path.dirname(PACKS), 'brand.json')); // (🏷 the old single brand kit becomes the first pack, once)
 
 function send(res, code, body, type = 'application/json') {
   const out = type === 'application/json' ? JSON.stringify(body) : body;
@@ -3687,6 +3709,11 @@ const routes = {
         writeJSON(P(name, 'project.json'), pj);
       }
     }
+    // 🏷 from a brand pack: its logo, intro / outro, colours, font, caption and lower-third style
+    if (b.pack) {
+      const pack = BP.readPack(PACKS, b.pack), pj = readJSON(P(name, 'project.json'));
+      writeJSON(P(name, 'project.json'), applyPack(pj, pack, packIntoProject(name, pack), { uid }));
+    }
     if (b.folder) {
       if (!fs.existsSync(b.folder)) throw err(400, `Folder not found: ${b.folder}`);
       for (const f of scanFolder(b.folder)) if (addMediaFile(name, f.file, { bin: f.bin })) imported++;
@@ -5639,6 +5666,41 @@ const routes = {
     return all;
   },
   'PUT /api/library/brand': async (req) => { const b = await readJson(req); writeJSON(path.join(LIB, 'brand.json'), { ...b, saved: Date.now() }); return b; },
+  // 🏷 Client brand packs (Library/brandpacks): one per client / ministry / department, applied to a project in one go
+  'GET /api/library/brandpacks': () => BP.listPacks(PACKS).map((p) => ({ ...p, has: Object.fromEntries(PACK_SLOTS.map((s) => [s, !!BP.packFile(PACKS, p, s)])) })),
+  // { pack: { id?, name, …fields } } creates (no id) or changes one; its files are set by upload / addpath
+  'POST /api/library/brandpacks/save': async (req) => { const b = await readJson(req); return BP.savePack(PACKS, b.pack || {}, { by: whoName(req.who) }); },
+  'POST /api/library/brandpacks/duplicate': async (req) => { const b = await readJson(req); return BP.duplicatePack(PACKS, b.id, { name: b.name, by: whoName(req.who) }); },
+  'POST /api/library/brandpacks/delete': async (req) => { const b = await readJson(req); return BP.deletePack(PACKS, b.id); },
+  // the file itself is the body (?id=&slot=logo|intro|outro&name=<file name>)
+  'POST /api/library/brandpacks/upload': (req, res, u) => new Promise((ok, bad) => {
+    const id = q(u, 'id'), slot = q(u, 'slot'), name = path.basename(String(q(u, 'name') || ''));
+    let up; try { BP.readPack(PACKS, id); up = path.join(BP.packDir(PACKS, id), `.up-${Date.now()}`); } catch (e) { req.resume(); return bad(e); }
+    const out = fs.createWriteStream(up);
+    req.pipe(out);
+    req.on('error', (e) => { fs.rmSync(up, { force: true }); bad(e); });
+    out.on('finish', () => { try { ok(BP.setPackFile(PACKS, id, slot, up, { origName: name, move: true })); } catch (e) { fs.rmSync(up, { force: true }); bad(e); } });
+  }),
+  // a file already on this PC / the NAS (e.g. from a project's media): { id, slot, path }
+  'POST /api/library/brandpacks/addpath': async (req) => {
+    const b = await readJson(req);
+    folderAllowed(req, b.path); // (from another PC: only files on the NAS)
+    return BP.setPackFile(PACKS, b.id, b.slot, String(b.path || ''));
+  },
+  // a pack's logo / intro / outro (the logo shows in the pack list): ?id=&slot=
+  'GET /api/library/brandpacks/file': (req, res, u) => {
+    const f = BP.packFile(PACKS, BP.readPack(PACKS, q(u, 'id')), q(u, 'slot'));
+    if (!f) throw err(404, 'This pack has no such file');
+    return serveFile(req, res, f);
+  },
+  // into a project: the pack's files in its Media, read; the editor then applies the pack (one Ctrl+Z) - { id }
+  'POST /api/library/brandpacks/use': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req), pack = BP.readPack(PACKS, b.id), its = packIntoProject(name, pack);
+    if (activeProject !== name) { activeProject = name; pump(); }
+    const done = () => Object.values(its).every((it) => ['ready', 'error', 'offline'].includes(mediaItem(name, it.id)?.status));
+    for (let i = 0; i < 120 && !done(); i++) await new Promise((ok) => setTimeout(ok, 250));
+    return { pack, files: Object.fromEntries(Object.entries(its).map(([s, it]) => [s, publicMedia(name, mediaItem(name, it.id))])) };
+  },
   // a project's shape as a template: settings, look, captions style, logo, track names, titles and adjustment layers
   // (no footage, captions text or edits). Logo / intro / outro are kept as file paths.
   'POST /api/library/template': async (req, res, u) => {
