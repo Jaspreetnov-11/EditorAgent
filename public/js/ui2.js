@@ -39,6 +39,8 @@ const P = {
   folderMove: '<path d="M1.75 4.25a1 1 0 0 1 1-1h3.4l1.5 1.5h5.6a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1z"/><path d="M5.5 9.5h5M8.5 7.5l2 2-2 2"/>',
   trash: '<path d="M2.5 4.5h11M6.5 4.5V3h3v1.5"/><path d="M3.75 4.5l.7 9a1 1 0 0 0 1 .9h5.1a1 1 0 0 0 1-.9l.7-9"/><path d="M6.75 7v4.5M9.25 7v4.5"/>',
   keyboard: '<rect x="1.5" y="4" width="13" height="8" rx="1.5"/><path d="M4 6.5h.01M6.5 6.5h.01M9 6.5h.01M11.5 6.5h.01M5 9.5h6"/>',
+  start: '<path d="M3.5 14.5V2"/><path d="M3.5 2.5h8.5l-2 3 2 3H3.5"/>',
+  idea: '<path d="M5.8 11.5a4.5 4.5 0 1 1 4.4 0V13H5.8z"/><path d="M6.3 14.6h3.4"/>',
   gear: '<circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/>',
 };
 export const icon = (k) => `<svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[k] || ''}</svg>`;
