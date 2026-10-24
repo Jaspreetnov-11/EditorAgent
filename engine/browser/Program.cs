@@ -133,6 +133,20 @@ namespace LimelightEditor
             Load += async (o, e) => await Start();
         }
 
+        // the title bar in the editor's charcoal, not Windows' white: dark mode (Windows 10 and 11), and on Windows 11
+        // the exact caption, text and border colours (older Windows ignores what it does not know)
+        [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+        static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            void set(int attr, int v) { try { DwmSetWindowAttribute(Handle, attr, ref v, 4); } catch { } }
+            set(20, 1);          // DWMWA_USE_IMMERSIVE_DARK_MODE
+            set(35, 0x00111111); // DWMWA_CAPTION_COLOR (0x00BBGGRR) = #111111
+            set(34, 0x00111111); // DWMWA_BORDER_COLOR
+            set(36, 0x00F7F7F7); // DWMWA_TEXT_COLOR
+        }
+
         bool full;
         FormWindowState before;
         void ToggleFullScreen()
