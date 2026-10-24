@@ -341,3 +341,67 @@ html.ui2 .timeline .tl-bar .tl-tc { margin-left: auto; }
 .timeline.blade .tl-playhead .ph-head { pointer-events: auto; }
 /* ↔ ⇆ Slip / Slide: the readout at the mouse while dragging (frames moved, new In / Out or the neighbours' cut) */
 .tl-sliptip { position: fixed; z-index: 10002; padding: 4px 8px; border-radius: 6px; background: #000c; border: 1px solid var(--line); color: #fff; font: 600 11.5px var(--mono, Consolas, monospace); pointer-events: none; white-space: nowrap; }
+
+/* ---------- Agent and Re-edit: a calm, premium interface ----------
+   Agent: a numbered stepper, big mode cards (the chosen one ringed in yellow with the logo's triangle), airy fields.
+   Re-edit: the settings in titled section cards, switches instead of tick boxes, the action bar always in view. */
+html.ui2[data-look="limelight"] .ag { gap: 16px; }
+html.ui2[data-look="limelight"] .ag > p.muted { margin: 0; font-size: 13px; line-height: 1.55; color: var(--muted); }
+html.ui2[data-look="limelight"] .ag .fgrid { gap: 12px 14px; padding: 0; }
+html.ui2[data-look="limelight"] .ag .fld { gap: 6px; }
+html.ui2[data-look="limelight"] .ag .fld > span { font-size: 11.5px; font-weight: 500; color: var(--muted); letter-spacing: .01em; }
+html.ui2[data-look="limelight"] .ag :is(select, input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file])) { height: 34px; padding: 0 12px; }
+html.ui2[data-look="limelight"] .ag .row-in { gap: 8px; }
+html.ui2[data-look="limelight"] .ag .btn.small, html.ui2[data-look="limelight"] .ag label.btn { display: inline-flex; align-items: center; height: 34px; padding: 0 14px; border-radius: 8px;
+  background: #151518; box-shadow: 0 0 0 1px var(--hair) inset; font-size: 12px; font-weight: 550; white-space: nowrap; cursor: pointer; }
+html.ui2[data-look="limelight"] .ag label.btn:hover { background: #1e1e22; }
+
+/* the stepper: 1 What - 2 Footage - 3 Sound - 4 Finish */
+html.ui2[data-look="limelight"] .ag-steps { counter-reset: agstep; gap: 4px; padding: 4px; border-radius: 12px; background: #0b0b0d; box-shadow: 0 0 0 1px var(--hair) inset; }
+html.ui2[data-look="limelight"] .ag-steps li { counter-increment: agstep; display: flex; align-items: center; justify-content: center; gap: 9px; padding: 9px 8px; border: 0; border-radius: 9px;
+  color: var(--faint); font-weight: 600; font-size: 12.5px; transition: background .15s, color .15s; }
+html.ui2[data-look="limelight"] .ag-steps li::before { content: counter(agstep); display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; font-size: 11px; font-weight: 700;
+  box-shadow: 0 0 0 1px var(--hair-2) inset; color: var(--faint); }
+html.ui2[data-look="limelight"] .ag-steps li:hover { color: var(--text); background: #141417; }
+html.ui2[data-look="limelight"] .ag-steps li.on { color: #fff; background: linear-gradient(180deg, #1f1f23, #18181b); box-shadow: 0 0 0 1px var(--hair-2) inset, 0 4px 14px -8px #000; }
+html.ui2[data-look="limelight"] .ag-steps li.on::before { background: var(--y-grad); color: #111; box-shadow: none; }
+/* (the step text carries its own number: "1. What" - only the word shows next to the circle) */
+html.ui2[data-look="limelight"] .ag-steps li { font-size: 0; }
+html.ui2[data-look="limelight"] .ag-steps li::after { content: attr(data-l); font-size: 12.5px; }
+
+/* mode cards */
+html.ui2[data-look="limelight"] .ag-types { gap: 10px; }
+html.ui2[data-look="limelight"] .ag-type span { position: relative; gap: 6px; padding: 18px 14px 16px; border: 0; border-radius: 14px; background: linear-gradient(180deg, #131316, #0f0f11);
+  box-shadow: 0 0 0 1px var(--hair) inset; transition: transform .15s, box-shadow .15s, background .15s; }
+html.ui2[data-look="limelight"] .ag-type span b { font-size: 13.5px; font-weight: 650; letter-spacing: -.005em; color: var(--text); }
+html.ui2[data-look="limelight"] .ag-type span small { font-size: 11.5px; line-height: 1.45; color: var(--muted); }
+html.ui2[data-look="limelight"] .ag-type:hover span { transform: translateY(-1px); box-shadow: 0 0 0 1px var(--hair-2) inset, 0 14px 30px -18px #000; }
+html.ui2[data-look="limelight"] .ag-type input:checked + span { background: linear-gradient(180deg, rgba(255,194,26,.12), rgba(255,194,26,.03)); border: 0; box-shadow: 0 0 0 1.5px rgba(255,194,26,.7) inset; }
+html.ui2[data-look="limelight"] .ag-type input:checked + span::after { content: ""; position: absolute; top: 10px; right: 10px; width: 11px; height: 11px; background: var(--tri) center / contain no-repeat; }
+html.ui2[data-look="limelight"] .ag-type input:focus-visible + span { outline: none; box-shadow: 0 0 0 2px rgba(255,194,26,.6) inset; }
+
+/* switches instead of tick boxes */
+html.ui2[data-look="limelight"] .ag .chk { gap: 10px; font-size: 12.5px; color: #d8d8dd; padding: 4px 0; }
+html.ui2[data-look="limelight"] .ag .chk input[type=checkbox] { appearance: none; -webkit-appearance: none; flex: none; width: 30px; height: 18px; margin: 0; border-radius: 99px; position: relative; cursor: pointer;
+  background: #232327; box-shadow: 0 0 0 1px var(--hair-2) inset; transition: background .18s; }
+html.ui2[data-look="limelight"] .ag .chk input[type=checkbox]::before { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #8e8e95; transition: transform .18s, background .18s; }
+html.ui2[data-look="limelight"] .ag .chk input[type=checkbox]:checked { background: var(--y-grad); box-shadow: none; }
+html.ui2[data-look="limelight"] .ag .chk input[type=checkbox]:checked::before { transform: translateX(12px); background: #111; }
+html.ui2[data-look="limelight"] .ag .chk input[type=checkbox]:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px rgba(255,194,26,.6); }
+
+/* Re-edit: section cards */
+html.ui2[data-look="limelight"] .re-sections { display: grid; gap: 12px; }
+html.ui2[data-look="limelight"] .re-card { border-radius: 14px; background: linear-gradient(180deg, #121214, #0e0e10); box-shadow: 0 0 0 1px var(--hair) inset; padding: 14px 16px 16px; }
+html.ui2[data-look="limelight"] .re-card-h { display: flex; align-items: baseline; gap: 10px; margin: 0 0 12px; }
+html.ui2[data-look="limelight"] .re-card-h b { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 650; color: var(--text); letter-spacing: -.005em; }
+html.ui2[data-look="limelight"] .re-card-h b::before { content: ""; width: 8px; height: 8px; background: var(--tri) center / contain no-repeat; }
+html.ui2[data-look="limelight"] .re-card-h small { font-size: 11.5px; color: var(--faint); }
+html.ui2[data-look="limelight"] .re-card .re-box, html.ui2[data-look="limelight"] .re-card .sp-box { background: none; border: 0; padding: 0; box-shadow: none; }
+html.ui2[data-look="limelight"] .re-card .re-box.hi { box-shadow: 0 0 0 1.5px rgba(255,194,26,.6); border-radius: 10px; padding: 8px; margin: -8px; }
+html.ui2[data-look="limelight"] .re-card .chk { grid-column: 1 / -1; }
+
+/* the action bar stays in view at the bottom of the dialog */
+html.ui2[data-look="limelight"] .ag-foot { position: sticky; bottom: -16px; z-index: 3; margin: 0 -18px -16px; padding: 12px 18px; gap: 8px;
+  background: rgba(14,14,16,.94); backdrop-filter: blur(14px); border-top: 1px solid var(--hair); border-radius: 0 0 16px 16px; }
+html.ui2[data-look="limelight"] .ag-foot button { height: 34px; padding: 0 16px; border-radius: 9px; font-weight: 600; }
+html.ui2[data-look="limelight"] .ag-foot button.primary { padding: 0 20px; }

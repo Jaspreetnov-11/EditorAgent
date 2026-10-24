@@ -32,7 +32,7 @@ export function openAgent(setBusy) {
   const pre = defaultFootage();
   const st = { step: 0, type: 'reel', clips: new Set(pre.ids) };
   const body = h(`<div class="ag">
-    <ol class="ag-steps">${['What', 'Footage', 'Sound', 'Finish'].map((s, i) => `<li data-go="${i}">${i + 1}. ${s}</li>`).join('')}</ol>
+    <ol class="ag-steps">${['What', 'Footage', 'Sound', 'Finish'].map((s, i) => `<li data-go="${i}" data-l="${s}">${i + 1}. ${s}</li>`).join('')}</ol>
     <div class="ag-page" data-p="0">
       <div class="ag-types">${TYPES.map((t) => `<label class="ag-type"><input type="radio" name="type" value="${t.id}"${t.id === st.type ? ' checked' : ''}><span><b>${t.label}</b><small>${t.sub}</small></span></label>`).join('')}</div>
       <div class="fgrid">

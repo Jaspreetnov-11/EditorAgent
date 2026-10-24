@@ -41,35 +41,47 @@ export function openReedit(setBusy, { focus = null, changes = {} } = {}) {
   base.clips = (base.clips || []).filter((id) => S.mediaById[id] && (onEdit.has(id) || !whyLeftOut(S.mediaById[id])));
   const body = h(`<div class="ag re">
     <p class="muted">The agent rebuilds the edit with your changes. Same footage, and it again picks the best shot for every line. <b>Ctrl+Z</b> (or "undo" in the Assistant) brings the current edit back.</p>
-    <div class="fgrid">
-      <div class="fld wide re-box${focus === 'vo' ? ' hi' : ''}"><span>Voice-over: the shots follow what is said</span>
+    <div class="re-sections">
+      <section class="re-card"><header class="re-card-h"><b>Voice &amp; script</b><small>The shots follow what is said</small></header><div class="fgrid">
+        <div class="fld wide re-box${focus === 'vo' ? ' hi' : ''}"><span>Voice-over</span>
         <div class="row-in"><select name="vo">${opt(audio(), o.vo, 'No voice-over')}</select><label class="btn small re-up">Upload new VO<input type="file" accept="audio/*,video/*" hidden name="voFile"></label></div>
         <small data-vonote></small></div>
-      <label class="fld"><span>VO language</span><select name="voLang"><option value="hi">Hindi</option><option value="en">English</option><option value="auto">Auto-detect</option></select></label>
-      <label class="fld"><span>Listening accuracy</span><select name="whisperModel"><option value="small">Fast</option><option value="medium">Good</option><option value="large-v3">Best (slow)</option></select></label>
-      <div class="fld wide re-box${focus === 'music' ? ' hi' : ''}"><span>Music</span>
+        <label class="fld"><span>VO language</span><select name="voLang"><option value="hi">Hindi</option><option value="en">English</option><option value="auto">Auto-detect</option></select></label>
+        <label class="fld"><span>Listening accuracy</span><select name="whisperModel"><option value="small">Fast</option><option value="medium">Good</option><option value="large-v3">Best (slow)</option></select></label>
+      </div></section>
+      <section class="re-card"><header class="re-card-h"><b>Music &amp; sound</b><small>The beat sets the cuts</small></header><div class="fgrid">
+        <div class="fld wide re-box${focus === 'music' ? ' hi' : ''}"><span>Music</span>
         <div class="row-in"><select name="music">${opt(audio(), o.music, 'No music')}</select><label class="btn small re-up">Upload music<input type="file" accept="audio/*" hidden name="musicFile"></label></div></div>
-      <label class="chk"><input type="checkbox" name="musicBest"> Best part of the music, cuts on the beat</label>
-      <label class="chk"><input type="checkbox" name="keepSound"> Keep some of the clips' own sound</label>
-<label class="fld"><span>Clip speed</span><select name="clipSpeed"><option value="0.5">0.5x slow motion</option><option value="0.75">0.75x gentle slow-mo</option><option value="1" selected>1x normal</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x fast</option></select></label>
-      <label class="fld"><span>Edit style</span><select name="editStyle"><option value="standard">Standard</option><option value="teaser">Cinematic teaser (trailer: slow open, build, fast climax)</option><option value="montage">Fast montage (cut on every beat)</option></select></label>
-      <label class="fld"><span>Pace</span><select name="pace">${PACES.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></label>
-      <label class="fld"><span>Format</span><select name="aspect">${ASPECTS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></label>
-      <label class="fld"><span>Length</span><select name="target"><option value="15">15 s</option><option value="20">20 s</option><option value="30">30 s</option><option value="45">45 s</option><option value="60">1 min</option><option value="90">1.5 min</option><option value="120">2 min</option><option value="180">3 min</option><option value="300">5 min</option></select><small data-lennote></small></label>
-      <div class="fld wide re-box"><span>Footage</span>
+        <label class="chk"><input type="checkbox" name="musicBest"> Best part of the music, cuts on the beat</label>
+        <label class="chk"><input type="checkbox" name="keepSound"> Keep some of the clips' own sound</label>
+        <label class="chk"><input type="checkbox" name="sfx" checked> Sound design (whooshes, hits, a riser into the drop - teaser / montage styles)</label>
+      </div></section>
+      <section class="re-card"><header class="re-card-h"><b>Cut &amp; format</b><small>Style, pace and size of the edit</small></header><div class="fgrid">
+        <label class="fld"><span>Edit style</span><select name="editStyle"><option value="standard">Standard</option><option value="teaser">Cinematic teaser (trailer: slow open, build, fast climax)</option><option value="montage">Fast montage (cut on every beat)</option></select></label>
+        <label class="fld"><span>Pace</span><select name="pace">${PACES.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></label>
+        <label class="fld"><span>Clip speed</span><select name="clipSpeed"><option value="0.5">0.5x slow motion</option><option value="0.75">0.75x gentle slow-mo</option><option value="1" selected>1x normal</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x fast</option></select></label>
+        <label class="fld"><span>Format</span><select name="aspect">${ASPECTS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></label>
+        <label class="fld"><span>Length</span><select name="target"><option value="15">15 s</option><option value="20">20 s</option><option value="30">30 s</option><option value="45">45 s</option><option value="60">1 min</option><option value="90">1.5 min</option><option value="120">2 min</option><option value="180">3 min</option><option value="300">5 min</option></select><small data-lennote></small></label>
+        <label class="fld"><span>Transitions</span><select name="style"><option value="cuts">Clean cuts</option><option value="cinematic">Dissolves between ideas</option></select></label>
+      </div></section>
+      <section class="re-card"><header class="re-card-h"><b>Footage</b><small>Which clips the agent picks from</small></header><div class="fgrid">
+        <div class="fld wide re-box"><span>Footage</span>
         <div class="row-in"><select name="footage"><option value="same">Same as this edit (${base.clips.length} clips)</option><option value="all">All the project's footage (${allFootage.length} - no logos, rejects or bad clips)</option></select>
           <label class="btn small">Add new clips<input type="file" hidden multiple name="clipFiles" accept="video/*,image/*,.mxf,.mts,.mov"></label><button type="button" class="btn small" data-a="folder">Add a folder</button></div>
         <small data-newclips></small></div>
-      <label class="fld"><span>Transitions</span><select name="style"><option value="cuts">Clean cuts</option><option value="cinematic">Dissolves between ideas</option></select></label>
-      <label class="chk"><input type="checkbox" name="autoColor"> Auto colour every shot</label>
-      <label class="fld"><span>Film look (colour of the whole edit)</span><select name="look"><option value="">None (just balanced)</option><option selected>Teal & Orange</option><option>Warm Film</option><option>Golden Hour</option><option>Moody Dark</option><option>Travel Vivid</option><option>Indian Heritage</option><option>Bleach Bypass</option><option>Clean Natural</option></select></label>
-      <label class="chk"><input type="checkbox" name="stabilize"> Stabilize shaky shots (slower render)</label>
+      </div></section>
+      <section class="re-card"><header class="re-card-h"><b>Look &amp; finish</b><small>Colour, steadiness and effects</small></header><div class="fgrid">
+        <label class="chk"><input type="checkbox" name="autoColor"> Auto colour every shot</label>
+        <label class="fld"><span>Film look (colour of the whole edit)</span><select name="look"><option value="">None (just balanced)</option><option selected>Teal & Orange</option><option>Warm Film</option><option>Golden Hour</option><option>Moody Dark</option><option>Travel Vivid</option><option>Indian Heritage</option><option>Bleach Bypass</option><option>Clean Natural</option></select></label>
+        <label class="chk"><input type="checkbox" name="stabilize"> Stabilize shaky shots (slower render)</label>
         <label class="chk"><input type="checkbox" name="cinematic"> Cinematic finish (film grade, bars, vignette, grain)</label>
         <label class="chk"><input type="checkbox" name="fx" checked> Teaser effects (light leaks, whip, flash, shake on the cuts - teaser / montage styles)</label>
-        <label class="chk"><input type="checkbox" name="sfx" checked> Sound design (whooshes, hits, a riser into the drop - teaser / montage styles)</label>
-      <label class="chk"><input type="checkbox" name="subtitles"> Subtitles from the voice-over</label>
-      <label class="fld"><span>Title on the first shot</span><input name="title"></label>
-      <label class="fld"><span>End card</span><input name="endText"></label>
+      </div></section>
+      <section class="re-card"><header class="re-card-h"><b>Titles</b><small>Words on the screen</small></header><div class="fgrid">
+        <label class="chk"><input type="checkbox" name="subtitles"> Subtitles from the voice-over</label>
+        <label class="fld"><span>Title on the first shot</span><input name="title"></label>
+        <label class="fld"><span>End card</span><input name="endText"></label>
+      </div></section>
     </div>
     <div class="ag-foot"><span class="grow"></span><button type="button" data-close>Cancel</button><button type="button" data-a="go" data-quick="1" title="The fast built-in agent (no Claude)">Quick re-edit</button><button type="button" class="primary" data-a="go">Re-edit (Claude)</button></div>
   </div>`);
