@@ -17,7 +17,7 @@ import os from 'node:os';
 import dns from 'node:dns';
 import { Readable } from 'node:stream';
 import zlib from 'node:zlib';
-import { newProject, uid, placed, clipDur, seqOf, seqHash, ASPECTS, normalizeProject, rangeOf, totalDuration } from './public/js/model.js';
+import { newProject, uid, placed, layoutV1, clipDur, seqOf, seqHash, ASPECTS, normalizeProject, rangeOf, totalDuration } from './public/js/model.js';
 import { gfxKey } from './public/js/graphics.js';
 import { CAPTION_LANGS, translatePrompt, parseTranslation } from './public/js/captions.js';
 import { stabOf, usesPython, VFX } from './public/js/effects.js';
@@ -989,7 +989,7 @@ async function renderJob(proj, jobFile, { onLine, duration } = {}) {
 }
 // 🖥 one of the editor's Python tools (engine/<script>) on a helper PC that has what it needs (PY_NEEDS: torch = PyTorch
 // on an NVIDIA card), else here. Tools that need the editor's own model files stay here.
-const PY_NEEDS = { 'matte.py': ['torch', 'cv2'], 'track.py': ['cv2'], 'planar.py': ['cv2'] };
+const PY_NEEDS = { 'matte.py': ['torch', 'cv2'], 'track.py': ['cv2'], 'planar.py': ['cv2'], 'vision2.py': ['vision2'] };
 async function runPy(proj, script, args, { inputs = [], outs = [], lane = 'heavy', waitSec = 5, limitSec = 3600, onLine } = {}) {
   const r = PY_NEEDS[script] ? await runMedia(proj, 'py', [script, ...args], { inputs, outs, lane, tag: script, waitSec, limitSec, onLine, helperOnly: true }) : null;
   return r || run(PYTHON, [path.join(ROOT, 'engine', script), ...args], { onLine });
@@ -1397,6 +1397,24 @@ function leaveLine(job) {
   if (i < 0) return false;
   const [w] = L.splice(i, 1); job.cancelled = true; job.waiting = false; w.ok(false); lineNotes(job.kind);
   return true;
+}
+
+// ♻ The edit on the timeline as the last agent run made it (and as the user changed it since: a shot chosen by hand is
+// marked hand) - a re-edit keeps its shots where nothing asks for a change, a re-edit of a part keeps the rest exactly.
+function agentPrev(name, seq) {
+  const live = liveOf(name).pj, pj = seq ? seqView(live, seq) : live, rep = live.agentReport;
+  if (!rep?.slots?.length || !pj.tracks?.V1?.length) return null;
+  const items = mediaDb(name).items, byId = Object.fromEntries(items.map((m) => [m.id, m])), byName = {};
+  for (const m of items) (byName[m.name] ||= []).push(m.id);
+  const at = new Map(layoutV1(pj, byId).map((x) => [x.clip.id, x]));
+  const slots = [];
+  for (const s of rep.slots) {
+    const x = at.get(s.clipId), c = x?.clip; if (!c?.mediaId || !byId[c.mediaId]) continue;
+    const was = s.mediaId || (byName[s.media]?.length === 1 ? byName[s.media][0] : null);
+    slots.push({ clipId: c.id, start: +x.start.toFixed(3), end: +x.end.toFixed(3), mediaId: c.mediaId, in: c.in ?? 0, hand: !!was && (was !== c.mediaId || Math.abs((c.in ?? 0) - (s.in ?? 0)) > 0.05) });
+  }
+  const o = live.agentOpts || {};
+  return { at: rep.at, slots, report: rep.slots, tracks: pj.tracks, opts: { pace: o.pace, music: o.music, vo: o.vo, editStyle: o.editStyle } };
 }
 
 // In-process background task (same polling API as spawned jobs).
@@ -2719,7 +2737,7 @@ function farmPump() {
 const LANES = ['light', 'heavy', 'render', 'ai'];
 const helperOf = new Map(); // project -> helper id (kept while that PC is on)
 const helperPCs = () => farmWorkers().filter((w) => w.specs);
-const helperSlots = () => { const hs = farm.server ? helperPCs().filter((w) => !w.paused) : []; return { heavy: hs.reduce((n, w) => n + (w.slots || 1), 0), light: hs.length * 2, ai: hs.filter((w) => w.specs.whisper || w.specs.torch).length, render: hs.filter((w) => w.specs.render).length }; };
+const helperSlots = () => { const hs = farm.server ? helperPCs().filter((w) => !w.paused) : []; return { heavy: hs.reduce((n, w) => n + (w.slots || 1), 0), light: hs.length * 2, ai: hs.filter((w) => w.specs.whisper || w.specs.torch || w.specs.vision2).length, render: hs.filter((w) => w.specs.render).length }; };
 // what a run needs on the PC: FFprobe, Whisper on an NVIDIA card, or the editor's code (a whole render)
 const NEEDS = { ffprobe: 'ffprobe', transcribe: 'whisper' };
 const toolNeeds = (tool, args) => (tool === 'py' ? PY_NEEDS[args?.[0]] : NEEDS[tool]) || null;
@@ -5544,6 +5562,8 @@ const routes = {
     if (sname && sname !== 'none') { const st = loadStyle(sname); if (st) opts.styleProfile = st; }
     const items = mediaDb(name).items;
     const media = Object.fromEntries(items.map((m) => [m.id, { ...m, proxyPath: m.proxy === 'ready' ? P(name, 'cache', 'proxies', `${m.id}.mp4`) : null }]));
+    // ♻ the edit as it is now (read before the job waits its turn): a re-edit / a re-edit of a part builds on it
+    const prev = agentPrev(name, opts.seq);
     return startTask('agent', async (job) => {
       // re-import when the file changes, so agent improvements apply without restarting the editor
       const agentFile = path.join(ROOT, 'engine', 'agent.mjs');
@@ -5556,9 +5576,13 @@ const routes = {
       // only this project's PC - and as many clips at once as they have slots; one no helper takes is done here
       const caps = await helpersOn();
       const remote = caps.heavy > 0 ? (args, { inputs, outs }) => runMedia(name, 'ffmpeg', args, { inputs, outs, lane: 'heavy', tag: 'agent', spread: true, fullErr: true, helperOnly: true, waitSec: 20, limitSec: 900 }) : null;
-      const go = (o, scale = [0, 100]) => runAgent({ opts: o, media: mediaNow(), cacheDir: P(name, 'cache'), subsDir: P(name, 'subs'), python: PYTHON, root: ROOT, luts: lutMap(name), remote, lanes: () => caps.heavy,
+      // (👁 vision2's face step: the people scan over all the project's clips - the ones seen before are instant)
+      const lookPeople = () => lookAtPeople(name, mediaDb(name).items.filter((m) => m.kind === 'video' || m.kind === 'image'));
+      // (🖥 vision2 on helper PCs that have it: one clip per task - vision2.py --one; null = nobody took it, done here)
+      const visionRemote = (args, { inputs, outs } = {}) => runMedia(name, 'py', ['vision2.py', ...args], { inputs, outs, lane: 'ai', tag: 'vision', spread: true, helperOnly: true, waitSec: 20, limitSec: 900 });
+      const go = (o, scale = [0, 100]) => runAgent({ opts: o, media: mediaNow(), cacheDir: P(name, 'cache'), subsDir: P(name, 'subs'), python: PYTHON, root: ROOT, luts: lutMap(name), remote, lanes: () => caps.heavy, project: name, lookPeople, visionRemote: caps.ai > 0 ? visionRemote : null,
         log, skips: () => job.skips || 0, progress: (p) => { stopCheck(); job.progress = Math.round(scale[0] + (p / 100) * (scale[1] - scale[0])); } });
-      const o = { ...opts };
+      const o = { ...opts, prev };
       // reference video: its cutting style is copied (engine/refstyle.mjs) but never its shots
       if (o.reference) {
         const rm = mediaItem(name, o.reference);
@@ -5885,6 +5909,31 @@ const routes = {
     }, { project: name });
   },
   // a finished agent edit not yet on the timeline (see startTask) / the editor has used it
+  // 🗣 what the editor wrote -> settings, constraints, "what will change" (engine/intent.mjs; fast, no job)
+  'POST /api/agent/parse': async (req, res, u) => {
+    const b = await readJson(req), name = needProject(q(u, 'p') || b.p);
+    const media = Object.fromEntries(mediaDb(name).items.map((m) => [m.id, m]));
+    const opts = { ...(b.opts || {}), intent: String(b.text || ''), mode: b.mode === 'reedit' ? 'reedit' : 'new' };
+    const { parseIntent } = await import(`./engine/intent.mjs?v=${Math.round(fs.statSync(path.join(ROOT, 'engine', 'intent.mjs')).mtimeMs)}`).catch(() => ({}));
+    const empty = { opts: {}, changes: [], constraints: {}, notes: opts.intent.trim() ? [opts.intent.trim()] : [], understood: [], via: 'none' };
+    if (!parseIntent || !opts.intent.trim()) return empty;
+    // (rules only - a millisecond; ?llm=1 / llm: true asks the local model too for what the rules left in notes, 4-15 s)
+    const pj = liveOf(name).pj, rep = pj.agentReport, byId = Object.fromEntries(mediaDb(name).items.map((m) => [m.id, m]));
+    const people = [...readJSON(P(name, 'cache', 'people.json'), { people: [] }).people.filter((p) => p.name).map((p) => ({ name: p.name, key: p.key })), ...loadLibrary(ROOT).filter((p) => p.name).map((p) => ({ name: p.name }))];
+    return parseIntent(opts.intent, { mode: opts.mode, opts: b.opts || {}, media: Object.values(media), people, duration: pj.tracks?.V1?.length ? totalDuration(pj, byId) : 0, fps: pj.settings?.fps || 25,
+      slots: rep?.slots?.length || 0, llm: q(u, 'llm') === '1' || b.llm === true, timeoutMs: 20000 });
+  },
+  // 🗺 the edit's plan in a second or two, from what is cached: acts, lines, cuts, length (pending: what is not heard yet)
+  'POST /api/agent/plan': async (req, res, u) => {
+    const b = await readJson(req), name = needProject(q(u, 'p') || b.p), opts = { ...(b.opts || {}) };
+    const sname = opts.styleName === undefined ? config().defaultStyle : opts.styleName;
+    if (sname && sname !== 'none') { const st = loadStyle(sname); if (st) opts.styleProfile = st; }
+    if (opts.reference) { const rs = readJSON(P(name, 'cache', 'analysis', `ref-${opts.reference}.json`), null); if (rs?.shots?.length) opts.refStyle = rs; }
+    opts.prev = agentPrev(name, opts.seq);
+    const media = Object.fromEntries(mediaDb(name).items.map((m) => [m.id, { ...m, proxyPath: m.proxy === 'ready' ? P(name, 'cache', 'proxies', `${m.id}.mp4`) : null }]));
+    const { planPreview } = await import(`./engine/agent.mjs?v=${Math.round(fs.statSync(path.join(ROOT, 'engine', 'agent.mjs')).mtimeMs)}`);
+    return planPreview({ opts, media, cacheDir: P(name, 'cache') });
+  },
   'GET /api/agent/pending': (req, res, u) => readJSON(P(needProject(q(u, 'p')), 'cache', 'agent', 'pending-result.json'), {}),
   'POST /api/agent/applied': (req, res, u) => { fs.rmSync(P(needProject(q(u, 'p')), 'cache', 'agent', 'pending-result.json'), { force: true }); return { ok: true }; },
   // sound effects library in this project: { kind: { mediaId, peak, label, duration } }

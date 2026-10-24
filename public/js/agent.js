@@ -612,11 +612,19 @@ export function claudeBrief(o, label = 'edit', changes = null) {
     'Look at the footage first, plan the story, then put it on the timeline and check it yourself with a contact sheet. End with 2-4 lines on what you made.',
   ].filter(Boolean).join('\n');
 }
+// the settings kept for the next Re-edit: without what belonged to this one run - the words typed for it (the engine reads
+// opts.intent / notes again, so they would come back on every later edit), how much to keep and the re-edit scope
+export function savedOpts(o) {
+  const { keep, intent, intentApplied, mode, notes, ...was } = o;
+  void keep, intent, intentApplied, mode, notes;
+  if (was.constraints?.scope) { was.constraints = { ...was.constraints }; delete was.constraints.scope; }
+  return was;
+}
 // hands the brief to Claude; the settings are kept (S.project.agentOpts) so Re-edit starts from them
 export function editWithClaude(o, label, changes = null) {
   // a new edit on a timeline that has one: in a new sequence (the old edit stays); a re-edit works on the open one
   if (!changes && !sequenceForAgent(label || 'Agent edit', o.aspect)) return;
-  S.project.agentOpts = { ...o, stock: false };
+  S.project.agentOpts = { ...savedOpts(o), stock: false };
   commit(changes ? 'Re-edit settings' : 'Edit settings');
   import('./assistant.js').then((m) => m.askClaude(claudeBrief(o, label, changes)));
 }
@@ -668,7 +676,7 @@ async function applyAgentResult(r, o) {
   S.project.agentReport = { at: Date.now(), ...r.report };
   // (keep is for one run - a later re-edit from the Assistant with new music must not keep these shots)
   // (the scope too: the next re-edit starts from the whole edit again)
-  if (o.clips) { const { keep, ...was } = o; void keep; if (was.constraints?.scope) { was.constraints = { ...was.constraints }; delete was.constraints.scope; } S.project.agentOpts = { ...was, ...(asp && asp !== 'ref' ? { aspect: asp } : {}) }; } // remembered so the edit can be redone with changes (Assistant: "music badlo aur dobara edit karo")
+  if (o.clips) S.project.agentOpts = { ...savedOpts(o), ...(asp && asp !== 'ref' ? { aspect: asp } : {}) }; // remembered so the edit can be redone with changes (Assistant: "music badlo aur dobara edit karo")
   S.sel.clear(); S.playhead = 0;
   commit('Agent edit');
   emit('subs'); emit('fit');
