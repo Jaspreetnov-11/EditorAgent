@@ -237,7 +237,11 @@ function planHTML(r, opts) {
 
 /* ---------- the Agent window (a new edit) ---------- */
 
-export function openAgent(setBusy, { job = null, type = null } = {}) {
+// a pasted script (one line or many) as the Agent's scenes: one per paragraph / sentence - exact spellings for the
+// captions, and the order of the story when there is no voice-over
+export const scriptScenes = (t) => String(t || '').split(/\n\s*\n|(?<=[।.!?])\s+/).map((x) => x.trim()).filter(Boolean).map((vo) => ({ vo }));
+
+export function openAgent(setBusy, { job = null, type = null, vo = null, music = null, script = '' } = {}) {
   // the footage to start from: what is selected in Media (or its open folder), else the footage without logos, rejects,
   // bad clips and copies (footagepick.js) - not every file of the project
   const pre = defaultFootage();
@@ -581,6 +585,11 @@ export function openAgent(setBusy, { job = null, type = null } = {}) {
 
   applyType(); show();
   if (job) applyJob(job);
+  // (from Automation: its script, voice-over and music come in already chosen)
+  if (script.trim()) scr.scenes = scriptScenes(script);
+  if (vo && S.mediaById[vo]) f('vo').value = vo;
+  if (music && S.mediaById[music]) f('music').value = music;
+  if (vo || music) show();
   stylesIn.then(() => { pickLearnt(); show(); }); // (the styles come a moment later: a learnt one matching the job is picked then)
   setTimeout(() => box.focus());
 }

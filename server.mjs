@@ -128,6 +128,16 @@ const GFXLIB = path.join(DATA === ROOT ? LIB : path.join(DATA, 'Library'), 'grap
 fs.mkdirSync(GFXLIB, { recursive: true });
 // 🏷 client brand packs (engine/brandpacks.mjs) - a test editor keeps its own
 const PACKS = path.join(DATA === ROOT ? LIB : path.join(DATA, 'Library'), 'brandpacks');
+// 🎵 ready-made music everyone can pick (Automation step 3): audio files put in Library/music - a test editor keeps its own
+const MUSICLIB = path.join(DATA === ROOT ? LIB : path.join(DATA, 'Library'), 'music');
+fs.mkdirSync(MUSICLIB, { recursive: true });
+const MUSIC_EXT = /\.(mp3|wav|m4a|aac|ogg|flac|opus)$/i;
+// one track of Library/music by its file name only (never a path elsewhere)
+function musicFile(name) {
+  const f = path.join(MUSICLIB, path.basename(String(name || '')));
+  if (!MUSIC_EXT.test(f) || !fs.existsSync(f)) throw err(404, 'This music is no longer in the Library');
+  return f;
+}
 // a template's import (upload or path) as a job; a failed one leaves nothing behind
 function templateTask(src, orig, id, { name = '', fps = 30, by = '', temp = false } = {}) {
   const dir = path.join(GFXLIB, id);
@@ -5749,6 +5759,20 @@ const routes = {
     return all;
   },
   'PUT /api/library/brand': async (req) => { const b = await readJson(req); writeJSON(path.join(LIB, 'brand.json'), { ...b, saved: Date.now() }); return b; },
+  // 🎵 ready-made music (Library/music): the list, a track to listen to (?name=), and a track into a project's Media
+  'GET /api/library/music': () => fs.readdirSync(MUSICLIB).filter((f) => MUSIC_EXT.test(f)).sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))
+    .map((f) => ({ name: f, title: path.parse(f).name.replace(/[_-]+/g, ' ').trim(), size: fs.statSync(path.join(MUSICLIB, f)).size })),
+  'GET /api/library/music/file': (req, res, u) => serveFile(req, res, musicFile(q(u, 'name'))),
+  // { name } -> copied into imports/music/ (a render on a helper PC finds it there), in Media (bin "Music"), read
+  'POST /api/library/music/use': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req), src = musicFile(b.name), to = P(name, 'imports', 'music', path.basename(src));
+    if (!fs.existsSync(to)) { fs.mkdirSync(path.dirname(to), { recursive: true }); fs.copyFileSync(src, to); }
+    const it = addMediaFile(name, to, { bin: 'Music' }) || mediaDb(name).items.find((m) => m.path.toLowerCase() === path.resolve(to).toLowerCase());
+    saveMedia(name, true);
+    if (activeProject !== name) { activeProject = name; pump(); }
+    for (let i = 0; i < 120 && !['ready', 'error', 'offline'].includes(mediaItem(name, it.id)?.status); i++) await new Promise((ok) => setTimeout(ok, 250));
+    return publicMedia(name, mediaItem(name, it.id));
+  },
   // 🏷 Client brand packs (Library/brandpacks): one per client / ministry / department, applied to a project in one go
   'GET /api/library/brandpacks': () => BP.listPacks(PACKS).map((p) => ({ ...p, has: Object.fromEntries(PACK_SLOTS.map((s) => [s, !!BP.packFile(PACKS, p, s)])) })),
   // { pack: { id?, name, …fields } } creates (no id) or changes one; its files are set by upload / addpath
