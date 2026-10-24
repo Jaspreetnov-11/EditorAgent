@@ -52,8 +52,48 @@ namespace LimelightEditor
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             var s = Settings.Load();
+            try { Setup.Run(); } catch { } // (every start: shortcuts and limelight:// links point at this exe, wherever it is now)
+            if (args.Contains("--setup")) return; // (an installer / IT: set up only, no window)
             var url = args.FirstOrDefault(a => a.StartsWith("http", StringComparison.OrdinalIgnoreCase));
+            // limelight://#/p/<project> (or limelight://anything) -> that page of the editor
+            var link = args.FirstOrDefault(a => a.StartsWith("limelight:", StringComparison.OrdinalIgnoreCase));
+            if (url == null && link != null) url = s.Urls[0].TrimEnd('/') + "/" + link.Substring("limelight:".Length).TrimStart('/');
             Application.Run(new EditorWindow(s, url));
+        }
+    }
+
+    // 🖥 the editor opens here by default (not enforced): this PC's Desktop and Start menu shortcuts start this exe, and
+    // limelight:// links open in it. Only for the user who runs it (HKCU, no administrator). An old "Limelight
+    // Editor.url" Desktop shortcut that opened the editor in the browser is replaced. The PC's own browser is untouched.
+    static class Setup
+    {
+        public static void Run()
+        {
+            var exe = Application.ExecutablePath;
+            using (var k = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\Classes\limelight"))
+            {
+                k.SetValue("", "URL:Limelight Editor");
+                k.SetValue("URL Protocol", "");
+                using (var i = k.CreateSubKey("DefaultIcon")) i.SetValue("", "\"" + exe + "\",0");
+                using (var c = k.CreateSubKey(@"shell\open\command")) c.SetValue("", "\"" + exe + "\" \"%1\"");
+            }
+            var desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+            Link(Path.Combine(desktop, "Limelight Editor.lnk"), exe);
+            Link(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "Limelight Editor.lnk"), exe);
+            var old = Path.Combine(desktop, "Limelight Editor.url");
+            try { if (File.Exists(old) && File.ReadAllText(old).IndexOf("limelightcorp", StringComparison.OrdinalIgnoreCase) >= 0) File.Delete(old); } catch { }
+        }
+
+        static void Link(string lnk, string exe)
+        {
+            var shell = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell"));
+            var l = shell.GetType().InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell, new object[] { lnk });
+            void set(string p, object v) => l.GetType().InvokeMember(p, BindingFlags.SetProperty, null, l, new[] { v });
+            set("TargetPath", exe);
+            set("WorkingDirectory", Path.GetDirectoryName(exe));
+            set("IconLocation", exe + ",0");
+            set("Description", "Limelight Editor");
+            l.GetType().InvokeMember("Save", BindingFlags.InvokeMethod, null, l, null);
         }
     }
 
