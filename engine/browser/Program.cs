@@ -46,6 +46,18 @@ namespace LimelightEditor
     {
         public static readonly string Version = Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
 
+        // is the editor running on this PC (its own port answers)?
+        static bool EditorHere()
+        {
+            try
+            {
+                var r = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:3000/api/version");
+                r.Timeout = 1500;
+                using (var res = (HttpWebResponse)r.GetResponse()) return res.StatusCode == HttpStatusCode.OK;
+            }
+            catch { return false; }
+        }
+
         [STAThread]
         static void Main(string[] args)
         {
@@ -55,6 +67,8 @@ namespace LimelightEditor
             try { Setup.Run(); } catch { } // (every start: shortcuts and limelight:// links point at this exe, wherever it is now)
             if (args.Contains("--setup")) return; // (an installer / IT: set up only, no window)
             var url = args.FirstOrDefault(a => a.StartsWith("http", StringComparison.OrdinalIgnoreCase));
+            // the editor's own PC (or a standby running it): its own address - the owner's, no sign-in needed
+            if (url == null && EditorHere()) s.Urls = new[] { "http://localhost:3000/" }.Concat(s.Urls).ToArray();
             // limelight://#/p/<project> (or limelight://anything) -> that page of the editor
             var link = args.FirstOrDefault(a => a.StartsWith("limelight:", StringComparison.OrdinalIgnoreCase));
             if (url == null && link != null) url = s.Urls[0].TrimEnd('/') + "/" + link.Substring("limelight:".Length).TrimStart('/');
