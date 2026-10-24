@@ -5579,7 +5579,8 @@ const routes = {
       // (👁 vision2's face step: the people scan over all the project's clips - the ones seen before are instant)
       const lookPeople = () => lookAtPeople(name, mediaDb(name).items.filter((m) => m.kind === 'video' || m.kind === 'image'));
       // (🖥 vision2 on helper PCs that have it: one clip per task - vision2.py --one; null = nobody took it, done here)
-      const visionRemote = (args, { inputs, outs } = {}) => runMedia(name, 'py', ['vision2.py', ...args], { inputs, outs, lane: 'ai', tag: 'vision', spread: true, helperOnly: true, waitSec: 20, limitSec: 900 });
+      // (args already start with the script, as vision2.mjs builds them: ['vision2.py', '--one', file, json, npy, ...])
+      const visionRemote = (args, { inputs, outs } = {}) => runMedia(name, 'py', args, { inputs, outs, lane: 'ai', tag: 'vision', spread: true, helperOnly: true, waitSec: 20, limitSec: 900 });
       const go = (o, scale = [0, 100]) => runAgent({ opts: o, media: mediaNow(), cacheDir: P(name, 'cache'), subsDir: P(name, 'subs'), python: PYTHON, root: ROOT, luts: lutMap(name), remote, lanes: () => caps.heavy, project: name, lookPeople, visionRemote: caps.ai > 0 ? visionRemote : null,
         log, skips: () => job.skips || 0, progress: (p) => { stopCheck(); job.progress = Math.round(scale[0] + (p / 100) * (scale[1] - scale[0])); } });
       const o = { ...opts, prev };

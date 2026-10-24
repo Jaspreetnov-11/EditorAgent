@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { loadPeople } from './people.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const V = 1;
+const V = 2; // (as vision2.py V: 2 = new sharpness, cards)
 const MAX_SAMPLES = 600; // a 40 min YouTube film is looked at every 4 s, not every second (the cache stays small, the run quick)
 const IDLE_MS = 3 * 60 * 1000;
 const readJSON = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return d; } };
@@ -119,7 +119,10 @@ export function loadVision(proj, mediaIds, o = {}) {
 // Looks at every clip that has no (fresh) vision2 cache yet; returns { mediaId: json } for all of them, people filled in.
 // o: { onProgress(pct 0..100, msg, { done, total, id }), dataDir, cacheDir (instead of proj's), step (s, default 1),
 //      force, skips() (> 0: stop and return what is done), lookPeople(items) (the server's Smart people scan: awaited
-//      first for the clips people.py has not seen), debug }
+//      first for the clips people.py has not seen), debug,
+//      remote(args, { inputs, outs }) -> { code } | null (a helper PC runs `python engine/<args[0]> ...args[1..]`; server.mjs
+//      runMedia(proj, 'py', args, { inputs, outs, lane: 'heavy', tag: 'vision2.py', spread: true, helperOnly: true })),
+//      remoteConcurrency (clips on helpers at once, default 4) }
 export async function analyzeVision(proj, media, o = {}) {
   const dir = visionDir(proj, o), cache = path.dirname(dir);
   fs.mkdirSync(dir, { recursive: true });
@@ -142,22 +145,65 @@ export async function analyzeVision(proj, media, o = {}) {
   todo.sort((a, b) => (proxyOf(a, cache) ? 0 : 1) - (proxyOf(b, cache) ? 0 : 1) || (a.duration || 0) - (b.duration || 0));
   const total = todo.length;
   const errors = {};
-  for (let k = 0; k < todo.length; k++) {
-    if ((o.skips?.() || 0) > 0) break;
-    const m = todo[k], px = proxyOf(m, cache), step = stepOf(m, o.step || 1);
+  let done = 0, part = 0; // (part: how far the clip the worker here is on has got, 0..1)
+  const tell = (id) => prog((100 * Math.min(total, done + part)) / total, `Looking at the pictures… ${Math.min(total, done + 1)}/${total}`, { done, total, id });
+  const plan = (m) => {
+    const px = proxyOf(m, cache), step = stepOf(m, o.step || 1);
     // no proxy and a 4K camera original or a very long film: only its keyframes are decoded (1080p H.264 decodes at
     // ~50x real time, so the rest are read whole - every sample a real frame)
     const keyOnly = !px && m.kind === 'video' && ((+m.duration || 0) > 600 || (m.width || 0) * (m.height || 0) > 1920 * 1088);
-    const req = { cmd: 'analyze', id: m.id, path: m.path, proxy: px, orig: m.path, dur: +m.duration || 0, step, image: m.kind === 'image', keyOnly,
-      out: path.join(dir, `${m.id}.json`), npy: path.join(dir, `${m.id}.npy`), embRel: `cache/vision2/${m.id}.npy`, debug: !!o.debug };
-    prog((100 * k) / total, `Looking at the pictures… ${k + 1}/${total}`, { done: k, total, id: m.id });
+    return { px, step, keyOnly, out: path.join(dir, `${m.id}.json`), npy: path.join(dir, `${m.id}.npy`) };
+  };
+  const here = async (m) => {
+    const p = plan(m);
+    const req = { cmd: 'analyze', id: m.id, path: m.path, proxy: p.px, orig: m.path, dur: +m.duration || 0, step: p.step, image: m.kind === 'image',
+      keyOnly: p.keyOnly, out: p.out, npy: p.npy, embRel: `cache/vision2/${m.id}.npy`, debug: !!o.debug };
     try {
-      out[m.id] = await start().send(req, (p) => prog((100 * (k + p / 100)) / total, `Looking at the pictures… ${k + 1}/${total}`, { done: k, total, id: m.id }));
+      out[m.id] = await start().send(req, (pct) => { part = pct / 100; tell(m.id); });
     } catch (e) {
       errors[m.id] = e.message; // one unreadable clip must not stop the rest (the planner falls back for it)
-      if (/stopped/.test(e.message)) worker = null;
     }
+    part = 0;
+  };
+  // 🖥 on a helper PC (o.remote = server.mjs runMedia for tool 'py' on a helper, or null when none took it): the same
+  // vision2.py, one clip per run (--one); the two files it writes come back into this cache. Not done there -> here.
+  const there = async (m) => {
+    const p = plan(m), file = p.px || m.path;
+    const args = ['vision2.py', '--one', file, p.out, p.npy, ...(p.px ? ['--proxy', p.px] : []), '--dur', String(+m.duration || 0),
+      '--step', String(p.step), ...(p.keyOnly ? ['--key-only'] : []), `--name=${m.path}`, '--id', m.id];
+    let r = null;
+    try { r = await o.remote(args, { inputs: [file], outs: [p.out, p.npy] }); } catch { r = null; }
+    if (r?.code === 0) {
+      const j = readJSON(p.out, null);
+      if (j?.v === V && fs.existsSync(p.npy)) {
+        j.emb = `cache/vision2/${m.id}.npy`;
+        fs.writeFileSync(`${p.out}.tmp`, JSON.stringify(j)); fs.renameSync(`${p.out}.tmp`, p.out);
+        out[m.id] = j;
+        return true;
+      }
+    }
+    return r ? 'failed' : false;
+  };
+  const stopped = () => (o.skips?.() || 0) > 0;
+  const finish = (m) => { done++; tell(m.id); };
+  tell(todo[0]?.id);
+  // the worker here takes clips from the front (proxies, short ones); up to remoteConcurrency helper runs take them from
+  // the back (the long camera originals: a helper reads them off the NAS itself). Photos are always looked at here.
+  const lanes = [(async () => {
+    for (let m; !stopped() && (m = todo.shift());) { await here(m); finish(m); }
+  })()];
+  if (o.remote) {
+    const back = () => { for (let i = todo.length - 1; i >= 0; i--) if (todo[i].kind === 'video') return todo.splice(i, 1)[0]; return null; };
+    for (let n = 0; n < Math.max(1, +o.remoteConcurrency || 4); n++) lanes.push((async () => {
+      for (let m; !stopped() && (m = back());) {
+        const ok = await there(m);
+        if (ok === true) { finish(m); continue; }
+        await here(m); finish(m); // (no helper took it, or it failed there: done here, and this lane stops asking)
+        if (!ok) break;
+      }
+    })());
   }
+  await Promise.all(lanes);
   if (total) prog(100, 'Pictures looked at', { done: total, total });
   const pdata = loadPeople(cache);
   for (const [id, j] of Object.entries(out)) addPeople(j, id, pdata);

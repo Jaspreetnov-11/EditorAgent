@@ -7,7 +7,7 @@ model loads once per agent run. Progress goes to stderr as "PROGRESS <pct> <msg>
   { "cmd": "analyze", "id", "path", "proxy"?, "dur", "step", "image"?, "keyOnly"?, "out": "<cache>/<id>.json",
     "npy": "<cache>/<id>.npy", "embRel"?, "orig"?: "<the camera file>", "debug"? }
       -> the clip's JSON (also written to `out`; the embeddings go to `npy`, float16, one row per sample):
-         { v, model, step, dur, src, rotation, samples: [ { t, size, beauty, sharp, faces, faceArea, text, lab } ], reject,
+         { v, model, step, dur, src, rotation, samples: [ { t, size, beauty, sharp, faces, faceArea, text, card, lab } ], reject,
            colour, emb }   (keyOnly: keyframes only, a keyframe standing for several samples is one sample)
   { "cmd": "text", "lines": ["छत्तीसगढ़ के व्यंजन", "a temple at dawn"], "ids": [...], "dir": "<cache>" }
       -> { "scores": { lineIndex: { id: [ { t, sim } ] } } }   sim = SigLIP similarity z-scored per line over every sample
@@ -40,10 +40,10 @@ os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 if os.path.isdir(os.path.join(os.environ["HF_HOME"], "hub", "models--" + MODEL_ID.replace("/", "--"), "snapshots")):
     os.environ["HF_HUB_OFFLINE"] = "1"  # (set before transformers is imported - it reads this once)
 MODEL_TAG = "siglip-multilingual"
-V = 1
+V = 2           # 2: contrast-free sharpness (LOG / rain footage read as blurry), title / end cards
 LONG = 640       # px of the long side the frames are read at
 BATCH = 32
-DET_MAX = 24     # frames per clip the text detector looks at (the rest take the nearest one's answer)
+DET_MAX = 24     # frames per clip the text detector looks at, at least (a quarter of the samples, up to 80)
 OCR_N = 3        # frames per clip the text reader reads (GPS stamps, screen words)
 
 # zero-shot answers that compete on each frame (worded for SigLIP: short "a photo of" style captions)
@@ -59,6 +59,11 @@ BAD = ["an amateur badly framed photo", "an ugly boring photo", "a blurry out of
        "a shaky low quality video frame", "a photo of the floor or a blank wall"]
 SCREEN = ["a screenshot of a phone screen", "a screen recording of an app", "a screenshot of a website", "a computer screen full of text"]
 REAL = ["a photo of a real place", "a video frame of the real world", "a photo of people and things"]
+# title cards, end slates, credits, app / channel promos (vs real pictures - the food and nature ones keep thalis and
+# leaves from looking like a "graphic")
+CARD = ["a title card with large text", "a text graphic on a plain background", "a logo on a black screen", "the end credits of a film",
+        "an advertisement with text and a logo", "an app promotion banner"]
+REAL2 = ["a photo of a real place", "a photo of people", "a photo of food", "a photo of nature", "a video frame of the real world"]
 # beauty = sigmoid((good - bad - B0) / BS): fixed (not per clip), so a dull clip stays dull next to a beautiful one
 # (fitted on the test projects: good - bad ran -0.014..0.026 over drone footage, YouTube food films and edits)
 B0, BS = 0.004, 0.006
@@ -75,8 +80,11 @@ def progress(p, msg=""):
 
 
 def tool(name):
-    """FFmpeg / FFprobe on the PATH (as the rest of the engine runs it), else the copy in tools/"""
+    """FFmpeg / FFprobe: VEDIT_FFMPEG / VEDIT_FFPROBE when set (a helper started with --ffmpeg), else on the PATH (as the
+    rest of the engine runs it), else the copy in tools/"""
     import shutil
+    if os.environ.get("VEDIT_" + name.upper()):
+        return os.environ["VEDIT_" + name.upper()]
     if shutil.which(name):
         return name
     exe = os.path.join(ROOT, "tools", "ffmpeg-7.1.1-essentials_build", "bin", name + (".exe" if os.name == "nt" else ""))
@@ -176,7 +184,7 @@ class Eyes:
         self.cache = {}  # id -> (times, unit embeddings) for "text"
         # every prompt embedded once
         self.P = {}
-        for k, v in list(SIZES.items()) + [("good", GOOD), ("bad", BAD), ("screen", SCREEN), ("real", REAL)]:
+        for k, v in list(SIZES.items()) + [("good", GOOD), ("bad", BAD), ("screen", SCREEN), ("real", REAL), ("card", CARD), ("real2", REAL2)]:
             self.P[k] = self.embed_text(v)
         self.size_names = list(SIZES)
         self.size_mat = np.stack([self.P[k].mean(0) / np.linalg.norm(self.P[k].mean(0)) for k in self.size_names])
@@ -220,13 +228,25 @@ class Eyes:
         return [] if d is None else [x for x in d if x[14] >= 0.8 and min(x[2], x[3]) >= 10]
 
     def sharp(self, g):
-        """Laplacian variance of the sharpest tiles (a shallow-focus close-up is sharp where it matters), 0..1 on a log scale"""
+        """is anything in the frame sharp? 0..1, the better of two looks at the sharpest of 6x6 tiles (a shallow-focus
+        close-up is sharp where it matters):
+          - Laplacian variance (log scale: var 20 -> 0, 100 -> 0.37, 300 -> 0.7, 630 -> 0.9)
+          - the same edges against the tile's own contrast, so flat LOG / rain / fog footage is not called soft
+            (measured: gblur sigma 4+ stays under 0.28, real footage's sharpest tile 0.3-1.6)"""
         cv2, np = self.cv2, self.np
         L = cv2.Laplacian(g, cv2.CV_32F)
         h, w = g.shape
-        v = [float(L[y * h // 4:(y + 1) * h // 4, x * w // 4:(x + 1) * w // 4].var()) for y in range(4) for x in range(4)]
-        var = float(np.percentile(v, 85))
-        return float(np.clip((np.log10(var + 1) - 1.3) / 1.5, 0, 1)), var  # var 20 -> 0, 100 -> 0.37, 300 -> 0.7, 630 -> 0.9 (proxies read softer)
+        var, rel = [], 0.0
+        for y in range(6):
+            for x in range(6):
+                l = L[y * h // 6:(y + 1) * h // 6, x * w // 6:(x + 1) * w // 6]
+                sd = float(g[y * h // 6:(y + 1) * h // 6, x * w // 6:(x + 1) * w // 6].std())
+                var.append(float(l.var()))
+                if sd >= 3:  # (an empty sky / wall tile says nothing either way)
+                    rel = max(rel, float(l.std()) / (sd + 2))
+        v = float(np.percentile(var, 90))
+        a = float(np.clip((np.log10(v + 1) - 1.3) / 1.5, 0, 1))
+        return max(a, float(np.clip((rel - 0.25) / 0.6, 0, 1))), v
 
     def flat(self, g):
         """share of the frame with no texture at all (screens, UI, end cards are flat; real pictures almost never are)"""
@@ -292,7 +312,7 @@ class Eyes:
         n = len(times)
         tag = req.get("id", "")
         # frames kept for the text detector / the sideways test (keeping all of a long clip's would take GBs)
-        det_at = sorted(set(np.linspace(0, n - 1, min(n, DET_MAX)).round().astype(int).tolist()))
+        det_at = sorted(set(np.linspace(0, n - 1, min(n, max(DET_MAX, min(80, n // 4)))).round().astype(int).tolist()))
         side_at = sorted(set(np.linspace(0, n - 1, min(n, 12)).round().astype(int).tolist()))
         keep, imgs = set(det_at) | set(side_at), {}
 
@@ -310,8 +330,9 @@ class Eyes:
                 S.append({"t": t, "faces": len(fs), "faceArea": round(float(big[2] * big[3] / (w * h)), 4) if big is not None else 0.0,
                           "faceH": float(big[3] / h) if big is not None else 0.0, "sharp": round(sh, 3),
                           "lab": [round(float(lab[0]), 1), round(float(lab[1]), 1), round(float(lab[2]), 1)],
-                          "std": float(g.std()), "_var": var})
+                          "std": float(g.std()), "_var": var, "_dark": float((g < 30).mean())})
                 flats.append(self.flat(g))
+                S[-1]["_flatv"] = flats[-1]
                 if len(S) - 1 in keep:
                     imgs[len(S) - 1] = img
             batch.clear()
@@ -336,16 +357,31 @@ class Eyes:
         good = (Em @ self.P["good"].T).mean(1) - (Em @ self.P["bad"].T).mean(1)
         beauty = 1 / (1 + np.exp(-(good - B0) / BS))
         screen = (Em @ self.P["screen"].T).max(1) - (Em @ self.P["real"].T).max(1)
+        cardsig = (Em @ self.P["card"].T).max(1) - (Em @ self.P["real2"].T).max(1)
         # text detector on up to DET_MAX frames spread over the clip; the others take the nearest one's answer
         k = len(S)
         det_at = [i for i in det_at if i in imgs] or [0]
         imgs.setdefault(0, None)
         boxes = {i: self.text_boxes(imgs[i]) if imgs[i] is not None else [] for i in det_at}
         tfrac = {i: min(1.0, sum((b[2] - b[0]) * (b[3] - b[1]) for b in bx)) for i, bx in boxes.items()}
+        tbig = {i: max([b[3] - b[1] for b in bx] or [0.0]) for i, bx in boxes.items()}  # the tallest line of text
         det_arr = np.array(det_at)
         for i, s in enumerate(S):
             j = int(det_arr[np.abs(det_arr - i).argmin()])
-            s["text"] = round(float(tfrac[j]), 3)
+            # (the nearest looked-at frame speaks for this one only when it is the same shot - in a long film it can be
+            # seconds away, and its title must not make the next shot a "card")
+            same = j == i or float(Em[i] @ Em[j]) > 0.85
+            s["text"] = round(float(tfrac[j]), 3) if same else 0.0
+            # card: a title / end slate / credits / promo rather than a picture - SigLIP says graphic, the text is big
+            # (subtitles are ~0.07 of the height, titles 0.12+), the background is plain or black (only with text on it)
+            sig = float(np.clip((cardsig[i] + 0.03) / 0.08, 0, 1))
+            big = float(np.clip((tbig[j] - 0.09) / 0.08, 0, 1)) if same and tfrac[j] > 0.03 else 0.0
+            plain = max(s["_flatv"], s["_dark"]) if same and tfrac[j] > 0.01 else 0.0
+            # a plain / black background or SigLIP sure it is a graphic makes it a card; a sign or a banner in a real
+            # street (busy background, SigLIP unsure) stays lower
+            g = float(np.clip(max(plain / 0.45, (cardsig[i] - 0.03) / 0.04), 0, 1))
+            s["card"] = round(float(np.clip((0.45 * sig + 0.35 * big + 0.3 * plain) * (0.4 + 0.6 * g), 0, 1)), 3)
+            s["_big"] = big
             p = sz[i].copy()
             # the biggest face says the size best when there is one: face height / frame height
             if s["faces"]:
@@ -359,22 +395,23 @@ class Eyes:
             s["_good"] = float(good[i])
             s["_flat"] = flats[i]
 
-        reject = self.reject(req, file, image, S, boxes, det_at, side_at, imgs)
+        reject = self.reject(req, file, image, S, boxes, det_at, side_at, imgs, Em)
         lab = np.array([s["lab"] for s in S]).mean(0)
         samples = [{"t": s["t"], "size": s["size"], "beauty": s["beauty"], "sharp": s["sharp"], "faces": s["faces"], "faceArea": s["faceArea"],
-                    "text": s["text"], "lab": s["lab"],
+                    "text": s["text"], "card": s["card"], "lab": s["lab"],
                     **({"dbg": [round(s["_good"], 4), round(s["_var"], 1), round(s["_screen"], 4), round(s["_flat"], 3), round(s["faceH"], 3)]} if req.get("debug") else {})} for s in S]
         npy = req.get("npy")
         if npy:
-            os.makedirs(os.path.dirname(npy), exist_ok=True)
-            np.save(npy, Em.astype(np.float16))
+            os.makedirs(os.path.dirname(npy) or ".", exist_ok=True)
+            with open(npy, "wb") as f:  # (a file handle: np.save would add ".npy" to a helper's temporary out name)
+                np.save(f, Em.astype(np.float16))
             self.cache[tag] = (np.array([s["t"] for s in S]), Em.astype(np.float32))
         res = {"v": V, "model": MODEL_TAG, "step": step, "dur": dur, "src": "proxy" if file != req["path"] else "original", "rotation": rot,
                "samples": samples, "reject": reject, "colour": {"l": round(float(lab[0]), 1), "a": round(float(lab[1]), 1), "b": round(float(lab[2]), 1)},
                "emb": req.get("embRel")}
         out = req.get("out")
         if out:
-            os.makedirs(os.path.dirname(out), exist_ok=True)
+            os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
             with open(out + ".tmp", "w", encoding="utf-8") as f:
                 json.dump(res, f, ensure_ascii=False)
             os.replace(out + ".tmp", out)
@@ -383,7 +420,7 @@ class Eyes:
         progress(100, tag)
         return res
 
-    def reject(self, req, file, image, S, boxes, det_at, side_at, imgs):
+    def reject(self, req, file, image, S, boxes, det_at, side_at, imgs, Em):
         """clips not to cut into an edit: a screen / screenshot, a GPS-camera stamp, a sideways picture, an earlier
         render (our own captions / end card, or the file is in a renders / output folder), or blurry all through"""
         np = self.np
@@ -428,10 +465,22 @@ class Eyes:
         render = folder or (caps and endcard)
         if render:
             why.append("is an earlier render (in a renders / output folder)" if folder else "is an earlier render (captions and an end card burned in)")
-        blurry = sum(1 for s in S if s["sharp"] < 0.2) >= 0.7 * k
+        # card: graphics through most of the clip (an end slate, an app promo, a title), or a short edited piece (cuts
+        # every few seconds) that opens or closes on a title / credits - an Instagram edit, "A video by ...".
+        # (a sign, a banner or subtitles in real footage stay: they are small text or SigLIP calls them a picture)
+        cards = [s["card"] >= 0.5 for s in S]
+        cuts = int((np.sum(Em[1:] * Em[:-1], axis=1) < 0.7).sum()) if k > 1 else 0
+        dur = float(req.get("dur") or 0)
+        ends = [i for i in range(k) if i < max(2, 0.3 * k) or i >= k - max(2, 0.3 * k)]
+        titled = sum(1 for i in ends if S[i]["card"] >= 0.45 or S[i]["_big"] >= 0.4)
+        card = sum(cards) >= max(1, 0.6 * k) or (0 < dur <= 60 and k >= 4 and titled >= 2 and cuts >= max(2, dur / 6))
+        if card:
+            why.append("is a title / end card or a short edit with titles, not footage")
+        # blurry: nothing in the frame is sharp through (nearly) all the clip - a focus pull or one sharp moment keeps it
+        blurry = k >= 1 and float(np.percentile([s["sharp"] for s in S], 90)) < 0.2
         if blurry:
             why.append("is out of focus or blurred almost all through")
-        r = {"screen": screen, "gps": gps, "sideways": sideways, "render": render, "blurry": blurry, "why": "; ".join(why),
+        r = {"screen": screen, "gps": gps, "sideways": sideways, "render": render, "blurry": blurry, "card": card, "why": "; ".join(why),
              "words": words[:300]}
         return r if why else None
 
@@ -472,7 +521,40 @@ class Eyes:
         return {"scores": out}
 
 
+def one(argv):
+    """a helper PC's run (engine/worker.mjs, tool 'py'): one clip, the same JSON as "analyze" (emb: null - the editor
+    fills it in) and the .npy; exit 0 only when both are written.
+      python vision2.py --one <media> <out.json> <out.npy> [--proxy <file>] [--dur <s>] [--step <s>] [--key-only]
+                        [--name=<original path>]
+    (--name is given as one "--name=..." word, so the editor's {{INn}} swap never turns it into the helper's local copy:
+    it is only looked at for the renders / output folder test)"""
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--one", nargs=3, metavar=("MEDIA", "OUT_JSON", "OUT_NPY"), required=True)
+    ap.add_argument("--proxy")
+    ap.add_argument("--dur", type=float, default=0)
+    ap.add_argument("--step", type=float, default=1.0)
+    ap.add_argument("--key-only", action="store_true")
+    ap.add_argument("--name")
+    ap.add_argument("--id", default="")
+    a = ap.parse_args(argv)
+    media, out, npy = a.one
+    for f in (out, npy):
+        if os.path.exists(f):
+            os.remove(f)
+    try:
+        # (with a proxy, "path" is the camera file's name only - "src" says which was read; without one, the file given)
+        Eyes().analyze({"id": a.id, "path": (a.name or media) if a.proxy else media, "proxy": a.proxy, "orig": a.name or media, "dur": a.dur, "step": a.step,
+                        "keyOnly": a.key_only, "out": out, "npy": npy, "embRel": None})
+    except Exception as e:
+        print(f"vision2: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        return 1
+    return 0 if os.path.exists(out) and os.path.exists(npy) else 1
+
+
 def main():
+    if "--one" in sys.argv:
+        sys.exit(one(sys.argv[1:]))
     # Hindi file names and text: a Windows code page would turn them into "?" (file not found) or stop the worker
     sys.stdin.reconfigure(encoding="utf-8-sig")
     sys.stdout.reconfigure(encoding="utf-8")
