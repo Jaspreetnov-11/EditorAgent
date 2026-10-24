@@ -29,6 +29,8 @@ test('packs: a test editor starts and the old brand kit is the first pack', asyn
   logo = path.join(tmp, 'logo.png'); intro = path.join(tmp, 'intro.mp4');
   ff(['-f', 'lavfi', '-i', 'color=c=orange:s=200x100', '-frames:v', '1', logo]);
   ff(['-f', 'lavfi', '-i', 'testsrc2=s=320x180:r=25:d=2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', intro]);
+  fs.mkdirSync(path.join(tmp, 'Library', 'music'));
+  ff(['-f', 'lavfi', '-i', 'sine=f=440:d=3', path.join(tmp, 'Library', 'music', '01_Desh_Bhakti.mp3')]);
   fs.writeFileSync(path.join(tmp, 'Library', 'brand.json'), JSON.stringify({ primary: '#123456', accent: '#ff9933', text: '#ffffff', logo, endText: 'mybharat.gov.in', capPreset: 'box' }));
   srv = spawn(process.execPath, [path.join(ROOT, 'server.mjs')], { cwd: ROOT, env: { ...process.env, PORT: String(PORT), VEDIT_DATA: tmp, VEDIT_NO_RESUME: '1' }, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
   let log = ''; srv.stdout.on('data', (d) => { log += d; }); srv.stderr.on('data', (d) => { log += d; });
@@ -61,6 +63,16 @@ test('packs: a new project starts from a pack (logo, intro, styles), the other p
   const u = await api('POST', '/api/library/brandpacks/use?p=Pack%20Test', { id: packB.id });
   same([u.pack.name, Object.keys(u.files)], ['Brand kit', ['logo']]);
   same(u.files.logo.status, 'ready');
+});
+
+test('ready-made music (Library/music): listed, and a track goes into a project once', async () => {
+  if (!ON) return 'skip';
+  same(await api('GET', '/api/library/music'), [{ name: '01_Desh_Bhakti.mp3', title: '01 Desh Bhakti', size: fs.statSync(path.join(tmp, 'Library', 'music', '01_Desh_Bhakti.mp3')).size }]);
+  const m = await api('POST', '/api/library/music/use?p=Pack%20Test', { name: '01_Desh_Bhakti.mp3' });
+  same([m.kind, m.status, m.bin], ['audio', 'ready', 'Music']);
+  same((await api('POST', '/api/library/music/use?p=Pack%20Test', { name: '01_Desh_Bhakti.mp3' })).id, m.id, 'the same track again is the same media');
+  same((await api('POST', '/api/library/music/use?p=Pack%20Test', { name: '../brand.json' }).catch((x) => x)).status, 404, 'no paths');
+  same((await fetch(`${B}/api/library/music/file?name=01_Desh_Bhakti.mp3`)).status, 200);
 });
 
 test('packs: duplicate keeps the files, delete takes it away', async () => {

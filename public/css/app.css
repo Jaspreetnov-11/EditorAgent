@@ -1666,7 +1666,7 @@ html.ui2 .viewer .vw-row { display: none; }
 .sh-head h2 { margin: 0; font-size: 18px; font-weight: 600; color: var(--text); text-transform: none; letter-spacing: 0; }
 .sh-kicker { display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); margin-bottom: 4px; }
 .sh-kicker .ico { width: 13px; height: 13px; }
-.sh-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.7fr) minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.sh-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.6fr) minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
 .sh-step { display: flex; gap: 10px; padding: 12px; border: 1px solid var(--line-2); border-radius: 10px; background: var(--panel); min-width: 0; }
 .sh-step > i { flex: none; display: grid; place-items: center; width: var(--sh-n); height: var(--sh-n); border-radius: 50%; font-style: normal; font-weight: 700; font-size: 13px; background: var(--accent); color: var(--accent-ink, #111); }
 .sh-step.done > i { background: transparent; color: var(--accent); box-shadow: 0 0 0 1.5px var(--accent) inset; }
@@ -1674,15 +1674,22 @@ html.ui2 .viewer .vw-row { display: none; }
 .sh-step b { font-size: 14px; } .sh-step small { color: var(--muted); font-size: 12px; line-height: 1.4; }
 .sh-step.done b { color: var(--muted); }
 .sh-kinds { display: flex; flex-wrap: wrap; gap: 5px; }
+.sh-script { align-self: stretch; width: 100%; height: 30px; font-size: 12.5px; text-overflow: ellipsis; }
+.sh-row { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; align-self: stretch; min-width: 0; } .sh-row:empty { display: none; }
+.sh-row select { flex: 1 1 120px; min-width: 0; max-width: 100%; font-size: 12px; }
+.sh-lbl { font-size: 11px; color: var(--muted); width: 38px; flex: none; }
+.sh-pick { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--text); }
+.sh-step .btn.small { padding: 3px 10px; font-size: 12px; }
+.sh-gen .vo-pick { padding-bottom: 6px; }
 .sh-kinds .chip, .pg-chip { width: auto; padding: 3px 10px; font-size: 12px; }
 .sh-home { margin: -8px 0 22px; padding: 16px; border: 1px solid var(--line-2); border-radius: 14px; background: var(--bg-2, #0a0a0b); }
 .sh-media { margin: 12px 0 18px; } .sh-media .sh-steps, .sh-dlg .sh-steps { grid-template-columns: 1fr; gap: 8px; }
 .media-page .media-help.sh-keep { display: block; }
 .panel.timeline.sh-has { position: relative; }
-.sh-over { position: absolute; z-index: 6; left: 50%; bottom: 14px; transform: translateX(-50%); width: min(900px, calc(100% - 24px)); max-height: calc(100% - 28px); overflow: auto; padding: 14px; border: 1px solid var(--line-2); border-radius: 12px; background: color-mix(in srgb, var(--panel) 94%, transparent); box-shadow: 0 14px 40px -12px #000; }
+.sh-over { position: absolute; z-index: 6; left: 50%; bottom: 14px; transform: translateX(-50%); width: min(1240px, calc(100% - 24px)); max-height: calc(100% - 28px); overflow: auto; padding: 14px; border: 1px solid var(--line-2); border-radius: 12px; background: color-mix(in srgb, var(--panel) 94%, transparent); box-shadow: 0 14px 40px -12px #000; }
 .sh-over .sh-head h2 { font-size: 15px; } .sh-over .sh-step { padding: 10px; background: var(--panel-2); }
 @media (max-width: 1200px) { .sh-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 1200px) { .sh-over .sh-steps { grid-template-columns: minmax(0, 1fr) minmax(0, 1.7fr) minmax(0, 1fr) minmax(0, 1fr); } .sh-over .sh-step small { display: none; } }
+@media (max-width: 1200px) { .sh-over .sh-steps { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.6fr) minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr); } .sh-over .sh-step small { display: none; } }
 @media (max-width: 640px) { .sh-steps, .sh-over .sh-steps { grid-template-columns: 1fr; } }
 
 /* 💡 Prompt guide: example prompts that fill the box, tips, what each option does */
