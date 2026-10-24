@@ -52,6 +52,8 @@ export async function renderHome(el, openProject) {
     if (ht) { homeTag = homeTag === ht.dataset.htag ? '' : ht.dataset.htag; return filterCards(el); }
     const pt = e.target.closest('[data-ptag]');
     if (pt) { e.stopPropagation(); return tagProject(pt.dataset.ptag, () => renderHome(el, openProject)); }
+    const sh = e.target.closest('[data-share]');
+    if (sh) { e.stopPropagation(); return shareProject(sh.dataset.share, () => renderHome(el, openProject)); }
     const ren = e.target.closest('[data-ren]');
     if (ren) { e.stopPropagation(); return renameProject(ren.dataset.ren, () => renderHome(el, openProject)); }
     const del = e.target.closest('[data-del]');
@@ -72,6 +74,8 @@ export async function renderHome(el, openProject) {
     renderBar(el, list0, cur, () => renderHome(el, openProject));
     // deleting / bringing back projects: the owner, on this computer
     const owner = me.role === 'owner';
+    // 🔐 whose a project is: the owner may share any, a team member the ones they made
+    const meName = String(me.local ? '' : me.name || '').toLowerCase(), mine = (p) => owner || me.local || String(p.by || '').toLowerCase() === meName;
     for (const a of ['team', 'sessions']) { const tb = $(`[data-a="${a}"]`, el); if (tb) tb.hidden = !owner; } // (the team's admin: owners only)
     S.health = health;
     $('#projRoot', el).textContent = health.projectsFolder;
@@ -80,8 +84,8 @@ export async function renderHome(el, openProject) {
       list.map((p) => `<div class="proj" data-open="${esc(p.name)}" data-tags="${esc(JSON.stringify(tagsOf(p)))}" draggable="true" tabindex="0" role="button" aria-label="Open ${esc(p.name)}">
         <div class="proj-th" style="${p.thumb ? `background-image:url('${p.thumb}')` : ''}"><span class="badge">${esc(p.aspect || '')}</span></div>
         <div class="proj-info"><b>${esc(p.name)}</b>${tagsOf(p).length ? `<span class="proj-tags">${tagChips(tagsOf(p))}</span>` : ''}${inF(p) && cur === 'all' ? `<small class="pf-tag">${esc(pf.folders.find((f) => f.id === inF(p))?.name || '')}</small>` : ''}<small>${p.duration ? `${fmt(p.duration)} · ` : ''}${p.clips} clips · ${p.media} media</small>${p.place ? `<small class="mono" title="Saved in ${esc(p.place)}">${esc(p.place)}</small>` : ''}
-        <small>${new Date(p.modified).toLocaleString()}</small></div>
-        <div class="proj-btns"><button class="icon-btn" data-ptag="${esc(p.name)}" title="Tags (labels to find it by - client, kind of work, status…)" aria-label="Tags of ${esc(p.name)}">${ic('tag')}</button>${me.role !== 'viewer' ? `<button class="icon-btn" data-ren="${esc(p.name)}" title="Rename project" aria-label="Rename ${esc(p.name)}">${ic('edit')}</button>` : ''}<button class="icon-btn" data-move="${esc(p.name)}" title="Move to a folder (or drag the card onto a folder above)" aria-label="Move ${esc(p.name)} to a folder">${icon('folderMove')}</button><button class="icon-btn" data-folder="${esc(p.name)}" title="Open project folder" aria-label="Open folder of ${esc(p.name)}">${icon('folder')}</button>${owner ? `<button class="icon-btn proj-del" data-del="${esc(p.name)}" title="Delete project (to the Recycle Bin, or for good)" aria-label="Delete ${esc(p.name)}">${icon('trash')}</button>` : ''}</div></div>`).join('');
+        <small>${new Date(p.modified).toLocaleString()}</small>${p.by && !mine(p) ? `<small class="proj-by">${ic('team')} shared by ${esc(p.by)}</small>` : (owner || me.local) && p.by ? `<small class="proj-by">${ic('team')} ${esc(p.by)}${p.shared?.length ? ` · shared with ${esc(p.shared.join(', '))}` : ''}</small>` : p.shared?.length ? `<small class="proj-by">${ic('team')} shared with ${esc(p.shared.join(', '))}</small>` : ''}</div>
+        <div class="proj-btns">${mine(p) ? `<button class="icon-btn" data-share="${esc(p.name)}" title="Share with team members (they see it and can edit it with you)" aria-label="Share ${esc(p.name)}">${ic('team')}</button>` : ''}<button class="icon-btn" data-ptag="${esc(p.name)}" title="Tags (labels to find it by - client, kind of work, status…)" aria-label="Tags of ${esc(p.name)}">${ic('tag')}</button>${me.role !== 'viewer' ? `<button class="icon-btn" data-ren="${esc(p.name)}" title="Rename project" aria-label="Rename ${esc(p.name)}">${ic('edit')}</button>` : ''}<button class="icon-btn" data-move="${esc(p.name)}" title="Move to a folder (or drag the card onto a folder above)" aria-label="Move ${esc(p.name)} to a folder">${icon('folderMove')}</button><button class="icon-btn" data-folder="${esc(p.name)}" title="Open project folder" aria-label="Open folder of ${esc(p.name)}">${icon('folder')}</button>${owner ? `<button class="icon-btn proj-del" data-del="${esc(p.name)}" title="Delete project (to the Recycle Bin, or for good)" aria-label="Delete ${esc(p.name)}">${icon('trash')}</button>` : ''}</div></div>`).join('');
     if (owner) api('GET', '/api/projects/deleted').then((d) => { const b = $('[data-a="deleted"]', el); if (b) { b.hidden = false; b.textContent = `Recycle Bin${d.length ? ` (${d.length})` : ''}`; } }).catch(() => {});
     $$('.proj[data-open]', grid).forEach((c) => {
       c.addEventListener('keydown', (e) => { if (e.key === 'Enter') openProject(c.dataset.open); });
@@ -257,6 +261,21 @@ const size = (n) => (n >= 1073741824 ? `${(n / 1073741824).toFixed(1)} GB` : `${
 
 // 🗑 delete: the folder moves to the Recycle Bin (restorable), or - ticked - is deleted for good. The footage is never touched.
 // ✏ a new name for a project (POST /api/projects/rename): its folder is renamed where it is; refused while it is open
+// 🔐 share a project: tick the team members who should see it too (they open and edit it with you, live)
+async function shareProject(name, refresh) {
+  let a;
+  try { a = await api('GET', `/api/projects/share?p=${enc(name)}`); } catch (e) { return toast(e.message, 'err'); }
+  const on = new Set(a.shared);
+  const dlg = modal('Share project', `<p class="muted small"><b>${esc(name)}</b> is ${esc(a.owner)}'s. Only they, the owner and the people ticked here see it in their projects.</p>
+    <div class="share-list">${a.people.map((n) => `<label class="chk"><input type="checkbox" value="${esc(n)}" ${on.has(n) ? 'checked' : ''}> ${esc(n)}</label>`).join('') || '<p class="muted">No one else in the team yet.</p>'}</div>
+    <div class="dv-actions"><button class="primary" data-action="go">Save</button><button data-close>Cancel</button></div>`, { width: 420, onAction: async (k) => {
+    if (k !== 'go') return;
+    const shared = $$('.share-list input:checked', dlg.el).map((x) => x.value);
+    try { await api('POST', `/api/projects/share?p=${enc(name)}`, { shared }); dlg.close(); toast(shared.length ? `Shared with ${shared.join(', ')}` : 'Not shared - only its maker and the owner see it'); refresh(); }
+    catch (e) { toast(e.message, 'err'); }
+  } });
+}
+
 async function renameProject(name, refresh) {
   const dlg = modal('Rename project', `<label class="fld"><span>New name</span><input data-name value="${esc(name)}" maxlength="120" style="width:100%"></label>
     <p class="muted small">The project's folder gets the new name too, where it is. Everyone has to close the project first.</p>

@@ -61,6 +61,9 @@ test('guard: relink only to a file of the clip\'s own kind; from another PC only
   same(toCfg.status, 400);
   same((await call(L, 'POST', `/api/media/relink/apply?p=${P}`, { pairs: [{ id: clip.id, to: path.join(tmp, 'notes.txt') }] })).status, 400);
   const ed = (await call(T, 'POST', '/team/login', { name: 'Ravi', password: 'ravi-pass-1' })).cookie;
+  // (🔐 the project is the owner's: another PC's editor does not even see it until it is shared with them)
+  same((await call(T, 'POST', `/api/media/relink/apply?p=${P}`, { pairs: [{ id: clip.id, to: path.join(tmp, 'B.mp4') }] }, { Cookie: ed })).status, 404);
+  same((await call(L, 'POST', `/api/projects/share?p=${P}`, { shared: ['Ravi'] })).status, 200);
   const remote = await call(T, 'POST', `/api/media/relink/apply?p=${P}`, { pairs: [{ id: clip.id, to: path.join(tmp, 'B.mp4') }] }, { Cookie: ed });
   same(remote.status, 403); // (the test files are not on the NAS drive)
   const ok = await call(L, 'POST', `/api/media/relink/apply?p=${P}`, { pairs: [{ id: clip.id, to: path.join(tmp, 'B.mp4') }] });

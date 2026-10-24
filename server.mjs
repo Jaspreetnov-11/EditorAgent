@@ -42,6 +42,7 @@ import { gyroflowExe, findLog, gyroSamples, stabilise, LOG_EXT as GF_LOG } from 
 import { runNightly, mirrorLive, restoreProject, nights as backupNights, standbyState, liveDir, dayOf, safeDir } from './engine/safety.mjs';
 import { pickHelper, toTaskArgs, gpuProxyArgs } from './engine/helpers.mjs';
 import { inNight, nightSource, recentProjects } from './engine/nightshift.mjs';
+import { projectOwner, canSee, requestProject } from './engine/access.mjs';
 import { byPriority, lineIndex } from './engine/priority.mjs';
 import * as QC from './engine/qc.mjs';
 import { archiveRoutes } from './engine/archive.mjs';
@@ -1521,6 +1522,24 @@ function userHome(who) {
   return path.join(base, hit || safeName(name[0].toUpperCase() + name.slice(1)));
 }
 const sharedDirs = () => (teamCfg().libraries || []).filter((d) => { try { return fs.statSync(d).isDirectory(); } catch { return false; } });
+// 🔐 whose project it is and who may see it (engine/access.mjs): the owner and the editing computer see every project,
+// a team member only theirs and the ones shared with them - in the list and in every request (a link to another's
+// project answers "not found"). project-access.json: { [project]: { by, shared: [names] } } - by is saved when a
+// project is made here; older projects are their editor's by the folder they are in (Z:\Editor Projects\<Name>).
+const ACCESS_FILE = path.join(DATA, 'project-access.json');
+const accessDb = () => readJSON(ACCESS_FILE, {});
+function setAccess(name, rec) { const a = accessDb(); if (rec === null) delete a[name]; else a[name] = { ...(a[name] || {}), ...rec }; writeJSON(ACCESS_FILE, a); }
+const teamNames = () => (teamCfg().users || []).map((u) => u.name);
+const ownerName = () => (teamCfg().users || []).find((u) => u.role === 'owner')?.name || 'Owner';
+const whoName = (who) => (!who || who.local ? ownerName() : who.name); // (the editing computer itself is the owner)
+function projectAccess(name) {
+  const rec = accessDb()[name] || {};
+  return { owner: projectOwner(rec, projectPlaces()[name], teamCfg().userProjects || 'Z:\\Editor Projects', teamNames()) || ownerName(), shared: rec.shared || [] };
+}
+const mayOpen = (who, name) => { const a = projectAccess(name); return canSee(who, a.owner, a.shared); };
+// a project in the Recycle Bin: its name (its record is kept under it), and whether this person may see / restore / purge it
+const binName = (folder) => readJSON(path.join(recycleBin(), folder, 'project.json'), {}).name || String(folder).replace(/ \(deleted .*$/, '');
+const binMay = (who, folder) => { const rec = accessDb()[binName(folder)] || {}; return canSee(who, rec.by || ownerName(), rec.shared || []); };
 const insideShared = (p) => sharedDirs().some((l) => { let r; try { r = fs.realpathSync(l); } catch { r = path.resolve(l); } const rel = path.relative(r, p); return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel)); });
 function saveToDir(who, d) {
   if (!d || !who || who.role === 'viewer' || !path.isAbsolute(String(d))) return null;
@@ -3356,8 +3375,19 @@ const routes = {
     send(res, 200, { ok: true }); console.log('A newer version of the editor is starting - closing this one.'); setTimeout(() => process.exit(0), 300); },
 
   // projects
-  'GET /api/projects': async () => { const pf = projectFolders(), pl = projectPlaces(); return (await allSummaries())
-    .map((p) => ({ ...p, group: pf.map[p.name] || null, place: pl[p.name] || null })).sort((a, b) => b.modified - a.modified); },
+  // (🔐 a team member gets only their projects and the ones shared with them; by / shared say whose and with whom)
+  'GET /api/projects': async (req) => { const pf = projectFolders(), pl = projectPlaces(); return (await allSummaries())
+    .map((p) => ({ ...p, group: pf.map[p.name] || null, place: pl[p.name] || null, ...(({ owner, shared }) => ({ by: owner, shared }))(projectAccess(p.name)) }))
+    .filter((p) => canSee(req.who, p.by, p.shared)).sort((a, b) => b.modified - a.modified); },
+  // 🔐 share a project with team members (by name): its maker or the owner. GET: whose it is, with whom, and who there is
+  'GET /api/projects/share': (req, res, u) => { const name = needProject(q(u, 'p')), a = projectAccess(name); return { ...a, people: teamNames().filter((n) => n !== a.owner) }; },
+  'POST /api/projects/share': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req), a = projectAccess(name);
+    if (!req.who?.local && req.who?.role !== 'owner' && String(req.who?.name).toLowerCase() !== String(a.owner).toLowerCase()) throw err(403, `Only ${a.owner} (whose project it is) or the owner can share it`);
+    const known = teamNames(), shared = [...new Set((Array.isArray(b.shared) ? b.shared : []).map(String))].filter((n) => known.includes(n) && n !== a.owner);
+    setAccess(name, { by: accessDb()[name]?.by || a.owner, shared });
+    return { ...projectAccess(name), people: known.filter((n) => n !== a.owner) };
+  },
   // 📂 a project folder saved anywhere (another drive, the NAS, a shared PC folder) taken into the list. Body { dir }
   'POST /api/projects/open-folder': async (req) => {
     const dir = path.resolve(String((await readJson(req)).dir || ''));
@@ -3368,6 +3398,7 @@ const routes = {
     if (fs.existsSync(P(name, 'project.json')) && path.resolve(projDir(name)).toLowerCase() !== dir.toLowerCase()) throw err(409, `A project called "${name}" is already in the list - rename one of the folders first`);
     setPlace(name, dir); mediaCache.delete(name);
     ensureProjectDirs(name);
+    if (!accessDb()[name] && !mayOpen(req.who, name)) setAccess(name, { by: whoName(req.who) }); // (🔐 a folder no one's: the one who took it in)
     return { name };
   },
   // 📁 folders on Home to sort projects into (only a grouping: the project folders on disk stay where they are)
@@ -3405,6 +3436,7 @@ const routes = {
     let name = base;
     for (let k = 2; fs.existsSync(P(name, 'project.json')) || fs.existsSync(path.join(PROJECTS, name, 'project.json')); k++) name = `${base} (${k})`;
     createProject({ name, aspect: aspectOf(x.width, x.height), fps: Math.round(x.fps), place: b.place || undefined });
+    setAccess(name, { by: whoName(req.who) });
     const missing = new Set(), byPath = new Map();
     const mediaFor = (p) => {
       if (!p) return null;
@@ -3506,6 +3538,7 @@ const routes = {
     }
     if (q2) saveQueue();
     if (reviews) { const ls = reviews.ofProject(name); for (const l of ls) l.project = to; if (ls.length) reviews.save(); }
+    { const acc = accessDb()[name]; if (acc) { setAccess(name, null); setAccess(to, acc); } } // (🔐 whose it is and with whom: under the new name)
     summaryCache.delete(name); keepSummaries(); placeSeen.delete(name); placeSeen.delete(to); helperOf.delete(name);
     await handOver(to); // (⚙ its new worker takes it - workers keep projects by name)
     return { name: to, folder: dest, renamed: true };
@@ -3556,6 +3589,8 @@ const routes = {
   // Refused while anyone has it open or a render / job of it is running or waiting.
   'POST /api/projects/delete': async (req, res, u) => {
     const name = needProject(q(u, 'p')), L = live.get(name);
+    // (🔐 whose it was is written down first: in the Recycle Bin its folder no longer tells)
+    if (!accessDb()[name]?.by) setAccess(name, { by: projectAccess(name).owner });
     await askOwner(name, 'release'); // (⚙ its worker saves and lets go of it - refused while someone has it open)
     const people = L ? [...new Set([...L.subs.values()].map((x) => x.who.name))] : [];
     if (people.length) throw err(409, `Open right now by ${people.join(', ')} - ask them to close it first`);
@@ -3589,28 +3624,34 @@ const routes = {
     return { ok: true, folder: to };
   },
   // the Recycle Bin: deleted projects, newest first, with their size
-  'GET /api/projects/deleted': async () => {
+  'GET /api/projects/deleted': async (req) => {
     const bin = recycleBin();
     if (!fs.existsSync(bin)) return [];
     const out = await Promise.all(fs.readdirSync(bin).filter((n) => fs.existsSync(path.join(bin, n, 'project.json'))).map(async (n) => {
       const pj = readJSON(path.join(bin, n, 'project.json'), {}), st = fs.statSync(path.join(bin, n));
       return { folder: n, name: pj.name || n.replace(/ \(deleted .*$/, ''), deleted: st.mtimeMs, bytes: (await dirSizeAsync(path.join(bin, n))).bytes };
     }));
-    return out.sort((a, b) => b.deleted - a.deleted);
+    return out.filter((x) => binMay(req.who, x.folder)).sort((a, b) => b.deleted - a.deleted); // (🔐 only theirs)
   },
   // bring a deleted project back under its own name (or "name (restored)" when that name is taken meanwhile)
   'POST /api/projects/restore': async (req, res, u) => {
     const f = binEntry(q(u, 'folder'));
+    if (!binMay(req.who, path.basename(f))) throw err(404, 'Not in the Recycle Bin');
+    const was = binName(path.basename(f)), acc = accessDb()[was] || { by: projectAccess(was).owner }; // (🔐 still theirs once back)
     const base = safeName(String(path.basename(f)).replace(/ \(deleted .*$/, ''));
     let name = base; for (let k = 2; fs.existsSync(path.join(PROJECTS, name)); k++) name = `${base} (restored${k > 2 ? ` ${k - 1}` : ''})`;
     fs.renameSync(f, path.join(PROJECTS, name));
+    if (name !== was) setAccess(was, null);
+    setAccess(name, acc);
     binLog(req, 'restored', name);
     await handOver(name);
     return { ok: true, name };
   },
   // delete one project in the Recycle Bin for good
   'POST /api/projects/purge': async (req, res, u) => {
-    const f = binEntry(q(u, 'folder')), bytes = (await dirSizeAsync(f)).bytes;
+    const f = binEntry(q(u, 'folder'));
+    if (!binMay(req.who, path.basename(f))) throw err(404, 'Not in the Recycle Bin');
+    const bytes = (await dirSizeAsync(f)).bytes;
     await fs.promises.rm(f, { recursive: true, force: true });
     binLog(req, 'deleted for good from the Recycle Bin', path.basename(f), bytes);
     return { ok: true, freed: bytes };
@@ -3620,7 +3661,7 @@ const routes = {
     const bin = recycleBin(); let freed = 0, n = 0;
     if (fs.existsSync(bin)) for (const e of fs.readdirSync(bin)) {
       const f = path.join(bin, e);
-      if (!fs.statSync(f).isDirectory()) continue;
+      if (!fs.statSync(f).isDirectory() || !binMay(req.who, e)) continue; // (🔐 a team member empties only theirs)
       const b = (await dirSizeAsync(f)).bytes; freed += b; await fs.promises.rm(f, { recursive: true, force: true }); n++;
       binLog(req, 'deleted for good (Recycle Bin emptied)', e, b);
     }
@@ -3630,6 +3671,7 @@ const routes = {
     const b = await readJson(req);
     folderAllowed(req, b.place); folderAllowed(req, b.folder);
     const name = createProject(b);
+    setAccess(name, { by: whoName(req.who) }); // (🔐 whose it is)
     let imported = 0;
     // from a template (Library/templates): its settings, look, captions style, logo, titles and adjustment layers
     if (b.template) {
@@ -4192,7 +4234,8 @@ const routes = {
       const salt = crypto.randomBytes(12).toString('hex');
       t.users.push({ name: n, role: ['editor', 'viewer', 'owner'].includes(b.addUser.role) ? b.addUser.role : 'editor', salt, hash: hashPw(b.addUser.password, salt) });
       // 👤 their own folder for projects on the NAS (Z:\Editor Projects\<Name>), unless one named like them is there already
-      try { const home = userHome({ name: n }); if (home && !fs.existsSync(home)) fs.mkdirSync(home); } catch {}
+      // (not from a test editor with its own data folder: its made-up users got real folders on the NAS)
+      if (!process.env.VEDIT_DATA) try { const home = userHome({ name: n }); if (home && !fs.existsSync(home)) fs.mkdirSync(home); } catch {}
     }
     if (b.removeUser) { t.users = t.users.filter((x) => x.name !== b.removeUser); for (const [k, s] of sessions) if (s.name === b.removeUser) sessions.delete(k); }
     if (b.setRole) { const x = t.users.find((y) => y.name === b.setRole.name); if (x) x.role = b.setRole.role; for (const s of sessions.values()) if (s.name === b.setRole.name) s.role = b.setRole.role; }
@@ -4982,7 +5025,7 @@ const routes = {
   // what clients said since a moment (every project) - the editor shows a toast
   'GET /api/clientreview/news': (req, res, u) => rvNews.filter((x) => x.at > (+q(u, 'since') || 0)),
   // 🎬 Render queue (all projects): body { items: [{ preset, aspect, fit, filename, quality, seq }] }
-  'GET /api/queue': () => ({ items: rq.items.map(queueView), gpu: !!healthCache?.nvenc }),
+  'GET /api/queue': (req) => ({ items: rq.items.filter((x) => mayOpen(req.who, x.project)).map(queueView), gpu: !!healthCache?.nvenc }), // (🔐 only theirs)
   'POST /api/queue': async (req, res, u) => {
     const name = needProject(q(u, 'p')), b = await readJson(req);
     if (!b.items?.length) throw err(400, 'Nothing to render');
@@ -5023,8 +5066,8 @@ const routes = {
     saveQueue();
     return { ok: true };
   },
-  'POST /api/queue/clear': () => {
-    rq.items = rq.items.filter((x) => { const keep = ['waiting', 'rendering'].includes(x.state); if (!keep) fs.rmSync(x.jobFile, { force: true }); return keep; });
+  'POST /api/queue/clear': (req) => {
+    rq.items = rq.items.filter((x) => { const keep = ['waiting', 'rendering'].includes(x.state) || !mayOpen(req.who, x.project); if (!keep) fs.rmSync(x.jobFile, { force: true }); return keep; }); // (🔐 a team member clears only theirs)
     saveQueue();
     return { ok: true };
   },
@@ -5947,7 +5990,7 @@ const routes = {
 // Requests about a project that still belong to the main process: they use the render queue, publish / batch, the
 // people library, project places / folders or the sessions log (shared by all projects). The project's worker saves
 // first (flush), so what is read from disk is the latest; delete / move ask the worker to let go of it (release).
-const MAIN_ROUTES = new Set(['POST /api/projects/move', 'POST /api/projects/rename', 'POST /api/projects/delete', 'GET /api/presence', 'POST /api/queue', 'POST /api/publish', 'POST /api/styles/learn',
+const MAIN_ROUTES = new Set(['GET /api/projects/share', 'POST /api/projects/share', 'POST /api/projects/move', 'POST /api/projects/rename', 'POST /api/projects/delete', 'GET /api/presence', 'POST /api/queue', 'POST /api/publish', 'POST /api/styles/learn',
   'POST /api/library/template', 'GET /api/batch', 'POST /api/batch', 'POST /api/batch/cancel', 'POST /api/batch/clear']);
 const JOB_ROUTES = /^\/api\/(job|jobs\/skip|claude\/events|claude\/stop)$/;
 // which worker a request goes to (0 = this main process)
@@ -6061,6 +6104,12 @@ async function handle(req, res, who) {
     // the same project
     if (standbyHold && req.method !== 'GET' && !/^\/api\/(safety|me|lock|unlock|clientlog|live\/presence|live\/save|shutdown)(\/|$)/.test(u.pathname))
       return send(res, 423, { error: standbyHold.pending ? `Edits made on the standby PC ${standbyHold.host} are being brought back - try again in a minute` : `The standby PC ${standbyHold.host} is running the editor (since ${new Date(standbyHold.since).toLocaleTimeString()}). Edit there - this editor takes over again about 2 minutes after it is back.` });
+    // 🔐 a team member asking for a project that is not theirs (nor shared with them): as if there were none - the main
+    // process checks before anything reaches a project worker
+    if (!IS_WORKER && !who.local && who.role !== 'owner') {
+      const pn = requestProject(u) || (/^\/api\/queue\//.test(u.pathname) ? rq.items.find((x) => x.id === u.searchParams.get('id'))?.project : null);
+      if (pn && !mayOpen(who, pn)) return send(res, 404, { error: `No project "${pn}"` });
+    }
     // ⚙ a project's request goes to its worker (the main process keeps no project in memory)
     if (CLUSTER && !IS_WORKER) {
       const r = routeOf(req.method, u);

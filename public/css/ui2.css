@@ -767,3 +767,7 @@ html.ui2 .mon-dock .vw-acc:hover { border-color: var(--accent); color: var(--acc
 .mon-dock .vw-acc { letter-spacing: 0; }
 html.ui2 .edit-grid .mon-dock button.vw-acc { margin-left: auto !important; margin-right: 6px !important; align-self: center; }
 html.ui2 .sm-loop.on { color: var(--accent); }
+/* 🔐 whose a project is / who it is shared with, on its Home card; the Share dialog's list */
+.proj .proj-by { display: inline-flex; align-items: center; gap: 4px; color: var(--accent-2, #f0c674); }
+.proj .proj-by svg { width: 12px; height: 12px; }
+.share-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 12px; margin: 10px 0 14px; }

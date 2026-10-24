@@ -28,13 +28,13 @@ test('team: start a test editor with its own team door', async () => {
   srv = spawn(process.execPath, [path.join(ROOT, 'server.mjs')], { cwd: ROOT, env: { ...process.env, PORT: String(PORT), TEAM_PORT: String(TEAM), VEDIT_DATA: tmp, VEDIT_NO_RESUME: '1', VEDIT_CLUSTER: '0' }, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
   let log = ''; srv.stdout.on('data', (d) => { log += d; }); srv.stderr.on('data', (d) => { log += d; });
   for (let i = 0; i < 60; i++) { try { if ((await call(L, 'GET', '/api/version')).status === 200) break; } catch {} await sleep(500); if (i === 59) throw new Error(`test editor did not start:\n${log.slice(-800)}`); }
-  for (const u of [{ name: 'Ravi', password: 'ravi-pass-1', role: 'editor' }, { name: 'Client', password: 'client-pass-1', role: 'viewer' }]) {
+  for (const u of [{ name: 'Ravi', password: 'ravi-pass-1', role: 'editor' }, { name: 'Client', password: 'client-pass-1', role: 'viewer' }, { name: 'Sita', password: 'sita-pass-1', role: 'editor' }]) {
     const r = await call(L, 'PUT', '/api/team', { addUser: u });
     same(r.status, 200);
   }
   const on = await call(L, 'PUT', '/api/team', { on: true });
   same(on.status, 200); assert(on.body.on, 'team door is open');
-  same(on.body.users.map((x) => x.name).sort(), ['Client', 'Ravi']);
+  same(on.body.users.map((x) => x.name).sort(), ['Client', 'Ravi', 'Sita']);
   assert(!JSON.stringify(on.body).includes('hash'), 'no password hashes in the answer');
 });
 
@@ -69,6 +69,30 @@ test('team: an editor may edit but not run the team; a viewer only watches', asy
   same((await call(T, 'GET', '/api/projects', undefined, vw)).status, 200);
   const vmk = await call(T, 'POST', '/api/projects', { name: 'Viewer Project' }, vw);
   same(vmk.status, 403); assert(/viewer/i.test(vmk.body.error), 'says why');
+});
+
+test('projects: each editor sees only their own; the owner sees all; a share lets another one in', async () => {
+  if (!ON) return 'skip';
+  const ravi = (await login('Ravi', 'ravi-pass-1')).cookie, sita = (await login('Sita', 'sita-pass-1')).cookie, vw = (await login('Client', 'client-pass-1')).cookie;
+  const p = encodeURIComponent('Team Test'), names = async (c) => (await call(T, 'GET', '/api/projects', undefined, c)).body.map((x) => x.name);
+  assert((await names(ravi)).includes('Team Test'), 'its maker sees it');
+  const mine = (await call(T, 'GET', '/api/projects', undefined, ravi)).body.find((x) => x.name === 'Team Test');
+  same(mine.by, 'Ravi');
+  assert(!(await names(sita)).includes('Team Test'), 'another editor does not');
+  assert(!(await names(vw)).includes('Team Test'), 'nor a viewer');
+  same((await call(T, 'GET', `/api/project?p=${p}`, undefined, sita)).status, 404, 'nor by its link');
+  same((await call(T, 'GET', `/api/media?p=${p}`, undefined, sita)).status, 404);
+  assert((await call(L, 'GET', '/api/projects')).body.some((x) => x.name === 'Team Test'), 'the owner (this computer) sees every project');
+  // only its maker (or the owner) shares it
+  same((await call(T, 'POST', `/api/projects/share?p=${p}`, { shared: ['Sita'] }, sita)).status, 404, 'Sita cannot even reach it');
+  const sh = await call(T, 'POST', `/api/projects/share?p=${p}`, { shared: ['Sita', 'Nobody'] }, ravi);
+  same(sh.status, 200); same(sh.body.shared, ['Sita'], 'unknown names are dropped');
+  assert((await names(sita)).includes('Team Test'), 'shared: Sita sees it');
+  same((await call(T, 'GET', `/api/project?p=${p}`, undefined, sita)).status, 200, 'and opens it');
+  same((await call(T, 'POST', `/api/projects/share?p=${p}`, { shared: [] }, sita)).status, 403, 'but cannot change who it is shared with');
+  same((await call(T, 'POST', `/api/projects/share?p=${p}`, { shared: [] }, ravi)).status, 200);
+  assert(!(await names(sita)).includes('Team Test'), 'unshared: gone again');
+  same((await call(T, 'GET', `/api/project?p=${p}`, undefined, sita)).status, 404);
 });
 
 test('publish: an account that is not connected is refused at once (not queued to fail later)', async () => {
