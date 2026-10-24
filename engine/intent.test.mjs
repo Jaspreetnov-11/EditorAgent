@@ -135,6 +135,32 @@ const CASES = [
   { t: 'music dheema karo', c: { scope: { kind: 'all' } } }, // no scope said: the whole edit
   { t: '10 se 20 second', new: true, no: [] }, // a new edit has no scope
   { t: '1 min 20 sec ka video', o: { target: 80 } },
+  // notes: a leftover clause in its own words, trimmed at the ends only; empty when everything was understood
+  { t: '30 sec ka reel banao, tez cuts', new: true, o: { target: 30, aspect: '9:16', pace: 'fast' }, nt: [] },
+  { t: 'ek 30 second ki reel banao please', new: true, o: { target: 30, aspect: '9:16' }, nt: [] },
+  { t: 'music dheema karo aur subtitles daal do', c: { musicVolume: 0.5 }, o: { subtitles: true }, nt: [] },
+  { t: 'तीस सेकंड की रील बनाओ और म्यूजिक धीमा करो', o: { target: 30 }, c: { musicVolume: 0.5 }, nt: [] },
+  { t: 'please isko thoda tez kar do yaar', o: { pace: 'fast' }, nt: [] },
+  { t: '30 sec ki reel, logon ki khushi dikhao', o: { target: 30 }, nt: ['logon ki khushi dikhao'] },
+  { t: 'tez cuts aur gaon ka mela zyada dikhao', o: { pace: 'fast' }, nt: ['gaon ka mela zyada dikhao'] },
+  { t: 'colour warm karo, opening mein suspense', o: { look: 'Warm Film' }, nt: ['opening mein suspense'] },
+  { t: 'shuruat mein thoda suspense rakho', nt: ['shuruat mein thoda suspense rakho'] },
+  { t: '30 sec ki reel mein logon ki khushi dikhao please', o: { target: 30 }, nt: ['logon ki khushi dikhao'] },
+  { t: 'aur bacchon wale shots zyada dikhao kar do', nt: ['bacchon wale shots zyada dikhao'] },
+  { t: 'बच्चों वाले शॉट्स ज़्यादा दिखाओ', nt: ['बच्चों वाले शॉट्स ज़्यादा दिखाओ'] },
+  { t: 'kar do please', nt: [] },
+  // praise / mood is never a first / last / must shot
+  { t: '30 sec ka reel banao, tez cuts, end mein logo, ekdum mast lagna chahiye', new: true, o: { target: 30, aspect: '9:16', pace: 'fast' }, c: { last: { logo: 'lg' } }, nt: ['ekdum mast lagna chahiye'], noc: ['first', 'must'], nolast: ['text'] },
+  { t: 'end mein ekdum mast lagna chahiye', noc: ['last'], notes: 1 },
+  { t: 'shuru mein badhiya lagna chahiye', noc: ['first'], notes: 1 },
+  { t: 'pehle jhakkas', noc: ['first'], notes: 1 },
+  { t: 'aakhir mein zabardast banana', noc: ['last'], notes: 1 },
+  { t: 'start mein accha lage', noc: ['first'], notes: 1 },
+  { t: 'अंत में एकदम शानदार लगना चाहिए', noc: ['last'], notes: 1 },
+  { t: 'zabardast banana, accha lage', noc: ['first', 'last', 'must'], notes: 2 },
+  { t: 'end mein logo accha lage', c: { last: { logo: 'lg' } }, nolast: ['text'] },
+  { t: 'pehle drone shot, ekdum mast', c: { first: { text: 'drone' } }, nt: ['ekdum mast'] },
+  { t: 'jhakkas banao, end mein CM sahab', c: { last: { person: 'CM Sahab' } }, noc: ['first'] },
   { t: 'climax pe sab tez', no: ['pace'], notes: 1 },
   { t: 'pehle khet aur kisaan dikhao, beech mein mandi, aakhir mein khush parivaar', c: { first: { text: 'khet, kisaan' }, last: { text: 'khush parivaar' } }, notes: 1 },
   { t: 'shuruat mein thoda suspense rakho', notes: 1 }, // a mood, not a first shot
@@ -150,6 +176,9 @@ for (const k of CASES) {
   if (k.o && !sub(r.opts, k.o)) bad.push(`opts ${JSON.stringify(r.opts)} != ${JSON.stringify(k.o)}`);
   if (k.c && !sub(r.constraints, k.c)) bad.push(`constraints ${JSON.stringify(r.constraints)} != ${JSON.stringify(k.c)}`);
   for (const n of k.no || []) if (n in r.opts) bad.push(`${n} should not be set (${JSON.stringify(r.opts[n])})`);
+  for (const n of k.noc || []) if (n in r.constraints) bad.push(`constraint ${n} should not be set (${JSON.stringify(r.constraints[n])})`);
+  for (const n of k.nolast || []) if (r.constraints.last && n in r.constraints.last) bad.push(`last.${n} should not be set (${JSON.stringify(r.constraints.last[n])})`);
+  if (k.nt !== undefined && JSON.stringify(r.notes) !== JSON.stringify(k.nt)) bad.push(`notes ${JSON.stringify(r.notes)} != ${JSON.stringify(k.nt)}`);
   if (k.notes !== undefined && r.notes.length !== k.notes) bad.push(`notes ${JSON.stringify(r.notes)} (want ${k.notes})`);
   if (bad.length) { fail++; console.log(`FAIL  ${k.t}\n      ${bad.join('\n      ')}\n      understood: ${r.understood.join(' | ')}`); } else pass++;
 }

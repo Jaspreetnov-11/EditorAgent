@@ -73,8 +73,12 @@ addNum(45, 'paintalis', 'paintaalis', 'forty five', 'पैंतालीस');
 addNum(20, 'twenty'); addNum(5, 'five');
 
 // filler: words that carry no setting ("isko", "kar do", "please", "the")
-const FILLER = new Set(['karo', 'kar', 'kardo', 'karde', 'karna', 'karni', 'kariye', 'kijiye', 'kare', 'karein', 'karen', 'do', 'de', 'dena', 'dedo', 'dijiye', 'please', 'plz', 'pls', 'bhai', 'ji', 'yaar', 'yar', 'bas', 'sirf', 'only', 'just', 'bhi', 'aur', 'and', 'the', 'a', 'an', 'to', 'ko', 'ka', 'ki', 'ke', 'mein', 'me', 'main', 'mai', 'se', 'par', 'pe', 'per', 'hai', 'hain', 'ho', 'is', 'isko', 'ise', 'isme', 'iska', 'iski', 'yeh', 'ye', 'it', 'this', 'that', 'its', 'make', 'bana', 'banao', 'banana', 'banaye', 'banado', 'edit', 'video', 'vala', 'wala', 'wali', 'vali', 'jaisa', 'jaisi', 'jaise', 'like', 'type', 'style', 'with', 'of', 'in', 'on', 'at', 'for', 'be', 'should', 'let', 'lets', 'can', 'you', 'we', 'i', 'my', 'apna', 'apni', 'chahiye', 'chaiye', 'hona', 'hone', 'rakho', 'rakhna', 'rakh', 'lagao', 'laga', 'lagado', 'daalo', 'daal', 'dalo', 'daldo', 'use', 'karke', 'thoda', 'zara', 'ok', 'okay', 'acha', 'accha', 'achha', 'now', 'ab', 'abhi', 'fir', 'phir', 'then', 'also', 'so', 'very', 'bahut', 'wo', 'vo', 'voh', 'jo', 'bhai', 'sab', 'kuch', 'koi', 'hissa', 'part', 'set', 'kardena', 'dikhao', 'dikha', 'chalao', 'want', 'need', 'give', 'put', 'add', 'show', 'mujhe', 'hume', 'hamein', 'liye', 'lie', 'vaste', 'waste', 'liye hai', 'chahta', 'chahti', 'chahte', 'hoga', 'hogi', 'raha', 'rahi', 'rahe', 'gaya', 'gayi', 'saath', 'ke saath', 'chahie', 'vidiyo',
+const FILLER = new Set(['karo', 'kar', 'kardo', 'karde', 'karna', 'karni', 'kariye', 'kijiye', 'kare', 'karein', 'karen', 'do', 'de', 'dena', 'dedo', 'dijiye', 'please', 'plz', 'pls', 'bhai', 'ji', 'yaar', 'yar', 'bas', 'sirf', 'only', 'just', 'bhi', 'aur', 'and', 'the', 'a', 'an', 'to', 'ko', 'ka', 'ki', 'ke', 'mein', 'me', 'main', 'mai', 'se', 'par', 'pe', 'per', 'hai', 'hain', 'ho', 'is', 'isko', 'ise', 'isme', 'iska', 'iski', 'yeh', 'ye', 'it', 'this', 'that', 'its', 'make', 'bana', 'banao', 'banana', 'banaye', 'banado', 'edit', 'video', 'vala', 'wala', 'wali', 'vali', 'jaisa', 'jaisi', 'jaise', 'like', 'type', 'style', 'with', 'of', 'in', 'on', 'at', 'for', 'be', 'should', 'let', 'lets', 'can', 'you', 'we', 'i', 'my', 'apna', 'apni', 'chahiye', 'chaiye', 'hona', 'hone', 'rakho', 'rakhna', 'rakh', 'lagao', 'laga', 'lagado', 'daalo', 'daal', 'dalo', 'daldo', 'use', 'karke', 'thoda', 'zara', 'ok', 'okay', 'acha', 'accha', 'achha', 'now', 'ab', 'abhi', 'fir', 'phir', 'then', 'also', 'so', 'very', 'bahut', 'wo', 'vo', 'voh', 'jo', 'bhai', 'sab', 'kuch', 'koi', 'hissa', 'part', 'set', 'kardena', 'dikhao', 'dikha', 'chalao', 'want', 'need', 'give', 'put', 'add', 'show', 'mujhe', 'hume', 'hamein', 'liye', 'lie', 'vaste', 'waste', 'liye hai', 'chahta', 'chahti', 'chahte', 'hoga', 'hogi', 'raha', 'rahi', 'rahe', 'gaya', 'gayi', 'ek', 'one', 'banaiye', 'banaen', 'bana de', 'yaar', 'na', 'saath', 'ke saath', 'chahie', 'vidiyo',
   'वीडियो', 'चाहिए', 'चाहिये', 'करो', 'कर', 'दो', 'दे', 'को', 'का', 'की', 'के', 'में', 'से', 'पर', 'पे', 'है', 'हैं', 'इसे', 'इसको', 'इसका', 'और', 'भी', 'बस', 'सिर्फ', 'थोड़ा', 'ज़रा', 'साथ', 'बनाओ', 'बना', 'दीजिए', 'करें', 'कीजिए', 'करना', 'वाला', 'वाली', 'मुझे', 'हमें', 'लिए', 'अब', 'फिर', 'यह', 'ये', 'वो', 'सब', 'कुछ', 'रखो', 'डालो', 'डाल', 'लगाओ', 'दिखाओ', 'हो', 'होना', 'एडिट', 'प्लीज़', 'प्लीज'].map(norm));
+
+// trimmed off the ends of a note: verbs of asking and joining words, not the words that carry the wish
+const END_FILL = new Set(['karo', 'kar', 'kardo', 'karde', 'karna', 'kariye', 'kijiye', 'karein', 'do', 'de', 'dena', 'dedo', 'dijiye', 'please', 'plz', 'pls', 'aur', 'and', 'bhi', 'yaar', 'yar', 'bhai', 'ji', 'na', 'ok', 'okay', 'to', 'toh', 'bas', 'also', 'phir', 'fir', 'then', 'ab', 'abhi',
+  'करो', 'कर', 'दो', 'दे', 'दीजिए', 'करें', 'कीजिए', 'और', 'भी', 'प्लीज़', 'प्लीज', 'बस', 'फिर'].map(norm));
 
 // ---- clauses and tokens ----
 // clauses: split on punctuation and joining words; "black and white" / "teal and orange" stay together
@@ -512,6 +516,11 @@ function textFields(c, R, neg) {
 
 // "pehle CM sahab ka shot", "shuru mein drone shot", "drone shot se shuru karo", "end mein logo", "aakhir mein thank you"
 const ENDPH = B(W('thank you', 'thanks', 'thankyou', 'dhanyavaad', 'dhanyavad', 'shukriya', 'jai hind', 'jai bharat', 'vande mataram', 'bharat mata ki jai', 'the end', 'subscribe', 'follow us', 'धन्यवाद', 'शुक्रिया', 'जय हिंद', 'जय भारत', 'वंदे मातरम'));
+// praise and mood ("ekdum mast lagna chahiye", "jhakkas", "zabardast banana", "accha lage"): a feeling, never a shot
+const PRAISE = new Set(['mast', 'badhiya', 'badiya', 'jhakkas', 'jhakaas', 'zabardast', 'jabardast', 'accha', 'achha', 'acha', 'achchha', 'achhi', 'acchi', 'sundar', 'khoobsurat', 'khubsurat', 'shandar', 'shaandaar', 'kamaal', 'kamal', 'dhaasu', 'dhasu', 'faadu', 'fadu', 'kadak', 'solid', 'awesome', 'amazing', 'nice', 'great', 'cool', 'lit', 'fire', 'superb', 'perfect', 'best', 'beautiful', 'professional', 'premium', 'classy', 'stylish', 'ekdum', 'ekdam', 'bilkul', 'bahut', 'bohot', 'kaafi', 'chahiye', 'chaiye', 'banana', 'banna', 'bane', 'banega', 'banegi', 'feel', 'mood', 'vibe', 'hona', 'hone',
+  'मस्त', 'बढ़िया', 'झक्कास', 'ज़बरदस्त', 'जबरदस्त', 'अच्छा', 'अच्छी', 'सुंदर', 'खूबसूरत', 'शानदार', 'कमाल', 'एकदम', 'बहुत', 'लगना', 'लगे', 'लगेगा', 'चाहिए', 'बनाना'].map((w) => normTok(w)));
+const isMood = (w) => { const n = normTok(w); return PRAISE.has(n) || /^lag(na|ni|ne|e|ey|ta|ti|te|ega|egi|enge)?$/.test(n); };
+const moody = (words) => words.some(isMood);
 const ABSTRACT = new Set(['suspense', 'tension', 'mystery', 'energy', 'josh', 'drama', 'emotion', 'emotional', 'build', 'buildup', 'slow', 'fast', 'tez', 'dheema', 'thriller', 'hook', 'silence', 'khamoshi', 'sannata', 'feel', 'mood', 'vibe', 'impact', 'dhamaka', 'excitement', 'curiosity', 'interest', 'thoda', 'zyada', 'kam', 'acha', 'achha', 'badhiya', 'mast', 'jaan', 'power', 'punch', 'tight', 'crisp', 'short', 'chhota', 'lamba', 'fast cut', 'slow cut'].map((w) => normTok(w)));
 const URL = /\b[\w.-]+\.(?:gov\.in|nic\.in|org\.in|co\.in|in|com|org|net)\b\S*/i;
 // force: 'first' | 'last' - a clause that goes on from the one before ("end mein logo aur thank you")
@@ -536,6 +545,7 @@ function ends(c, ctx, R, neg, force = null) {
   }
   const who = mentioned(abbr(c.raw), asPeople(ctx.people));
   const words = rest(c, B(`${SHOT}|${CHANGE}|${W('shuru', 'start', 'mein', 'me', 'se', 'karo', 'ho', 'hona', 'chahiye', 'dikhao', 'dikhe', 'aaye', 'aana', 'aaega', 'rakho', 'lagao', 'daalo', 'pe', 'par', 'sabse', 'bilkul', 'ekdam', 'hi', 'second', 'sec', 'वाला', 'में', 'से', 'शुरू', 'हो', 'करो', 'दिखाओ', 'पर')}`));
+  for (let i = words.length - 1; i >= 0; i--) if (isMood(words[i])) words.splice(i, 1);
   const text = words.join(' ').replace(/^[:\-–\s]+|[:\-–\s]+$/g, '');
   // "shuru mein thoda suspense" is a mood, not a shot: left for the LLM / notes
   if (!force && words.length && words.every((w) => ABSTRACT.has(normTok(w)))) { if (!Object.keys(box).some((k) => k !== 'within')) { if (isFirst) delete R.first; else delete R.last; } c.used = was; return; }
@@ -552,7 +562,7 @@ function ends(c, ctx, R, neg, force = null) {
     else { box.text = text; R.say.push(`${isFirst ? 'Starts' : 'Ends'} with ${/shot|clip|scene/i.test(text) ? '' : 'a shot of '}${text}${within()}.`); }
     did = true;
   }
-  if (!did) { if (!Object.keys(box).some((k) => k !== 'within')) { if (isFirst) delete R.first; else delete R.last; } return; }
+  if (!did) { if (!Object.keys(box).some((k) => k !== 'within')) { if (isFirst) delete R.first; else delete R.last; } if (R.window === undefined) c.used = was; return; }
   R.side = isFirst ? 'first' : 'last';
   takeAll(c);
 }
@@ -567,7 +577,7 @@ export function parseRules(text, { mode = 'new', opts = {}, media = [], people =
     const side = R.side; R.side = null; R.window = undefined; R.cScope = false;
     rules(c, ctx, R);
     // a short clause no rule took, right after a first / last one, says more about that shot ("end mein logo aur thank you")
-    if (side && !c.used.size && !R.handled.has(c) && !has(c, B(W('beech', 'middle', 'phir', 'fir', 'baad', 'uske baad', 'then', 'next', 'बीच', 'बाद')))) { const w = rest(c); if (w.length && w.length <= 5) ends(c, ctx, R, false, side); }
+    if (side && !c.used.size && !R.handled.has(c) && !has(c, B(W('beech', 'middle', 'phir', 'fir', 'baad', 'uske baad', 'then', 'next', 'बीच', 'बाद'))) && !moody(c.toks.map((k) => k.raw))) { const w = rest(c); if (w.length && w.length <= 5) ends(c, ctx, R, false, side); }
   }
   const o = {};
   // length: an exact one wins over "chhota karo"
@@ -607,13 +617,18 @@ export function parseRules(text, { mode = 'new', opts = {}, media = [], people =
     const FINISH = new Set(['look', 'fx', 'sfx', 'cinematic', 'title', 'endText', 'subtitles', 'autoColor', 'stabilize', 'musicVolume', 'lyricsOnScreen', 'names', 'detectLog', 'keepSound']);
     constraints.keep = changes.every((x) => FINISH.has(x.key)) && !constraints.first && !constraints.last && !constraints.must && !constraints.avoid ? 'all' : 'shots';
   }
-  // words no rule could place: whole clauses (as written) with what they still say
+  // words no rule could place: a clause with meaningful words left becomes a note in its own wording (shown as a pill
+  // and read by Claude / the LLM), only trimmed at its ends of words the rules took and of "karo / kar do / please / aur"
   const left = [];
   for (const c of cs) {
     if (R.handled.has(c)) continue;
-    const w = rest(c);
-    const meaningful = w.length >= 2 || w.some((x) => normTok(x).length >= 4);
-    if (meaningful) left.push(c.raw);
+    const w = rest(c).filter((x) => !/^[\d.:%]+$/.test(x));
+    if (!(w.length >= 2 || w.some((x) => normTok(x).length >= 4))) continue;
+    let a = 0, b = c.toks.length - 1;
+    const cut = (i, start) => c.used.has(i) || END_FILL.has(c.toks[i].n) || (start && FILLER.has(c.toks[i].n));
+    while (a <= b && cut(a, true)) a++;
+    while (b >= a && cut(b, false)) b--;
+    if (a <= b) left.push(c.toks.slice(a, b + 1).map((k) => k.raw).join(' '));
   }
   return { opts: o, changes, constraints, notes: [...new Set([...R.notes, ...left])], understood: [...new Set(R.say)], via: 'rules', left, keepSaid: !!R.keep };
 }
