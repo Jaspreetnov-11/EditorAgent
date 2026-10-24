@@ -59,7 +59,7 @@ export function openAgent(setBusy, { job = null, type = null } = {}) {
         <label class="fld"><span>Clip speed</span><select name="clipSpeed"><option value="0.5">0.5x slow motion</option><option value="0.75">0.75x gentle slow-mo</option><option value="1" selected>1x normal</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x fast</option></select></label>
         <div class="fld wide"><span>Cut like (a style learnt from an edit you liked)</span>
           <div class="row-in"><select name="styleName"><option value="none">The agent's own way</option></select>
-            <button type="button" class="btn small" data-a="learnStyle" title="Learn how the edit on this timeline is cut (shot length, moves, colour, cuts, lyric titles) and cut new edits the same way">Learn from this timeline…</button>
+            <button type="button" class="btn small" data-a="learnStyle" title="Learn how the edit on this timeline is cut (shot length, moves, colour, cuts, lyric titles) - it becomes the default, so new edits are cut the same way">Learn from this timeline…</button>
             <label class="chk"><input type="checkbox" name="styleDefault"> Default for every edit</label></div>
           <small class="muted" data-stylesum></small></div>
         <label class="fld"><span>Edit style</span><select name="editStyle"><option value="standard">Standard</option><option value="teaser">Cinematic teaser (trailer: slow open, build, fast climax)</option><option value="montage">Fast montage (cut on every beat)</option><option value="song">Song / music video (beat + lyrics)</option></select></label>
@@ -268,7 +268,7 @@ export function openAgent(setBusy, { job = null, type = null } = {}) {
     if (a === 'learnStyle') {
       const n = prompt('Name for this style (e.g. "GenZ lyric video")', `${S.project.name || S.proj} style`);
       if (!n) return;
-      try { const r = await api('POST', `/api/styles/learn?p=${enc(S.proj)}`, { name: n, makeDefault: f('styleDefault').checked }); await fillStyles(r.name); toast(`Learnt "${r.name}": ${r.summary}`); }
+      try { const r = await api('POST', `/api/styles/learn?p=${enc(S.proj)}`, { name: n, makeDefault: true }); await fillStyles(r.name); toast(`Learnt "${r.name}" - now the default for every edit (untick Default to stop): ${r.summary}`); }
       catch (err) { toast(err.message, 'err'); }
     }
     if (a === 'aivo') openVoiceOver({ text: scr.scenes?.map((s) => s.vo).filter(Boolean).join('\n\n') || '', onDone: (id, r) => { const m = S.mediaById[id]; if (!m) return; f('vo').insertAdjacentHTML('beforeend', `<option value="${id}">${esc(m.name)} (${fmt(m.duration)})</option>`); f('vo').value = id; show(); if (r.subs) f('subtitles').checked = true; } });
