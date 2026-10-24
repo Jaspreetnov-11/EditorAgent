@@ -122,20 +122,37 @@ export function wireBrief(body, { box, mode, opts, hooks = {}, onResult = () => 
   // a change by hand: that setting is the user's now
   body.addEventListener('change', (e) => { if (!k.applying && e.target.name && e.target.name !== box.name) { k.manual.add(e.target.name); k.auto.delete(e.target.name); } });
   let timer = 0, seq = 0;
+  // the rules answer at once; what they leave (notes) goes to the local model as a second call (4-15 s), only once per text
+  const llmDone = new Map(); // text -> its model answer
+  // the settings as they were before the words changed them: the parser compares with these (its "from -> to" list)
+  const before = () => {
+    const o = opts();
+    for (const [n, a] of k.auto) if (n in o) o[n] = typeof o[n] === 'boolean' ? a.was === 'true' : typeof o[n] === 'number' ? +a.was : a.was;
+    return o;
+  };
   const read = async () => {
     const text = box.value.trim(), my = ++seq;
+    k.thinking = false;
     if (!text) { k.parsed = null; k.apply(null); return onResult(null); }
     if (missing.parse) return onResult(k.parsed);
     try {
-      const r = await post('/api/agent/parse', { text, mode, opts: opts() });
+      let r = llmDone.get(text) || await post('/api/agent/parse', { text, mode, opts: before() });
       if (my !== seq) return;
-      k.parsed = r; k.apply(r); onResult(r);
+      k.parsed = r; k.apply(r);
+      if (!r.notes?.length || r.via === 'llm' || llmDone.has(text)) return onResult(r);
+      k.thinking = true; onResult(r);
+      r = await post('/api/agent/parse', { text, mode, opts: before(), llm: true }).catch(() => null);
+      if (r) llmDone.set(text, r);
+      if (my !== seq) return;
+      k.thinking = false;
+      if (r) { k.parsed = r; k.apply(r); }
+      onResult(k.parsed);
     } catch (e) {
       if (e.missing) { missing.parse = true; return onResult(null); }
-      if (my === seq) onResult(k.parsed, e);
+      if (my === seq) { k.thinking = false; onResult(k.parsed, e); }
     }
   };
-  box.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(read, 500); });
+  box.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => { timer = 0; read(); }, 500); });
   k.read = read; k.byHand = (n) => { k.manual.add(n); k.auto.delete(n); };
   k.isAuto = (n) => k.auto.has(n);
   k.flush = async () => { if (timer) { clearTimeout(timer); timer = 0; if (box.value.trim() && !missing.parse) await read(); } };
@@ -143,11 +160,12 @@ export function wireBrief(body, { box, mode, opts, hooks = {}, onResult = () => 
 }
 
 // What was understood, as small pills under the box (and what the parser could not use, quieter)
-export function understoodHTML(r, err) {
+export function understoodHTML(r, err, thinking = false) {
   if (err) return `<span class="ag2-pill off">Could not read the words: ${esc(err.message)}</span>`;
   if (!r) return '';
-  const u = (r.understood || []).map((s) => `<span class="ag2-pill">${ic('check')}${esc(s)}</span>`).join('');
-  const n = (r.notes || []).map((s) => `<span class="ag2-pill off" title="Not turned into a setting - Claude reads it">${esc(s)}</span>`).join('');
+  const u = (r.understood || []).map((s) => `<span class="ag2-pill">${ic('check')}${esc(String(s).replace(/\.$/, ''))}</span>`).join('');
+  const n = thinking ? `<span class="ag2-pill think" title="The local model is reading what the rules could not"><span class="ag2-spin"></span>Thinking about: ${esc(r.notes.join(', '))}</span>`
+    : (r.notes || []).map((s) => `<span class="ag2-pill off" title="Not turned into a setting - Claude reads it">${esc(s)}</span>`).join('');
   return u + n;
 }
 
@@ -181,6 +199,7 @@ export const tc = (sec) => {
 };
 // a re-edit limited to part of the edit (constraints.scope), in words; '' for the whole edit
 export function scopeText(sc) {
+  if (sc?.label) return sc.label; // (the planner's own words, snapped to the cuts)
   if (sc?.kind === 'range') return `Only ${tc(sc.from)} - ${tc(sc.to)} changes`;
   if (sc?.kind === 'clips') { const n = sc.ids?.length || 0; return n === 1 ? 'Only the selected clip changes' : `Only the ${n} selected clips change`; }
   if (sc?.kind === 'slots') { const n = (sc.index || []).map((i) => i + 1); return `Only shot${n.length > 1 ? 's' : ''} ${n.join(', ')} change${n.length > 1 ? '' : 's'}`; }
@@ -189,22 +208,30 @@ export function scopeText(sc) {
 function planHTML(r, opts) {
   const acts = r.acts || [], dur = +r.duration || acts.reduce((s, a) => Math.max(s, +a.end || 0), 0) || 1;
   const sc = r.scope || opts?.constraints?.scope, scText = scopeText(sc);
-  // the time range that changes, as a band over the acts (the rest stays as it is)
-  const band = sc?.kind === 'range' && dur ? `<span class="ag2-band" style="left:${Math.max(0, (sc.from / dur) * 100).toFixed(2)}%;width:${Math.max(0.5, ((Math.min(dur, sc.to) - sc.from) / dur) * 100).toFixed(2)}%"></span>` : '';
+  // the time that changes, as bands over the acts (the planner's runs, snapped to the cuts; the rest stays as it is)
+  const runs = sc?.runs?.length ? sc.runs : sc?.kind === 'range' ? [sc] : [];
+  const pc = (t) => Math.max(0, Math.min(100, (t / dur) * 100)).toFixed(2);
+  const band = runs.map((x) => `<span class="ag2-band" style="left:${pc(x.from)}%;width:${Math.max(0.5, pc(x.to) - pc(x.from))}%"></span>`).join('');
+  // every shot as a tick in time; the ones a scoped re-edit changes are lit
+  const slots = Array.isArray(r.slots) && r.slots.some((s) => s.end > s.start) ? r.slots : null;
+  const ticks = slots ? `<div class="ag2-ticks" aria-hidden="true">${slots.map((s) => `<i class="${s.changes ? 'on' : s.changes === false ? 'kept' : ''}" style="left:${pc(s.start)}%;width:${Math.max(0.2, pc(s.end) - pc(s.start))}%" title="${fmt(s.start)}${s.text ? ` - ${esc(s.text)}` : ''}"></i>`).join('')}</div>` : '';
   const shots = r.slots !== undefined ? count(r.slots) : acts.reduce((s, a) => s + count(a.shots), 0);
   const facts = [dur ? `<span><b>${fmt(dur)}</b> long</span>` : '', shots ? `<span><b>${shots}</b> shots</span>` : '', acts.length ? `<span><b>${acts.length}</b> acts</span>` : '',
     r.music ? `<span>${ic('music')}${esc(r.music.name || 'Music')}${r.music.bpm ? ` · <b>${Math.round(r.music.bpm)}</b> bpm` : ''}</span>` : '',
-    r.vo ? `<span>${ic('mic')}<b>${count(r.vo.lines)}</b> voice-over lines</span>` : ''].filter(Boolean).join('');
+    r.vo ? `<span>${ic('mic')}<b>${count(r.vo.lines)}</b> voice-over lines</span>` : '',
+    sc?.shots !== undefined ? `<span>${ic('target')}<b>${sc.shots}</b> change · <b>${sc.kept ?? 0}</b> kept</span>` : ''].filter(Boolean).join('');
+  const cap = (x) => String(x || '').replace(/^./, (c) => c.toUpperCase());
   const act = (a, i) => {
     const len = Math.max(0.1, (+a.end || 0) - (+a.start || 0)), lines = (a.lines || []).filter(Boolean);
     return `<div class="ag2-act" style="flex:${(len / dur).toFixed(4)} 1 0">
-      <div class="ag2-act-bar a${i % 4}"><b>${esc(a.label || `Act ${i + 1}`)}</b><small>${fmt(+a.start || 0)} · ${count(a.shots) ? `${count(a.shots)} shots` : fmt(len)}</small></div>
+      <div class="ag2-act-bar a${i % 4}"><b>${esc(cap(a.label) || `Act ${i + 1}`)}</b><small>${fmt(+a.start || 0)} · ${count(a.shots) ? `${count(a.shots)} shots` : fmt(len)}</small></div>
       ${lines.length ? `<ul>${lines.slice(0, 4).map((l) => `<li>${esc(l)}</li>`).join('')}${lines.length > 4 ? `<li class="more">+ ${lines.length - 4} more</li>` : ''}</ul>` : ''}</div>`;
   };
   return `<div class="ag2-plan-h"><b>Plan</b><div class="ag2-facts">${facts}</div><button type="button" class="link small" data-a="planclose">Hide</button></div>
-    ${acts.length ? `<div class="ag2-acts">${band}${acts.map(act).join('')}</div>` : ''}
+    ${acts.length ? `<div class="ag2-acts">${ticks ? '' : band}${acts.map(act).join('')}</div>${ticks}` : ''}
     ${scText ? `<p class="ag2-calm ag2-scope-note">${ic('target')}${esc(scText)} - everything else stays as it is.</p>` : ''}
     ${r.pending ? `<p class="ag2-calm">${ic('clock')}${esc(r.pending)}</p>` : ''}
+    ${!acts.length && !r.pending ? '<p class="ag2-calm">No outline yet - the agent plans it from the footage when it runs.</p>' : ''}
     ${r.warnings?.length ? `<ul class="ag2-warns">${r.warnings.map((w) => `<li>${ic('warn')}${esc(w)}</li>`).join('')}</ul>` : ''}`;
 }
 
@@ -414,7 +441,7 @@ export function openAgent(setBusy, { job = null, type = null } = {}) {
   const kit = wireBrief(body, {
     box, mode: 'new', opts: () => opts(),
     hooks: { type: { get: () => st.type, set: (v) => setType(v) } },
-    onResult: (r, err) => { body.querySelector('[data-understood]').innerHTML = understoodHTML(r, err); show(); },
+    onResult: (r, err) => { body.querySelector('[data-understood]').innerHTML = understoodHTML(r, err, kit.thinking); show(); },
   });
   // the kind follows a song / teaser the words asked for (the edit style alone would leave a reel's 9:16 and captions)
   const typeOf = { song: 'song', teaser: 'teaser' };
@@ -548,7 +575,7 @@ export function openAgent(setBusy, { job = null, type = null } = {}) {
       subtitles: f('subtitles').checked, style: f('style').value, title: f('title').value.trim(), endText: f('endText').value.trim(), names: f('names').value.trim(),
       styleName: f('styleName').value, notes: text,
       ...(f('editStyle').value === 'song' ? { songPart: f('songPart').value, lyricsOnScreen: f('lyricsOnScreen').checked, lyrics: f('lyrics').value.trim(), musicBest: false } : {}),
-      ...(text ? { intent: text } : {}), ...(c ? { constraints: c } : {}), ...(c?.keep ? { keep: c.keep } : {}),
+      ...(text ? { intent: text, intentApplied: true } : {}), ...(c ? { constraints: c } : {}), ...(c?.keep ? { keep: c.keep } : {}),
     };
   };
 
@@ -729,12 +756,17 @@ export function showReport() {
     const ids = S.project.agentOpts?.clips?.length ? S.project.agentOpts.clips : S.media.filter((m) => m.kind === 'video' || m.kind === 'image').map((m) => m.id);
     return ids.map((id) => S.mediaById[id]).filter((m) => m && (m.kind === 'video' || m.kind === 'image'));
   };
+  // a scoped re-edit: the shots outside what changed were kept as they were (dimmed); the shot size from the vision pass
+  const SIZE = { wide: 'Wide', medium: 'Mid', close: 'Close', xclose: 'Extreme close' };
+  const runs = r.scope?.runs || (r.scope?.kind === 'range' ? [r.scope] : null);
+  const kept = (s) => s.kept === true || (runs && s.end > s.start && !runs.some((x) => s.start < x.to && s.end > x.from));
   const story = () => {
     $('[data-story]', body).innerHTML = r.slots.map((s, i) => {
       const f = findClip(s.clipId), c = f?.clip, m = c && S.mediaById[c.mediaId];
       const pct = s.match === null || s.match === undefined ? null : Math.max(0, Math.min(100, Math.round(((s.match + 1) / 4) * 100)));
-      return `<button type="button" role="listitem" class="ag2-sb${s.weak ? ' weak' : ''}${f ? '' : ' gone'}${open === i ? ' on' : ''}" data-sb="${i}" title="${esc(s.text || m?.name || '')}">
-        <span class="th" style="${thumbAt(m, c?.in || 0)}"></span><i>${i + 1}</i>${s.weak ? `<em>${ic('warn')}</em>` : ''}
+      const tip = [s.text || m?.name || '', SIZE[s.size] ? `${SIZE[s.size]} shot` : '', s.beauty != null ? `beauty ${Math.round(s.beauty * 100)}%` : '', kept(s) ? 'kept from the last edit' : ''].filter(Boolean).join(' - ');
+      return `<button type="button" role="listitem" class="ag2-sb${s.weak ? ' weak' : ''}${f ? '' : ' gone'}${kept(s) ? ' kept' : ''}${open === i ? ' on' : ''}" data-sb="${i}" title="${esc(tip)}">
+        <span class="th" style="${thumbAt(m, c?.in || 0)}"></span><i>${i + 1}</i>${s.weak ? `<em>${ic('warn')}</em>` : ''}${SIZE[s.size] ? `<b>${SIZE[s.size]}</b>` : ''}
         <small>${esc((s.text || m?.name || (f ? '' : 'deleted')).slice(0, 38))}</small>${pct === null ? '' : `<span class="meterbar"><i style="width:${pct}%"></i></span>`}</button>`;
     }).join('');
   };

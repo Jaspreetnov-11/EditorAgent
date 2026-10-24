@@ -598,3 +598,17 @@ html.ui2[data-look="limelight"] .ag2-adv .ag-type span small { font-size: 11px; 
 .ag2-band { position: absolute; top: -3px; height: 46px; border-radius: 8px; z-index: 1; pointer-events: none; box-shadow: 0 0 0 2px #fff inset, 0 0 14px rgba(255,255,255,.35); background: rgba(255,255,255,.12); }
 .ag2-scope-note { color: #ffe08a; }
 .ag2-scope-note .lic { color: var(--accent, #ffc21a); }
+
+/* Plan: every shot as a tick in time (lit = changes in a scoped re-edit); the local model thinking */
+.ag2-ticks { position: relative; height: 8px; border-radius: 4px; background: #0a0a0c; box-shadow: 0 0 0 1px var(--hair, var(--line)) inset; overflow: hidden; }
+.ag2-ticks i { position: absolute; top: 1px; bottom: 1px; border-radius: 2px; background: #3a3a40; box-shadow: -1px 0 0 #0a0a0c; }
+.ag2-ticks i.kept { background: #2a2a2f; }
+.ag2-ticks i.on { background: var(--y-grad, var(--accent)); }
+.ag2-pill.think { color: var(--muted); background: #141417; box-shadow: 0 0 0 1px var(--hair-2, var(--line-2)) inset; }
+.ag2-pill.think .ag2-spin { width: 10px; height: 10px; border-width: 1.5px; }
+/* report storyboard: shot size and kept marks */
+.ag2-sb > b { position: absolute; right: 6px; top: 54px; padding: 0 5px; border-radius: 4px; background: rgba(0,0,0,.72); color: #ddd; font: 600 9.5px/15px var(--ui-font, inherit); text-transform: uppercase; letter-spacing: .04em; }
+.ag2-sb.kept .th { filter: saturate(.55) brightness(.8); }
+.ag2-sb.kept > i { background: rgba(60,60,66,.85); }
+.ag2-sb.kept { opacity: .5; }
+.ag2-sb.kept:hover, .ag2-sb.kept.on { opacity: 1; }

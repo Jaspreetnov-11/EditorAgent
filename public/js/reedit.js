@@ -200,7 +200,7 @@ export function openReedit(setBusy, { focus = null, changes = {} } = {}) {
   // ... plus the words: intent, the constraints read from them (on top of the edit's own) and what to keep
   const withWords = (n) => {
     const c = kit.parsed?.constraints, keep = f('keep').value;
-    return { ...n, intent: box.value.trim(), constraints: { ...(base.constraints || {}), ...(c || {}), keep, scope: getScope() }, keep };
+    return { ...n, intent: box.value.trim(), intentApplied: true, mode: 'reedit', constraints: { ...(base.constraints || {}), ...(c || {}), keep, scope: getScope() }, keep };
   };
   // what changed in the settings, in words (for "What will change" and for Claude)
   const nm = (k, v) => ((k === 'vo' || k === 'music') && v ? `"${S.mediaById[v]?.name || v}"` : k === 'target' && v ? `${v} s` : v === true ? 'on' : v === false ? 'off' : v === '' || v == null ? 'none' : String(v));
@@ -264,7 +264,7 @@ export function openReedit(setBusy, { focus = null, changes = {} } = {}) {
   const kit = wireBrief(body, {
     box, mode: 'reedit', opts: () => next(),
     onResult: (r, err) => {
-      body.querySelector('[data-understood]').innerHTML = understoodHTML(r, err);
+      body.querySelector('[data-understood]').innerHTML = understoodHTML(r, err, kit.thinking);
       if (!kit.manual.has('keep')) f('keep').value = r?.constraints?.keep || 'shots';
       scopeFromWords(r?.constraints?.scope);
       show();
