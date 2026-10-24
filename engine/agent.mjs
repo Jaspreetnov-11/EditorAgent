@@ -677,7 +677,11 @@ export function makeActs(total, energyAt = null, parts = null) {
 // by the quick Plan preview (which passes only what is cached and never waits for an analysis).
 export function planTimeline({ opts, vo, music, voSegs, voDur, sg, sty, report, log = () => {}, prior = null, quick = false, media = {} }) {
   let lead = vo ? 0.6 : 0;
-  const shot = sty ? clamp(sty.shots.median * 1.1, 0.6, 6) : PACE[opts.pace] || PACE.medium;
+  // a montage with no music has no beat to cut on: it gets the fast pace at least, and the user is told
+  const beatAsked = opts.editStyle === 'montage' || /\b(beat|beats|bit)\b|बीट/i.test(String(opts.intent || ''));
+  const pace = !music && !sty && beatAsked && opts.pace !== 'fast' ? 'fast' : opts.pace;
+  if (!music && beatAsked) report.warnings.push('Cuts on the beat were asked for, but no music is chosen - pick one under Music to cut on its beat');
+  const shot = sty ? clamp(sty.shots.median * 1.1, 0.6, 6) : PACE[pace] || PACE.medium;
   const C = opts.constraints || {};
   // "end mein logo": a photo called logo (or the one named) shown on an end card
   const logo = C.last?.logo ? (typeof C.last.logo === 'string' && media[C.last.logo]?.kind === 'image' ? media[C.last.logo] : Object.values(media).find((m) => m.kind === 'image' && /logo/i.test(m.name))) || null : null;
