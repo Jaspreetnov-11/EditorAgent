@@ -232,7 +232,7 @@ export function mountTimeline(el) {
   on('change', render);
   on('presence', decoratePeers);
   on('media', render);
-  on('select', render);
+  on('select', markSelection);
   on('playhead', () => { placePlayhead(); followPlayhead(); });
   render();
 }
@@ -434,6 +434,19 @@ function dupFrames(L) {
   }
   return out;
 }
+// ⚡ a click that only changes which clips are selected: their "selected" look is switched on the clips already drawn -
+// the whole timeline used to be built again (a 799-clip project: ~185 ms a click). patchRows puts it right on the next
+// full render. A selected clip not drawn yet (far along a long timeline) still gets a full render.
+function markSelection() {
+  if (!root || !S.project) return;
+  const shown = new Set();
+  for (const el of rowsEl.querySelectorAll('.clip[data-id]')) {
+    shown.add(el.dataset.id);
+    const on = S.sel.has(el.dataset.id);
+    if (el.classList.contains('sel') !== on) el.classList.toggle('sel', on);
+  }
+  if ([...S.sel].some((id) => !shown.has(id) && findClip(id))) render();
+}
 function renderNow() {
   if (!S.project || !root) return;
   syncBar();
@@ -465,7 +478,9 @@ function renderNow() {
 const AUTO_MAX = 2;
 function drawAuto() {
   const box = root && $('#tlAuto', root); if (!box) return;
-  const ts = S.project.trackState || {}, W = $('#tlCanvas', root).offsetWidth;
+  // (the width renderNow just set, read from its style: offsetWidth made the browser lay out the whole timeline here,
+  // before it was done changing it - 235 ms of a 345 ms zoom on a 799-clip project)
+  const cv = $('#tlCanvas', root), ts = S.project.trackState || {}, W = parseFloat(cv.style.width) || cv.offsetWidth;
   box.innerHTML = Object.entries(ts).filter(([id, st]) => st?.volKeys?.length && S.project.tracks[id]).map(([id, st]) => {
     const h = rowH(id), top = rowTop(id), y = (v) => (h - 6) * (1 - v / AUTO_MAX) + 3, k = st.volKeys;
     const pts = [[0, y(k[0].v)], ...k.map((p) => [p.t * S.zoom, y(p.v)]), [W, y(k[k.length - 1].v)]];
@@ -569,7 +584,9 @@ function patchRows(rows) {
     if (old.length === r.clips.length && old.every((c, k) => c[0] === r.clips[k][0]) && el.children.length === old.length) {
       r.clips.forEach((c, k) => {
         const node = el.children[k];
-        if (c[1] !== old[k][1] || node.style.transform || node.classList.contains('dragging')) node.outerHTML = c[1];
+        // (also when its "selected" look was switched on its own - markSelection - and is not what this render wants)
+        const selDiff = node.classList.contains('clip') && node.classList.contains('sel') !== /^<div class="clip[^"]*\ssel[\s"]/.test(c[1]);
+        if (c[1] !== old[k][1] || node.style.transform || node.classList.contains('dragging') || selDiff) node.outerHTML = c[1];
       });
     } else el.innerHTML = r.clips.map((c) => c[1]).join('');
     el.__clips = r.clips;
