@@ -299,7 +299,7 @@ export async function openAiDub(clipId = selClip()?.id) {
     const b = e.target; b.disabled = true;
     try {
       q('[data-st]').textContent = 'Listening…';
-      const job = await api('POST', `/api/transcribe?p=${enc(S.proj)}`, { mediaId: m.id, task: 'transcribe', lang: f('from').value, model: 'medium' });
+      const job = await api('POST', `/api/transcribe?p=${enc(S.proj)}`, { mediaId: m.id, task: 'transcribe', lang: f('from').value, model: 'large-v3-turbo' });
       const j = await watchJob(job.id, (x) => (q('[data-st]').textContent = `Listening… ${x.progress || 0}%`));
       const srt = await api('GET', `/api/subs/file?p=${enc(S.proj)}&name=${enc(j.result.subs)}`);
       lines = parseSrt(srt.text).filter((l) => l.end > tin && l.start < tout).map((l) => ({ ...l, orig: l.text }));

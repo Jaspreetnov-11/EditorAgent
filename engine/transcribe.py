@@ -27,7 +27,7 @@ def main():
     ap.add_argument("media")
     ap.add_argument("--lang", default="auto")
     ap.add_argument("--task", default="transcribe", choices=["transcribe", "translate"])
-    ap.add_argument("--model", default="large-v3")
+    ap.add_argument("--model", default="large-v3-turbo")
     ap.add_argument("--words", type=int, default=0)
     ap.add_argument("--max-chars", type=int, default=42)
     ap.add_argument("--prompt", default=None)

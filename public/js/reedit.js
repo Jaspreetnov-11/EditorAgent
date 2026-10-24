@@ -20,7 +20,7 @@ export function currentEditOpts() {
   const media = V1.filter((c) => c.type !== 'title'), avg = media.length ? media.reduce((s, c) => s + (c.dur || (c.out ?? 0) - (c.in || 0)), 0) / media.length : 2.8;
   const firstTitle = pj.tracks.V2.find((c) => c.type === 'title'), endCard = V1[V1.length - 1]?.type === 'title' ? V1[V1.length - 1] : null;
   return {
-    clips: footage, vo: pj.tracks.A1[0]?.mediaId || null, voLang: 'hi', whisperModel: 'medium',
+    clips: footage, vo: pj.tracks.A1[0]?.mediaId || null, voLang: 'hi', whisperModel: 'large-v3-turbo',
     music: pj.tracks.A2[0]?.mediaId || null, musicBest: true, keepSound: (pj.trackState.V1?.volume ?? 1) > 0.2, outline: '',
     aspect: pj.settings.aspect, pace: avg < 2.2 ? 'fast' : avg < 3.5 ? 'medium' : 'slow', target: Math.round(media.reduce((s, c) => s + (c.dur || (c.out ?? 0) - (c.in || 0)), 0)) || 30,
     autoColor: true, detectLog: true, subtitles: !!pj.subtitles?.file, style: V1.some((c) => c.transitionIn?.type && c.transitionIn.type !== 'cut') ? 'cinematic' : 'cuts',
@@ -47,7 +47,7 @@ export function openReedit(setBusy, { focus = null, changes = {} } = {}) {
         <div class="row-in"><select name="vo">${opt(audio(), o.vo, 'No voice-over')}</select><label class="btn small re-up">Upload new VO<input type="file" accept="audio/*,video/*" hidden name="voFile"></label></div>
         <small data-vonote></small></div>
         <label class="fld"><span>VO language</span><select name="voLang"><option value="hi">Hindi</option><option value="en">English</option><option value="auto">Auto-detect</option></select></label>
-        <label class="fld"><span>Listening accuracy</span><select name="whisperModel"><option value="small">Fast</option><option value="medium">Good</option><option value="large-v3">Best (slow)</option></select></label>
+        <label class="fld"><span>Listening accuracy</span><select name="whisperModel"><option value="small">Fast</option><option value="medium">Good</option><option value="large-v3-turbo">Best</option></select></label>
       </div></section>
       <section class="re-card"><header class="re-card-h"><b>Music &amp; sound</b><small>The beat sets the cuts</small></header><div class="fgrid">
         <div class="fld wide re-box${focus === 'music' ? ' hi' : ''}"><span>Music</span>

@@ -79,7 +79,7 @@ export async function runAgent(ctx) {
     const song = JSON.parse(fs.readFileSync(sj, 'utf8'));
     let segs = [], en = [];
     if (song.vocals && fs.existsSync(song.vocals) && opts.songLyrics !== false) {
-      const lang = opts.voLang && opts.voLang !== 'auto' ? opts.voLang : 'hi', model = opts.whisperModel || 'medium';
+      const lang = opts.voLang && opts.voLang !== 'auto' ? opts.voLang : 'hi', model = opts.whisperModel || 'large-v3-turbo';
       // (v3: the song heard in ~30 s pieces, each line on its own - see transcribe.py --song)
       const lj = path.join(dir, `lyrics3-${model}-${lang}.json`), le = path.join(dir, `lyrics3-${model}-${lang}.en.json`);
       if (!fs.existsSync(lj)) {
@@ -140,7 +140,7 @@ export async function runAgent(ctx) {
   }
   async function hearVo() {
     let voSegs = null, voDur = 0, srtFile = null;
-    const model = opts.whisperModel || 'medium';
+    const model = opts.whisperModel || 'large-v3-turbo';
     const lang = opts.voLang || 'hi';
     // a voice-over already heard (same file, model, language and names) is reused: re-edits start right away
     const key = crypto.createHash('sha1').update(JSON.stringify([vo.path, vo.size, vo.mtime, model, lang, opts.names || ''])).digest('hex').slice(0, 12);

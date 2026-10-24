@@ -259,7 +259,7 @@ async function cmdSong(id) {
   if (!fs.existsSync(sj)) { console.error('  hearing the song (beats, parts, voice)…'); const r = spawnSync('python', [path.join(ROOT, 'engine', 'song.py'), m.path, dir, sj], { encoding: 'utf8', env }); if (r.status !== 0) die(`song.py: ${r.stderr.slice(-300)}`); }
   const song = JSON.parse(fs.readFileSync(sj, 'utf8'));
   const lj = path.join(dir, 'lyrics3-medium-hi.json'), le = lj.replace('.json', '.en.json');
-  if (!fs.existsSync(lj) && song.vocals) { console.error('  hearing the lyrics…'); spawnSync('python', [path.join(ROOT, 'engine', 'transcribe.py'), song.vocals, '--lang', 'hi', '--model', 'medium', '--words', '4', '--song', '--out', path.join(dir, 'lyrics.srt'), '--json', lj, '--translate-json', le], { encoding: 'utf8', env }); }
+  if (!fs.existsSync(lj) && song.vocals) { console.error('  hearing the lyrics…'); spawnSync('python', [path.join(ROOT, 'engine', 'transcribe.py'), song.vocals, '--lang', 'hi', '--model', 'large-v3-turbo', '--words', '4', '--song', '--out', path.join(dir, 'lyrics.srt'), '--json', lj, '--translate-json', le], { encoding: 'utf8', env }); }
   const lyr = fs.existsSync(lj) ? JSON.parse(fs.readFileSync(lj, 'utf8')).segments : [];
   const en = fs.existsSync(le) ? JSON.parse(fs.readFileSync(le, 'utf8')).segments : [];
   out(`"${m.name}" ${r2(song.duration)}s, ${song.bpm} BPM, beat every ${r2(60 / song.bpm)}s, ${song.beats.length} beats, ${song.downbeats.length} bars`);

@@ -148,7 +148,7 @@ export function openDub(clipId, setBusy) {
     const b = e.target; b.disabled = true; b.textContent = 'Listening…';
     const task = body.querySelector('[name="task"]').value;
     try {
-      const job = await api('POST', `/api/transcribe?p=${enc(S.proj)}`, { mediaId: m.id, task: task === 'translate' ? 'translate' : 'transcribe', lang: body.querySelector('[name="lang"]').value, model: 'medium' });
+      const job = await api('POST', `/api/transcribe?p=${enc(S.proj)}`, { mediaId: m.id, task: task === 'translate' ? 'translate' : 'transcribe', lang: body.querySelector('[name="lang"]').value, model: 'large-v3-turbo' });
       const j = await watchJob(job.id, (x) => (body.querySelector('[data-st]').textContent = `Listening… ${x.progress || 0}%`));
       const srt = await api('GET', `/api/subs/file?p=${enc(S.proj)}&name=${enc(j.result.subs)}`);
       lines = parseSrt(srt.text).filter((l) => l.end > tin && l.start < tout);

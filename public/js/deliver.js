@@ -81,7 +81,7 @@ export function mountDeliver(el) {
         <label class="fld"><span>Spoken language</span><select id="trLang"><option value="hi">Hindi</option><option value="en">English</option><option value="auto">Auto-detect</option></select></label>
         <label class="fld"><span>Output</span><select id="trTask"><option value="transcribe">Same language</option><option value="translate">English (translate)</option></select></label>
         <label class="fld"><span>Caption style</span><select id="trWords"><option value="4">Reel: 4 words</option><option value="3">Reel: 3 words</option><option value="6">6 words</option><option value="0">Full sentences</option></select></label>
-        <label class="fld"><span>Accuracy</span><select id="trModel"><option value="large-v3">Best (slow)</option><option value="medium">Good</option><option value="small">Fast draft</option></select></label>
+        <label class="fld"><span>Accuracy</span><select id="trModel"><option value="large-v3-turbo" selected>Best</option><option value="medium">Good</option><option value="small">Fast draft</option></select></label>
         <label class="fld wide"><span>Names / script (improves spelling)</span><textarea id="trPrompt" rows="2" placeholder="MY Bharat, Viksit Bharat, Chhattisgarh, speaker names…"></textarea></label>
       </div>
       <button class="accent wide" id="trGo">Generate subtitles</button>

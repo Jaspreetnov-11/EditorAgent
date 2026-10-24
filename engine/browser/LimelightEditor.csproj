@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- 🖥 Limelight Editor.exe - the office's own window for the editor (Microsoft WebView2: the Edge engine already on
+       every Windows 10/11 PC, kept up to date by Windows). .NET Framework 4.8, also already on every PC: one small exe
+       plus the WebView2 DLLs, nothing else to install. Build: engine/browser/build.cmd -> tools/browser/ -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>Limelight Editor</AssemblyName>
+    <RootNamespace>LimelightEditor</RootNamespace>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <Version>1.0.0</Version>
+    <Product>Limelight Editor</Product>
+    <Company>Limelight</Company>
+    <Nullable>disable</Nullable>
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.*" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="LimelightEditor.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

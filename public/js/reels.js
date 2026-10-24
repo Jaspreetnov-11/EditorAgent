@@ -16,7 +16,7 @@ export function openReels(setBusy) {
       <div class="fgrid">
         <label class="fld wide"><span>Long video</span><select name="mediaId">${videos.map((m) => `<option value="${m.id}">${esc(m.name)} (${fmt(m.duration)})</option>`).join('')}</select></label>
         <label class="fld"><span>Spoken language</span><select name="lang"><option value="hi">Hindi</option><option value="en">English</option><option value="auto" selected>Auto-detect / Hinglish</option></select></label>
-        <label class="fld"><span>Listening accuracy</span><select name="model"><option value="small">Fast draft</option><option value="medium" selected>Good</option><option value="large-v3">Best (slow)</option></select></label>
+        <label class="fld"><span>Listening accuracy</span><select name="model"><option value="small">Fast draft</option><option value="medium">Good</option><option value="large-v3-turbo" selected>Best</option></select></label>
         <label class="fld"><span>How many reels</span><select name="count">${[1, 2, 3, 4, 5, 6, 8, 10].map((n) => `<option${n === 3 ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
         <label class="fld"><span>Length of each</span><select name="len">${LENGTHS.map(([v, l]) => `<option value="${v}"${v === '30-60' ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
         <label class="fld wide"><span>Topics / keywords to look for (optional) - also improves spelling</span><input name="keywords" placeholder="Viksit Bharat, yuva, startup, Chhattisgarh, speaker names…"></label>

@@ -1,0 +1,8 @@
+{
+  "_": "Limelight Editor.exe settings - change here, no rebuild needed. urls: tried in this order when one does not answer.",
+  "urls": ["https://editor.limelightcorp.in/", "http://Jaspreet/"],
+  "allowedHosts": ["editor.limelightcorp.in", "jaspreet", "localhost", "127.0.0.1"],
+  "allowedNets": ["192.168."],
+  "diskCacheGB": 20,
+  "devTools": false
+}

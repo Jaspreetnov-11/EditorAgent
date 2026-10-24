@@ -1316,10 +1316,47 @@ function lineNotes(kind) {
     w.job.events?.push({ at: Date.now(), k: 'wait', text: w.job.stage }); // (the Assistant shows it on its progress bar)
   });
 }
+// 🚦 for the whole editor, not per project worker: an agent edit or an AI fill takes its turn from the main process (4
+// workers each allowed 2 agents meant 8 at once on one 8 GB card). The main process keeps the line (slotTake); a turn
+// is renewed every minute and given back at the end - a worker that stopped loses its turns after 3 minutes.
+const GLOBAL_KINDS = new Set(['agent', 'inpaint']);
+const gl = { agent: { leases: new Map(), line: [] }, inpaint: { leases: new Map(), line: [] } };
+function slotTake(kind, key) {
+  const G = gl[kind], now = Date.now();
+  for (const [id, l] of G.leases) if (now - l.at > 3 * 60e3) G.leases.delete(id);
+  G.line = G.line.filter((x) => now - x.seen < 60e3);
+  let me = G.line.find((x) => x.key === key);
+  if (!me) G.line.push((me = { key, seen: now })); else me.seen = now;
+  const ahead = G.line.indexOf(me);
+  if (ahead === 0 && G.leases.size < SLOTS[kind]) { G.line.shift(); const id = crypto.randomBytes(8).toString('hex'); G.leases.set(id, { at: now, key }); return { lease: id }; }
+  return { ahead, running: G.leases.size };
+}
+async function remoteSlot(job) {
+  job.waiting = true; job.stage = 'Waiting for its turn on the editor…';
+  for (;;) {
+    if (job.cancelled || job.stopped) { job.waiting = false; return false; }
+    try {
+      const r = await fetch(`${APP_URL}/api/slot/take?kind=${job.kind}&key=${encodeURIComponent(`${WORKER_K}-${job.id}`)}`, { method: 'POST', signal: AbortSignal.timeout(40000) });
+      const j = await r.json();
+      if (j.lease) {
+        job.lease = j.lease; job.waiting = false; job.stage = 'Starting…';
+        job.leaseBeat = setInterval(() => fetch(`${APP_URL}/api/slot/renew?kind=${job.kind}&lease=${j.lease}`, { method: 'POST', signal: AbortSignal.timeout(10000) }).catch(() => {}), 60e3);
+        return true;
+      }
+      if (j.ahead !== undefined) { job.stage = `Waiting in line (${j.ahead ? `${j.ahead} ahead` : 'next'}) - ${j.running} running for others…`; job.events?.push({ at: Date.now(), k: 'wait', text: job.stage }); }
+    } catch { await sleep(2000); }
+  }
+}
+function remoteFree(job) {
+  clearInterval(job.leaseBeat);
+  if (job.lease) fetch(`${APP_URL}/api/slot/free?kind=${job.kind}&lease=${job.lease}`, { method: 'POST', signal: AbortSignal.timeout(10000) }).catch(() => {});
+  job.lease = null;
+}
 // resolves true with a slot, false when the job was stopped while it waited
 function takeSlot(job) {
   const kind = job.kind;
   if (!SLOTS[kind]) return Promise.resolve(false);
+  if (IS_WORKER && GLOBAL_KINDS.has(kind)) return remoteSlot(job);
   if (inUse[kind] < SLOTS[kind]) { inUse[kind]++; return Promise.resolve(true); }
   job.waiting = true;
   return new Promise((ok) => {
@@ -1354,7 +1391,7 @@ function startTask(kind, fn, meta = {}) {
     .catch((e) => { job.status = 'error'; job.log.push(String(e?.message || e)); })
     .finally(() => {
       job.ended = Date.now();
-      if (slot) freeSlot(kind);
+      if (job.lease) remoteFree(job); else if (slot) freeSlot(kind);
       if (kind === 'agent') pump();
     });
   return job;
@@ -2347,10 +2384,10 @@ async function runBatchItem(it) {
   const name = it.project, m = mediaItem(name, it.mediaId);
   if (!m) throw new Error('The clip is no longer in the project');
   const o = it.opts || {};
-  if (it.action === 'subs') return waitJob(await callRoute('POST /api/transcribe', name, { mediaId: m.id, lang: o.lang || 'auto', model: o.model || 'medium', words: o.words ?? 0 }), it);
+  if (it.action === 'subs') return waitJob(await callRoute('POST /api/transcribe', name, { mediaId: m.id, lang: o.lang || 'auto', model: o.model || 'large-v3-turbo', words: o.words ?? 0 }), it);
   if (it.action === 'transcript') {
     if (fs.existsSync(P(name, 'cache', 'transcripts', `${m.id}.json`))) return { skipped: 'already transcribed' };
-    return waitJob(await callRoute('POST /api/transcript', name, { mediaId: m.id, lang: o.lang || 'auto', model: o.model || 'medium' }), it);
+    return waitJob(await callRoute('POST /api/transcript', name, { mediaId: m.id, lang: o.lang || 'auto', model: o.model || 'large-v3-turbo' }), it);
   }
   if (it.action === 'scan') return waitJob(await callRoute('POST /api/footage/scan', name, { ids: [m.id] }), it);
   if (it.action === 'convert') {
@@ -2463,9 +2500,13 @@ sessions.ready = true;
 // passwords), the sign-in / sessions tracking and the team settings (/api/team…). Viewers still only watch.
 // (🧠 Claude is open to editors too, with its reading kept to the projects - see claudeRun)
 const OWNER_ONLY = [/^\/api\/team(\/|$)/, /^\/api\/safety(\/|$)/]; // (🛟 backups and restores: the owner's)
+// 🛡 also the owner's (only looking is open to editors): stopping the editor, the app's keys and settings, the render
+// farm's settings, and reading the whole NAS into the archive. Any editor could stop the office's editor before.
+const OWNER_CHANGES = [/^\/api\/shutdown$/, /^\/api\/settings(\/|$)/, /^\/api\/farm(\/|$)/, /^\/api\/archive\/(scan|roots)$/];
 function allowed(who, method, p) {
   if (who.role === 'owner') return true;
   if (/^\/api\/(me|lock|unlock|clientlog)$/.test(p)) return true;
+  if (method !== 'GET' && OWNER_CHANGES.some((r) => r.test(p))) return false;
   // (reading the settings only tells whether keys are set; the publish list and accounts show no tokens)
   if (OWNER_ONLY.some((r) => r.test(p))) return method === 'GET' && p === '/api/team/shortcut'; // (the shortcut is only a link)
   if (who.role === 'viewer') return method === 'GET';
@@ -4285,12 +4326,12 @@ const routes = {
     const dir = P(name, 'cache', 'transcripts'); fs.mkdirSync(dir, { recursive: true });
     const out = path.join(dir, `${m.id}.json`), tmp = path.join(dir, `${m.id}.part.json`);
     const args = [path.join(ROOT, 'engine', 'transcribe.py'), analysisFile(name, m), '--out', path.join(dir, `${m.id}.srt`), '--json', tmp,
-      '--lang', b.lang || 'auto', '--model', b.model || 'medium', '--words', '99']; // > 0: every word with its time (the SRT is not used)
+      '--lang', b.lang || 'auto', '--model', b.model || 'large-v3-turbo', '--words', '99']; // > 0: every word with its time (the SRT is not used)
     if (b.prompt) args.push('--prompt', b.prompt);
     return startJob('transcript', PYTHON, args, () => {
       const j = readJSON(tmp, null);
       if (!j) throw new Error('No transcript was written');
-      writeJSON(out, { ...j, model: b.model || 'medium', mediaId: m.id, at: Date.now() });
+      writeJSON(out, { ...j, model: b.model || 'large-v3-turbo', mediaId: m.id, at: Date.now() });
       fs.rmSync(tmp, { force: true }); fs.rmSync(path.join(dir, `${m.id}.srt`), { force: true });
       return { mediaId: m.id, segments: j.segments.length };
     }, { project: name, label: m.name, helper: { proj: name, tool: 'transcribe', inputs: [analysisFile(name, m)], outs: [path.join(dir, `${m.id}.srt`), tmp] } });
@@ -5261,7 +5302,7 @@ const routes = {
     let srt = `${base}${b.task === 'translate' ? '.en' : ''}.srt`;
     for (let i = 1; fs.existsSync(P(name, 'subs', srt)); i++) srt = `${base}${b.task === 'translate' ? '.en' : ''}_${i}.srt`;
     const args = [path.join(ROOT, 'engine', 'transcribe.py'), src, '--out', P(name, 'subs', srt),
-      '--lang', b.lang || 'auto', '--task', b.task || 'transcribe', '--model', b.model || 'large-v3', '--words', String(+b.words || 0)];
+      '--lang', b.lang || 'auto', '--task', b.task || 'transcribe', '--model', b.model || 'large-v3-turbo', '--words', String(+b.words || 0)];
     if (b.prompt) args.push('--prompt', b.prompt);
     // json: the sentences with each word's time (Captions panel: karaoke captions)
     const json = b.json ? srt.replace(/\.srt$/, '.json') : null;
@@ -5330,7 +5371,8 @@ const routes = {
     return { ok: true };
   },
   // 🖥 render farm: on / off and the workers (owner); render2.mjs hands a shot to the farm and waits for it
-  'GET /api/farm': () => farmView(),
+  // (the farm's token - which lets a PC join as a helper and fetch the work's files - only for the owner)
+  'GET /api/farm': (req) => { const v = farmView(); if (req.who && req.who.role !== 'owner') v.token = null; return v; },
   'PUT /api/farm': async (req) => {
     const b = await readJson(req);
     if (b.newToken) { saveFarm({ token: crypto.randomBytes(12).toString('hex') }); for (const t of farm.tasks.values()) farmEnd(t, new Error('Token changed')); farm.workers.clear(); }
@@ -5431,6 +5473,20 @@ const routes = {
     const from = +q(u, 'from') || 0;
     return { status: j.status, events: (j.events || []).slice(from), next: (j.events || []).length, error: j.status === 'error' ? j.log.slice(-1)[0] : null };
   },
+  // 🚦 turns for the whole editor (agent edits, AI fill): asked by the project workers on this PC only. take waits up to
+  // 25 s for a turn, then says where in the line it is (the worker asks again)
+  'POST /api/slot/take': async (req, res, u) => {
+    if (!req.who?.local) throw err(403, 'Only the editor itself takes turns');
+    const kind = q(u, 'kind'), key = q(u, 'key'), wait = Math.min(25000, Math.max(0, +(q(u, 'wait') ?? 25000)));
+    if (!gl[kind] || !key) throw err(400, 'kind and key');
+    for (const t0 = Date.now(); ; await sleep(500)) {
+      const r = slotTake(kind, key);
+      if (r.lease || Date.now() - t0 >= wait || res.destroyed) return r;
+    }
+  },
+  'POST /api/slot/renew': (req, res, u) => { if (!req.who?.local) throw err(403, 'Only the editor itself'); const l = gl[q(u, 'kind')]?.leases.get(q(u, 'lease')); if (l) l.at = Date.now(); return { ok: !!l }; },
+  'POST /api/slot/free': (req, res, u) => { if (!req.who?.local) throw err(403, 'Only the editor itself'); return { ok: !!gl[q(u, 'kind')]?.leases.delete(q(u, 'lease')) }; },
+  'GET /api/slot': () => Object.fromEntries(Object.entries(gl).map(([k, G]) => [k, { limit: SLOTS[k], running: G.leases.size, waiting: G.line.length }])),
   'POST /api/claude/stop': (req, res, u) => { const j = jobs.get(q(u, 'id')); if (j) j.stopped = true; if (j && !leaveLine(j) && j.proc) killTree(j.proc); return { ok: true }; },
   // 📎 a reference for Claude (Assistant): kept in cache/claude/refs, NOT in the media pool - its shots never go on the edit
   'POST /api/claude/ref': (req, res, u) => new Promise((ok, bad) => {
@@ -5465,14 +5521,16 @@ const routes = {
       // re-import when the file changes, so agent improvements apply without restarting the editor
       const agentFile = path.join(ROOT, 'engine', 'agent.mjs');
       const { runAgent } = await import(`./engine/agent.mjs?v=${Math.round(fs.statSync(agentFile).mtimeMs)}`);
-      const log = (m) => { job.log.push(m); job.stage = m; };
+      // (⏹ Stop: the agent's next step (it logs or reports progress often) ends the run - it used to carry on to the end)
+      const stopCheck = () => { if (job.stopped) throw new Error('Stopped by you'); };
+      const log = (m) => { stopCheck(); job.log.push(m); job.stage = m; };
       const mediaNow = () => Object.fromEntries(mediaDb(name).items.map((m) => [m.id, { ...m, proxyPath: m.proxy === 'ready' ? P(name, 'cache', 'proxies', `${m.id}.mp4`) : null }]));
       // 🖥 helper PCs on: each clip's analysis (FFmpeg) goes to whichever helper is free - spread over all of them, not
       // only this project's PC - and as many clips at once as they have slots; one no helper takes is done here
       const caps = await helpersOn();
       const remote = caps.heavy > 0 ? (args, { inputs, outs }) => runMedia(name, 'ffmpeg', args, { inputs, outs, lane: 'heavy', tag: 'agent', spread: true, fullErr: true, helperOnly: true, waitSec: 20, limitSec: 900 }) : null;
       const go = (o, scale = [0, 100]) => runAgent({ opts: o, media: mediaNow(), cacheDir: P(name, 'cache'), subsDir: P(name, 'subs'), python: PYTHON, root: ROOT, luts: lutMap(name), remote, lanes: () => caps.heavy,
-        log, skips: () => job.skips || 0, progress: (p) => { job.progress = Math.round(scale[0] + (p / 100) * (scale[1] - scale[0])); } });
+        log, skips: () => job.skips || 0, progress: (p) => { stopCheck(); job.progress = Math.round(scale[0] + (p / 100) * (scale[1] - scale[0])); } });
       const o = { ...opts };
       // reference video: its cutting style is copied (engine/refstyle.mjs) but never its shots
       if (o.reference) {

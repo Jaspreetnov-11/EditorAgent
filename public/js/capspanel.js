@@ -168,7 +168,7 @@ async function generate(src) {
     if (src === 'vo') {
       clip = S.project.tracks.A1.find((x) => S.mediaById[x.mediaId]);
       status('Listening…');
-      const job = await api('POST', `/api/transcribe?p=${enc(S.proj)}`, { mediaId: clip.mediaId, lang, model: 'medium', words: n, json: true });
+      const job = await api('POST', `/api/transcribe?p=${enc(S.proj)}`, { mediaId: clip.mediaId, lang, model: 'large-v3-turbo', words: n, json: true });
       segs = (await watchJob(job.id, (x) => status(`Listening ${x.progress || 0}%`))).result.segments;
       offset = (clip.start || 0) - (clip.in || 0);
     } else {
@@ -176,7 +176,7 @@ async function generate(src) {
       const pj = await api('POST', `/api/render?p=${enc(S.proj)}`, { project: { ...S.project, captions: { ...cap(), on: false, tracks: [] } }, preview: true });
       const pr = (await watchJob(pj.id, (x) => status(`Mixing ${x.progress || 0}%`))).result;
       status('Listening…');
-      const job = await api('POST', `/api/transcribe?p=${enc(S.proj)}`, { render: pr.output, lang, model: 'medium', words: n, json: true });
+      const job = await api('POST', `/api/transcribe?p=${enc(S.proj)}`, { render: pr.output, lang, model: 'large-v3-turbo', words: n, json: true });
       segs = (await watchJob(job.id, (x) => status(`Listening ${x.progress || 0}%`))).result.segments;
     }
     let cues = cuesFromSegments(segs, n, offset);

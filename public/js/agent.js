@@ -65,7 +65,7 @@ export function openAgent(setBusy) {
         <div class="fld wide"><span>Voice-over (shots will follow what is said)</span>
           <div class="row-in"><select name="vo"></select><label class="btn small re-up">Upload VO<input type="file" accept="audio/*,video/*" hidden name="voFile"></label><button type="button" class="btn small" data-a="aivo">AI voice-over…</button></div></div>
         <label class="fld"><span>VO language</span><select name="voLang"><option value="hi">Hindi</option><option value="en">English</option><option value="auto">Auto-detect</option></select></label>
-        <label class="fld"><span>Listening accuracy</span><select name="whisperModel"><option value="small">Fast</option><option value="medium" selected>Good</option><option value="large-v3">Best (slow)</option></select></label>
+        <label class="fld"><span>Listening accuracy</span><select name="whisperModel"><option value="small">Fast</option><option value="medium">Good</option><option value="large-v3-turbo" selected>Best</option></select></label>
         <div class="fld wide"><span>Music</span>
           <div class="row-in"><select name="music"></select><label class="btn small re-up">Upload music<input type="file" accept="audio/*" hidden name="musicFile"></label></div></div>
         <label class="chk"><input type="checkbox" name="musicBest" checked> Use the best part of the music, cut on the beat</label>
@@ -365,8 +365,15 @@ function progressDialog(jobId = null) {
   const steps = ['Analysing clips', 'Listening to the voice-over', 'Looking at the footage', 'Choosing the best moments', 'Colour-correcting'];
   const SKIP = 'Skip - edit with the clips looked at so far';
   const body = h(`<div class="ag-prog"><div class="ag-pct"><b data-pct>0%</b><span class="muted" data-eta>starting…</span></div><div class="bar"><div></div></div><ol>${steps.map((s) => `<li>${s}</li>`).join('')}</ol><p class="muted small" data-msg></p>
-    ${jobId ? `<div class="row-in" data-skiprow hidden><button type="button" class="small accent" data-skip>${SKIP}</button></div><small class="muted" data-skiprow hidden>Clips already looked at are remembered, so the next run starts from them.</small>` : ''}</div>`);
+    ${jobId ? `<div class="row-in" data-skiprow hidden><button type="button" class="small accent" data-skip>${SKIP}</button></div><small class="muted" data-skiprow hidden>Clips already looked at are remembered, so the next run starts from them.</small>` : ''}
+    ${jobId ? '<div class="row-in"><button type="button" class="small" data-stop>Stop the agent</button></div>' : ''}</div>`);
   const d = modal('Agent is editing', body, { width: 460 });
+  // ⏹ stops the run at its next step (clips looked at so far are remembered for the next run)
+  const st = body.querySelector('[data-stop]');
+  if (st) st.onclick = async () => {
+    st.disabled = true; st.textContent = 'Stopping…';
+    await api('POST', `/api/claude/stop?id=${enc(jobId)}`).catch((e) => { toast(e.message, 'err'); st.disabled = false; st.textContent = 'Stop the agent'; });
+  };
   const sk = body.querySelector('[data-skip]');
   if (sk) sk.onclick = async () => {
     sk.disabled = true; sk.textContent = 'Skipping…';

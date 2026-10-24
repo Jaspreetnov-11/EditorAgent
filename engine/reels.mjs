@@ -35,7 +35,7 @@ export async function findReels(ctx) {
   fs.mkdirSync(dir, { recursive: true });
 
   // 1. words
-  const model = opts.model || 'medium', lang = opts.lang || 'auto';
+  const model = opts.model || 'large-v3-turbo', lang = opts.lang || 'auto';
   const tjson = path.join(dir, `${m.id}-${lang}-${model}.json`);
   let tr = null;
   try { tr = JSON.parse(fs.readFileSync(tjson, 'utf8')); if (tr.mtime !== m.mtime) tr = null; } catch {}

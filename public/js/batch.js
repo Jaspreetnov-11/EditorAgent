@@ -23,7 +23,7 @@ export function openBatch(selected = []) {
         <label class="chk"><input type="checkbox" data-a="scan"> Smart scan (tags, search, bad clips)</label>
         <label class="chk"><input type="checkbox" data-a="convert"> Render each clip on its own</label>
         <div class="fgrid"><label class="fld"><span>Language</span><select data-lang><option value="auto">Auto</option><option value="hi">Hindi</option><option value="en">English</option></select></label>
-          <label class="fld"><span>Accuracy</span><select data-model><option value="small">Fast</option><option value="medium" selected>Good</option><option value="large-v3">Best</option></select></label>
+          <label class="fld"><span>Accuracy</span><select data-model><option value="small">Fast</option><option value="medium">Good</option><option value="large-v3-turbo" selected>Best</option></select></label>
           <label class="fld"><span>Render as</span><select data-preset>${PRESETS.map((p) => `<option value="${p.id}"${p.id === 'whatsapp' ? ' selected' : ''}>${esc(p.label)}</option>`).join('')}</select></label>
           <label class="fld"><span>Shape</span><select data-aspect><option value="">Each clip's own</option><option>16:9</option><option>9:16</option><option>1:1</option><option>4:5</option></select></label></div>
         <label class="chk"><input type="checkbox" data-logo checked> Project logo on renders</label>

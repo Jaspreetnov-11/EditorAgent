@@ -32,7 +32,7 @@ export function openScriptEdit(setBusy) {
         <div class="fld wide"><span>Recorded voice-over (optional - without it the script's timing is used)</span>
           <div class="row-in"><select name="vo"><option value="">No recording yet</option>${audio.map((m) => `<option value="${m.id}">${esc(m.name)} (${fmt(m.duration)})</option>`).join('')}</select><label class="btn small">Upload VO<input type="file" hidden name="voFile" accept="audio/*,video/*"></label></div></div>
         <label class="fld"><span>VO language</span><select name="voLang"><option value="hi">Hindi</option><option value="en">English</option><option value="auto">Auto-detect</option></select></label>
-        <label class="fld"><span>Listening accuracy</span><select name="whisperModel"><option value="small">Fast</option><option value="medium" selected>Good</option><option value="large-v3">Best (slow)</option></select></label>
+        <label class="fld"><span>Listening accuracy</span><select name="whisperModel"><option value="small">Fast</option><option value="medium">Good</option><option value="large-v3-turbo" selected>Best</option></select></label>
         <div class="fld wide"><span>Music</span>
           <div class="row-in"><select name="music"><option value="">No music</option>${audio.map((m) => `<option value="${m.id}">${esc(m.name)} (${fmt(m.duration)})</option>`).join('')}</select><label class="btn small">Upload music<input type="file" hidden name="musicFile" accept="audio/*"></label></div></div>
       </div>

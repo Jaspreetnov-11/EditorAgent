@@ -22,7 +22,7 @@ export function mountText(el) {
   el.innerHTML = `<div class="tx">
     <div class="tx-bar">
       <span class="tx-st" data-st></span><span class="grow"></span>
-      <select data-model title="Accuracy"><option value="small">Fast draft</option><option value="medium" selected>Good</option><option value="large-v3">Best (slow)</option></select>
+      <select data-model title="Accuracy"><option value="small">Fast draft</option><option value="medium">Good</option><option value="large-v3-turbo" selected>Best</option></select>
       <select data-lang title="Spoken language"><option value="auto">Auto language</option><option value="hi">Hindi</option><option value="en">English</option></select>
       <button class="accent small" data-go-tr>Transcribe</button>
       <span class="sep"></span>
