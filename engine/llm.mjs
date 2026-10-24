@@ -13,11 +13,16 @@ import crypto from 'node:crypto';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
-const BIN_DIR = process.env.LLAMA_DIR || path.join(ROOT, 'tools', 'llama', 'bin');
-const MODEL = process.env.LLM_MODEL || path.join(ROOT, 'Models', 'llm', 'Qwen2.5-7B-Instruct-Q4_K_M.gguf');
+// (a helper / standby PC has no tools or Models folder: "Setup AI on this PC.bat" copies them from the NAS to
+// %LOCALAPPDATA%\Limelight\AI - looked at when the editor's own copy is not there)
+const LOCAL_AI = path.join(process.env.LOCALAPPDATA || '', 'Limelight', 'AI');
+const pick = (...c) => c.find((f) => fs.existsSync(f)) || c[0];
+const BIN_DIR = process.env.LLAMA_DIR || pick(path.join(ROOT, 'tools', 'llama', 'bin'), path.join(LOCAL_AI, 'llama', 'bin'));
+const MODEL = process.env.LLM_MODEL || pick(path.join(ROOT, 'Models', 'llm', 'Qwen2.5-7B-Instruct-Q4_K_M.gguf'), path.join(LOCAL_AI, 'llm', 'Qwen2.5-7B-Instruct-Q4_K_M.gguf'));
 const HOST = '127.0.0.1', PORT = +process.env.LLM_PORT || 8085, BASE = `http://${HOST}:${PORT}`;
-const PID_FILE = path.join(ROOT, 'tools', 'llama', 'llama-server.pid');
-const LOG_FILE = path.join(ROOT, 'tools', 'llama', 'llama-server.log');
+const RUN_DIR = path.dirname(BIN_DIR); // (tools/llama, or the helper's copy - the pid and log live beside the binaries)
+const PID_FILE = path.join(RUN_DIR, 'llama-server.pid');
+const LOG_FILE = path.join(RUN_DIR, 'llama-server.log');
 const IDLE_MS = +process.env.LLM_IDLE_MS || 5 * 60 * 1000;
 const CTX = 4096;
 // GPU memory, measured on the RTX 4060 (b11846, -c 4096): CUDA context + compute buffers ~300 MB with no layers on the

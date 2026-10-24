@@ -27,11 +27,16 @@ import threading
 import queue
 
 # the model is normally downloaded already: load it without asking the internet; if it is not there yet, it is
-# downloaded on the first load (into Models/hf)
+# downloaded on the first load (into Models/hf). A helper PC has no Models folder: "Setup AI on this PC.bat" copies the
+# models from the NAS to %LOCALAPPDATA%\Limelight\AI, which is looked at too.
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-os.environ.setdefault("HF_HOME", os.path.join(ROOT, "Models", "hf"))
-os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 MODEL_ID = "google/siglip-base-patch16-256-multilingual"
+def _has_model(home):
+    return os.path.isdir(os.path.join(home, "hub", "models--" + MODEL_ID.replace("/", "--"), "snapshots"))
+_homes = [os.path.join(ROOT, "Models", "hf"), os.path.join(os.environ.get("LOCALAPPDATA", ""), "Limelight", "AI", "hf")]
+if "HF_HOME" not in os.environ or not _has_model(os.environ["HF_HOME"]):
+    os.environ["HF_HOME"] = next((h for h in _homes if _has_model(h)), _homes[0])
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 if os.path.isdir(os.path.join(os.environ["HF_HOME"], "hub", "models--" + MODEL_ID.replace("/", "--"), "snapshots")):
     os.environ["HF_HUB_OFFLINE"] = "1"  # (set before transformers is imported - it reads this once)
 MODEL_TAG = "siglip-multilingual"

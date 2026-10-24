@@ -80,7 +80,7 @@ const gpu = (() => { const r = spawnSync('nvidia-smi', ['--query-gpu=name', '--f
 const PY = opt('python', ['python', 'py'].find((b) => works(b, ['--version'])) || '');
 const PROBE = [
   'import importlib.util as u, json',
-  "r = {m: bool(u.find_spec(m)) for m in ('cv2', 'torch', 'torchvision', 'faster_whisper', 'ctranslate2')}",
+  "r = {m: bool(u.find_spec(m)) for m in ('cv2', 'torch', 'torchvision', 'faster_whisper', 'ctranslate2', 'transformers', 'easyocr')}",
   "if r['torch']:",
   '    import torch',
   "    r['cuda'] = torch.cuda.is_available()",
@@ -92,7 +92,11 @@ const PROBE = [
 const pyHas = (() => { if (!PY) return {}; const r = spawnSync(PY, ['-c', PROBE], { encoding: 'utf8', windowsHide: true, timeout: 120000 }); try { return r.status === 0 ? JSON.parse(r.stdout.trim().split(/\r?\n/).pop()) : {}; } catch { return {}; } })();
 const whisper = !!(pyHas.faster_whisper && pyHas.ct2cuda);
 const SPECS = { cores: os.cpus().length, cpu: os.cpus()[0]?.model.trim() || '', ramGB: Math.round(os.totalmem() / 2 ** 30), gpu, nvenc: NVENC, ffprobe: works(FFPROBE, ['-hide_banner', '-version']), render: false, whisper,
-  torch: !!(pyHas.torch && pyHas.torchvision && pyHas.cuda && pyHas.cv2), cv2: !!pyHas.cv2 };
+  torch: !!(pyHas.torch && pyHas.torchvision && pyHas.cuda && pyHas.cv2), cv2: !!pyHas.cv2, vision2: false };
+// 🧠 the Agent's vision model (SigLIP, engine/vision2.py): the Python libraries plus the model, copied from the NAS by
+// 'Setup AI on this PC.bat' into %LOCALAPPDATA%\Limelight\AI\hf - this PC can then analyse clips for the Agent
+SPECS.vision2 = !!(SPECS.torch && pyHas.transformers && pyHas.easyocr
+  && fs.existsSync(path.join(process.env.LOCALAPPDATA || '', 'Limelight', 'AI', 'hf', 'hub', 'models--google--siglip-base-patch16-256-multilingual', 'snapshots')));
 const AI = whisper || SPECS.torch;
 
 // 🖥 when this PC's own user is busy on it (the CPU above 80% while it runs nothing for the editor), it stops taking work

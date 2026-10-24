@@ -53,7 +53,7 @@ const python = () => (pythonExe ||= process.env.VEDIT_PYTHON || ['python', 'pyth
 function start() {
   if (worker) { clearTimeout(worker.idle); return worker; }
   const p = spawn(python(), [path.join(ROOT, 'engine', 'vision2.py')], { cwd: ROOT, windowsHide: true,
-    env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1', HF_HOME: process.env.VISION2_HF_HOME || path.join(ROOT, 'Models', 'hf') } });
+    env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1', ...(process.env.VISION2_HF_HOME ? { HF_HOME: process.env.VISION2_HF_HOME } : {}) } }); // (vision2.py finds the model: Models/hf, else a helper PC's %LOCALAPPDATA%\Limelight\AI\hf)
   p.stdout.setEncoding('utf8'); // (a Hindi letter split between two chunks must not turn into junk)
   const w = { p, waiting: [], cur: null, out: '', err: '' };
   const next = () => { if (w.cur || !w.waiting.length) return; w.cur = w.waiting.shift(); p.stdin.write(`${JSON.stringify(w.cur.req)}\n`); };
