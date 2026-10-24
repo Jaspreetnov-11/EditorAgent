@@ -14,6 +14,8 @@ import { templateById } from './templates.js';
 import { CUTFX } from './fx.js';
 import { openVoiceOver, openDub } from './voiceover.js';
 import { autoSoundDesign, removeSoundDesign } from './sfxui.js';
+import { promptChips, openPromptGuide } from './promptguide.js';
+import { icon } from './ui2.js';
 
 let root, setBusy, busy = false;
 const log = []; // { who: 'me' | 'ai' | 'tool' | 'err', text }
@@ -36,7 +38,8 @@ export function mountAssistant(busyFn) {
     <div class="as-quick">${QUICK.map(([l, c]) => `<button class="chip" data-cmd="${esc(c)}">${l}</button>`).join('')}</div>
     <div class="as-log" aria-live="polite"></div>
     <div class="as-refs" hidden></div>
-    <form class="as-in"><label class="icon-btn as-att" title="Attach a reference video or photo - Claude takes it apart and makes the same edit with your footage">${ic('attach')}<input type="file" hidden accept="video/*,image/*,.mxf,.mts"></label><textarea rows="2" placeholder="e.g. music dheema karo aur color thoda warm kar do"></textarea><button class="primary" type="submit">Send</button></form>
+    <div class="as-ideas" hidden><div class="as-ideas-top"><b>Ideas - click one to put it in the box</b><span class="grow"></span><button type="button" class="link small" data-guide>Tips & what each option does</button></div><div data-ideas></div></div>
+    <form class="as-in"><button type="button" class="icon-btn as-idea" data-ideasbtn aria-expanded="false" title="Ideas: example prompts in Hinglish and English, and tips for a good brief">${icon('idea')}</button><label class="icon-btn as-att" title="Attach a reference video or photo - Claude takes it apart and makes the same edit with your footage">${ic('attach')}<input type="file" hidden accept="video/*,image/*,.mxf,.mts"></label><textarea rows="2" placeholder="e.g. music dheema karo aur color thoda warm kar do"></textarea><button class="primary" type="submit">Send</button></form>
   </aside>`);
   document.body.append(root);
   const ta = $('textarea', root);
@@ -62,6 +65,9 @@ export function mountAssistant(busyFn) {
     if (e.target.closest('[data-newchat]')) newChat();
     if (e.target.closest('[data-clstop]') && cl.job) api('POST', `/api/claude/stop?id=${cl.job}`).catch(() => {});
     if (e.target.closest('[data-clrecheck]')) checkClaude(true);
+    if (e.target.closest('[data-ideasbtn]')) showIdeas($('.as-ideas', root).hidden);
+    if (e.target.closest('[data-guide]')) openPromptGuide({ box: ta, quickOnly: cl.mode === 'quick' });
+    if (e.target.closest('.as-ideas [data-fill]')) showIdeas(false);
   });
   $('[data-chats]', root).onchange = (e) => openChat(e.target.value);
   on('openProject', () => { chatsFor = null; log.length = 0; draw(); }); // (the next project's chats load when it is open)
@@ -80,6 +86,13 @@ export function toggleAssistant(show = root.hidden) {
 }
 
 function say(text, who = 'ai') { log.push({ who, text }); draw(); }
+
+// 💡 the ideas above the box: example prompts for the mode in use (Quick shows only what it understands)
+function showIdeas(show) {
+  const p = $('.as-ideas', root);
+  p.hidden = !show; $('[data-ideasbtn]', root).setAttribute('aria-expanded', String(show));
+  if (show) $('[data-ideas]', p).replaceChildren(promptChips(() => $('textarea', root), { quickOnly: cl.mode === 'quick' }));
+}
 
 // 🗂 chat history: the last CHATS_KEPT conversations of each project stay in this browser (they used to vanish on a
 // refresh or New chat). Each remembers Claude's session, so going back to one lets Claude carry on where it was.
@@ -145,6 +158,7 @@ function setMode(m, save = true) {
   $$('[data-mode]', root).forEach((b) => b.classList.toggle('on', b.dataset.mode === cl.mode));
   $('.as-quick', root).hidden = cl.mode === 'claude';
   $('[data-newchat]', root).hidden = cl.mode !== 'claude';
+  if (!$('.as-ideas', root).hidden) showIdeas(true); // (the ideas of the other mode)
   drawChats();
   $('textarea', root).placeholder = cl.mode === 'claude' ? 'e.g. make a 60 sec reel of this song from the chorus, with lyrics' : 'e.g. music dheema karo aur color thoda warm kar do';
   if (cl.mode === 'claude' && !root.hidden) checkClaude(); else $('[data-clinfo]', root).hidden = true;

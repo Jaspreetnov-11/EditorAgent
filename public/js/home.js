@@ -12,6 +12,7 @@ const FOLDER_SVG = '<svg class="pf-ic" viewBox="0 0 48 40" aria-hidden="true"><p
 import { openTeam } from './team.js';
 import { openSessions } from './sessionsui.js';
 import { tagChips, tagColor, editTags } from './tags.js';
+import { mountHomeStart } from './starthere.js';
 
 // 🏷 project tags: search box + tag chips above the grid (kept while Home is open); a tag just changed here is shown at
 // once (the list from the server catches up a moment later)
@@ -86,6 +87,7 @@ export async function renderHome(el, openProject) {
         <div class="proj-info"><b>${esc(p.name)}</b>${tagsOf(p).length ? `<span class="proj-tags">${tagChips(tagsOf(p))}</span>` : ''}${inF(p) && cur === 'all' ? `<small class="pf-tag">${esc(pf.folders.find((f) => f.id === inF(p))?.name || '')}</small>` : ''}<small>${p.duration ? `${fmt(p.duration)} · ` : ''}${p.clips} clips · ${p.media} media</small>${p.place ? `<small class="mono" title="Saved in ${esc(p.place)}">${esc(p.place)}</small>` : ''}
         <small>${new Date(p.modified).toLocaleString()}</small>${p.by && !mine(p) ? `<small class="proj-by">${ic('team')} shared by ${esc(p.by)}</small>` : (owner || me.local) && p.by ? `<small class="proj-by">${ic('team')} ${esc(p.by)}${p.shared?.length ? ` · shared with ${esc(p.shared.join(', '))}` : ''}</small>` : p.shared?.length ? `<small class="proj-by">${ic('team')} shared with ${esc(p.shared.join(', '))}</small>` : ''}</div>
         <div class="proj-btns">${mine(p) ? `<button class="icon-btn" data-share="${esc(p.name)}" title="Share with team members (they see it and can edit it with you)" aria-label="Share ${esc(p.name)}">${ic('team')}</button>` : ''}<button class="icon-btn" data-ptag="${esc(p.name)}" title="Tags (labels to find it by - client, kind of work, status…)" aria-label="Tags of ${esc(p.name)}">${ic('tag')}</button>${me.role !== 'viewer' ? `<button class="icon-btn" data-ren="${esc(p.name)}" title="Rename project" aria-label="Rename ${esc(p.name)}">${ic('edit')}</button>` : ''}<button class="icon-btn" data-move="${esc(p.name)}" title="Move to a folder (or drag the card onto a folder above)" aria-label="Move ${esc(p.name)} to a folder">${icon('folderMove')}</button><button class="icon-btn" data-folder="${esc(p.name)}" title="Open project folder" aria-label="Open folder of ${esc(p.name)}">${icon('folder')}</button>${owner ? `<button class="icon-btn proj-del" data-del="${esc(p.name)}" title="Delete project (to the Recycle Bin, or for good)" aria-label="Delete ${esc(p.name)}">${icon('trash')}</button>` : ''}</div></div>`).join('');
+    mountHomeStart(el, list0.length, () => newProjectDialog(openProject)); // 🚩 first-edit steps for someone new
     if (owner) api('GET', '/api/projects/deleted').then((d) => { const b = $('[data-a="deleted"]', el); if (b) { b.hidden = false; b.textContent = `Recycle Bin${d.length ? ` (${d.length})` : ''}`; } }).catch(() => {});
     $$('.proj[data-open]', grid).forEach((c) => {
       c.addEventListener('keydown', (e) => { if (e.key === 'Enter') openProject(c.dataset.open); });

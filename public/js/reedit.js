@@ -8,6 +8,7 @@ import { uploadAudioInto, uploadFiles, refreshMedia, pickFolder } from './mediap
 import { runAgentWith, editWithClaude } from './agent.js';
 import { scriptPicker } from './scriptedit.js';
 import { defaultFootage, whyLeftOut } from './footagepick.js';
+import { ideasLine } from './promptguide.js';
 
 const PACES = [['fast', 'Fast cuts (~1.7 s)'], ['medium', 'Medium (~2.8 s)'], ['slow', 'Slow, cinematic (~4 s)']];
 const ASPECTS = [['9:16', '9:16 Reel / Shorts'], ['16:9', '16:9 YouTube / Film'], ['1:1', '1:1 Square'], ['4:5', '4:5 Feed']];
@@ -42,6 +43,8 @@ export function openReedit(setBusy, { focus = null, changes = {} } = {}) {
   const body = h(`<div class="ag re">
     <p class="muted">The agent rebuilds the edit with your changes. Same footage, and it again picks the best shot for every line. <b>Ctrl+Z</b> (or "undo" in the Assistant) brings the current edit back.</p>
     <div class="fgrid">
+      <label class="fld wide" data-ask><span>What to change - in your words (Claude reads this; Quick re-edit does not)</span>
+        <textarea name="ask" rows="2" placeholder="e.g. music dheema karo, pehle 5 sec mein CM sahab ka shot"></textarea></label>
       <div class="fld wide re-box${focus === 'vo' ? ' hi' : ''}"><span>Voice-over: the shots follow what is said</span>
         <div class="row-in"><select name="vo">${opt(audio(), o.vo, 'No voice-over')}</select><label class="btn small re-up">Upload new VO<input type="file" accept="audio/*,video/*" hidden name="voFile"></label></div>
         <small data-vonote></small></div>
@@ -80,6 +83,8 @@ export function openReedit(setBusy, { focus = null, changes = {} } = {}) {
   f('editStyle').value = o.editStyle || 'standard';
   f('look').value = o.look ?? (S.project.settings.look?.lut || '').replace(' (look).cube', '');
   f('stabilize').checked = !!o.stabilize; f('fx').checked = o.fx !== false; f('sfx').checked = o.sfx !== false; f('cinematic').checked = !!(o.cinematic ?? +S.project.settings.look?.vignette);
+  $('[data-ask]', body).append(ideasLine(() => f('ask'), { picks: ['music dheema karo', 'pehle 5 sec mein CM sahab ka shot', 'colour warm karo', 'opening slow hai, pehle 10 sec tight karo'] }));
+  if (changes.ask) f('ask').value = changes.ask;
   const scr = { scenes: o.scenes || null };
   body.querySelector('.re-box').after(scriptPicker(scr));
   for (const k of ['musicBest', 'keepSound', 'autoColor', 'subtitles']) f(k).checked = o[k] !== false && !!(o[k] ?? true);
@@ -153,6 +158,8 @@ export function openReedit(setBusy, { focus = null, changes = {} } = {}) {
       const nm = (k, v) => ((k === 'vo' || k === 'music') && v ? `"${S.mediaById[v]?.name || v}"` : JSON.stringify(v ?? null));
       const ch = Object.keys(label).filter((k) => JSON.stringify(base[k] ?? null) !== JSON.stringify(next[k] ?? null)).map((k) => `- ${label[k]}: ${nm(k, base[k])} → ${nm(k, next[k])}`);
       if (next.clips.length !== base.clips.length) ch.push(`- footage: ${base.clips.length} → ${next.clips.length} files (new ones: use them)`);
+      const ask = f('ask').value.trim();
+      if (ask) ch.push(`- in the editor's own words: ${ask}`);
       editWithClaude(next, 'edit', ch.length ? ch.join('\n') : '- nothing in the settings: make a fresh, better version of the edit');
     }
   });
