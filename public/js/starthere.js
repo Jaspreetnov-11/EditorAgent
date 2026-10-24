@@ -18,8 +18,8 @@ const setPending = (id) => { try { if (id) sessionStorage.setItem(JOBKEY, JSON.s
 // step 2: the ready-made jobs, and the Agent's other kinds that a new editor asks for most
 const KINDS = [...JOBS.map((j) => ({ job: j.id, label: j.label, sub: j.sub })), { type: 'reference', label: 'Copy a reference', sub: 'cut like a video you like' }, { type: 'reel', label: 'Something else…', sub: 'every kind the Agent makes' }];
 const kindChips = (chosen) => `<div class="sh-kinds">${KINDS.map((k) => `<button type="button" class="chip${k.job && k.job === chosen ? ' on' : ''}" ${k.job ? `data-shjob="${k.job}"` : `data-shtype="${k.type}"`} title="${esc(k.sub)}">${esc(k.label)}</button>`).join('')}</div>`;
-const head = (title) => `<div class="sh-head"><div><span class="sh-kicker">${icon('start')}Start here</span><h2>${title}</h2></div><span class="grow"></span>
-  <button type="button" class="link small" data-shguide>Prompt guide</button><button type="button" class="link small" data-shhide title="Tools › Start here brings it back">Hide</button></div>`;
+const head = (title) => `<div class="sh-head"><div><span class="sh-kicker">${icon('start')}Automation</span><h2>${title}</h2></div><span class="grow"></span>
+  <button type="button" class="link small" data-shguide>Prompt guide</button><button type="button" class="link small" data-shhide title="Tools › Automation brings it back">Hide</button></div>`;
 const step = (n, title, text, extra = '', done = false) => `<li class="sh-step${done ? ' done' : ''}"><i>${done ? '✓' : n}</i><div><b>${title}</b><small>${text}</small>${extra}</div></li>`;
 
 // ---------------- 🏠 Home ----------------
@@ -28,7 +28,7 @@ export function mountHomeStart(el, count, newProject) {
   $('.sh-home', el)?.remove(); $('[data-shopen]', el)?.remove();
   const big = !startHidden() && count < FEW;
   if (!big) { // the steps one click away: a small button beside + New project
-    $('.home-actions', el)?.insertAdjacentHTML('afterbegin', `<button class="small" data-shopen title="Start here: your first edit in 4 steps, ready-made jobs, prompt guide">${icon('start')}Start here</button>`);
+    $('.home-actions', el)?.insertAdjacentHTML('afterbegin', `<button class="small" data-shopen title="Automation: your first edit in 4 steps, ready-made jobs, prompt guide">${icon('start')}Automation</button>`);
     $('[data-shopen]', el).onclick = () => { setHidden(false); mountHomeStart(el, 0, newProject); };
     return;
   }
@@ -41,7 +41,7 @@ export function mountHomeStart(el, count, newProject) {
   $('.home-head', el).after(card);
   card.onclick = (e) => {
     e.stopPropagation(); // (Home's own click handler opens projects)
-    if (e.target.closest('[data-shhide]')) { setHidden(true); toast('Start here is hidden - the Start here button (and Tools › Start here) brings it back'); return mountHomeStart(el, count, newProject); }
+    if (e.target.closest('[data-shhide]')) { setHidden(true); toast('Automation is hidden - the Automation button (and Tools › Automation) brings it back'); return mountHomeStart(el, count, newProject); }
     if (e.target.closest('[data-shguide]')) return openPromptGuide();
     if (e.target.closest('[data-shnew]')) return newProject();
     const k = e.target.closest('[data-shjob], [data-shtype]');
@@ -66,7 +66,7 @@ const projectSteps = () => { const fo = hasFootage(), ed = hasEdit(), job = JOBS
   ${step(4, 'Check & export', 'Watch (Space), change things in the Assistant, then Export.', `<button type="button" class="small" data-shexport${ed ? '' : ' disabled'}>Export</button>`)}
 </ol>`; };
 function onStepClick(e, after) {
-  if (e.target.closest('[data-shhide]')) { setHidden(true); toast('Start here is hidden - Tools › Start here brings it back'); return refreshProjectStart(); }
+  if (e.target.closest('[data-shhide]')) { setHidden(true); toast('Automation is hidden - Tools › Automation brings it back'); return refreshProjectStart(); }
   if (e.target.closest('[data-shguide]')) return openPromptGuide();
   if (e.target.closest('[data-shfolder]')) { after?.(); return document.querySelector('#poolBig [data-a="folder"], #pool [data-a="folder"]')?.click(); }
   if (e.target.closest('[data-shexport]')) { after?.(); return emit('gotoPage', 'deliver'); }
@@ -101,6 +101,6 @@ export function refreshProjectStart() {
 export function openStartHere() {
   setHidden(false); lastKey = ''; refreshProjectStart();
   const body = h(`<div class="sh sh-dlg">${projectSteps()}<div class="dv-actions"><button type="button" class="link small" data-shguide>Prompt guide</button><span class="grow"></span><button data-close>Close</button></div></div>`);
-  const dlg = modal('Start here - your first edit in 4 steps', body, { width: 560 });
+  const dlg = modal('Automation - your first edit in 4 steps', body, { width: 560 });
   body.onclick = (e) => onStepClick(e, () => dlg.close());
 }
