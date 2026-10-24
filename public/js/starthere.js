@@ -4,7 +4,6 @@
 // empty timeline). "Hide" puts it away in this browser; Tools › Start here brings it back.
 import { S, on, emit } from './store.js';
 import { $, $$, h, esc, toast, modal } from './ui.js';
-import { icon } from './ui2.js';
 import { JOBS, TYPES, openAgent } from './agent.js';
 import { openPromptGuide } from './promptguide.js';
 
@@ -18,7 +17,7 @@ const setPending = (id) => { try { if (id) sessionStorage.setItem(JOBKEY, JSON.s
 // step 2: the ready-made jobs, and the Agent's other kinds that a new editor asks for most
 const KINDS = [...JOBS.map((j) => ({ job: j.id, label: j.label, sub: j.sub })), { type: 'reference', label: 'Copy a reference', sub: 'cut like a video you like' }, { type: 'reel', label: 'Something else…', sub: 'every kind the Agent makes' }];
 const kindChips = (chosen) => `<div class="sh-kinds">${KINDS.map((k) => `<button type="button" class="chip${k.job && k.job === chosen ? ' on' : ''}" ${k.job ? `data-shjob="${k.job}"` : `data-shtype="${k.type}"`} title="${esc(k.sub)}">${esc(k.label)}</button>`).join('')}</div>`;
-const head = (title) => `<div class="sh-head"><div><span class="sh-kicker">${icon('start')}Automation</span><h2>${title}</h2></div><span class="grow"></span>
+const head = (title) => `<div class="sh-head"><div><span class="sh-kicker">Automation</span><h2>${title}</h2></div><span class="grow"></span>
   <button type="button" class="link small" data-shguide>Prompt guide</button><button type="button" class="link small" data-shhide title="Tools › Automation brings it back">Hide</button></div>`;
 const step = (n, title, text, extra = '', done = false) => `<li class="sh-step${done ? ' done' : ''}"><i>${done ? '✓' : n}</i><div><b>${title}</b><small>${text}</small>${extra}</div></li>`;
 
@@ -28,7 +27,7 @@ export function mountHomeStart(el, count, newProject) {
   $('.sh-home', el)?.remove(); $('[data-shopen]', el)?.remove();
   const big = !startHidden() && count < FEW;
   if (!big) { // the steps one click away: a small button beside + New project
-    $('.home-actions', el)?.insertAdjacentHTML('afterbegin', `<button class="small" data-shopen title="Automation: your first edit in 4 steps, ready-made jobs, prompt guide">${icon('start')}Automation</button>`);
+    $('.home-actions', el)?.insertAdjacentHTML('afterbegin', `<button class="small" data-shopen title="Automation: your first edit in 4 steps, ready-made jobs, prompt guide">Automation</button>`);
     $('[data-shopen]', el).onclick = () => { setHidden(false); mountHomeStart(el, 0, newProject); };
     return;
   }
