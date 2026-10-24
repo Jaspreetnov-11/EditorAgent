@@ -12,6 +12,7 @@ const FOLDER_SVG = '<svg class="pf-ic" viewBox="0 0 48 40" aria-hidden="true"><p
 import { openTeam } from './team.js';
 import { openSessions } from './sessionsui.js';
 import { tagChips, tagColor, editTags } from './tags.js';
+import { mountHomeStart } from './starthere.js';
 
 // 🏷 project tags: search box + tag chips above the grid (kept while Home is open); a tag just changed here is shown at
 // once (the list from the server catches up a moment later)
@@ -86,6 +87,7 @@ export async function renderHome(el, openProject) {
         <div class="proj-info"><b>${esc(p.name)}</b>${tagsOf(p).length ? `<span class="proj-tags">${tagChips(tagsOf(p))}</span>` : ''}${inF(p) && cur === 'all' ? `<small class="pf-tag">${esc(pf.folders.find((f) => f.id === inF(p))?.name || '')}</small>` : ''}<small>${p.duration ? `${fmt(p.duration)} · ` : ''}${p.clips} clips · ${p.media} media</small>${p.place ? `<small class="mono" title="Saved in ${esc(p.place)}">${esc(p.place)}</small>` : ''}
         <small>${new Date(p.modified).toLocaleString()}</small>${p.by && !mine(p) ? `<small class="proj-by">${ic('team')} shared by ${esc(p.by)}</small>` : (owner || me.local) && p.by ? `<small class="proj-by">${ic('team')} ${esc(p.by)}${p.shared?.length ? ` · shared with ${esc(p.shared.join(', '))}` : ''}</small>` : p.shared?.length ? `<small class="proj-by">${ic('team')} shared with ${esc(p.shared.join(', '))}</small>` : ''}</div>
         <div class="proj-btns">${mine(p) ? `<button class="icon-btn" data-share="${esc(p.name)}" title="Share with team members (they see it and can edit it with you)" aria-label="Share ${esc(p.name)}">${ic('team')}</button>` : ''}<button class="icon-btn" data-ptag="${esc(p.name)}" title="Tags (labels to find it by - client, kind of work, status…)" aria-label="Tags of ${esc(p.name)}">${ic('tag')}</button>${me.role !== 'viewer' ? `<button class="icon-btn" data-ren="${esc(p.name)}" title="Rename project" aria-label="Rename ${esc(p.name)}">${ic('edit')}</button>` : ''}<button class="icon-btn" data-move="${esc(p.name)}" title="Move to a folder (or drag the card onto a folder above)" aria-label="Move ${esc(p.name)} to a folder">${icon('folderMove')}</button><button class="icon-btn" data-folder="${esc(p.name)}" title="Open project folder" aria-label="Open folder of ${esc(p.name)}">${icon('folder')}</button>${owner ? `<button class="icon-btn proj-del" data-del="${esc(p.name)}" title="Delete project (to the Recycle Bin, or for good)" aria-label="Delete ${esc(p.name)}">${icon('trash')}</button>` : ''}</div></div>`).join('');
+    mountHomeStart(el, list0.length, () => newProjectDialog(openProject)); // 🚩 first-edit steps for someone new
     if (owner) api('GET', '/api/projects/deleted').then((d) => { const b = $('[data-a="deleted"]', el); if (b) { b.hidden = false; b.textContent = `Recycle Bin${d.length ? ` (${d.length})` : ''}`; } }).catch(() => {});
     $$('.proj[data-open]', grid).forEach((c) => {
       c.addEventListener('keydown', (e) => { if (e.key === 'Enter') openProject(c.dataset.open); });
@@ -229,6 +231,7 @@ export function newProjectDialog(openProject) {
         `<label class="fmt"><input type="radio" name="aspect" value="${v}"${i === 0 ? ' checked' : ''}><span><i style="width:${w}px;height:${hh}px"></i><b>${v}</b><small>${l}</small></span></label>`).join('')}
     </div></div>
     <label class="fld"><span>Start from a template</span><select name="template"><option value="">Blank project</option></select></label>
+    <label class="fld"><span>Brand pack <button type="button" class="link small" data-packs title="Make or change a client's brand pack">Manage…</button></span><select name="pack"><option value="">None</option></select></label>
     <label class="fld"><span>Frame rate</span><select name="fps"><option>24</option><option>25</option><option selected>30</option><option>50</option><option>60</option></select></label>
     <div class="fld wide"><span>Save project in</span>
       <div class="row-in"><input name="place" readonly><button type="button" data-browse>Browse…</button><button type="button" data-def title="Back to your own folder">My folder</button></div>
@@ -237,6 +240,10 @@ export function newProjectDialog(openProject) {
   </form>`);
   const dlg = modal('New project', body, { width: 620 });
   api('GET', '/api/library').then((l) => { body.template.insertAdjacentHTML('beforeend', (l.templates || []).map((t) => `<option value="${esc(t.name)}">${esc(t.name)}${t.aspect ? ` (${esc(t.aspect)})` : ''}</option>`).join('')); }).catch(() => {});
+  // 🏷 a client's brand pack: logo, intro / outro, colours, font, caption and lower-third style from the start
+  const loadPacks = () => api('GET', '/api/library/brandpacks').then((l) => { const v = body.pack.value; body.pack.innerHTML = `<option value="">None</option>${l.map((p) => `<option value="${esc(p.id)}"${p.id === v ? ' selected' : ''}>${esc(p.name)}${p.client ? ` - ${esc(p.client)}` : ''}</option>`).join('')}`; }).catch(() => {});
+  loadPacks();
+  $('[data-packs]', body).onclick = () => import('./library.js').then((m) => m.openBrandKit(null, { onClose: loadPacks }));
   const showPlace = () => { body.place.value = place; };
   showPlace();
   myFolder().then((f) => { home = f; if (!touched) { place = f; showPlace(); } });
@@ -246,7 +253,7 @@ export function newProjectDialog(openProject) {
     e.preventDefault();
     const btn = $('[type=submit]', body); btn.disabled = true; btn.textContent = 'Creating…';
     try {
-      const r = await api('POST', '/api/projects', { name: body.name.value.trim(), aspect: body.aspect.value, fps: +body.fps.value, place, template: body.template.value });
+      const r = await api('POST', '/api/projects', { name: body.name.value.trim(), aspect: body.aspect.value, fps: +body.fps.value, place, template: body.template.value, pack: body.pack.value });
       dlg.close();
       // (an editor not restarted since this option came saves in Projects - say so instead of quietly ignoring the folder)
       if (place && !String(r.folder || '').toLowerCase().startsWith(place.toLowerCase())) toast(`Saved in ${r.folder || 'Projects'} - saving in another folder works after the editor is restarted`, 'err');

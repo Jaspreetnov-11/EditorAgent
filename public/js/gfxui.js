@@ -21,6 +21,7 @@ function made(tpl) {
   if (GFX[tpl].motion) {
     if (b) Object.assign(g, { theme: 'brand', brand: b, ...(S.project.brand.font ? { font: S.project.brand.font } : {}) });
     if ('logo' in g && !g.logo && S.project.logo?.mediaId) g.logo = S.project.logo.mediaId;
+    if (tpl === 'lower3' && b && S.project.brand.ltMotion) g.style = S.project.brand.ltMotion; // (🏷 the brand pack's lower-third style)
   }
   if (rtimeOk(g)) g.rtime = true; // ⏱ new graphics keep their intro / outro when stretched
   return g;
@@ -130,9 +131,9 @@ function textPanel(g) {
     <div class="tx-row"><div class="tx-tg tx-align">${['left', 'center', 'right'].map((a) => `<button data-txa="${a}" title="Align ${a}"${on((g.align || 'center') === a)}>${ALIGN_IC[a]}</button>`).join('')}</div>
       ${num('track', g.track ?? 0, 1, 'Tracking (space between letters)', 'VA↔', -10, 60)}${num('lead', g.lead ?? 1.2, 0.05, 'Leading (space between lines)', '↕A', 0.8, 2.5)}</div>
     ${sec('appear', 'Appearance', `
-      <div class="tx-line"><span class="tx-l">Fill</span><input type="color" data-k="color" value="${esc(g.color || '#ffffff')}"></div>
-      <div class="tx-line"><label class="tx-chk"><input type="checkbox" data-k="stroke" data-type="check"${g.stroke ? ' checked' : ''}> Stroke</label><input type="color" data-k="strokeColor" value="${esc(g.strokeColor || '#000000')}">${num('strokeW', g.strokeW ?? 6, 1, 'Stroke width', '⎯', 1, 40)}</div>
-      <div class="tx-line"><label class="tx-chk"><input type="checkbox" data-k="bg" data-type="check"${g.bg ? ' checked' : ''}> Background</label><input type="color" data-k="bgColor" value="${esc(g.bgColor || '#000000')}">${num('bgOpacity', g.bgOpacity ?? 0.6, 0.05, 'Background opacity (0 - 1)', '◐', 0, 1)}</div>
+      <div class="tx-line"><span class="tx-l">Fill</span><input type="color" list="brandSw" data-k="color" value="${esc(g.color || '#ffffff')}"></div>
+      <div class="tx-line"><label class="tx-chk"><input type="checkbox" data-k="stroke" data-type="check"${g.stroke ? ' checked' : ''}> Stroke</label><input type="color" list="brandSw" data-k="strokeColor" value="${esc(g.strokeColor || '#000000')}">${num('strokeW', g.strokeW ?? 6, 1, 'Stroke width', '⎯', 1, 40)}</div>
+      <div class="tx-line"><label class="tx-chk"><input type="checkbox" data-k="bg" data-type="check"${g.bg ? ' checked' : ''}> Background</label><input type="color" list="brandSw" data-k="bgColor" value="${esc(g.bgColor || '#000000')}">${num('bgOpacity', g.bgOpacity ?? 0.6, 0.05, 'Background opacity (0 - 1)', '◐', 0, 1)}</div>
       <div class="tx-line"><label class="tx-chk"><input type="checkbox" data-k="shadow" data-type="check"${g.shadow ? ' checked' : ''}> Shadow</label></div>`)}
     ${sec('xform', 'Align and Transform', `<div class="tx-line">${num('x', g.x ?? 50, 0.5, 'Position across (% of the frame)', 'X', -20, 120)}${num('y', g.y ?? 50, 0.5, 'Position down (% of the frame)', 'Y', -20, 120)}</div>
       <div class="fgrid tx-resp">${fieldsHTML(respFields(g), g)}</div>`)}`;

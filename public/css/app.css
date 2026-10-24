@@ -635,6 +635,25 @@ select.kfe { font-size: 10px; padding: 0 2px; height: 18px; width: auto; max-wid
 .bk-h { font-weight: 600; font-size: 12px; margin: 12px 0 6px; }
 .bk-tpl { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .bk-tpl .chip { display: inline-flex; gap: 4px; align-items: center; }
+.bp { display: grid; grid-template-columns: 240px 1fr; gap: 14px; min-height: 420px; }
+.bp-side { display: flex; flex-direction: column; gap: 8px; border-right: 1px solid var(--line); padding-right: 12px; min-width: 0; }
+.bp-list { display: flex; flex-direction: column; gap: 4px; max-height: 52vh; overflow: auto; }
+.bp-it { display: grid; grid-template-columns: 38px 1fr; grid-template-rows: auto auto; gap: 2px 8px; align-items: center; text-align: left; padding: 6px; border-radius: 6px; background: var(--panel-2); border: 1px solid transparent; cursor: pointer; color: var(--text); }
+.bp-it.on { border-color: var(--accent); }
+.bp-logo { grid-row: span 2; width: 38px; height: 38px; border-radius: 5px; display: grid; place-items: center; overflow: hidden; }
+.bp-logo img { max-width: 34px; max-height: 34px; object-fit: contain; }
+.bp-nm { display: flex; flex-direction: column; min-width: 0; } .bp-nm b, .bp-nm small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bp-dots { display: flex; gap: 3px; } .bp-dots i { display: inline-block; width: 12px; height: 12px; border-radius: 50%; border: 1px solid var(--line-2); }
+.bp-main { min-width: 0; max-height: 70vh; overflow: auto; padding-right: 4px; }
+.bp-empty { display: grid; place-items: center; align-content: center; gap: 12px; height: 100%; text-align: center; color: var(--muted); }
+.bp-file .row-in { align-items: center; flex-wrap: wrap; } .bp-file .row-in select { flex: 0 1 190px; }
+.bp-thumb { height: 32px; max-width: 80px; object-fit: contain; background: repeating-conic-gradient(#555 0 25%, #333 0 50%) 0 0 / 10px 10px; border-radius: 3px; }
+.bp-fname { flex: 1; min-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; } .bp-fname.bad { color: var(--red); }
+.bp-cols { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; } .bp-cols label { display: inline-flex; gap: 5px; align-items: center; font-size: 12px; }
+.bp-cols input[type=color] { width: 36px; height: 26px; padding: 1px; flex: none; }
+.bp-cols .bp-sw { display: inline-flex; align-items: center; } .bp-cols .bp-sw input { width: 30px; }
+.bp-foot { align-items: center; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 760px) { .bp { grid-template-columns: 1fr; } .bp-side { border-right: 0; padding-right: 0; border-bottom: 1px solid var(--line); padding-bottom: 8px; } .bp-list { max-height: 24vh; } }
 .fxp-it .link { margin-left: auto; padding: 0 3px; }
 
 .lyr.maskl { pointer-events: none; overflow: hidden; }
@@ -1640,3 +1659,50 @@ html.ui2 .viewer .vw-row { display: none; }
 .tl-tools [data-agrp] { position: relative; }
 .tl-tools .tl-letter b { font: 700 12px/1 var(--ui-font, system-ui), sans-serif; letter-spacing: 0; }
 .tl-tools .tl-letter:hover b { color: var(--accent); }
+
+/* 🚩 Start here: four big steps for a first edit (Home, the Media page help, over the empty timeline, Tools) */
+.sh { --sh-n: 26px; }
+.sh-head { display: flex; align-items: flex-end; gap: 12px; margin-bottom: 12px; }
+.sh-head h2 { margin: 0; font-size: 18px; font-weight: 600; color: var(--text); text-transform: none; letter-spacing: 0; }
+.sh-kicker { display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); margin-bottom: 4px; }
+.sh-kicker .ico { width: 13px; height: 13px; }
+.sh-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.7fr) minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.sh-step { display: flex; gap: 10px; padding: 12px; border: 1px solid var(--line-2); border-radius: 10px; background: var(--panel); min-width: 0; }
+.sh-step > i { flex: none; display: grid; place-items: center; width: var(--sh-n); height: var(--sh-n); border-radius: 50%; font-style: normal; font-weight: 700; font-size: 13px; background: var(--accent); color: var(--accent-ink, #111); }
+.sh-step.done > i { background: transparent; color: var(--accent); box-shadow: 0 0 0 1.5px var(--accent) inset; }
+.sh-step > div { display: flex; flex-direction: column; gap: 6px; min-width: 0; align-items: flex-start; }
+.sh-step b { font-size: 14px; } .sh-step small { color: var(--muted); font-size: 12px; line-height: 1.4; }
+.sh-step.done b { color: var(--muted); }
+.sh-kinds { display: flex; flex-wrap: wrap; gap: 5px; }
+.sh-kinds .chip, .pg-chip { width: auto; padding: 3px 10px; font-size: 12px; }
+.sh-home { margin: -8px 0 22px; padding: 16px; border: 1px solid var(--line-2); border-radius: 14px; background: var(--bg-2, #0a0a0b); }
+.sh-media { margin: 12px 0 18px; } .sh-media .sh-steps, .sh-dlg .sh-steps { grid-template-columns: 1fr; gap: 8px; }
+.media-page .media-help.sh-keep { display: block; }
+.panel.timeline.sh-has { position: relative; }
+.sh-over { position: absolute; z-index: 6; left: 50%; bottom: 14px; transform: translateX(-50%); width: min(900px, calc(100% - 24px)); max-height: calc(100% - 28px); overflow: auto; padding: 14px; border: 1px solid var(--line-2); border-radius: 12px; background: color-mix(in srgb, var(--panel) 94%, transparent); box-shadow: 0 14px 40px -12px #000; }
+.sh-over .sh-head h2 { font-size: 15px; } .sh-over .sh-step { padding: 10px; background: var(--panel-2); }
+@media (max-width: 1200px) { .sh-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 1200px) { .sh-over .sh-steps { grid-template-columns: minmax(0, 1fr) minmax(0, 1.7fr) minmax(0, 1fr) minmax(0, 1fr); } .sh-over .sh-step small { display: none; } }
+@media (max-width: 640px) { .sh-steps, .sh-over .sh-steps { grid-template-columns: 1fr; } }
+
+/* 💡 Prompt guide: example prompts that fill the box, tips, what each option does */
+.pg h4 { margin: 14px 0 6px; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.pg-chips { display: grid; gap: 6px; } .pg-chips > * { min-width: 0; }
+.pg-chip { max-width: 100%; white-space: normal; text-align: left; }
+.pg-row, .pg-line, .ag-jobs { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.pg-g { flex: none; min-width: 92px; font-size: 11px; color: var(--muted); }
+.pg-row { position: relative; padding-left: 98px; } .pg-row .pg-g { position: absolute; left: 0; top: 4px; }
+.pg-line .pg-g, .ag-jobs .pg-g { min-width: 0; margin-right: 2px; }
+.pg-line { margin-top: 6px; }
+.pg-chip[data-claude]::before, .pg-dot { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--accent); vertical-align: 1px; }
+.pg-key { white-space: nowrap; }
+.pg-tips { margin: 0; padding-left: 18px; display: grid; gap: 5px; font-size: 13px; } .pg-tips b { font-weight: 600; }
+.pg-opts { margin-top: 14px; } .pg-opts summary { cursor: pointer; font-size: 13px; }
+.pg-opts dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 10px 0 0; font-size: 12.5px; }
+.pg-opts dt { font-weight: 600; } .pg-opts dd { margin: 0; color: var(--muted); }
+.ag-jobs { margin-bottom: 8px; } .ag-jobs .chip { width: auto; padding: 3px 11px; font-size: 12px; }
+.ag-jobhint { display: block; margin: -2px 0 10px; color: var(--accent); }
+.as-ideas { padding: 8px 12px; border-top: 1px solid var(--line); max-height: 42vh; overflow: auto; }
+.as-ideas-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; }
+.as-ideas .pg-row { padding-left: 0; } .as-ideas .pg-row .pg-g { position: static; min-width: 0; width: 100%; margin-top: 2px; }
+.as-in .as-idea[aria-expanded="true"] { color: var(--accent); }

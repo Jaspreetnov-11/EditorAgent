@@ -91,6 +91,10 @@ Clip fields (seconds):
   `logoreveal` {logo:"<image mediaId>", tagline, style:"zoom"|"circle"|"lines", pos:"full"|"center"}, `endcard` {logo, title, lines (one per line), pos:"full"},
   `ticker` {label:"BREAKING", text (one news line per line), speed}, and data ones: counter, stats, bars, columns, line, donut, progress, list, callout, route.
   `"theme":"brand"` needs `"brand":{"primary","accent","text"}` copied from the project's `brand` (and `"font"` from `brand.font`).
+- 🏷 Brand packs (one per client: Library/brandpacks, `GET /api/library/brandpacks`; applied from Tools > Brand packs or New project):
+  `project.brand.pack` = { id, name } of the pack on the project, `brand.lt` / `brand.ltMotion` = its lower-third look (title template
+  id / `lower3` style), `brand.palette` = its extra colours. V1 clips with `"brandClip":"intro"|"outro"` and `logo.pack` came from the
+  pack - keep them at the start / end and do not stack another intro / outro; a pack applied again replaces them.
   Graphics are drawn by the open editor tab (baked a few seconds after a change) - a render fails with "motion graphic is not
   prepared" if no editor tab has the project open; ask the user to open it, then render.
 Settings you may change with `apply {"settings":{…}}`: `aspect` ("16:9","9:16","1:1","4:5"), `fps`, `kenburns` (auto zoom on photos),

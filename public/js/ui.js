@@ -57,7 +57,7 @@ export function fieldsHTML(defs, obj) {
       case 'select': input = `<select ${a}>${d.options.map(([ov, ol]) => `<option value="${esc(ov)}"${String(val ?? '') === String(ov) ? ' selected' : ''}>${esc(ol)}</option>`).join('')}</select>`; break;
       case 'check': return `<label class="chk"><input type="checkbox" ${a}${val ? ' checked' : ''}> ${esc(d.label)}</label>`;
       case 'area': input = `<textarea ${a} rows="${d.rows || 2}" placeholder="${esc(d.ph || '')}">${esc(val ?? '')}</textarea>`; break;
-      case 'color': input = `<input type="color" ${a} value="${esc(val || '#000000')}">`; break;
+      case 'color': input = `<input type="color" list="brandSw" ${a} value="${esc(val || '#000000')}">`; break;
       case 'time': input = `<input ${a} value="${esc(d.fmt ? d.fmt(val) : val ?? '')}" placeholder="${esc(d.ph || '')}">`; break;
       case 'num': input = `<input type="number" ${a} step="${d.step ?? 'any'}" min="${d.min ?? ''}" max="${d.max ?? ''}" value="${val ?? ''}" placeholder="${esc(d.ph || '')}">`; break;
       default: input = `<input ${a} value="${esc(val ?? '')}" placeholder="${esc(d.ph || '')}">`;

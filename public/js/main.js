@@ -20,6 +20,8 @@ import { openBrandKit } from './library.js';
 import { mountDeliver, showDeliver, hideDeliver, pollQueue } from './deliver.js';
 import { openAgent, showReport, resumeAgentJob } from './agent.js';
 import { openReedit } from './reedit.js';
+import { mountProjectStart, refreshProjectStart, openStartHere } from './starthere.js';
+import { openPromptGuide } from './promptguide.js';
 import { openAiUndo } from './aiundo.js';
 import { openActivity } from './activity.js';
 import { openZones } from './zones.js';
@@ -66,10 +68,12 @@ const TOOLS = [
     ['reedit', 'reedit', 'Re-edit', 'New VO, music, pace or format', 'Change the voice-over, music, pace or format and let the agent rebuild this edit'],
     ['assistant', 'assistant', 'Assistant', 'Type what to change', 'Type what to change, e.g. "music dheema karo", "make the colour warm", "remove the 3rd shot"…'],
     ['report', 'report', 'Agent report', 'Which shot for which line', 'Report: which shot the agent chose for which line, and why']]],
+  ['Help', [['starthere', 'start', 'Start here', 'Your first edit in 4 steps', 'Start here: bring footage, pick what to make (ready-made jobs), let the Agent edit, export'],
+    ['promptguide', 'idea', 'Prompt guide', 'What to type to the AI', 'Example prompts in Hinglish and English, tips for a good brief, what each Agent option does']]],
   ['History', [['undo', 'undo', 'Undo', 'Ctrl+Z', 'Undo (Ctrl+Z)'], ['redo', 'redo', 'Redo', 'Ctrl+Shift+Z', 'Redo (Ctrl+Shift+Z)'],
     ['aiundo', 'aiundo', 'AI Undo', 'Before an Agent / Claude edit', 'Bring back the edit as it was before an Agent edit, Re-edit or Claude change (works after a refresh too)'],
     ['versions', 'versions', 'Versions', 'Go back, or save with a name', 'Versions: go back to an earlier edit, or save this one with a name']]],
-  ['Project', [['brand', 'brand', 'Brand kit', 'Logo, colours, intro / outro', 'Brand kit (logo, colours, intro/outro) and project templates'],
+  ['Project', [['brand', 'brand', 'Brand packs', 'Client logo, colours, intro / outro', 'Brand packs - one per client: logo, colours, font, captions, lower thirds, intro / outro - and project templates'],
     ['mediamgr', 'media', 'Media manager', 'Relink, pack, clean up', 'Media manager: relink offline files, pack the project, clean up disk'],
     ['activity', 'activity', 'Activity', 'Who changed what', 'Activity: who changed what on this project - take back one person\'s one change'],
     ['zones', 'zones', 'Zones', 'Who owns which part', 'Zones: who owns which part of the timeline - warns before you change someone else\'s part'],
@@ -96,7 +100,7 @@ function shell() {
     </section>
     <section class="page p-edit" data-page="edit">
       <div class="edit-grid">
-        <div class="panel pool pool-tabs"><div class="ptabs" role="tablist"><button role="tab" data-ptab="tools" aria-selected="false" title="Agent, Assistant, undo, versions, team, brand kit, workspaces…">Tools</button><button role="tab" data-ptab="media" aria-selected="true">Media</button><button role="tab" data-ptab="fx" aria-selected="false">Effects</button><button role="tab" data-ptab="cc" aria-selected="false" title="Captions">CC</button><button role="tab" data-ptab="notes" aria-selected="false" title="Notes at moments of the edit (Shift+M), versions and phone review">${ic('note')}</button></div>
+        <div class="panel pool pool-tabs"><div class="ptabs" role="tablist"><button role="tab" data-ptab="tools" aria-selected="false" title="Agent, Assistant, undo, versions, team, brand packs, workspaces…">Tools</button><button role="tab" data-ptab="media" aria-selected="true">Media</button><button role="tab" data-ptab="fx" aria-selected="false">Effects</button><button role="tab" data-ptab="cc" aria-selected="false" title="Captions">CC</button><button role="tab" data-ptab="notes" aria-selected="false" title="Notes at moments of the edit (Shift+M), versions and phone review">${ic('note')}</button></div>
           <div class="ptab-body" id="toolsPanel" hidden>${toolsHTML()}</div><div class="ptab-body" id="pool"></div><div class="ptab-body" id="fxPanel" hidden></div><div class="ptab-body" id="ccPanel" hidden></div><div class="ptab-body" id="notesPanel" hidden></div></div>
         <div class="mon-dock" role="tablist" aria-label="Source / Program"><button role="tab" data-mon="src">Source</button><button role="tab" data-mon="prog">Program</button></div>
         <div class="panel viewer" id="viewer"></div>
@@ -145,6 +149,8 @@ function shell() {
     if (a === 'mediamgr') openMediaMgr();
     if (a === 'safety') import('./safety.js').then((x) => x.openSafety());
     if (a === 'team') openTeam();
+    if (a === 'starthere') openStartHere();
+    if (a === 'promptguide') openPromptGuide();
     const p = e.target.closest('[data-page-btn]')?.dataset.pageBtn;
     if (p) showPage(p);
   });
@@ -168,6 +174,7 @@ function shell() {
   safely('Audio page', () => mountAudio($('#audioPage')));
   safely('AI page', () => mountAI($('#aiPage')));
   safely('Assistant', () => mountAssistant(setBusy));
+  safely('Start here', () => mountProjectStart(setBusy)); // 🚩 the first-edit steps while the sequence is empty
 }
 
 // a menu item (menubar.js): a keyboard command, a top-bar button, a page, or one of these
@@ -384,6 +391,7 @@ async function openProject(name) {
     safely('Render queue', pollQueue); // renders still running / waiting in the background queue
     safely('Phone notes', watchPhoneNotes); // notes sent from a phone (📱 review)
     emit('change', {}); emit('save');
+    safely('Start here', refreshProjectStart);
     // 📐 every project opens the same way: default track heights, the whole edit in view, V1 / A1 in the middle
     setTimeout(() => { resetTrackView(); fitZoom(); centerTracks(); }, 50);
   } catch (e) { console.error('openProject: a step failed - the project stays open', e); toast(`Something in this project could not be shown (${e.message}) - the rest works`, 'err'); }

@@ -13,8 +13,9 @@ import { openMulticam } from './multicam.js';
 import { openVoiceOver } from './voiceover.js';
 import { openScriptEdit, scriptPicker } from './scriptedit.js';
 import { applyCinematic, stabilizeAll, setFilmLook } from './looks.js';
+import { ideasLine, openPromptGuide } from './promptguide.js';
 
-const TYPES = [
+export const TYPES = [
   { id: 'song', icon: 'music', label: 'Song / music video', sub: 'cuts on the beat, pictures follow the lyrics', aspect: '16:9', pace: 'medium', target: 60, subtitles: false, editStyle: 'song', look: 'Warm Film' },
   { id: 'teaser', icon: 'clapper', label: 'Cinematic teaser', sub: 'movie-trailer cut on the music beat', aspect: '16:9', pace: 'fast', target: 45, subtitles: false, editStyle: 'teaser', look: 'Teal & Orange', cinematic: true },
   { id: 'reel', icon: 'phone', label: 'Reel / Short', sub: '15-60 s, fast cuts, captions', aspect: '9:16', pace: 'fast', target: 30, subtitles: true },
@@ -26,14 +27,32 @@ const TYPES = [
   { id: 'reference', icon: 'copy', label: 'Copy a reference', sub: 'cut like a video you like - only your footage is used', aspect: 'ref', pace: 'medium', target: 30, subtitles: false },
 ];
 
-export function openAgent(setBusy) {
+// 📋 Ready-made jobs: Limelight's common briefs as a starting point. Each one is one of the kinds above (TYPES) with its
+// settings, a story outline to change and what to write where - nothing new under it, the wizard is just filled in.
+// style: a learnt edit style (Library/styles) whose name matches is picked for it, when there is one.
+export const JOBS = [
+  { id: 'scheme', type: 'reel', icon: 'phone', label: 'Govt scheme reel', sub: '9:16 · 30 s · captions', look: 'Clean Natural', pace: 'medium', editStyle: 'standard', style: /scheme|yojana|govt|sarkar/i,
+    outline: 'Logon ki mushkil - scheme se pehle\nScheme ka launch - CM sahab / Minister\nBeneficiaries ke chehre, khushi\nNumbers: kitne logon ko fayda\nCall to action - kaise judein', names: 'Scheme ka naam, CM / Minister ka naam, district…', endText: 'mygov.in',
+    hint: 'Add the VO (step 3) if there is one, and the scheme / CM names (step 4).' },
+  { id: 'event', type: 'highlights', icon: 'star', label: 'Event highlight', sub: '16:9 · 90 s · music-led', look: 'Warm Film', transitions: 'cinematic', style: /event|highlight/i,
+    outline: 'Venue and arrival\nChief guest arrives, welcome\nLamp lighting / inauguration\nSpeeches - the best lines\nCrowd, performances\nGroup photo, ending', names: 'Event name, chief guest, venue…',
+    hint: 'Pick the music (step 3); the agent uses its best part and cuts on the beat.' },
+  { id: 'vodoc', type: 'film', icon: 'film', label: 'VO documentary', sub: '16:9 · follows the VO · subtitles', look: 'Indian Heritage', transitions: 'cinematic', style: /doc|film|vo/i,
+    names: 'Names, places, scheme names - as they must be spelt', hint: 'The VO decides the length and the shots (step 3). A script (Word / PDF) there gives exact spellings.' },
+  { id: 'lyric', type: 'song', icon: 'music', label: 'Lyric / song edit', sub: 'beat cuts · lyrics on screen', lyricsOnScreen: true, style: /song|lyric/i,
+    hint: 'Choose the song as Music (step 3) and paste the lyrics for exact spellings.' },
+];
+
+export function openAgent(setBusy, { job = null, type = null } = {}) {
   // 🎞 the footage to start from: what is selected in Media (or its open folder), else the footage without logos, rejects,
   // bad clips and copies (footagepick.js) - not every file of the project
   const pre = defaultFootage();
-  const st = { step: 0, type: 'reel', clips: new Set(pre.ids) };
+  const st = { step: 0, type: type || 'reel', clips: new Set(pre.ids), job: null };
   const body = h(`<div class="ag">
     <ol class="ag-steps">${['What', 'Footage', 'Sound', 'Finish'].map((s, i) => `<li data-go="${i}" data-l="${s}">${i + 1}. ${s}</li>`).join('')}</ol>
     <div class="ag-page" data-p="0">
+      <div class="ag-jobs"><span class="pg-g">Ready-made</span>${JOBS.map((j) => `<button type="button" class="chip" data-job="${j.id}" title="${esc(`${j.sub} - ${j.hint}`)}">${esc(j.label)}</button>`).join('')}<span class="grow"></span><button type="button" class="link small" data-a="guide">Prompt guide & tips</button></div>
+      <small class="ag-jobhint" data-jobhint hidden></small>
       <div class="ag-types">${TYPES.map((t) => `<label class="ag-type"><input type="radio" name="type" value="${t.id}"${t.id === st.type ? ' checked' : ''}><span><b>${t.label}</b><small>${t.sub}</small></span></label>`).join('')}</div>
       <div class="fgrid">
         <label class="fld"><span>Format</span><select name="aspect"><option value="ref" data-refonly>Same as the reference</option><option value="9:16">9:16 Reel / Shorts</option><option value="16:9">16:9 YouTube / Film</option><option value="1:1">1:1 Square</option><option value="4:5">4:5 Feed</option></select></label>
@@ -96,6 +115,8 @@ export function openAgent(setBusy) {
         <label class="fld"><span>Title on the first shot</span><input name="title" placeholder="optional"></label>
         <label class="fld"><span>End card</span><input name="endText" placeholder="e.g. mybharat.gov.in"></label>
         <label class="fld wide"><span>Names & spellings (helps the subtitles)</span><input name="names" placeholder="MY Bharat, Viksit Bharat, Chhattisgarh, speaker names…"></label>
+        <label class="fld wide" data-notes><span>Anything else - in your words (Claude reads this; Quick draft does not)</span>
+          <textarea name="notes" rows="2" placeholder="e.g. pehle 5 sec mein CM sahab ka shot, end mein logo"></textarea></label>
       </div>
       <p class="muted small">The agent replaces V1 (main story), V2 titles, A1 voice-over and A2 music. Your logo and A3 sound effects stay. Ctrl+Z undoes it.</p>
     </div>
@@ -120,7 +141,7 @@ export function openAgent(setBusy) {
     body.querySelector('[data-stylesum]').textContent = x ? `${x.summary}${x.from ? ` - learnt from "${x.from}"` : ''}` : 'Pace, effects and look come from the settings below.';
     f('styleDefault').checked = !!x && styles.def === x.name;
   };
-  fillStyles();
+  const stylesIn = fillStyles();
   const scr = { scenes: null }; // optional script: exact caption spellings + visual notes for shot choice
   body.querySelector('[data-p="2"] .fgrid').append(scriptPicker(scr));
   f('voFile').onchange = (e) => uploadAudioInto(e.target, f('vo'));
@@ -133,6 +154,32 @@ export function openAgent(setBusy) {
     f('editStyle').value = t.editStyle || (t.id === 'reel' ? 'montage' : 'standard'); f('cinematic').checked = !!t.cinematic; if (t.look) f('look').value = t.look;
     body.querySelector('[data-ref]').hidden = t.id !== 'reference';
   };
+  const pickLearnt = () => {
+    const j = JOBS.find((x) => x.id === st.job), learnt = j?.style && styles.list.find((x) => j.style.test(x.name));
+    if (learnt) { f('styleName').value = learnt.name; showStyle(); }
+  };
+  // 📋 a ready-made job: its kind, then its own settings; the outline / end card it brings replace only what it brought
+  const applyJob = (id) => {
+    const j = JOBS.find((x) => x.id === id), was = JOBS.find((x) => x.id === st.job);
+    st.job = j ? j.id : null;
+    if (j) {
+      st.type = j.type; body.querySelector(`[name="type"][value="${j.type}"]`).checked = true; applyType();
+      if (j.look) f('look').value = j.look;
+      if (j.pace) f('pace').value = j.pace;
+      if (j.editStyle) f('editStyle').value = j.editStyle;
+      f('style').value = j.transitions || 'cuts';
+      if (!f('outline').value.trim() || f('outline').value === was?.outline) f('outline').value = j.outline || '';
+      if (!f('endText').value.trim() || f('endText').value === was?.endText) f('endText').value = j.endText || '';
+      f('names').placeholder = j.names || 'MY Bharat, Viksit Bharat, Chhattisgarh, speaker names…';
+      f('lyricsOnScreen').checked = !!j.lyricsOnScreen;
+      pickLearnt();
+    }
+    $$('[data-job]', body).forEach((b) => b.classList.toggle('on', b.dataset.job === st.job));
+    const hint = body.querySelector('[data-jobhint]');
+    hint.hidden = !j; hint.textContent = j ? `${j.label}: ${j.sub}. ${j.hint}` : '';
+    show();
+  };
+  body.querySelector('[data-notes]').append(ideasLine(() => f('notes'), { picks: ['pehle 5 sec mein CM sahab ka shot', 'colour warm karo', 'end card pe mygov.in likho'] }));
   // 🎞 the clip picker: folders as rows that open (short names), big thumbnails, search + Video / Photos, a clear count
   const pick = { q: '', kind: '', open: new Set() };
   const usable = () => S.media.filter((m) => (m.kind === 'video' || m.kind === 'image') && m.status === 'ready');
@@ -180,7 +227,7 @@ export function openAgent(setBusy) {
     if (st.step === 1) renderClips();
   };
   body.addEventListener('change', (e) => {
-    if (e.target.name === 'type') { st.type = e.target.value; applyType(); show(); }
+    if (e.target.name === 'type') { st.type = e.target.value; applyType(); if (JOBS.find((x) => x.id === st.job)?.type !== st.type) applyJob(null); show(); }
     if (e.target.name === 'editStyle') show();
     if (e.target.name === 'styleName') showStyle();
     if (e.target.name === 'styleDefault') api('PUT', '/api/styles/default', { name: e.target.checked && f('styleName').value !== 'none' ? f('styleName').value : null }).then((r) => { styles.def = r.default; toast(r.default ? `"${r.default}" is now the default for every edit` : 'No default style - the agent cuts its own way'); }).catch((err) => toast(err.message, 'err'));
@@ -195,7 +242,9 @@ export function openAgent(setBusy) {
   });
   body.addEventListener('click', async (e) => {
     const go = e.target.closest('[data-go]'); if (go) { st.step = +go.dataset.go; show(); }
+    const jb = e.target.closest('[data-job]'); if (jb) applyJob(jb.dataset.job === st.job ? null : jb.dataset.job);
     const a = e.target.closest('[data-a]')?.dataset.a;
+    if (a === 'guide') openPromptGuide({ box: f('notes') });
     if (a === 'all') { shown().forEach((m) => st.clips.add(m.id)); renderClips(); }
     if (a === 'none') { st.clips.clear(); renderClips(); }
     if (a === 'openall') { const all = $$('[data-binrow]', body), open = all.some((d) => !d.open); all.forEach((d) => { d.open = open; }); e.target.textContent = open ? 'Close all folders' : 'Open all folders'; }
@@ -234,7 +283,7 @@ export function openAgent(setBusy) {
       if (st.step < 3) { st.step++; show(); return; }
       // 🧠 the edit is made by Claude, the way it edits in this folder (engine/claude-guide.md): it looks at the
       // footage and the song, plans a story, cuts on the beats and checks its own work
-      dlg.close(); editWithClaude(opts(), TYPES.find((x) => x.id === st.type)?.label);
+      dlg.close(); editWithClaude(opts(), JOBS.find((x) => x.id === st.job)?.label || TYPES.find((x) => x.id === st.type)?.label);
     }
   });
 
@@ -246,12 +295,14 @@ export function openAgent(setBusy) {
     aspect: f('aspect').value === 'ref' ? refAspect(S.mediaById[f('reference').value]) : f('aspect').value, pace: f('pace').value, clipSpeed: +f('clipSpeed').value, stabilize: f('stabilize').checked, cinematic: f('cinematic').checked, fx: f('fx').checked, sfx: f('sfx').checked, look: f('look').value, editStyle: f('editStyle').value, stock: false, ...(scr.scenes?.length ? { scenes: scr.scenes } : {}), target: +f('target').value, autoColor: f('autoColor').checked, detectLog: f('detectLog').checked,
     ...(st.type === 'reference' && f('reference').value ? { reference: f('reference').value } : {}),
     subtitles: f('subtitles').checked, style: f('style').value, title: f('title').value.trim(), endText: f('endText').value.trim(), names: f('names').value.trim(),
-    styleName: f('styleName').value,
+    styleName: f('styleName').value, notes: f('notes').value.trim(),
     ...(f('editStyle').value === 'song' ? { songPart: f('songPart').value, lyricsOnScreen: f('lyricsOnScreen').checked, lyrics: f('lyrics').value.trim(), musicBest: false } : {}),
   });
 
   const runAgent = () => runAgentWith(opts(), setBusy);
   applyType(); show();
+  if (job) applyJob(job);
+  stylesIn.then(pickLearnt); // (the styles come a moment later: a learnt one matching the job is picked then)
 }
 
 // 🧠 The wizard's / Re-edit's choices as a brief for Claude (Assistant > Claude mode), who edits like it does in this
@@ -276,6 +327,7 @@ export function claudeBrief(o, label = 'edit', changes = null) {
     `Finish: look ${o.look || 'natural'}${yes(o.autoColor, ', auto colour each shot')}${yes(o.cinematic, ', cinematic finish')}${yes(o.stabilize, ', stabilize shaky shots')}${yes(o.fx, ', teaser effects on the cuts')}${yes(o.sfx, ', sound effects')}; transitions: ${o.style === 'cinematic' ? 'dissolves between ideas' : 'clean cuts'}${o.clipSpeed && o.clipSpeed !== 1 ? `; clip speed ${o.clipSpeed}x` : ''}${yes(o.keepSound, '; keep the clips\' own sound under the music')}.`,
     o.subtitles ? 'Subtitles: yes.' : '', o.outline ? `Story outline:\n${o.outline}` : '', o.scenes?.length ? `Script scenes: ${o.scenes.map((s, i) => `${i + 1}. ${s.vo || s.text || ''}`).join(' / ').slice(0, 1500)}` : '',
     o.lyrics ? `Lyrics:\n${o.lyrics}` : '', o.lyricsOnScreen ? 'Show the lyrics on screen.' : '', o.title ? `Title: "${o.title}".` : '', o.endText ? `End card: "${o.endText}".` : '', o.names ? `Names / spellings: ${o.names}` : '',
+    o.notes ? `The editor's own words (do this too):\n${o.notes}` : '',
     'Look at the footage first, plan the story, then put it on the timeline and check it yourself with a contact sheet. End with 2-4 lines on what you made.',
   ].filter(Boolean).join('\n');
 }
