@@ -55,18 +55,26 @@ def main():
             if os.path.isdir(d):
                 os.add_dll_directory(d)
                 os.environ["PATH"] = d + os.pathsep + os.environ.get("PATH", "")
+    # A model already on this PC is loaded without asking the internet first: that check took ~11 s on every run (and
+    # longer on a PC without internet). Only a model that is not here yet is downloaded.
+    def load(**kw):
+        try:
+            return WhisperModel(a.model, local_files_only=True, **kw)
+        except Exception:
+            return WhisperModel(a.model, **kw)
+
     # An NVIDIA card without the CUDA/cuBLAS runtime loads the model fine and only fails on first use,
     # so prove the GPU with a 1-second dry run before trusting it.
     model = None
     try:
-        model = WhisperModel(a.model, device="cuda", compute_type="float16")
+        model = load(device="cuda", compute_type="float16")
         list(model.transcribe(np.zeros(16000, dtype=np.float32), language="en")[0])
         print("using GPU", file=sys.stderr)
     except Exception:
         # all but a few cores (faster-whisper uses only 4 threads unless told): about 3x faster on a 24-core PC
         import os
         threads = max(4, (os.cpu_count() or 8) - 4)
-        model = WhisperModel(a.model, device="cpu", compute_type="int8", cpu_threads=threads)
+        model = load(device="cpu", compute_type="int8", cpu_threads=threads)
         print(f"using CPU ({threads} threads)", file=sys.stderr)
 
     # Decode with FFmpeg ourselves: faster-whisper's own PyAV decoder breaks when PyAV is newer than it expects
