@@ -8,7 +8,7 @@
 // result written straight next to it; anything else goes over the network. Its FFmpeg runs at low priority, so a
 // person working on this PC is not slowed down.
 // Close the window (or Ctrl+C) to stop; whatever it was doing is then done on the editor instead.
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn, spawnSync, execFile } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
@@ -105,9 +105,13 @@ const NOPAUSE = argv.includes('--no-pause');
 let mine = 0, load = 0, paused = false, hot = 0, cool = 0;
 const cpuNow = () => { let idle = 0, total = 0; for (const c of os.cpus()) { for (const v of Object.values(c.times)) total += v; idle += c.times.idle; } return { idle, total }; };
 let cpuPrev = cpuNow();
+// 📊 each core's % too (the owner's Performance view shows how many cores are really at work)
+const coreTimes = () => os.cpus().map((c) => { let t = 0; for (const v of Object.values(c.times)) t += v; return { idle: c.times.idle, total: t }; });
+let coresPrev = coreTimes(), cores = [];
 setInterval(() => {
   const n = cpuNow(), d = n.total - cpuPrev.total;
   load = d > 0 ? Math.round(100 * (1 - (n.idle - cpuPrev.idle) / d)) : 0; cpuPrev = n;
+  const nc = coreTimes(); cores = nc.map((c, i) => { const p = coresPrev[i], dd = p ? c.total - p.total : 0; return dd > 0 ? Math.max(0, Math.min(100, Math.round(100 * (1 - (c.idle - p.idle) / dd)))) : 0; }); coresPrev = nc;
   if (NOPAUSE) return;
   if (load > 80 && !mine) { cool = 0; if (++hot >= 2 && !paused) { paused = true; log('⏸ this PC is busy with its own work - helping again when it is quiet'); hello().catch(() => {}); } }
   else if (load < 50) { hot = 0; if (paused && ++cool >= 3) { paused = false; log('▶ quiet again - helping'); hello().catch(() => {}); } }
@@ -161,8 +165,26 @@ function reporter(id, kill) {
   return { line: (l) => { if (!l.trim()) return; buf.push(l.slice(0, 500)); if (buf.length > 150) buf.splice(0, buf.length - 150); timer ||= setTimeout(flush, 1000); }, flush };
 }
 
+// 📊 how hard this PC works right now, for the owner's Performance view (engine/sysstats.mjs has the same - this file imports nothing)
+const SMI_Q = 'name,utilization.gpu,utilization.encoder,utilization.decoder,memory.used,memory.total,temperature.gpu,power.draw,power.limit';
+const smiNow = () => new Promise((ok) => execFile('nvidia-smi', [`--query-gpu=${SMI_Q}`, '--format=csv,noheader,nounits'], { windowsHide: true, timeout: 8000 }, (e, out) => ok(e ? [] : String(out).split(/\r?\n/).filter((l) => l.trim()).map((l) => {
+  const v = l.split(',').map((x) => x.trim()), n = (i) => (Number.isFinite(parseFloat(v[i])) ? Math.round(parseFloat(v[i])) : null);
+  return { name: v[0], util: n(1), enc: n(2), dec: n(3), memUsed: n(4), memTotal: n(5), temp: n(6), power: n(7), powerMax: n(8) };
+}))));
+// this PC's disks (and NAS drive letters), every 5 minutes
+const DISK_PS = "Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DriveType -in 3,4 -and $_.Size } | Select-Object DeviceID,DriveType,Size,FreeSpace | ConvertTo-Json -Compress";
+let disks = [], disksAt = 0;
+const disksNow = () => (process.platform !== 'win32' || Date.now() - disksAt < 300e3 ? Promise.resolve(disks) : new Promise((ok) => {
+  disksAt = Date.now();
+  execFile('powershell.exe', ['-NoProfile', '-Command', DISK_PS], { windowsHide: true, timeout: 20000 }, (e, out) => {
+    try { if (!e) { const a = JSON.parse(String(out).trim() || '[]'); disks = (Array.isArray(a) ? a : [a]).map((d) => ({ root: d.DeviceID, total: Math.round(d.Size / 1073741824), free: Math.round(d.FreeSpace / 1073741824), net: d.DriveType === 4 })); } } catch {}
+    ok(disks);
+  });
+}));
+const liveNow = async () => ({ cpu: load, cores, ramUsed: Math.round((os.totalmem() - os.freemem()) / 1048576), ramTotal: Math.round(os.totalmem() / 1048576), gpus: gpu ? await smiNow() : [], disks: await disksNow() });
+
 async function hello() {
-  const r = await post('/farm/hello', { id: ID, name: NAME, slots: SLOTS, light: LIGHT, specs: SPECS, load, paused });
+  const r = await post('/farm/hello', { id: ID, name: NAME, slots: SLOTS, light: LIGHT, specs: SPECS, load, paused, live: await liveNow().catch(() => null) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
   if (j.v && j.v !== MYV) { stale = true; quitIfStale(); }
@@ -213,7 +235,20 @@ async function doTask(t) {
 // next to where it belongs (the editor renames it into place), else it is sent back.
 const REMOTE = argv.includes('--remote'); // (everything over the network - to try a PC without the NAS)
 const VERBOSE = argv.includes('--verbose'); // (every run in the window, not only the preview copies)
-const same = (f) => { if (REMOTE) return false; try { return fs.statSync(f.path).size === f.size; } catch { return false; } };
+// 💾 only a file on the network (a \\server path or a mapped network drive like Z:) is the editor's own file: a folder on
+// this PC's own disk at the same place (a PC that used to be the editor still has D:\Video Editor Agent\Projects) is
+// another copy - reading it gives old footage, and what is written there never reaches the editor
+let netDrives = new Set(), netAt = 0;
+const mappedDrives =(netUse) => new Set([...String(netUse || '').matchAll(/(?:^|\s)([A-Za-z]):\s+\\\\/gm)].map((m) => m[1].toUpperCase()));
+function onNetwork(p) {
+  if (process.platform !== 'win32') return true;
+  if (/^[\\/]{2}/.test(p)) return true;
+  const m = /^([A-Za-z]):/.exec(String(p));
+  if (!m) return false;
+  if (Date.now() - netAt > 60000) { netAt = Date.now(); netDrives = mappedDrives(spawnSync('net', ['use'], { encoding: 'utf8', windowsHide: true }).stdout); }
+  return netDrives.has(m[1].toUpperCase());
+}
+const same = (f) => { if (REMOTE || !onNetwork(f.path)) return false; try { return fs.statSync(f.path).size === f.size; } catch { return false; } };
 async function doTool(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vhelp-')), t0 = Date.now();
   let outs = [];
@@ -223,7 +258,7 @@ async function doTool(t) {
     const suffix = `.h${crypto.randomBytes(3).toString('hex')}`;
     outs = t.outs.map((o, n) => {
       const ext = path.extname(o.path);
-      const direct = allLocal && fs.existsSync(path.dirname(o.path));
+      const direct = allLocal && onNetwork(o.path) && fs.existsSync(path.dirname(o.path));
       return { ...o, direct, file: direct ? `${o.path}${suffix}${ext}` : path.join(dir, `out${n}${ext}`) };
     });
     let args = fromTaskArgs(t.args, ins, outs.map((o) => o.file));
@@ -270,6 +305,7 @@ async function doRender(t) {
   try {
     if (!(await syncCode())) throw new Error('no copy of the editor\'s code');
     if (REMOTE) throw new Error('this PC reads everything over the network (--remote)');
+    for (const p of [...t.need.map((f) => f.path), ...t.dirs]) if (!onNetwork(p)) throw new Error(`${p} is on the editor's own disk, not the NAS`);
     for (const f of t.need) { let size = null; try { size = fs.statSync(f.path).size; } catch { throw new Error(`cannot see ${f.path}`); } if (f.size != null && size !== f.size) throw new Error(`${f.path} is not the same file here`); }
     for (const d of t.dirs) if (!fs.existsSync(d)) throw new Error(`cannot see ${d}`);
     const job = { ...t.job, luts: Object.fromEntries(Object.entries(t.job.luts || {}).map(([n, f]) => [n, f.startsWith('@code/') ? path.join(CODE, ...f.slice(6).split('/')) : f])) };

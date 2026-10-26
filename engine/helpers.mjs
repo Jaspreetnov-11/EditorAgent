@@ -8,6 +8,32 @@ export function helperScore(sp = {}) {
   return Math.max(1, +sp.cores || 1) + (sp.nvenc ? 8 : 0) + Math.min(64, +sp.ramGB || 0) / 8;
 }
 
+// 🎯 which of the PCs asking for work (in the task's lane) takes a task: the one expected to finish it first. Its measured
+// speed in that lane (w.rate[lane]: MB of input per second, an average of its last tasks - see noteRate) when known, else
+// its strength (helperScore; an NVIDIA card counts thrice for a preview copy); slowed by the tasks it is already doing
+// for its slots, by the load of the person working on it and by its recent failures (w.failScore). A first come
+// first served pick used to give a 4K camera file to whichever PC asked first - often the slowest one.
+// polls: [{ w: { id, specs, busy, slots, load, rate, failScore } }], t: { lane, helper, sizes, tag }. Answers an index or -1.
+export function bestPoll(polls, t) {
+  const lane = t.lane || 'heavy', mb = (t.sizes || []).reduce((n, x) => n + (+x || 0), 0) / 1e6;
+  let best = -1, bestCost = Infinity;
+  polls.forEach((p, i) => {
+    if (p.lane !== lane || (t.helper && p.w.id !== t.helper)) return;
+    const w = p.w, measured = +w.rate?.[lane] > 0 ? +w.rate[lane] : 0;
+    const speed = measured || helperScore(w.specs) * (t.tag === 'proxy' && w.specs?.nvenc ? 3 : 1);
+    const cost = (Math.max(1, mb) / speed) * (1 + (w.busy || 0) / Math.max(1, w.slots || 1)) * (1 + Math.min(100, +w.load || 0) / 100) * (1 + 2 * Math.min(1, +w.failScore || 0));
+    if (cost < bestCost) { bestCost = cost; best = i; }
+  });
+  return best;
+}
+// a task finished on a PC: its speed in that lane (an average that follows the last few tasks) and its failure score
+export function noteRate(w, lane, mb, secs, failed) {
+  w.failScore = (+w.failScore || 0) * 0.7 + (failed ? 0.3 : 0);
+  if (failed || !(mb >= 5) || !(secs > 0.5)) return;
+  const r = mb / secs; w.rate ||= {};
+  w.rate[lane] = w.rate[lane] ? w.rate[lane] * 0.7 + r * 0.3 : r;
+}
+
 // the PC for a project: a pinned one (when it is on), else the one it already has (when it is on), else the PC with
 // the least projects for its strength. helpers: [{ id, name, specs, paused }], assigned: Map project -> helper id,
 // pins: { project: PC name }. need: what the run needs on that PC - one name or a list ('ffprobe', ['torch', 'cv2']).

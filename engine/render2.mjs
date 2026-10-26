@@ -59,11 +59,23 @@ const SEG_ENC = job.preview ? (FAST ? ENC(26, 'ultrafast') : ENC(20, 'veryfast')
 // shots rendered side by side (each FFmpeg already uses several cores; camera files come from a slow drive)
 const PAR = Math.max(1, +job.parallel || (FAST ? 4 : 3)); // (a 1080p preview reads the camera files too)
 
-const die = (m) => { console.error(`render: ${m}`); process.exit(1); };
+// 🩹 one bad clip / graphic no longer stops the whole render: while a shot is planned or made (soft), die throws instead,
+// that shot is left out (black on V1, nothing on an overlay track) and named at the end - "⚠ Skipped: …" lines and
+// "skipped" in the result, shown in the render queue
+let soft = 0;
+const skipped = [];
+const die = (m) => { if (soft) throw new Error(m); console.error(`render: ${m}`); process.exit(1); };
+const skip = (label, e) => {
+  if (skipped.some((s) => s.startsWith(`${label}:`))) return;
+  const raw = String(e?.message || e).replace(/^render: /, ''), why = /No such file|does not exist/i.test(raw) ? 'its file is offline / not found' : /Invalid data|could not find codec|moov atom/i.test(raw) ? 'its file is damaged or cannot be read' : raw.slice(0, 200); skipped.push(`${label}: ${why}`); console.log(`⚠ Skipped: ${label} - ${why}`); };
+function softly(fn, label, fallback) { soft++; try { return fn(); } catch (e) { skip(label, e); return fallback; } finally { soft--; } }
 const wd = fs.mkdtempSync(path.join(os.tmpdir(), 'vedit2-'));
 const ts = project.trackState || {};
 const stageLut = stager(wd);
 const M = (id) => media[id] || die(`media ${id} is missing from the project`);
+// a photo / PNG held for the clip's length: read with image2 - the default PNG reader failed on a PNG with extra bytes
+// after its end (saved by some apps) on every loop and never finished, so the render ran on for hours
+const STILL = ['-f', 'image2', '-pattern_type', 'none', '-loop', '1']; // (none: a % in the name is not a number pattern)
 
 function ff(args, bin = 'ffmpeg', soft = false) {
   const r = spawnSync(bin, ['-hide_banner', '-y', '-loglevel', 'error', '-stats', ...args], { cwd: wd, stdio: ['ignore', 'inherit', 'inherit'] });
@@ -173,6 +185,7 @@ function drawtext(text, { style = 'lower', size, color = 'white', box = true, bo
 const titleLook = (c) => ({ box: c.box !== 'none', boxColor: c.box && c.box !== 'none' ? c.box : undefined, accent: c.accent, strip: c.strip, tricolour: c.tricolour });
 
 function fit(inp, out, mode, c = {}) {
+  if (mode === 'stretch') return `[${inp}]scale=${W}:${H},setsar=1[${out}]`; // (🎛 Clip Attributes > Scaling: Stretch - fills the frame, shape not kept)
   // crop position: fixed, or keyframed (🎯 Follow faces) - t is seconds since the clip started, as the keys are
   const pos = (p, d) => (c.keys?.[p]?.length ? `'(${d})*clip(${keysExpr(c.keys[p], 't')},0,1)'` : `(${d})*${c[p] ?? 0.5}`);
   const cx = pos('cropX', 'iw-ow'), cy = pos('cropY', 'ih-oh');
@@ -379,6 +392,12 @@ let reused = 0;
 
 let segN = 0, smoothAfterFit = '';
 // 🧽 clean up: noise out, detail back (output size); 'upscale' also scales small footage up with lanczos
+// 🎛 Clip Attributes (public/js/clipattrs.js): optical flow's motion estimation, the resize filter, lens correction
+const MOTION_EST = { sfast: 'mc_mode=obmc:me_mode=bilat:me=ds:search_param=16', sbetter: 'mc_mode=aobmc:me_mode=bidir:vsbmc=1',
+  // (Enhanced: a wider search and scene-cut detection; esa - the full search - took hours on a 1080p clip, so umh)
+  efast: 'mc_mode=aobmc:me_mode=bidir:me=hexbs:search_param=64:vsbmc=1:scd=fdiff', ebetter: 'mc_mode=aobmc:me_mode=bidir:me=umh:search_param=48:vsbmc=1:scd=fdiff' };
+const RESIZE_FLAGS = { sharper: 'lanczos', smoother: 'spline', bicubic: 'bicubic', bilinear: 'bilinear', nearest: 'neighbor' };
+const lensFilter = (v) => `lenscorrection=k1=${(0.6 * v).toFixed(3)}:k2=${(0.15 * v).toFixed(3)}:i=bilinear`;
 const ENHANCE = { light: 'hqdn3d=2:1.5:4:3,unsharp=5:5:0.4', strong: 'nlmeans=s=3:p=5:r=11,unsharp=5:5:0.7', upscale: 'nlmeans=s=3:p=5:r=11,unsharp=7:7:0.9' };
 // fixed: the shot's length snapped to whole frames from its cut times on the timeline (see v1Segs), so rounding each
 // shot to frames never adds up - over 40 shots of 0.65 s half a frame each was ~80 ms off the beat by the end
@@ -436,7 +455,8 @@ function segment(c, label, fixed = null) {
       g.push(`[0:v]${stab}setpts='(${keysExpr(keys, 'T')})/TB'${rate}[v0]`);
     } else g.push(`[0:v]${stab}${c.reverse ? 'reverse,' : ''}setpts=(PTS-STARTPTS)/${speed}${rate}[v0]`); // (⏪ Reverse speed: the shot backwards)
     // Time interpolation (Clip Speed / Duration): 'blend' = frame blending (quick), true = optical flow (smoothest)
-    if (smooth) smoothAfterFit = job.preview || c.smooth === 'blend' ? `minterpolate=fps=${F}:mi_mode=blend` : `minterpolate=fps=${F}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1`;
+    // (🎛 Clip Attributes > Motion Estimation: how hard optical flow looks for the movement - Standard Better was the only one)
+    if (smooth) smoothAfterFit = job.preview || c.smooth === 'blend' ? `minterpolate=fps=${F}:mi_mode=blend` : `minterpolate=fps=${F}:mi_mode=mci:${MOTION_EST[c.motionEst] || MOTION_EST.sbetter}`;
     if (ramp) { /* ramped clips are silent (music carries them) */ } else if (m.hasAudio && !c.mute) aSrc = `[0:a]asetpts=PTS-STARTPTS,${c.reverse ? 'areverse,' : ''}${clipFx(c)}${speedAudio(c, speed) ? `${speedAudio(c, speed)},` : ''}${volumeFilter(c)},${AFMT}[a]`;
   } else if (c.type === 'image') {
     const m = M(c.mediaId);
@@ -445,7 +465,7 @@ function segment(c, label, fixed = null) {
     // into a PNG first (FFmpeg puts a HEIC's tiles back together into the full photo)
     let still = m.path;
     if (!/\.(jpe?g|png|bmp|tiff?)$/i.test(m.path)) { still = `still${segN}.png`; preCmds.push(['-i', m.path, '-frames:v', '1', still]); }
-    inputs.push('-loop', '1', '-framerate', String(F), '-t', String(dur), '-i', still);
+    inputs.push(...STILL, '-framerate', String(F), '-t', String(dur), '-i', still);
     const kb = c.kenburns ?? (S.kenburns ? 'in' : false);
     if (kb) {
       const N = Math.max(1, Math.round(dur * F)), z = kb === 'out' ? `1.15-0.15*on/${N}` : `1+0.15*on/${N}`;
@@ -460,7 +480,10 @@ function segment(c, label, fixed = null) {
 
   let cur = 'v0';
   const preFitted = c.type === 'title' || (c.type === 'image' && (c.kenburns ?? S.kenburns));
-  if (!preFitted) { g.push(fit(cur, 'v1', mode, c).replace(/scale=(\d+):(\d+):force/, c.enhance === 'upscale' ? 'scale=$1:$2:flags=lanczos:force' : 'scale=$1:$2:force')); cur = 'v1'; }
+  // (🎛 Lens Correction on the source picture, before it is fitted: - straightens barrel / fisheye, + pincushion)
+  if ((c.type === 'video' || c.type === 'image') && +c.lens) { g.push(`[${cur}]${lensFilter(+c.lens)}[vlens]`); cur = 'vlens'; }
+  const flags = RESIZE_FLAGS[c.resize] || (c.enhance === 'upscale' ? 'lanczos' : '');
+  if (!preFitted) { g.push(flags ? fit(cur, 'v1', mode, c).replace(/scale=(\d+):(\d+)/g, `scale=$1:$2:flags=${flags}`) : fit(cur, 'v1', mode, c)); cur = 'v1'; }
   if (smoothAfterFit) { g.push(`[${cur}]${smoothAfterFit}[vsm]`); cur = 'vsm'; }
   if (c.type === 'video' && ENHANCE[c.enhance]) { g.push(`[${cur}]${ENHANCE[c.enhance]}[ven]`); cur = 'ven'; }
   cur = maskGraph(c, cur, g, mode);
@@ -587,31 +610,54 @@ const R = job.range && +job.range.out > +job.range.in ? { in: +job.range.in, out
 const outside = (x) => R && (x.end < R.in - 1 || x.start > R.out + 1);
 const blank = (dur, label) => ({ file: path.join(wd, `seg${String(segN++).padStart(4, '0')}.mp4`), dur, label: `${label} (outside In-Out)`, hit: null, pre: [],
   main: ['-f', 'lavfi', '-i', `color=c=black:s=${W}x${H}:r=${F}:d=${dur.toFixed(3)}`, '-f', 'lavfi', '-t', dur.toFixed(3), '-i', 'anullsrc=r=48000:cl=stereo', '-map', '0:v', '-map', '1:a', '-t', dur.toFixed(3)] });
-const v1Segs = v1.map((x, i) => { const d = (frames(x.end) - frames(x.start)) / F; return outside(x) ? blank(d, `V1 clip ${i + 1}`) : segment(x.clip, `V1 clip ${i + 1}`, d); });
+// (how a skipped clip is named: track, its file / text and where it is on the timeline)
+const whoIs = (x, label) => { const c = x.clip, nm = c.mediaId ? path.basename(media[c.mediaId]?.path || '?') : c.gfx?.text ? `"${String(c.gfx.text).trim().slice(0, 30)}"` : c.gfx?.tpl || c.type; return `${label} (${nm}, at ${x.start.toFixed(1)}s)`; };
+const v1Segs = v1.map((x, i) => {
+  const d = (frames(x.end) - frames(x.start)) / F, label = `V1 clip ${i + 1}`;
+  if (outside(x)) return blank(d, label);
+  const s = softly(() => segment(x.clip, label, d), whoIs(x, label), null);
+  return s ? Object.assign(s, { v1: true, who: whoIs(x, label) }) : { ...blank(d, label), label: `${label} (skipped)` };
+});
 const pinned = (c) => c.pin?.keys?.length > 0 && (c.type === 'video' || c.type === 'image'); // (▱ drawn straight in the final pass)
 // 🎞 a template / video with transparency on an overlay track (media.alpha): drawn straight from its file in the final
 // pass, so the shots below show through it. Its Motion, opacity and fades apply; with effects, a mask or a blend mode it
 // is made like any other overlay (no transparency).
-const alphaOv = (c) => c.type === 'video' && !!M(c.mediaId)?.alpha && !activeEffects(c).length && !c.omask?.shape && !c.blend && !blendOf(c) && !rampPts(c) && !c.reverse;
-const ovSegs = new Map(ovMedia.filter((x) => !outside(x) && !pinned(x.clip) && !alphaOv(x.clip)).map((x, i) => [x, segment(x.clip, `${x.track} clip ${i + 1}`)]));
+// A PNG with transparency (a scope / frame / logo over the shots) too - made as a shot it came out on its white or black
+// fill, covering everything below. (Without a colour grade: that is made like any other overlay.)
+// (the job's media list does not carry the pixel format: the file is asked once)
+const pixFmts = new Map();
+const pixFmtOf = (p) => {
+  if (!pixFmts.has(p)) pixFmts.set(p, String(spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=pix_fmt', '-of', 'csv=p=0', p], { encoding: 'utf8', windowsHide: true }).stdout || '').trim());
+  return pixFmts.get(p);
+};
+const alphaStill = (c) => c.type === 'image' && !c.color && /\.(png|tiff?)$/i.test(M(c.mediaId)?.path || '') && /^(rgba|bgra|argb|abgr|ya|gbrap|pal8)/.test(pixFmtOf(M(c.mediaId).path));
+const alphaOv = (c) => (alphaStill(c) || (c.type === 'video' && !!M(c.mediaId)?.alpha && !rampPts(c) && !c.reverse)) && !activeEffects(c).length && !c.omask?.shape && !c.blend && !blendOf(c);
+const ovSegs = new Map(ovMedia.filter((x) => !outside(x) && !pinned(x.clip) && !softly(() => alphaOv(x.clip), whoIs(x, x.track), true)).map((x, i) => [x, softly(() => Object.assign(segment(x.clip, `${x.track} clip ${i + 1}`), { who: whoIs(x, `${x.track} clip ${i + 1}`) }), whoIs(x, `${x.track} clip ${i + 1}`), null)]).filter(([, s]) => s));
 if (R) console.log(`  In-Out: ${R.in.toFixed(2)}s to ${R.out.toFixed(2)}s (${(R.out - R.in).toFixed(2)}s)`);
 {
   const all = [...v1Segs, ...ovSegs.values()], pending = [...all];
   // 🖥 render farm: other computers take shots from the end of the list while this one works from the start
   const farmSlots = job.farm ? await farmStatus() : 0;
   if (farmSlots) { for (const s of all) s.farm = farmable(s); console.log(`  render farm: ${farmSlots} worker slot${farmSlots > 1 ? 's' : ''}, ${all.filter((x) => x.farm).length} shots can go there`); }
+  // 🩹 a shot FFmpeg could not make: black of the same length on V1 (the cut stays in time), left out on an overlay track
+  const runSafe = async (s) => {
+    try { await runSegment(s); } catch (e) {
+      skip(s.who || s.label, e);
+      if (s.v1) await ffAsync([...blank(s.dur, s.label).main, ...SEG_ENC, s.file]); else s.failed = true;
+    }
+  };
   const takeLocal = () => pending.shift();
   const takeFarm = () => { for (let i = pending.length - 1; i >= 0; i--) if (pending[i].farm) return pending.splice(i, 1)[0]; return null; };
   const worker = async () => {
     for (let s; (s = takeLocal());) {
-      await runSegment(s);
+      await runSafe(s);
       console.log(`  [${++step}/${total}] ${s.label || 'shot'} ${s.main ? 'ready' : 'reused'}`);
     }
   };
   const farmWorker = async () => {
     for (let s; (s = takeFarm());) {
       const by = await runOnFarm(s);
-      if (!by) await runSegment(s); // nobody took it / it failed there: here instead
+      if (!by) await runSafe(s); // nobody took it / it failed there: here instead
       console.log(`  [${++step}/${total}] ${s.label || 'shot'} ready${by ? ` (🖥 ${by})` : ''}`);
     }
   };
@@ -699,7 +745,7 @@ function pinnedOverlay(x, under, k) {
     inputs.push('-ss', String(tin), '-t', (len * sp + 0.1).toFixed(3), '-i', proxyOf(c.mediaId) || m.path);
     g.push(`[${i}:v]setpts=(PTS-STARTPTS)/${sp},fps=${F}[pn${k}a]`);
   } else {
-    inputs.push('-loop', '1', '-framerate', String(F), '-t', (len + 0.1).toFixed(3), '-i', m.path);
+    inputs.push(...STILL, '-framerate', String(F), '-t', (len + 0.1).toFixed(3), '-i', m.path);
     g.push(`[${i}:v]fps=${F}[pn${k}a]`);
   }
   const K = c.pin.keys, T = `(in/${F})`, xy = (j) => treeExpr(K.map((p) => ({ t: p.t, v: p.q[j] * (j % 2 ? H : W) })), T);
@@ -718,7 +764,8 @@ function pinnedOverlay(x, under, k) {
 
 function alphaOverlay(x, under, k) {
   const c = x.clip, st = x.start, en = x.end, len = en - st, m = M(c.mediaId), i = n++, sp = c.speed || 1, tin = Math.max(0, +c.in || 0);
-  inputs.push('-ss', String(tin), '-t', (len * sp + 0.1).toFixed(3), '-i', m.path);
+  if (c.type === 'image') inputs.push(...STILL, '-framerate', String(F), '-t', (len * sp + 0.1).toFixed(3), '-i', m.path);
+  else inputs.push('-ss', String(tin), '-t', (len * sp + 0.1).toFixed(3), '-i', m.path);
   // Motion on a clear canvas (its black fills made clear), then opacity (static or keyframed) and fades on the alpha
   const mot = transformFilters(c).map((f) => f.replace(/:black(?=$|:)/g, ':black@0').replace(/fillcolor=black(?=$|:)/g, 'fillcolor=black@0'));
   const op = c.opacity ?? 1, f = [`setpts=(PTS-STARTPTS)/${sp}`, `fps=${F}`, 'format=yuva444p', `scale=${W}:${H}:force_original_aspect_ratio=decrease`, `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black@0`, 'setsar=1', ...mot];
@@ -741,10 +788,13 @@ ovl.forEach((x, k) => {
   const c = x.clip, st = x.start, en = x.end;
   if (c.type === 'adjust') { v = adjustLayer(c, v, st, en, k); return; }
   if (c.type !== 'video' && c.type !== 'image') return; // titles are drawn after the film look (below)
-  if (pinned(c)) { if (!outside(x)) v = pinnedOverlay(x, v, k); return; }
-  if (alphaOv(c)) { if (!outside(x)) v = alphaOverlay(x, v, k); return; }
+  // (🩹 one that cannot be drawn is taken back out of the final pass - its inputs and filters - and named at the end)
+  const undo = { g: g.length, inputs: inputs.length, n, v };
+  const tryDraw = (fn) => { soft++; try { v = fn(); } catch (e) { g.length = undo.g; inputs.length = undo.inputs; n = undo.n; v = undo.v; skip(whoIs(x, x.track), e); } finally { soft--; } };
+  if (softly(() => pinned(c), whoIs(x, x.track), false)) { if (!outside(x)) tryDraw(() => pinnedOverlay(x, v, k)); return; }
+  if (softly(() => alphaOv(c), whoIs(x, x.track), false)) { if (!outside(x)) tryDraw(() => alphaOverlay(x, v, k)); return; }
   const s = ovSegs.get(x);
-  if (!s) return; // (outside In-Out: not made)
+  if (!s || s.failed) return; // (outside In-Out: not made; 🩹 or it could not be made)
   const i = n++;
   inputs.push('-i', s.file);
   // 🎨 the Blend effect (Channel): Crossfade is the layer's opacity, the other modes blend it with the shots below
@@ -838,19 +888,35 @@ ovl.filter((x) => x.clip.type === 'graphic').forEach((x, k) => {
   const [BW, BH] = ASPECTS[S.aspect] || ASPECTS['16:9'], f0 = path.join(job.gfxDir || '', `${gfxKey(x.clip.gfx, BW, BH, S.fps, x.end - x.start)}.mov`);
   // 📌 a pinned graphic baked at the export's own frame (gfxui bakeAll) sits on its edge there; else the edit's one, fitted in
   const fx = reframed && x.clip.gfx?.pin && path.join(job.gfxDir || '', `${gfxKey(x.clip.gfx, FW, FH, S.fps, x.end - x.start)}.mov`), f = fx && fs.existsSync(fx) ? fx : f0;
-  if (!job.gfxDir || !fs.existsSync(f)) die('a motion graphic is not prepared - open the project in the editor and render again');
+  if (!job.gfxDir || !fs.existsSync(f)) { skip(whoIs(x, x.track), 'this graphic was not prepared - open the project in the editor and render again'); return; }
   const i = n++, st = x.start.toFixed(3), en = x.end.toFixed(3);
   inputs.push('-i', f);
+  // ◐ Opacity mask on a graphic (a Color Matte as a shape, a vignette, a frame): the graphic on the whole frame, its own
+  // transparency times the mask's - the shots below show outside the shape
+  let src = `${i}:v`;
+  // fade in / out (a transition dropped on a text layer: Cross Dissolve from / to the shots below) - the viewer always
+  // showed them, the render left them out
+  const fi = +x.clip.fadeIn || 0, fo = +x.clip.fadeOut || 0, len = x.end - x.start;
+  if (fi || fo) {
+    g.push(`[${src}]format=rgba,setpts=PTS-STARTPTS${fi ? `,fade=t=in:st=0:d=${fi}:alpha=1` : ''}${fo ? `,fade=t=out:st=${Math.max(0, len - fo).toFixed(3)}:d=${fo}:alpha=1` : ''}[gf${k}]`);
+    src = `gf${k}`;
+  }
+  if (x.clip.omask?.shape) {
+    const mk = finalMask(maskPng(movedMask(x.clip.omask, x.clip.transform)), x.end - x.start + 0.5);
+    g.push(`[${src}]scale=${W}:${H}:force_original_aspect_ratio=decrease,format=rgba,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black@0,setpts=PTS-STARTPTS,split[gma${k}][gmb${k}]`,
+      `[gmb${k}]alphaextract[gmc${k}]`, `[gmc${k}][${mk}]blend=all_mode=multiply:shortest=1[gmd${k}]`, `[gma${k}][gmd${k}]alphamerge[gm${k}]`);
+    src = `gm${k}`;
+  }
   if (x.clip.blend) {
     // 🎭 Blend Mode on a graphic: the frame under it and the graphic blended (both full frame from 0 s), then kept only
     // where the graphic is (its alpha) and laid over the frame - transparent parts stay as they were
-    g.push(`[${i}:v]scale=${W}:${H}:force_original_aspect_ratio=decrease,format=rgba,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black@0,setpts=PTS-STARTPTS,tpad=start_duration=${st}:color=black@0,split[gc${k}][ga${k}]`,
+    g.push(`[${src}]scale=${W}:${H}:force_original_aspect_ratio=decrease,format=rgba,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black@0,setpts=PTS-STARTPTS,tpad=start_duration=${st}:color=black@0,split[gc${k}][ga${k}]`,
       `[ga${k}]alphaextract[gm${k}]`, `[gc${k}]format=gbrp[gp${k}]`, `[${v}]split[gu${k}][gb${k}]`, `[gb${k}]format=gbrp[gq${k}]`,
       `[gq${k}][gp${k}]blend=${blendFF(x.clip.blend)}:eof_action=pass,format=rgba[gr${k}]`, `[gr${k}][gm${k}]alphamerge[gx${k}]`,
       `[gu${k}][gx${k}]overlay=eof_action=pass:enable='between(t,${st},${en})',format=yuv420p[vg${k}]`); v = `vg${k}`;
     return;
   }
-  g.push(`[${i}:v]scale=${W}:${H}:force_original_aspect_ratio=decrease,format=rgba,setpts=PTS-STARTPTS+${st}/TB[gx${k}]`);
+  g.push(`[${src}]scale=${W}:${H}:force_original_aspect_ratio=decrease,format=rgba,setpts=PTS-STARTPTS+${st}/TB[gx${k}]`);
   g.push(`[${v}][gx${k}]overlay=x=(W-w)/2:y=(H-h)/2:eof_action=pass:enable='between(t,${st},${en})'[vg${k}]`); v = `vg${k}`;
 });
 
@@ -1035,4 +1101,4 @@ if (OWN) {
 if (!job.keep) fs.rmSync(wd, { recursive: true, force: true });
 if (reused) console.log(`Reused ${reused} unchanged shot${reused > 1 ? 's' : ''} from earlier renders`);
 try { trimCache(); } catch {}
-console.log(JSON.stringify({ output: job.output, duration: +(R ? R.out - R.in : D).toFixed(2), width: W, height: H }));
+console.log(JSON.stringify({ output: job.output, duration: +(R ? R.out - R.in : D).toFixed(2), width: W, height: H, ...(skipped.length ? { skipped } : {}) }));
