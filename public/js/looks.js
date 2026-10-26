@@ -2,12 +2,30 @@
 //   settings.look = { letterbox: '' | '1.85' | '2.0' | '2.39', vignette: 0..1, grain: 0..1 }   (renderer: engine/render2.mjs)
 //   clip.stabilize = '' | 'light' | 'medium' | 'strong'                                        (vid.stab, render + accurate preview)
 // Film looks (engine/looklut.mjs writes LUTs/Looks/<name> (look).cube). css = rough live preview; renders are exact.
+import { newEffect } from './effects.js';
+import { addTrack, clipDur, uid } from './model.js';
+import { FILM_LOOKS as FILM_STOCKS } from './film.js';
 export const FILM_LOOKS = [
   ['Teal & Orange', 'contrast(1.14) saturate(1.1) sepia(.08) hue-rotate(-6deg)'], ['Warm Film', 'contrast(1.1) saturate(.9) sepia(.22)'],
   ['Golden Hour', 'contrast(1.08) saturate(1.05) sepia(.32)'], ['Moody Dark', 'brightness(.86) contrast(1.18) saturate(.74)'],
   ['Travel Vivid', 'contrast(1.12) saturate(1.38)'], ['Indian Heritage', 'contrast(1.14) saturate(1.22) sepia(.16)'],
   ['Bleach Bypass', 'contrast(1.3) saturate(.55)'], ['Clean Natural', 'contrast(1.06) saturate(1.08)'],
 ];
+// 🎞 Limelight Film over the whole edit (the Agent, the Assistant): one adjustment layer on a video track of its own on
+// top, with the Limelight Film effect - change it in Effect Controls, move it below the titles if they should stay clean.
+// look '' takes it away. more: other settings of the effect ({ grain, halation, … }). Returns the track id (or null).
+export function setFilmLayer(p, look, media = {}, more = {}) {
+  let was = null;
+  for (const id of Object.keys(p.tracks)) { if (p.tracks[id].some((c) => c.filmLook)) was = id; p.tracks[id] = p.tracks[id].filter((c) => !c.filmLook); }
+  if (!look || !FILM_STOCKS[look]) return null;
+  const end = Math.max(0, ...Object.keys(p.tracks).filter((t) => t[0] === 'V').flatMap((t) => p.tracks[t]).map((c) => (+c.start || 0) + (clipDur(c, media) || 0)));
+  if (!(end > 0)) return null;
+  const e = newEffect('film'); Object.assign(e.p, { look }, more);
+  const id = was && !p.tracks[was].length ? was : addTrack(p, 'video');
+  p.tracks[id].push({ id: uid(), type: 'adjust', start: 0, dur: +end.toFixed(3), name: `Limelight Film: ${FILM_STOCKS[look].label}`, filmLook: true, effects: [e] });
+  return id;
+}
+export const filmLayerOf = (p) => Object.values(p.tracks).flat().find((c) => c.filmLook) || null;
 export const lookLut = (name) => (name ? `${name} (look).cube` : '');
 export const lookCss = (lk) => { const n = (lk?.lut || '').replace(' (look).cube', ''); const f = FILM_LOOKS.find((x) => x[0] === n); return f && (lk.mix ?? 1) > 0.05 ? f[1] : ''; };
 export function setFilmLook(p, name, mix = 0.85) { p.settings.look = { ...(p.settings.look || {}), lut: lookLut(name), mix }; }

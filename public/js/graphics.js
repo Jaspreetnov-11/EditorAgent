@@ -6,6 +6,8 @@
 import { drawComp, compMedia } from './motion.js';
 import { drawFusion } from './fusion.js';
 import { cutOut } from './mattecut.js';
+import { PACK, PACK_DRAW } from './gfxpack.js';
+import { hasEdit, setCur, editCtx, editTime, editFade, textSources, drawBg, bgOn, applyLayout, eased, logoEdit, logoPath } from './gfxparams.js';
 
 export const THEMES = {
   mygov: { card: 'rgba(11,37,69,0.92)', text: '#ffffff', sub: '#c9d6ea', accent: '#ff9933', c2: '#138808', c3: '#4f8cff', grid: 'rgba(255,255,255,0.14)' },
@@ -40,7 +42,8 @@ let fontLoader = null;
 export function setFontLoader(fn) { fontLoader = fn; }
 export async function gfxReady(g) {
   if (g?.font && fontLoader) await fontLoader(g.font);
-  const ids = [g?.logo, ...(g?.tpl === 'comp' ? compMedia(g.comp) : [])].filter(Boolean);
+  if (fontLoader) await Promise.all(Object.values(g?.ed?.t || {}).map((e) => e?.font && fontLoader(e.font)));
+  const ids = [g?.logo, g?.ed?.bg?.mode === 'image' && g.ed.bg.img, ...(g?.tpl === 'comp' ? compMedia(g.comp) : [])].filter(Boolean);
   await Promise.all(ids.map((id) => { gfxImage(id); const x = IMGS.get(assetUrl(id)); return x && !x.complete ? new Promise((ok) => { x.addEventListener('load', ok, { once: true }); x.addEventListener('error', ok, { once: true }); }) : null; }));
 }
 
@@ -139,14 +142,17 @@ export const GFX = {
     def: { text: 'Registrations open till 31 October - visit mygov.in', pos: 'lower', theme: 'mygov' },
     fields: [{ k: 'text', label: 'Text', type: 'area', rows: 2, wide: true }, { k: 'pos', label: 'Position', type: 'select', options: [['lower', 'Bottom'], ['middle', 'Middle'], ['top', 'Top']] }] },
 };
+// 🎬 Limelight's own template pack (gfxpack.js): openers, logo stings, titles, lower thirds, transitions, infographics,
+// broadcast / news, social - each with its pack name (the picker groups them by it)
+Object.assign(GFX, PACK);
 // fields shown in Effect Controls for a template (its own first, then heading / look / place / size)
 export const gfxFields = (tpl) => [...(GFX[tpl]?.fields || []), ...COMMON.filter((f) => (GFX[tpl]?.common || ['title', 'theme', 'pos', 'scale']).includes(f.k) && !(tpl === 'route' && f.k === 'pos'))];
 export const newGraphic = (tpl) => ({ tpl, ...JSON.parse(JSON.stringify(GFX[tpl].def)) });
 
 // ---------------- helpers ----------------
 const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
-const outCubic = (u) => 1 - Math.pow(1 - clamp(u), 3);
-const outBack = (u) => { u = clamp(u); const c = 1.6; return 1 + (c + 1) * Math.pow(u - 1, 3) + c * Math.pow(u - 1, 2); };
+const outCubic = eased((u) => 1 - Math.pow(1 - clamp(u), 3));
+const outBack = eased((u) => { u = clamp(u); const c = 1.6; return 1 + (c + 1) * Math.pow(u - 1, 3) + c * Math.pow(u - 1, 2); });
 const num = (v) => { const x = parseFloat(String(v ?? '').replace(/[,₹%\s]/g, '').replace(/[^\d.\-]/g, '')); return Number.isFinite(x) ? x : 0; };
 export const fmtNum = (v, d = 0) => Number(v).toLocaleString('en-IN', { minimumFractionDigits: d, maximumFractionDigits: d });
 // "Label, value" lines; a value keeps its own words ("11.5 crore") for display, its number for sizes
@@ -197,17 +203,22 @@ export function drawGraphic(ctx, W, H, g, t, dur, extra = {}) {
   FAM = `${g.font ? `"${String(g.font).replace(/"/g, '')}", ` : ''}"Nirmala UI", "Segoe UI", Arial, sans-serif`;
   if (g.font && fontLoader) fontLoader(g.font);
   ctx.clearRect(0, 0, W, H);
-  const fade = g.tpl === 'text' || g.tpl === 'shape' ? 1 : clamp((dur - t) / 0.4); // (Type tool text: no built-in fade, like Premiere)
+  // 🎛 what the editor changed on top of the design (gfxparams.js: texts, colours, logo, background, timing, layout)
+  const ed = hasEdit(g) || !!extra.rec;
+  setCur(ed ? g : null, W, H);
+  const fade = editFade(g, t, dur, g.tpl === 'text' || g.tpl === 'shape' ? 0 : 0.4); // (Type tool text: no built-in fade, like Premiere)
+  const [ta, da] = editTime(g, t, dur);
   ctx.save();
   ctx.globalAlpha = fade;
-  if (g.pos === 'full' && g.tpl !== 'route' && g.tpl !== 'callout') { ctx.fillStyle = th.solid || th.card.replace(/[\d.]+\)$/, '1)'); ctx.fillRect(0, 0, W, H); }
+  if (!drawBg(ctx, W, H, g, gfxImage) && g.pos === 'full' && g.tpl !== 'route' && g.tpl !== 'callout') { ctx.fillStyle = th.solid || th.card.replace(/[\d.]+\)$/, '1)'); ctx.fillRect(0, 0, W, H); }
   // 📌 pinned: the graphic as drawn on this frame is moved (and fitted) to its edge / corner (Type tool text does this in textLayout)
   if (pinOn(g) && g.tpl !== 'text') {
     const b = gfxBox(W, H, g, dur);
     if (b) { const p = pinBox(b, W, H, g); ctx.translate(p.x - b.x * p.k, p.y - b.y * p.k); ctx.scale(p.k, p.k); }
   }
-  (DRAW[g.tpl] || DRAW.counter)(ctx, W, H, g, t, dur, th);
-  ctx.restore();
+  applyLayout(ctx, W, H, g);
+  const c = ed ? editCtx(ctx, g, { t, W, H, srcs: textSources(gfxFields(g.tpl), g), rec: extra.rec }) : ctx;
+  try { (DRAW[g.tpl] || DRAW.counter)(c, W, H, g, ta, da, th); } finally { ctx.restore(); setCur(null, W, H); }
 }
 
 // ---------------- 📌 Responsive Design (Premiere's "Pin to" + intro / outro) ----------------
@@ -630,39 +641,39 @@ const DRAW = {
   // (accent lines meet, the logo fades in). The tagline follows letter-spaced.
   logoreveal(ctx, W, H, g, t, dur, th) {
     const u = Math.min(W, H) * (g.scale || 1), cx = W / 2, cy = H * (g.tagline ? 0.44 : 0.5), style = g.style || 'zoom';
-    const img = gfxImage(g.logo), box = u * 0.42;
+    const img = gfxImage(g.logo), LE = logoEdit(), box = u * 0.42 * LE.k, lx = cx + LE.dx, ly = cy + LE.dy;
     let lw = box, lh = box;
     if (img) { const r = img.naturalWidth / img.naturalHeight; if (r > 1) lh = box / r; else lw = box * r; }
     const outK = clamp((dur - t) / 0.5);
     const drawLogo = (alpha) => {
       ctx.save(); ctx.globalAlpha *= alpha;
-      if (img) ctx.drawImage(img, cx - lw / 2, cy - lh / 2, lw, lh);
-      else { ctx.beginPath(); ctx.arc(cx, cy, box * 0.42, 0, Math.PI * 2); ctx.fillStyle = th.accent; ctx.fill(); ctx.font = FONT(box * 0.16, 800); ctx.fillStyle = th.solid || '#0b2545'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('LOGO', cx, cy); }
+      if (img) { if (logoPath(ctx, lx - lw / 2, ly - lh / 2, lw, lh, LE.shape)) ctx.clip(); ctx.drawImage(img, lx - lw / 2, ly - lh / 2, lw, lh); }
+      else { if (!logoPath(ctx, lx - box * 0.42, ly - box * 0.42, box * 0.84, box * 0.84, LE.shape)) { ctx.beginPath(); ctx.arc(lx, ly, box * 0.42, 0, Math.PI * 2); } ctx.fillStyle = th.accent; ctx.fill(); ctx.font = FONT(box * 0.16, 800); ctx.fillStyle = th.solid || '#0b2545'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('LOGO', lx, ly); }
       ctx.restore();
     };
     ctx.save(); ctx.globalAlpha *= outK;
     if (style === 'circle') {
       const r = outCubic((t - 0.1) / 0.8) * Math.hypot(lw, lh) * 0.62;
-      ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, r + 1, 0, Math.PI * 2); ctx.clip(); drawLogo(1); ctx.restore();
-      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.strokeStyle = th.accent; ctx.lineWidth = u * 0.008; ctx.globalAlpha *= clamp(1 - (t - 0.7) / 0.4); ctx.stroke();
+      ctx.save(); ctx.beginPath(); ctx.arc(lx, ly, r + 1, 0, Math.PI * 2); ctx.clip(); drawLogo(1); ctx.restore();
+      ctx.beginPath(); ctx.arc(lx, ly, r, 0, Math.PI * 2); ctx.strokeStyle = th.accent; ctx.lineWidth = u * 0.008; ctx.globalAlpha *= clamp(1 - (t - 0.7) / 0.4); ctx.stroke();
     } else if (style === 'lines') {
       const k = outCubic((t - 0.05) / 0.6), L = W * 0.5;
       ctx.fillStyle = th.accent;
       ctx.save(); ctx.globalAlpha *= clamp(1 - (t - 0.8) / 0.4);
-      ctx.fillRect(cx - L + (L - lw / 2) * k - lw / 2 * (1 - k), cy - lh / 2 - u * 0.02, lw * 0.6, u * 0.006);
-      ctx.fillRect(cx + lw / 2 - lw * 0.6 + (L - lw / 2) * (1 - k), cy + lh / 2 + u * 0.014, lw * 0.6, u * 0.006);
+      ctx.fillRect(lx - L + (L - lw / 2) * k - lw / 2 * (1 - k), ly - lh / 2 - u * 0.02, lw * 0.6, u * 0.006);
+      ctx.fillRect(lx + lw / 2 - lw * 0.6 + (L - lw / 2) * (1 - k), ly + lh / 2 + u * 0.014, lw * 0.6, u * 0.006);
       ctx.restore();
       drawLogo(clamp((t - 0.45) / 0.45));
     } else {
       const k = outBack((t - 0.05) / 0.7), sc = 0.55 + 0.45 * k;
-      ctx.save(); ctx.translate(cx, cy); ctx.scale(sc, sc); ctx.translate(-cx, -cy); drawLogo(clamp(t / 0.35));
+      ctx.save(); ctx.translate(lx, ly); ctx.scale(sc, sc); ctx.translate(-lx, -ly); drawLogo(clamp(t / 0.35));
       // light sweep over the logo only
       const sw = (t - 0.7) / 0.6;
       if (sw > 0 && sw < 1) {
         ctx.globalCompositeOperation = 'source-atop';
-        const gx = cx - lw + sw * lw * 2, grad = ctx.createLinearGradient(gx - lw * 0.25, 0, gx + lw * 0.25, 0);
+        const gx = lx - lw + sw * lw * 2, grad = ctx.createLinearGradient(gx - lw * 0.25, 0, gx + lw * 0.25, 0);
         grad.addColorStop(0, 'rgba(255,255,255,0)'); grad.addColorStop(0.5, 'rgba(255,255,255,0.65)'); grad.addColorStop(1, 'rgba(255,255,255,0)');
-        ctx.fillStyle = grad; ctx.fillRect(cx - lw / 2, cy - lh / 2, lw, lh);
+        ctx.fillStyle = grad; ctx.fillRect(lx - lw / 2, ly - lh / 2, lw, lh);
       }
       ctx.restore();
     }
@@ -688,13 +699,13 @@ const DRAW = {
     ctx.fillStyle = th.accent; ctx.beginPath(); ctx.moveTo(0, H); ctx.lineTo(W * 0.32 * sweep, H); ctx.lineTo(0, H - H * 0.32 * sweep); ctx.fill();
     ctx.globalAlpha *= 0.55; ctx.beginPath(); ctx.moveTo(W, 0); ctx.lineTo(W - W * 0.22 * sweep, 0); ctx.lineTo(W, H * 0.22 * sweep); ctx.fill();
     ctx.restore();
-    const img = gfxImage(g.logo), box = u * (vert ? 0.3 : 0.24);
+    const img = gfxImage(g.logo), LE = logoEdit(), box = u * (vert ? 0.3 : 0.24) * LE.k;
     let y = H * (vert ? 0.24 : 0.18);
     if (img || g.logo) {
       let lw = box, lh = box; if (img) { const r = img.naturalWidth / img.naturalHeight; if (r > 1) lh = box / r; else lw = box * r; }
       const k = outBack(t / 0.6);
-      ctx.save(); ctx.globalAlpha *= clamp(t / 0.3); ctx.translate(W / 2, y + lh / 2); ctx.scale(0.7 + 0.3 * k, 0.7 + 0.3 * k);
-      if (img) ctx.drawImage(img, -lw / 2, -lh / 2, lw, lh); else { ctx.beginPath(); ctx.arc(0, 0, box * 0.4, 0, Math.PI * 2); ctx.fillStyle = th.accent; ctx.fill(); }
+      ctx.save(); ctx.globalAlpha *= clamp(t / 0.3); ctx.translate(W / 2 + LE.dx, y + lh / 2 + LE.dy); ctx.scale(0.7 + 0.3 * k, 0.7 + 0.3 * k);
+      if (img) { if (logoPath(ctx, -lw / 2, -lh / 2, lw, lh, LE.shape)) ctx.clip(); ctx.drawImage(img, -lw / 2, -lh / 2, lw, lh); } else { if (!logoPath(ctx, -box * 0.4, -box * 0.4, box * 0.8, box * 0.8, LE.shape)) { ctx.beginPath(); ctx.arc(0, 0, box * 0.4, 0, Math.PI * 2); } ctx.fillStyle = th.accent; ctx.fill(); }
       ctx.restore(); y += lh + u * 0.05;
     }
     if (g.title) {
@@ -715,7 +726,7 @@ const DRAW = {
   // 📰 breaking / news strip: a label block and a line of text running along the bottom
   credits(ctx, W, H, g, t, dur, th) {
     const u = Math.min(W, H) * (g.scale || 1), lh = u * 0.06, head = u * 0.085;
-    if (g.bg !== 'none') { ctx.fillStyle = th.solid || '#0b0b0f'; ctx.fillRect(0, 0, W, H); }
+    if (g.bg !== 'none' && !bgOn(g)) { ctx.fillStyle = th.solid || '#0b0b0f'; ctx.fillRect(0, 0, W, H); }
     const lines = String(g.text || '').split('\n'), total = (g.head ? head * 2 : 0) + lines.length * lh;
     // from just below the frame to just above it, evenly over the whole clip
     let y = H + (-(H + total) * clamp(t / Math.max(0.1, dur)));
@@ -763,6 +774,8 @@ const DRAW = {
     ctx.restore();
   },
 };
+for (const [k, f] of Object.entries(PACK_DRAW)) DRAW[k] = (ctx, W, H, g, t, dur, th) => f(ctx, W, H, g, t, dur, th, { img: gfxImage, fam: FAM });
+
 
 // T where a Type tool text sits on a W x H frame: its lines, font, line height and box (x, y = its top-left, w, h);
 // the viewer uses it to hit-test and to put the typing box exactly over the text

@@ -5,6 +5,7 @@
 //   css(p)      -> { filter, transform, clip } for live preview (null / missing = shown in Accurate preview only)
 // ctx = { W, H } output size in pixels (amounts are given for a 1920-wide frame and scaled).
 import { uid } from './model.js';
+import { FILM_PARAMS, filmGraph, filmCss } from './film.js';
 
 const n = (v, d) => (Number.isFinite(+v) ? +v : d);
 // 🖥 live looks that CSS alone cannot do are SVG filters, added once to the page (only in the browser; the render uses FFmpeg)
@@ -44,6 +45,8 @@ export const VFX = {
     css: (p) => { const a = n(p.amount, 0.5); return { overlay: `radial-gradient(ellipse at center, rgba(0,0,0,0) ${Math.round(68 - 38 * a)}%, rgba(0,0,0,${(0.3 + 0.6 * a).toFixed(2)}) 100%)` }; } },
   grain: { label: 'Film grain', cat: 'Stylize', params: { amount: { label: 'Amount', min: 0, max: 1, step: 0.05, def: 0.4 } },
     ff: (p) => `noise=alls=${Math.round(4 + 20 * n(p.amount, 0.4))}:allf=t`, css: (p) => ({ overlay: grainCss(n(p.amount, 0.4)), grain: true }) },
+  // 🎞 Limelight Film (film.js): print look, halation, bloom, grain in the midtones, vignette, gate weave, flicker
+  film: { label: 'Limelight Film', cat: 'Stylize', params: FILM_PARAMS, ff: (p, ctx) => filmGraph(p, ctx), css: (p) => filmCss(p, grainCss) },
   oldfilm: { label: 'Old film', cat: 'Stylize', params: { amount: { label: 'Amount', min: 0, max: 1, step: 0.05, def: 0.7 } },
     ff: (p) => { const a = n(p.amount, 0.7); return `hue=s=${(1 - 0.7 * a).toFixed(2)},colorchannelmixer=rr=1:gg=${(1 - 0.08 * a).toFixed(3)}:bb=${(1 - 0.22 * a).toFixed(3)},noise=alls=${Math.round(8 + 18 * a)}:allf=t,eq=brightness='0.03*${a.toFixed(2)}*sin(t*37)':eval=frame,vignette=angle=${(0.3 + 0.35 * a).toFixed(2)}`; },
     css: (p) => ({ filter: `sepia(${(0.5 * n(p.amount, 0.7)).toFixed(2)}) contrast(1.05)` }) },
@@ -182,6 +185,7 @@ function recolorPix(g, W, H, from, sim, soft, fn) {
 }
 // the matching pixels (colorkey on a copy of the picture) show a changed copy (alt) - the rest stays as it was
 const recolor = (from, sim, soft, alt) => ({ graph: (a, b) => `[${a}]split[${b}o][${b}c];[${b}c]${alt},format=yuv420p[${b}n];[${b}o]format=rgba,colorkey=${hx(from)}:${f4(Math.max(0.01, sim))}:${f4(soft)}[${b}k];[${b}n][${b}k]overlay=format=auto,format=yuv420p[${b}]` });
+let focusCanvas = null; // (🎯 Focus Blur's live blurred copy)
 const XY = { x: { label: 'Centre across', min: 0, max: 100, step: 0.5, def: 50, unit: '%' }, y: { label: 'Centre down', min: 0, max: 100, step: 0.5, def: 50, unit: '%' } };
 const OPA = { label: 'Opacity', min: 0, max: 1, step: 0.05, def: 1 };
 const SEL = (label, options, def) => ({ label, type: 'select', options, def });
@@ -312,6 +316,26 @@ const MORE = {
     pix: (g, W, H, p) => { const sx = (W * p.sx) / 100, sy = (H * p.sy) / 100, ex = (W * p.ex) / 100, ey = (H * p.ey) / 100;
       const gr = p.shape === 'radial' ? g.createRadialGradient(sx, sy, 0, sx, sy, Math.max(1, Math.hypot(ex - sx, ey - sy))) : g.createLinearGradient(sx, sy, ex, ey);
       gr.addColorStop(0, p.c1); gr.addColorStop(1, p.c2); g.save(); g.globalAlpha = p.opacity; g.fillStyle = gr; g.fillRect(0, 0, W, H); g.restore(); } },
+  // 🎯 Focus Blur: the picture sharp inside a circle (the subject), blurred outside it - a shallow-focus look. The mask is
+  // worked out small and scaled up (soft anyway), so it costs about as much as a Gaussian blur
+  focusblur: { label: 'Focus blur', cat: 'Blur & sharpen', params: { ...XY, size: { label: 'Sharp area', min: 0, max: 100, step: 0.5, def: 22, unit: '%' }, feather: { label: 'Feather', min: 0, max: 100, step: 0.5, def: 18, unit: '%' }, amount: { label: 'Blurriness', min: 0, max: 60, step: 1, def: 16 } },
+    ff: (p, { W, H }) => ({ graph: (a, b) => {
+      const mw = 192, mh = Math.max(2, Math.round((mw * H) / W)), s = Math.max(0.1, (n(p.amount, 16) * W) / 1920 / 2).toFixed(2);
+      const m = `255*clip((hypot(X-${f4((mw * n(p.x, 50)) / 100)},Y-${f4((mh * n(p.y, 50)) / 100)})-${f4((mw * n(p.size, 22)) / 100)})/${f4(Math.max(0.5, (mw * n(p.feather, 18)) / 100))}+0.5,0,1)`;
+      return `[${a}]split=3[${b}x][${b}y][${b}z];[${b}y]gblur=sigma=${s}[${b}g];[${b}z]scale=${mw}:${mh},format=gray,geq=lum='${m}',scale=${W}:${H}[${b}m];` +
+        `[${b}g][${b}m]alphamerge[${b}k];[${b}x][${b}k]overlay=format=auto,format=yuv420p[${b}]`;
+    } }),
+    // live: the frame blurred on a second canvas, cut to outside the circle with the same soft edge, laid back over it
+    pix: (g, W, H, p) => {
+      const t = focusCanvas || (focusCanvas = document.createElement('canvas'));
+      if (t.width !== W || t.height !== H) { t.width = W; t.height = H; }
+      const tg = t.getContext('2d'), cx = (W * n(p.x, 50)) / 100, cy = (H * n(p.y, 50)) / 100, r = (W * n(p.size, 22)) / 100, f = Math.max(0.5, (W * n(p.feather, 18)) / 100);
+      tg.clearRect(0, 0, W, H); tg.filter = `blur(${((n(p.amount, 16) * W) / 1920 / 2).toFixed(2)}px)`; tg.drawImage(g.canvas, 0, 0); tg.filter = 'none';
+      const gr = tg.createRadialGradient(cx, cy, Math.max(0, r - f / 2), cx, cy, r + f / 2);
+      gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,1)');
+      tg.globalCompositeOperation = 'destination-in'; tg.fillStyle = gr; tg.fillRect(0, 0, W, H); tg.globalCompositeOperation = 'source-over';
+      g.drawImage(t, 0, 0);
+    } },
   circle: { label: 'Circle', cat: 'Generate', params: { ...XY, radius: { label: 'Radius', min: 0, max: 100, step: 0.5, def: 15, unit: '%' }, feather: { label: 'Feather', min: 0, max: 400, step: 1, def: 4, unit: 'px' }, color: { label: 'Colour', type: 'color', def: '#ffffff' }, opacity: OPA, invert: SEL('Invert circle', [['off', 'Off'], ['on', 'On']], 'off') },
     ff: (p, { W }) => { const a = `clip((W*${f4(p.radius / 100)}-hypot(X-W*${f4(p.x / 100)},Y-H*${f4(p.y / 100)}))/${f4(Math.max(1, (p.feather * W) / 1920))}+0.5,0,1)`; return paint(p.color, `${p.invert === 'on' ? `(1-${a})` : a}*${f4(p.opacity)}`); },
     pix: (g, W, H, p) => { const cx = (W * p.x) / 100, cy = (H * p.y) / 100, r = (W * p.radius) / 100, f = Math.max(0.5, (p.feather * W) / 1920 / 2), gr = g.createRadialGradient(cx, cy, Math.max(0, r - f), cx, cy, r + f), on = p.invert === 'on';
@@ -685,6 +709,7 @@ export function effectsCss(c, k = 0.3, rel) {
     if (r.transform) t.push(r.transform);
     if (r.clip) clip = r.clip;
     if (r.grain) grain = r.overlay; else if (r.overlay) ov.push(r.overlay);
+    if (r.overlays) ov.push(...r.overlays); // (more than one: 🎞 Limelight Film's vignette next to its grain)
   }
   // overlay: backgrounds laid over the picture (vignette) - the viewer draws them on a layer above the shot
   return { filter: f.join(' '), transform: t.join(' '), clip, overlay: ov.join(', '), grain };

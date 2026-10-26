@@ -95,10 +95,21 @@ Clip fields (seconds):
   `project.brand.pack` = { id, name } of the pack on the project, `brand.lt` / `brand.ltMotion` = its lower-third look (title template
   id / `lower3` style), `brand.palette` = its extra colours. V1 clips with `"brandClip":"intro"|"outro"` and `logo.pack` came from the
   pack - keep them at the start / end and do not stack another intro / outro; a pack applied again replaces them.
+  🎛 Any part of a template on top of its fields (Presets page Edit panel; public/js/gfxparams.js): `gfx.ed` = { `t`: { <text field
+  key, or "_" for numbers / other text>: { font, size (×), weight, italic, color, x, y (% of frame), op, from, to (s), outline,
+  outlineW, shadow } }, `logo`: { size, x, y, shape:"circle"|"rounded"|"square" }, `cmap`: { "#ff9933": "#22aa55" } (swap any colour it
+  draws with), `sh`: { op, lw }, `n`: { the template's `knobs`, e.g. ls_shapes count / size / spread }, `bg`: { mode:"solid"|"grad"|
+  "image"|"none", c1, c2, angle, img (media id), dim }, `time`: { delay, speed, fadeIn, fadeOut, feel:"smooth"|"snappy"|"bouncy"|"linear" },
+  `lay`: { x, y, zoom, rot } }. Leave out what stays as designed.
   Graphics are drawn by the open editor tab (baked a few seconds after a change) - a render fails with "motion graphic is not
   prepared" if no editor tab has the project open; ask the user to open it, then render.
 Settings you may change with `apply {"settings":{…}}`: `aspect` ("16:9","9:16","1:1","4:5"), `fps`, `kenburns` (auto zoom on photos),
 `look` `{ "lut":"Warm Film (look).cube", "mix":0.85, "letterbox":"2.0"|"2.39"|"", "vignette":0..1, "grain":0..1 }`.
+A real film look (print colour, halation round lights, film grain in the midtones, gate weave) when the user asks for
+"film look / Dehancer jaisa / 16mm / film grain": `film <look>` - Limelight Film over the whole edit as one adjustment
+layer (looks: clean, golden, monsoon, faded, bleach, tungsten, classic, silver; `film off` takes it away). On one clip
+only: an effect `{ "type":"film", "p":{ "look":"golden", "strength":0.8, "grain":0.35, "grainSize":"medium",
+"halation":0.35, "halRadius":18, "bloom":0.15, "vignette":0.25, "weave":0, "flicker":0 } }` in the clip's `effects`.
 Captions (lyrics/subtitles burnt in, word by word): `{"captions":{"on":true,"style":{"preset":"karaoke"},"cues":[{"start":1,"end":3,"text":"…"}]}}`.
 More caption tracks (e.g. a second language): `captions.tracks: [{"id":"en1","name":"English","lang":"en","on":true,"style":{…},"cues":[…]}]` -
 the `captions` object itself is track 1; every track with `on` shows and is burned in, stacked above track 1 at the same position.

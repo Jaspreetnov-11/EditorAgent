@@ -2,6 +2,8 @@
 // edtool.mjs - the editor's hands for Claude (🧠 Claude mode of the Assistant). Claude runs it with Bash:
 //   node engine/edtool.mjs <command> [args]          (project: $VEDIT_PROJECT, editor: http://127.0.0.1:$VEDIT_PORT)
 // Every change goes through the running editor, so it shows up live in every open editor tab and can be undone there.
+import { setFilmLayer } from '../public/js/looks.js';
+import { FILM_LOOKS as FILM_STOCKS } from '../public/js/film.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -31,7 +33,7 @@ const out = (x) => console.log(typeof x === 'string' ? x : JSON.stringify(x, nul
 function api(method, url, body) {
   return new Promise((ok) => {
     const data = body ? Buffer.from(JSON.stringify(body)) : null;
-    const req = http.request(BASE + url, { method, agent: false, headers: { Connection: 'close', ...(data ? { 'Content-Type': 'application/json', 'Content-Length': data.length } : {}) } }, (res) => {
+    const req = http.request(BASE + url, { method, agent: false, headers: { Connection: 'close', ...(process.env.VEDIT_CLAUDE_TOKEN ? { 'x-vedit-claude': process.env.VEDIT_CLAUDE_TOKEN } : {}), ...(data ? { 'Content-Type': 'application/json', 'Content-Length': data.length } : {}) } }, (res) => {
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => {
@@ -110,6 +112,9 @@ CHANGE
   apply <file.json>           replace parts of the project: { "tracks": { "V1": [...], "V2": [...] }, "settings": {...},
                               "captions": {...}, "trackState": {...}, "markers": [...] } - only the keys you give change
   ops <file.json>             small live changes (see public/js/livepatch.js): [{ "o":"set","p":["tracks","V1","#<clipId>","in"],"v":2.5 }]
+  film <look|off> [--strength 0.8] [--grain 0.35] [--grain-size fine|medium|coarse] [--halation 0.35] [--bloom 0.15]
+       [--vignette 0.25] [--weave 0] [--flicker 0]   🎞 Limelight Film over the whole edit (an adjustment layer on its own
+                              top track; again = changes it, off = takes it away). Looks: ${Object.keys(FILM_STOCKS).join(', ')}
   reflook <ref-file> [--cuts no]   after building an edit like a reference: puts the reference's EFFECTS on it - its
                               looks (black & white, vignette, grain, bars, blur, warmer / cooler) as adjustment layers on
                               a free V track over the matching V1 shots, and what happens on each of its cuts (flash, whip,
@@ -387,6 +392,19 @@ async function cmdRefLook(file) {
   await saveView(before, pj, 'Claude (reference effects)');
   out(`${describeLooks(ref)}\n${layers.length ? `${layers.length} adjustment layer(s) on ${track}: ${layers.map((l) => `${r2(l.start)}-${r2(l.start + l.dur)}s ${l.name.replace('Ref look: ', '')}`).join(' | ')}` : 'no adjustment layers needed'}\n${cuts} cut effect(s) / transition(s) copied from the reference's cuts`);
 }
+// 🎞 Limelight Film over the whole edit (public/js/looks.js setFilmLayer)
+async function cmdFilm(look) {
+  if (!look || (look !== 'off' && !FILM_STOCKS[look])) die(`film <${Object.keys(FILM_STOCKS).join('|')}|off>`);
+  await snap('film');
+  const pj = await project(); delete pj._rev; const before = JSON.parse(JSON.stringify(pj));
+  const by = Object.fromEntries((await mediaList()).map((m) => [m.id, m]));
+  const more = {};
+  for (const k of ['strength', 'grain', 'halation', 'bloom', 'vignette', 'weave', 'flicker']) if (flag(k) !== null) more[k] = Math.min(1, Math.max(0, +flag(k) || 0));
+  if (['fine', 'medium', 'coarse'].includes(flag('grain-size'))) more.grainSize = flag('grain-size');
+  const tr = setFilmLayer(pj, look === 'off' ? '' : look, by, more);
+  await saveView(before, pj, look === 'off' ? 'Claude (Limelight Film off)' : 'Claude (Limelight Film)');
+  out(look === 'off' ? 'Limelight Film taken away' : tr ? `Limelight Film "${FILM_STOCKS[look].label}" over the whole edit on ${tr}${Object.keys(more).length ? ` (${JSON.stringify(more)})` : ''}` : 'the timeline is empty - nothing to put it over');
+}
 async function cmdStyles() { const r = await api('GET', '/api/styles'); out(r.styles.map((x) => `${x.name}${x.name === r.default ? ' (default)' : ''}: ${x.summary}`).join('\n') || 'no saved styles'); }
 
 const [cmd, ...rest] = argv;
@@ -394,6 +412,6 @@ if (!cmd || cmd === 'help') { out(HELP); process.exit(0); }
 if (!PROJ) die('no project: set VEDIT_PROJECT or pass --p "<project name>"');
 const run = { state: () => cmdState(), media: () => cmdMedia(), find: () => cmdFind(rest), scan: () => cmdScan(), people: () => cmdPeople(), quotes: () => cmdQuotes(), look: () => cmdLook(rest[0]), frames: () => cmdFrames(rest.map(Number)),
   sheet: () => cmdSheet(), song: () => cmdSong(rest[0]), apply: () => cmdApply(rest[0]), ops: () => cmdOps(rest[0]), agent: () => cmdAgent(rest[0]),
-  preview: () => cmdRender(true), render: () => cmdRender(false), styles: () => cmdStyles(), ref: () => cmdRef(rest[0]), reflook: () => cmdRefLook(rest[0]) }[cmd];
+  preview: () => cmdRender(true), render: () => cmdRender(false), styles: () => cmdStyles(), ref: () => cmdRef(rest[0]), reflook: () => cmdRefLook(rest[0]), film: () => cmdFilm(rest[0]) }[cmd];
 if (!run) die(`unknown command "${cmd}" - try: node engine/edtool.mjs help`);
 await run();

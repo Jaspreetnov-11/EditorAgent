@@ -1,6 +1,7 @@
 // 📊 Motion graphics in the editor: the template picker, Effect Controls for a graphic, and baking - every frame
 // drawn by graphics.js is sent to the server once (cache/graphics/<key>.mov, transparent) so the render lays exactly
 // the same picture over the video. A graphic is baked again only when it changes (the key is its fingerprint).
+import { PACK_ORDER } from './gfxpack.js';
 import { S, commit, findClip, on, emit, layout } from './store.js';
 import { api, enc } from './api.js';
 import { ASPECTS, uid, clipDur, trackList, addTrack, parseTime, fmt, BLEND_MODES } from './model.js';
@@ -16,7 +17,7 @@ setGfxAssets((id) => S.mediaById[id]?.urls?.play || null, () => emit('live'));
 // 🎬 video layers of comps in the Edit viewer: the nearest frame, redrawn when the exact one arrives
 setGfxVideo((id, t, rate) => (S.progPlaying ? CV.follow('view', id, t, rate) : CV.frame('view', id, t, () => emit('live'))));
 // a new graphic: in the brand kit's colours, font and logo when the project has a brand kit
-function made(tpl) {
+export function made(tpl) {
   const g = newGraphic(tpl), b = brandOf(S.project);
   if (GFX[tpl].motion) {
     if (b) Object.assign(g, { theme: 'brand', brand: b, ...(S.project.brand.font ? { font: S.project.brand.font } : {}) });
@@ -52,7 +53,8 @@ export function openGraphics() {
   const tile = ([k, x]) => `<button class="gfx-pick" data-tpl="${k}"><canvas width="${W}" height="${H}" style="width:${pw}px;height:${ph}px"></canvas><span>${esc(x.label)}</span></button>`;
   const all = Object.entries(GFX), b = brandOf(S.project);
   const dlg = modal('Motion graphics', `<h4>Motion templates <span class="muted small">${b ? "- the brand kit's colours, font and logo are applied automatically" : "- set a brand kit () and its colours and logo are applied automatically"}</span></h4>
-    <div class="gfx-grid">${all.filter(([, x]) => x.motion).map(tile).join('')}</div>
+    <div class="gfx-grid">${all.filter(([, x]) => x.motion && !x.pack).map(tile).join('')}</div>
+    ${PACK_ORDER.map((p) => `<h4>${esc(p)} <span class="muted small">- Limelight pack</span></h4><div class="gfx-grid">${all.filter(([, x]) => x.pack === p).map(tile).join('')}</div>`).join('')}
     <h4>Data graphics <span class="muted small">- numbers, charts, callouts</span></h4>
     <div class="gfx-grid">${all.filter(([, x]) => !x.motion).map(tile).join('')}</div>
     <p class="muted small">Placed at the playhead on a free overlay track. Change words, colours and style in Effect Controls. What you see in the viewer is what renders.</p>
@@ -67,17 +69,18 @@ export function openGraphics() {
   });
 }
 
-export function addGraphic(tpl) {
-  const t = S.playhead, dur = GFX[tpl].dur;
+export function addGraphic(tpl, gfx = null, len = 0) {
+  const t = S.playhead, dur = len || GFX[tpl].dur;
   const free = (id) => !(S.project.tracks[id] || []).some((c) => (c.start || 0) < t + dur && (c.start || 0) + clipDur(c, S.mediaById) > t);
   const ov = trackList(S.project).filter((x) => x.kind === 'video' && x.id !== 'V1').map((x) => x.id).reverse(); // V2 first
   const id = ov.find(free) || addTrack(S.project, 'video');
-  const c = { id: uid(), type: 'graphic', start: +t.toFixed(3), dur, gfx: made(tpl) };
+  const c = { id: uid(), type: 'graphic', start: +t.toFixed(3), dur, gfx: gfx || made(tpl) };
   S.project.tracks[id].push(c);
   S.sel = new Set([c.id]);
   commit('Add graphic');
   emit('select');
   toast(`${GFX[tpl].label} added on ${id} - edit its words and numbers in Effect Controls`);
+  return c;
 }
 
 // T the Type tool: a text where the Program monitor was clicked (x, y: % of the frame), on the first free overlay track
@@ -144,8 +147,8 @@ export function gfxInspector(c) {
   if (g.tpl === 'text') return `<div class="isec"><div class="fgrid tx-panel">${textPanel(g)}</div>
   <div class="fgrid">${fieldsHTML([{ k: 'start', label: 'Starts at', type: 'time', fmt, ph: '0:00.0' }, { k: 'dur', label: 'Length', type: 'num', min: 1, step: 0.5, unit: 'sec' }, { k: 'blend', label: 'Blend Mode (with the tracks below)', type: 'select', options: BLEND_MODES }], c)}</div></div>`;
   // 🎬 a Motion comp: edited on the Motion page
-  if (g.tpl === 'comp' || g.tpl === 'fusion') return `<div class="isec"><p><b>${g.tpl === 'fusion' ? `${esc(g.fusion?.name || 'Fusion')}</b> <span class="muted small">- ${g.fusion?.nodes?.length || 0} nodes</span>` : `${esc(g.comp?.name || 'Composition')}</b> <span class="muted small">- ${g.comp?.layers?.length || 0} layers</span>`}</p>
-    <button class="accent" data-open-comp>${g.tpl === 'fusion' ? 'Open in Fusion' : 'Open in Motion'}</button><div class="fgrid">${fieldsHTML([{ k: 'start', label: 'Starts at', type: 'time', fmt, ph: '0:00.0' }], c)}</div>
+  if (g.tpl === 'comp' || g.tpl === 'fusion') return `<div class="isec"><p><b>${g.tpl === 'fusion' ? `${esc(g.fusion?.name || 'Nodes')}</b> <span class="muted small">- ${g.fusion?.nodes?.length || 0} nodes</span>` : `${esc(g.comp?.name || 'Composition')}</b> <span class="muted small">- ${g.comp?.layers?.length || 0} layers</span>`}</p>
+    <button class="accent" data-open-comp>${g.tpl === 'fusion' ? 'Open in Nodes' : 'Open in Motion'}</button><div class="fgrid">${fieldsHTML([{ k: 'start', label: 'Starts at', type: 'time', fmt, ph: '0:00.0' }], c)}</div>
     <small class="hint">Changes made to the comp on the Motion page update this clip. Double-click the clip to open it there.</small></div>`;
   return `<div class="isec"><div class="fgrid">${fieldsHTML([
     { k: 'tpl', label: 'Template', type: 'select', options: Object.entries(GFX).map(([k, x]) => [k, x.label]), wide: true },

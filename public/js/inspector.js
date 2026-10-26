@@ -1,4 +1,5 @@
 // Inspector: properties of the selected clip, or project settings when nothing is selected.
+import { attrsHTML, bindAttrs } from './clipattrs.js';
 import { ic } from './lineicons.js';
 import { guarded } from './errlog.js';
 import { S, on, emit, commit, findClip, layout, duration, saveNow } from './store.js';
@@ -61,7 +62,7 @@ const SEC_INFO = { transform: ['transform', 'Position, scale, rotation, opacity,
 const sumHTML = (key, title, extra = '') => { const i = SEC_INFO[key]; return i ? `<span class="is-ic">${ic(i[0])}</span><span class="is-t"><span>${title}${extra}</span><small>${i[1]}</small></span>` : `${title}${extra}`; };
 const sec = (key, title, body, extra = '') => `<details class="isec" data-sec="${key}"${openSections.has(key) ? ' open' : ''}><summary>${sumHTML(key, title, extra)}</summary><div class="fgrid">${body}</div></details>`;
 // the everyday sections first, the smart tools (tracking, gyro, AI) together under their own heading
-const SEC_ORDER = ['transform', 'ramp', 'cutfx', 'vfx', 'omask', 'text', 'audio', 'aeffects', 'trk', 'gyro', 'ai'], SMART = new Set(['trk', 'gyro', 'ai']);
+const SEC_ORDER = ['transform', 'ramp', 'attrs', 'cutfx', 'vfx', 'omask', 'text', 'audio', 'aeffects', 'trk', 'gyro', 'ai'], SMART = new Set(['trk', 'gyro', 'ai']);
 function arrangeSections(body) {
   const secs = [...body.querySelectorAll(':scope > details.isec')]; if (secs.length < 2) return;
   const rank = (d) => { const i = SEC_ORDER.indexOf(d.dataset.sec); return i < 0 ? 50 : i; };
@@ -108,8 +109,9 @@ function renderClip(id) {
     return;
   }
   if (c.type === 'graphic') {
-    root.innerHTML = `<div class="ec-title">Effect Controls</div><div class="ihead"><span class="trk">${track}</span><b>Motion graphic</b><span class="muted">${fmtTC(L?.start || 0, S.project.settings.fps)} · ${fmt((L?.end || 0) - (L?.start || 0))}</span></div><div class="ibody">${gfxInspector(c)}<div class="iactions"><button data-a="dup">Duplicate</button><button class="danger" data-a="del">Delete</button></div></div>`;
+    root.innerHTML = `<div class="ec-title">Effect Controls</div><div class="ihead"><span class="trk">${track}</span><b>Motion graphic</b><span class="muted">${fmtTC(L?.start || 0, S.project.settings.fps)} · ${fmt((L?.end || 0) - (L?.start || 0))}</span></div><div class="ibody">${gfxInspector(c)}${sec('omask', `Opacity mask${c.omask?.shape ? ' <span class="tag">on</span>' : ''}`, maskHTML(c.omask, 'clip', id) + '<small class="hint">Only the inside of the shape shows - the shots below show around it (Color Matte: a coloured shape, a vignette, a frame).</small>')}<div class="iactions"><button data-a="dup">Duplicate</button><button class="danger" data-a="del">Delete</button></div></div>`;
     bindGfxInspector(root, id, render);
+    bindMasks(id); // (◐ Opacity mask on a graphic)
     root.onclick = (e) => { const a = e.target.closest('[data-a]')?.dataset.a; if (a === 'del') emit('deleteSelected'); if (a === 'dup') emit('duplicateSelected'); };
     return;
   }
@@ -138,6 +140,7 @@ function renderClip(id) {
     html += sec('transform', 'Motion', motionHTML(c, (L?.end || 0) - (L?.start || 0), isVid, (isVid || isImg) && track) + `<div class="motion-presets"><button class="small" data-motion="zin">Zoom in</button><button class="small" data-motion="zout">Zoom out</button>
       <button class="small" data-motion="pan">Pan →</button><button class="small" data-motion="panl">← Pan</button><button class="small" data-motion="clear">Reset</button></div>`);
   }
+  if (isVid) html += sec('attrs', 'Clip Attributes', attrsHTML(c), c.stabilize || +c.lens || c.smooth || c.resize || (c.fit && c.fit !== 'fit') ? ' <span class="tag">on</span>' : '');
   if (isVid) html += sec('ai', 'Generative Fill', aiHTML(c));
   if (isVid) html += sec('gyro', `Gyroflow (gyro stabilize)${c.gyroflow ? ' <span class="tag">on</span>' : ''}`, gyroHTML(c));
   if (isVid || (track !== 'V1' && (isImg || isTitle))) html += sec('trk', 'Tracking', trackingHTML(c, track));
@@ -219,6 +222,7 @@ function renderClip(id) {
   bindGyro(root, id, render);
   bindTracking(root, id, render);
   bindAi(root, id, render);
+  bindAttrs(root, id, render);
   bindKeyLane(id);
   bindKeyGraphs(id);
 
@@ -478,8 +482,8 @@ const MOTION = [
   { p: 'transform.zoom', label: 'Scale', min: 0.1, max: 5, step: 0.01, unit: '', pr: 'scale' },
   { p: 'transform.rotation', label: 'Rotation', min: -720, max: 720, step: 0.5, unit: '°' },
   { p: 'opacity', label: 'Opacity', min: 0, max: 1, step: 0.01, k: 100, unit: '%' },
-  { p: 'cropX', label: 'Reframe ', min: 0, max: 1, step: 0.01, k: 100, unit: '%' },
-  { p: 'cropY', label: 'Reframe ', min: 0, max: 1, step: 0.01, k: 100, unit: '%' },
+  { p: 'cropX', label: 'Reframe X', min: 0, max: 1, step: 0.01, k: 100, unit: '%' },
+  { p: 'cropY', label: 'Reframe Y', min: 0, max: 1, step: 0.01, k: 100, unit: '%' },
   { p: 'volume', label: 'Volume', min: 0, max: 2, step: 0.01, k: 100, unit: '%', vid: true },
 ];
 // Premiere's numbers: Position in sequence pixels (centre = W/2, H/2), Scale in % of the source's own pixels (a 4K shot

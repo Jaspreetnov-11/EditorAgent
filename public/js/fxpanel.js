@@ -73,6 +73,11 @@ function drawNow() {
 export function applyFx(fx, clipId, side = null) {
   const f = findClip(clipId), c = f?.clip; if (!c) return null;
   const visual = c.type === 'video' || c.type === 'image' || c.type === 'title';
+  if (fx.kind === 'transition' && c.type === 'graphic') {
+    // ✍ a text / graphic layer: a transition dissolves it in / out over the shots below (its fade)
+    c[side === 'out' ? 'fadeOut' : 'fadeIn'] = trDur;
+    return `${side === 'out' ? 'Dissolves out' : 'Dissolves in'} (${trDur} s)`;
+  }
   if (fx.kind === 'transition') {
     // 🌑 at an end with no shot next to it (start / end of the story, beside a gap, any clip on V2+ or an audio track) a
     // transition is a fade from / to black, like Premiere's one-sided Dip to Black (a sound clip: fade in / out)
