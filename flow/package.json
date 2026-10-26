@@ -1,0 +1,13 @@
+{
+  "name": "limelight-flow",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Limelight Flow - the office's own automation app (flows on a schedule, WhatsApp or a webhook)",
+  "type": "module",
+  "main": "server.mjs",
+  "scripts": { "start": "node server.mjs" },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.0",
+    "pino": "^9.0.0"
+  }
+}
