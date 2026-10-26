@@ -24,24 +24,101 @@ function spark(samples, key, starts, unit, limit) {
     <div class="sf-cap"><span>24 h ago</span><span>highest ${peak} ${unit}</span><span>now</span></div>`;
 }
 
+// 📊 Performance: one PC's last hour - CPU, busiest card, its video memory (all 0-100 %)
+function perfSpark(hist) {
+  const W = 300, H = 40, t1 = Date.now(), t0 = t1 - 3600e3, x = (t) => (((t - t0) / 3600e3) * W).toFixed(1), y = (v) => (H - 3 - (v / 100) * (H - 6)).toFixed(1);
+  const line = (k, cls) => { const p = hist.filter((s) => s[k] != null && s.t > t0).map((s) => `${x(s.t)},${y(s[k])}`).join(' '); return p ? `<polyline points="${p}" class="${cls}"/>` : ''; };
+  return `<svg class="perf-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Last hour: CPU, GPU, VRAM">${line('cpu', 'perf-l-cpu')}${line('gpu', 'perf-l-gpu')}${line('vram', 'perf-l-vram')}</svg>
+    <div class="sf-cap"><span>1 h</span><span><i class="perf-k perf-l-cpu"></i>CPU <i class="perf-k perf-l-gpu"></i>GPU <i class="perf-k perf-l-vram"></i>VRAM</span><span>now</span></div>`;
+}
+const pct = (a, b) => (b ? Math.round((100 * a) / b) : 0);
+const GBm = (mb) => `${(mb / 1024).toFixed(mb >= 10240 ? 0 : 1)} GB`;
+const TB = (gb) => (gb >= 1000 ? `${(gb / 1024).toFixed(1)} TB` : `${gb} GB`);
+const lvl = (p, hot) => (hot || p >= 90 ? 'bad' : p >= 70 ? 'warn' : '');
+const meter = (label, p, txt, hot) => `<div class="perf-m"><span>${label}</span><div class="sf-bar"><i style="width:${Math.min(100, p)}%" class="${lvl(p, hot)}"></i></div><b>${txt}</b></div>`;
+// a big number at the top: name, value, a bar
+const kpi = (label, value, p, sub = '') => `<div class="perf-kpi"><small>${label}</small><b>${value}</b><div class="sf-bar"><i style="width:${Math.min(100, p)}%" class="${lvl(p)}"></i></div>${sub ? `<small class="muted">${sub}</small>` : ''}</div>`;
+// ❤ health 0-100 as a ring (green / amber / red) and ⚡ load as a bar
+const hcls = (v) => (v >= 80 ? 'good' : v >= 50 ? 'warn' : 'bad');
+const ring = (v, size = 64) => { const r = 26, c = 2 * Math.PI * r; return `<svg class="perf-ring ${hcls(v)}" width="${size}" height="${size}" viewBox="0 0 64 64" role="img" aria-label="Health ${v} of 100"><circle cx="32" cy="32" r="${r}" class="bg"/><circle cx="32" cy="32" r="${r}" class="fg" stroke-dasharray="${(c * v) / 100} ${c}"/><text x="32" y="37">${v}</text></svg>`; };
+const hl = (h, load) => `<span class="perf-hl"><span class="perf-hs ${hcls(h.score)}" title="${esc(h.why.join(' · ') || 'all good')}">❤ ${h.score}</span><span class="perf-ld" title="Load: how busy">⚡ ${load}%</span></span>`;
+function nasCard(n) {
+  const ms = n.ms.length ? [...n.ms].sort((a, b) => a - b)[Math.floor(n.ms.length / 2)] : null;
+  const W = 300, H = 36, t0 = Date.now() - 3600e3, pts = (n.hist || []).filter((x) => x.ms != null).map((x) => `${(((x.t - t0) / 3600e3) * W).toFixed(1)},${(H - 3 - Math.min(1, x.ms / 1000) * (H - 6)).toFixed(1)}`).join(' ');
+  return `<div class="perf-pc perf-nas"><header class="perf-h"><b>NAS</b><span class="perf-chip">${esc(n.root)}</span>${hl(n.health, n.load)}</header>
+    <div class="perf-nasrow">${ring(n.health.score)}<div class="perf-nasm">
+      ${n.total ? meter('Space', pct(n.total - n.free, n.total), `${TB(n.free)} free / ${TB(n.total)}`, n.free / n.total < 0.15) : ''}
+      ${meter('Speed', ms == null ? 0 : Math.min(100, (ms / 500) * 100), ms == null ? 'checking…' : `${ms} ms for 1 MB`, ms > 300)}
+      ${meter('Busy', pct(n.busy, n.max), `${n.busy} of ${n.max} heavy jobs`)}
+    </div>
+    <div class="perf-nasg"><p class="small ${n.health.why.length ? 'warn' : 'muted'}">${n.health.why.length ? esc(n.health.why.join(' · ')) : 'All good'}${n.pending ? ` · ${n.pending} saves waiting` : ''}</p>
+    ${pts ? `<svg class="perf-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="NAS answer time, last hour"><polyline points="${pts}" class="perf-l-vram"/></svg><div class="sf-cap"><span>1 h</span><span>answer time (lower is better)</span><span>now</span></div>` : ''}</div></div>
+  </div>`;
+}
+function perfPage(d) {
+  const T = d.totals, E = d.editor;
+  const title = (p) => `<header class="perf-h"><b>${esc(p.label || p.name)}</b><span class="perf-chip ${p.off ? 'off' : ''}">${p.off ? 'Not connected' : p.role === 'helper' ? 'Helper' : 'Server'}</span><small class="muted">${p.label ? esc(p.name) : ''}${p.host && !p.off ? ` · ${esc(p.host)}` : ''}</small>${p.health && !p.off ? hl(p.health, p.load) : ''}</header>`;
+  const pcs = d.pcs.map((p) => {
+    const L = p.live;
+    if (p.off) return `<div class="perf-pc perf-off">${title(p)}<p class="small muted">Run <b>Start Render Worker</b> on it, or restart it.</p></div>`;
+    if (!L) return `<div class="perf-pc">${title(p)}<p class="muted small">Waiting for numbers…</p></div>`;
+    const cs = L.cores || [], busy = cs.filter((v) => v >= 50).length, w = p.work;
+    const work = p.role === 'helper'
+      ? `<span class="perf-tag">${w.busy}/${w.slots} running</span><span class="perf-tag">${w.done} done</span>${w.failed ? `<span class="perf-tag bad">${w.failed} failed</span>` : ''}${w.paused ? '<span class="perf-tag warn">paused</span>' : ''}`
+      : `<span class="perf-tag">${w.jobs} agent jobs</span><span class="perf-tag">${w.renders} rendering</span>${w.waiting ? `<span class="perf-tag">${w.waiting} waiting</span>` : ''}`;
+    return `<div class="perf-pc">${title(p)}
+      <div class="perf-cpu"><span class="perf-big">${L.cpu}%</span><span class="muted small">CPU · <b>${busy}</b> of ${cs.length || p.cores} cores busy</span></div>
+      ${cs.length ? `<div class="perf-cores" style="--n:${Math.min(12, cs.length)}">${cs.map((v, i) => `<i style="--v:${v}%" class="${lvl(v) || (v >= 50 ? 'busy' : '')}" title="Core ${i + 1}: ${v}%"></i>`).join('')}</div>` : ''}
+      ${meter('RAM', pct(L.ramUsed, L.ramTotal), `${GBm(L.ramUsed)} / ${GBm(L.ramTotal)}`)}
+      ${L.gpus.map((g) => `<div class="perf-sub">${esc(g.name.replace(/^NVIDIA GeForce /, ''))}</div>
+        ${meter('GPU', g.util ?? 0, `${g.util ?? '-'}%`)}
+        ${meter('VRAM', pct(g.memUsed, g.memTotal), `${GBm(g.memUsed || 0)} / ${GBm(g.memTotal || 0)}`)}
+        ${meter('Heat', g.temp ?? 0, `${g.temp ?? '-'} °C`, (g.temp ?? 0) >= 83)}
+        ${meter('Power', pct(g.power, g.powerMax), `${g.power ?? '-'} W`)}`).join('')}
+      ${(L.disks || []).length ? `<div class="perf-sub">Storage</div>${L.disks.map((x) => meter(esc(x.root), pct(x.total - x.free, x.total), `${TB(x.free)} free${x.net ? ' · NAS' : ''}`, x.free / x.total < 0.1)).join('')}` : ''}
+      <div class="perf-tags">${work}</div>${perfSpark(p.hist || [])}</div>`;
+  }).join('');
+  const H = d.health || { score: 100 }, weak = H.weakest;
+  return `<div class="perf-top">${ring(H.score, 84)}<div><small class="muted">HEALTH</small><b class="perf-top-v">${H.score}<span>/100</span></b>
+      <small class="muted">${H.score >= 80 ? 'All good' : `Weakest: ${esc(weak?.label || weak?.name || '')} - ${esc((weak?.health?.why || []).join(' · '))}`}</small></div>
+      <div class="perf-top-load"><small class="muted">LOAD</small><b class="perf-top-v">${d.load ?? 0}<span>%</span></b><div class="sf-bar"><i style="width:${d.load ?? 0}%" class="${lvl(d.load ?? 0)}"></i></div><small class="muted">all ${d.pcs.filter((p) => p.live).length} PCs together${d.busiest ? ` · busiest: ${esc(d.busiest.label)} ${d.busiest.load}%` : ''}</small></div></div>
+    <div class="perf-kpis">
+      ${kpi('CPU', `${T.cpu}%`, T.cpu, `${T.busyCores} of ${T.cores} cores busy`)}
+      ${kpi('RAM', `${GBm(T.ramUsed)}`, pct(T.ramUsed, T.ramTotal), `of ${GBm(T.ramTotal)}`)}
+      ${kpi('GPU memory', `${GBm(T.vramUsed)}`, pct(T.vramUsed, T.vramTotal), `of ${GBm(T.vramTotal)} · ${T.gpus} cards`)}
+      ${kpi('GPU power', `${T.power ?? '-'} W`, 0, T.hottest != null ? `hottest ${T.hottest} °C` : '')}
+      ${kpi('Storage free', TB(T.diskFree), pct(T.diskTotal - T.diskFree, T.diskTotal), `of ${TB(T.diskTotal)}`)}
+      ${T.nasTotal ? kpi('NAS free', TB(T.nasFree), pct(T.nasTotal - T.nasFree, T.nasTotal), `of ${TB(T.nasTotal)}`) : ''}
+    </div>
+    <div class="perf-tags perf-line"><span class="perf-tag">${T.pcs} PCs</span><span class="perf-tag">${E.people} editing</span><span class="perf-tag">${E.farmRunning} helper tasks running</span><span class="perf-tag">${E.farmWaiting} waiting</span><span class="perf-tag">editor ${(E.rss / 1024).toFixed(1)} GB</span></div>
+    <div class="perf-grid">${d.nas ? nasCard(d.nas) : ''}${pcs}</div>`;
+}
+
+// tab 'perf' (📊 the Dashboard button): its own window, "Performance"; the others: Mazbooti with its tabs
 export async function openSafety(tab = 'health') {
-  const dlg = modal('Mazbooti', `<div class="mm-tabs" role="tablist">
+  const perfOnly = tab === 'perf';
+  const dlg = modal(perfOnly ? 'Performance' : 'Mazbooti', `<div class="mm-tabs" role="tablist"${perfOnly ? ' hidden' : ''}>
       <button class="chip" data-tab="health" role="tab">Health</button><button class="chip" data-tab="backup" role="tab">Backup</button><button class="chip" data-tab="standby" role="tab">Standby PC</button>
-    </div><div class="sf-body" data-sf>Loading…</div>`, { width: 820, onClose: () => clearTimeout(timer) });
+    </div><div class="sf-body" data-sf>Loading…</div>`, { width: perfOnly ? 1240 : 820, onClose: () => clearTimeout(timer) });
   const box = $('[data-sf]', dlg.el);
-  let cur = tab, data = null, timer = null, nightsList = null;
+  let cur = tab, data = null, timer = null, nightsList = null, perfData = null;
   const load = async () => {
     clearTimeout(timer);
-    try { data = await api('GET', '/api/safety'); show(); } catch (e) { box.textContent = e.message; }
-    if (dlg.el.open) timer = setTimeout(load, data?.backup?.busy ? 3000 : 20000);
+    try {
+      if (cur === 'perf') perfData = await api('GET', '/api/team/perf');
+      else data = await api('GET', '/api/safety');
+      show();
+    } catch (e) { box.textContent = e.message; }
+    if (dlg.el.open) timer = setTimeout(load, cur === 'perf' ? 5000 : data?.backup?.busy ? 3000 : 20000);
   };
   const show = () => {
     dlg.el.querySelectorAll('[data-tab]').forEach((b) => { b.classList.toggle('on', b.dataset.tab === cur); b.setAttribute('aria-selected', b.dataset.tab === cur); });
+    if (cur === 'perf') { box.innerHTML = perfData ? perfPage(perfData) : 'Loading…'; return; }
     if (!data) return;
     const keep = box.querySelector('input:focus, select:focus'); if (keep && cur !== 'health') return; // (not while typing a folder)
     box.innerHTML = ({ health, backup, standby })[cur](data);
   };
-  dlg.el.querySelectorAll('[data-tab]').forEach((b) => (b.onclick = () => { cur = b.dataset.tab; show(); if (cur === 'backup' && !nightsList) loadNights(); }));
+  dlg.el.querySelectorAll('[data-tab]').forEach((b) => (b.onclick = () => { cur = b.dataset.tab; show(); if (cur === 'perf' || !data) load(); if (cur === 'backup' && !nightsList) loadNights(); }));
   const loadNights = async () => { try { nightsList = await api('GET', '/api/safety/nights'); } catch { nightsList = []; } if (cur === 'backup') show(); };
 
   const warnHTML = (d) => (d.warn.length ? `<ul class="sf-warn">${d.warn.map((w) => `<li class="${w.level}">${esc(w.text)}</li>`).join('')}</ul>` : '<p class="sf-ok">All good</p>');

@@ -10,32 +10,67 @@ const hours = (sel) => Array.from({ length: 24 }, (_, h) => `<option value="${h}
 const ROLES = [['editor', 'Editor - edits, renders, imports'], ['viewer', 'Viewer - watches only'], ['owner', 'Owner - also settings, accounts, team']];
 
 export async function openTeam() {
-  const dlg = modal('Team - edit from other computers', '<div data-tm><div class="muted pad">Loading…</div></div><div data-farm></div>', { width: 720 });
-  const box = $('[data-tm]', dlg.el);
-  farmPanel($('[data-farm]', dlg.el), dlg);
+  const dlg = modal('Team', '<div class="tm"><div data-tm><div class="muted pad">Loading…</div></div><div data-farm hidden></div><div class="dv-actions"><button data-close>Close</button></div></div>', { width: 860 });
+  const box = $('[data-tm]', dlg.el), farmBox = $('[data-farm]', dlg.el);
+  farmPanel(farmBox, dlg);
+  let tab = 'people';
+  const initials = (n) => String(n).replace(/@.*/, '').split(/[\s._-]+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
+  const hue = (n) => [...String(n)].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) % 360, 7);
+  const copyRow = (label, u, extra = '') => `<div class="sh-url"><span class="small muted tm-lbl">${label}</span><span class="mono grow">${esc(u)}${extra}</span><button class="small" data-copy="${esc(u)}">Copy</button></div>`;
   const draw = (t) => {
-    box.innerHTML = `${t.on ? `<p>Team editing is <b class="good">on</b>. On another computer in this office (same network), open:</p>
-        ${t.urls.map((u, i) => `<div class="sh-url"><span class="mono grow">${esc(u)}${i === 0 && t.short ? ' <span class="good small">← permanent link</span>' : ''}</span><button class="small" data-copy="${esc(u)}">Copy</button></div>`).join('') || '<p class="warn">This computer has no network address - connect it to the office network.</p>'}
-        ${t.tls ? `<p class="small ${t.tls.daysLeft < 15 ? 'warn' : 'muted'}">HTTPS certificate for <b>${esc(t.tls.domain)}</b> valid until ${new Date(t.tls.validTo).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })} (${t.tls.daysLeft} days left)${t.tls.daysLeft < 15 ? ' - <b>renew it now</b>: ask Claude "SSL renew kar de" (a new TXT record in GoDaddy)' : ''}</p>` : ''}
-        <p class="small"><b>Same link on every PC:</b> open it on each PC and press <b>Install on this PC</b> on the sign-in page (Chrome / Edge) - the Limelight icon goes on that PC's Desktop and Start menu.</p>
-        <p class="muted small">Windows may ask once whether Node.js can use the network: choose <b>Allow</b> for private networks. This computer must stay on with the editor running; the others use its footage, previews and renders.</p>`
-      : '<p>Let editors on other office computers open projects from this computer: each signs in with a name and password you make here. Everyone with edit rights can work on the same timeline at the same time (live) - each person sees what the others select and where their playheads are, in their colour. Viewers only watch.</p>'}
-      <h4 style="display:flex;align-items:center;gap:8px">People <button class="small" data-sessions style="margin-left:auto">Sessions (30 days)</button></h4>
-      <div class="dv-list">${t.users.map((x) => `<div class="dv-item"><b class="grow">${esc(x.name)}</b>${t.online.includes(x.name) ? '<span class="good small">online</span>' : ''}
-        <select data-role="${esc(x.name)}" style="width:auto">${ROLES.map(([v, l]) => `<option value="${v}"${x.role === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
-        <button class="link small" data-reset="${esc(x.name)}">New password</button><button class="link small" data-rm="${esc(x.name)}">Remove</button></div>`).join('') || '<div class="muted">Nobody yet.</div>'}</div>
-      <div class="row-in"><input data-un placeholder="Name"><input data-pw type="password" placeholder="Password (6+ characters)"><select data-ur style="width:auto">${ROLES.map(([v, l]) => `<option value="${v}">${l.split(' - ')[0]}</option>`).join('')}</select><button class="small primary" data-add>Add</button></div>
-      <h4>Shared folders <span class="muted small">(shown first, with , when anyone imports)</span></h4>
-      <div class="dv-list">${t.libraries.map((l) => `<div class="dv-item"><span class="mono grow">${esc(l)}</span><button class="link small" data-lrm="${esc(l)}">Remove</button></div>`).join('') || '<div class="muted">None.</div>'}</div>
+    const online = t.users.filter((x) => t.online.includes(x.name)).length;
+    const top = `<div class="tm-top">
+        <span class="tm-pill ${t.on ? 'on' : ''}">${t.on ? 'Team editing on' : 'Team editing off'}</span>
+        ${t.on && t.urls[0] ? `<span class="mono tm-link" title="${esc(t.urls[0])}">${esc(t.urls[0])}</span><button class="small" data-copy="${esc(t.urls[0])}">Copy link</button>` : '<span class="grow"></span>'}
+        <span class="muted small">${online} of ${t.users.length} online</span>
+        ${t.on ? '<button class="small" data-on="0">Turn off</button>' : '<button class="small primary" data-on="1">Turn on</button>'}
+      </div>
+      <div class="mm-tabs tm-tabs" role="tablist">${[['people', `People (${t.users.length})`], ['links', 'Links & access'], ['folders', 'Shared folders'], ['farm', 'Helper PCs'], ['flow', 'Limelight Flow']]
+        .map(([k, l]) => `<button class="chip${tab === k ? ' on' : ''}" data-tab="${k}" role="tab" aria-selected="${tab === k}">${l}</button>`).join('')}</div>`;
+    const people = `<div class="tm-head"><h4>People</h4><button class="small" data-sessions>Sessions (30 days)</button></div>
+      <div class="tm-list">${t.users.map((x) => { const on = t.online.includes(x.name); return `<div class="tm-row">
+          <span class="tm-av" style="--h:${hue(x.name)}">${esc(initials(x.name))}<i class="${on ? 'on' : ''}"></i></span>
+          <div class="tm-who"><b>${esc(x.name)}</b><small class="${on ? 'good' : 'muted'}">${on ? 'online now' : 'offline'}</small></div>
+          <select data-role="${esc(x.name)}" aria-label="Role of ${esc(x.name)}">${ROLES.map(([v, l]) => `<option value="${v}"${x.role === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
+          <div class="tm-acts"><button class="small" data-reset="${esc(x.name)}">New password</button><button class="small danger-link" data-rm="${esc(x.name)}" title="Remove ${esc(x.name)}">Remove</button></div>
+        </div>`; }).join('') || '<div class="muted pad">Nobody yet - add the first person below.</div>'}</div>
+      <div class="tm-add"><h4>Add a person</h4>
+        <div class="tm-add-row"><label>Name<input data-un placeholder="e.g. Guna" autocomplete="off"></label><label>Password<input data-pw type="password" placeholder="6+ characters" autocomplete="new-password"></label>
+          <label>Role<select data-ur>${ROLES.map(([v, l]) => `<option value="${v}">${l.split(' - ')[0]}</option>`).join('')}</select></label><button class="primary" data-add>Add</button></div>
+        <p class="muted small">Tell them their name and password. Editors edit, render and import; viewers only watch; owners also see settings, accounts and this window.</p></div>
+      ${t.locks.length ? `<h4>Open now</h4><div class="tm-list">${t.locks.map((l) => `<div class="tm-row tm-lock"><span class="tm-av" style="--h:${hue(l.name)}">${esc(initials(l.name))}</span><div class="tm-who"><b>${esc(l.project)}</b><small class="muted">${esc(l.name)}</small></div></div>`).join('')}</div>` : ''}`;
+    const links = t.on ? `<h4>Open the editor on another office PC</h4>
+        ${t.urls.map((u, i) => copyRow(i === 0 ? 'Main link' : 'Also', u, i === 0 && t.short ? ' <span class="good small">permanent</span>' : '')).join('') || '<p class="warn">This computer has no network address - connect it to the office network.</p>'}
+        ${t.tls ? `<p class="small ${t.tls.daysLeft < 15 ? 'warn' : 'muted'}">🔒 HTTPS certificate for <b>${esc(t.tls.domain)}</b> valid until ${new Date(t.tls.validTo).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })} (${t.tls.daysLeft} days left)${t.tls.daysLeft < 15 ? ' - <b>renew it now</b>: ask Claude "SSL renew kar de" (a new TXT record in GoDaddy)' : ''}</p>` : ''}
+        ${t.mesh ? `<h4>🏠 From home (MeshLink)</h4>${t.mesh.connected && t.mesh.url ? copyRow('Mesh link', t.mesh.url) : `<p class="warn small">MeshLink is running here but not connected to its server${t.mesh.error ? ` (${esc(t.mesh.error)})` : ''}</p>`}
+          ${t.mesh.peers?.length ? `<p class="muted small">On the mesh: ${t.mesh.peers.map((x) => `${esc(x.name)} ${x.online ? `<span class="good">online</span>${x.ms ? ` ${x.ms} ms` : ''}` : '<span class="muted">offline</span>'}`).join(' · ')}</p>` : ''}` : ''}
+        <div class="tm-tip"><b>Same link on every PC:</b> open it and press <b>Install on this PC</b> on the sign-in page (Chrome / Edge) - the Limelight icon goes on that PC's Desktop and Start menu.<br>
+          <span class="muted">Windows may ask once whether Node.js can use the network: choose <b>Allow</b>. This computer must stay on with the editor running; the others use its footage, previews and renders.</span></div>`
+      : `<div class="tm-tip">Let editors on other office computers open projects from this computer: each signs in with a name and password you make in <b>People</b>. Everyone with edit rights can work on the same timeline at the same time (live) - each person sees what the others select and where their playheads are, in their colour. Viewers only watch.<br><br><button class="primary" data-on="1">Turn on team editing</button></div>`;
+    const folders = `<h4>Shared folders</h4><p class="muted small">Shown first when anyone imports - a shared drive, the shoot archive.</p>
+      <div class="tm-list">${t.libraries.map((l) => `<div class="tm-row tm-folder"><span class="tm-ic">📁</span><span class="mono grow">${esc(l)}</span><button class="small danger-link" data-lrm="${esc(l)}">Remove</button></div>`).join('') || '<div class="muted pad">None yet.</div>'}</div>
       <button class="small" data-ladd>+ Add a folder</button>
-      <label class="chk" style="margin-top:8px"><input type="checkbox" data-anyfolder ${t.editorsAnyFolder ? 'checked' : ''}> Editors may save renders / exported timelines to <b>any folder</b> on this computer (Save to in Deliver). Off = only inside the Shared folders above.</label>
-      ${t.locks.length ? `<h4>Open now</h4><div class="muted small">${t.locks.map((l) => `${esc(l.project)} - ${esc(l.name)}`).join('<br>')}</div>` : ''}
-      <div class="dv-actions">${t.on ? '<button data-on="0">Turn off</button>' : '<button class="primary" data-on="1">Turn on team editing</button>'}<button data-close>Close</button></div>`;
+      <label class="tm-check"><input type="checkbox" data-anyfolder ${t.editorsAnyFolder ? 'checked' : ''}><span>Editors may save renders and exported timelines to <b>any folder</b> on this computer (Save to in Deliver). Off = only inside the shared folders above.</span></label>`;
+    const flow = t.on ? `<h4>⚡ Limelight Flow</h4><p class="muted small">The office automation app on the bridge PC (day report, WhatsApp / Telegram bot). It reads the day's report and who is online with this token - nothing else.</p>
+        <div data-rtok><button class="small" data-rtok-show>Show report token</button></div>` : '<p class="muted">Turn on team editing first - Limelight Flow reads the editor through the team link.</p>';
+    box.innerHTML = top + (tab === 'farm' ? '' : `<div class="tm-body">${({ people, links, folders, flow })[tab]}</div>`);
+    farmBox.hidden = tab !== 'farm'; // (🖥 the helper PCs keep their own panel, which updates itself every few seconds)
   };
   let t = await api('GET', '/api/team'); draw(t);
   const put = async (b) => { t = await api('PUT', '/api/team', b); draw(t); };
   box.addEventListener('click', async (e) => {
+    const tb = e.target.closest('[data-tab]'); if (tb) { tab = tb.dataset.tab; draw(t); return; }
     if (e.target.closest('[data-sessions]')) return openSessions(); // 📊
+    const rt = e.target.closest('[data-rtok-show], [data-rtok-new]');
+    if (rt) { // ⚡ the report token for Limelight Flow (made the first time)
+      if (rt.dataset.rtokNew !== undefined && !confirm('Make a new token? Limelight Flow stops working until it gets the new one.')) return;
+      try {
+        const r = await api('POST', '/api/team/report', { new: rt.dataset.rtokNew !== undefined });
+        $('[data-rtok]', box).innerHTML = `<div class="sh-url"><span class="small grow">Editor address</span><span class="mono">${esc(r.url)}</span><button class="small" data-copy="${esc(r.url)}">Copy</button></div>
+          <div class="sh-url"><span class="small grow">Report token</span><span class="mono">${esc(r.token)}</span><button class="small" data-copy="${esc(r.token)}">Copy</button></div><button class="small link" data-rtok-new>New token</button>`;
+      } catch (x) { toast(x.message, 'err'); }
+      return;
+    }
     const b = e.target.closest('button'); if (!b) return;
     const d = b.dataset;
     try {

@@ -31,14 +31,14 @@ function save(label, coalesce) {
 export function mountFusion(el) {
   root = el;
   el.innerHTML = `<div class="fu">
-    <div class="panel fu-lib"><div class="mo-head"><b>Fusions</b><span class="grow"></span><button class="small" data-f="new" title="New fusion from a clip in Media">New ▾</button></div>
+    <div class="panel fu-lib"><div class="mo-head"><b>Node graphs</b><span class="grow"></span><button class="small" data-f="new" title="New node graph from a clip in Media">New ▾</button></div>
       <div class="mo-list" id="fuList"></div>
       <div class="mo-head sub"><b>Styles</b><span class="muted small">replace the graph</span></div><div class="fu-styles" id="fuStyles"></div>
       <div class="mo-head sub"><b>Nodes</b><span class="muted small">click to add</span></div><div class="fu-nodes" id="fuNodes"></div></div>
     <div class="panel fu-view">
       <div class="mo-head"><div class="segbtns"><button data-view="out">Output (1)</button><button data-view="sel">Selected node (2)</button></div><span class="grow"></span>
-        <button class="accent small" data-f="toTimeline" title="Put this fusion on the edit's timeline at the playhead">Add to timeline</button></div>
-      <div class="mo-stage" id="fuStage"><div class="mo-canvas"><canvas id="fuCanvas"></canvas></div><div class="mo-empty" id="fuEmpty">Right-click a video clip on the Edit timeline → Open in Fusion, or New.</div></div>
+        <button class="accent small" data-f="toTimeline" title="Put this node graph on the edit's timeline at the playhead">Add to timeline</button></div>
+      <div class="mo-stage" id="fuStage"><div class="mo-canvas"><canvas id="fuCanvas"></canvas></div><div class="mo-empty" id="fuEmpty">Right-click a video clip on the Edit timeline → Open in Nodes, or New.</div></div>
       <div class="mo-trans"><button class="icon-btn" data-f="start">${ic('start')}</button><button class="icon-btn" data-f="play"></button><input type="range" id="fuPos" min="0" max="1" step="0.001" value="0" aria-label="Time"><span class="tc" id="fuTC">0:00:00</span></div>
     </div>
     <div class="panel fu-insp" id="fuInsp"></div>
@@ -68,18 +68,18 @@ function refresh() {
 // ---------------- library ----------------
 function renderLib() {
   const list = Object.values(fusions());
-  $('#fuList', root).innerHTML = list.length ? list.map((f) => `<div class="mo-comp${f.id === fid ? ' on' : ''}" data-fid="${f.id}" title="Double-click to rename"><span class="grow">${esc(f.name)}</span><span class="muted small">${f.dur}s</span><button class="icon-btn" data-fdel="${f.id}" title="Delete">✕</button></div>`).join('') : '<div class="muted small pad">No fusions yet.</div>';
+  $('#fuList', root).innerHTML = list.length ? list.map((f) => `<div class="mo-comp${f.id === fid ? ' on' : ''}" data-fid="${f.id}" title="Double-click to rename"><span class="grow">${esc(f.name)}</span><span class="muted small">${f.dur}s</span><button class="icon-btn" data-fdel="${f.id}" title="Delete">✕</button></div>`).join('') : '<div class="muted small pad">No node graphs yet.</div>';
   $$('[data-fid]', root).forEach((r) => {
     r.onclick = (e) => { if (e.target.closest('button')) return; fid = r.dataset.fid; selId = null; T = 0; refresh(); };
-    r.ondblclick = () => { const f = fusions()[r.dataset.fid], n = prompt('Fusion name', f.name)?.trim(); if (n) { f.name = n; save('Rename fusion'); } };
+    r.ondblclick = () => { const f = fusions()[r.dataset.fid], n = prompt('Name', f.name)?.trim(); if (n) { f.name = n; save('Rename fusion'); } };
   });
-  $$('[data-fdel]', root).forEach((b) => (b.onclick = () => { const f = fusions()[b.dataset.fdel]; if (!confirm(`Delete the fusion "${f.name}"? Clips of it already on the timeline stay as they are.`)) return; delete fusions()[f.id]; commit('Delete fusion'); }));
+  $$('[data-fdel]', root).forEach((b) => (b.onclick = () => { const f = fusions()[b.dataset.fdel]; if (!confirm(`Delete the node graph "${f.name}"? Clips of it already on the timeline stay as they are.`)) return; delete fusions()[f.id]; commit('Delete fusion'); }));
   $('#fuStyles', root).innerHTML = Object.entries(F.STYLES).map(([k, s]) => `<button class="mo-preset" data-style="${k}">${esc(s.name)}</button>`).join('');
   $('#fuNodes', root).innerHTML = F.GROUPS.map((g) => `<div class="fu-grp">${g}</div>` + Object.entries(F.NODES).filter(([k, d]) => d.group === g && k !== 'mediaOut').map(([k, d]) => `<button class="fu-nb" data-add="${k}" style="--nc:${d.color}">${esc(d.label)}</button>`).join('')).join('');
 }
 function newFrom(mediaId, srcIn = 0, speed = 1, dur = 5, name, style = 'plain') {
   const [w, h] = frameSize(), m = S.mediaById[mediaId];
-  const f = F.newFusion(name || `${(m?.name || 'Fusion').replace(/\.[^.]+$/, '')} fusion`, w, h, dur, { mediaId, srcIn, speed }, style);
+  const f = F.newFusion(name || `${(m?.name || 'Clip').replace(/\.[^.]+$/, '')} nodes`, w, h, dur, { mediaId, srcIn, speed }, style);
   fusions()[f.id] = f; fid = f.id; selId = null; T = 0;
   return f;
 }
@@ -87,18 +87,18 @@ function onClick(e) {
   const b = e.target.closest('[data-f], [data-style], [data-add], [data-view]'); if (!b) return;
   if (b.dataset.view) { view = b.dataset.view; refresh(); return; }
   if (b.dataset.style) {
-    const f = fu(); if (!f) return toast('Make or open a fusion first', 'err');
+    const f = fu(); if (!f) return toast('Make or open a node graph first', 'err');
     const src = f.nodes.find((n) => n.type === 'mediaIn') || F.newNode('mediaIn', 40, 160);
     const keep = { ...src, in: {}, x: 40, y: 160 }, g = F.STYLES[b.dataset.style].make(keep);
     f.nodes = g.nodes; f.out = g.out; selId = null;
-    save(`Fusion style: ${F.STYLES[b.dataset.style].name}`);
+    save(`Nodes style: ${F.STYLES[b.dataset.style].name}`);
     // ✂ the text-behind style finds the subject right away (one click)
     const sb = f.nodes.find((x) => x.type === 'subject' && !x.p.matte);
     if (sb) findSubject(sb);
     return;
   }
   if (b.dataset.add) {
-    const f = fu(); if (!f) return toast('Make or open a fusion first', 'err');
+    const f = fu(); if (!f) return toast('Make or open a node graph first', 'err');
     const wr = $('#fuGWrap', root), n = F.newNode(b.dataset.add, wr.clientWidth / 2 - pan[0] - 60 + Math.random() * 40, wr.clientHeight / 2 - pan[1] - 20 + Math.random() * 40);
     // dropped after the selected node: wired in between it and what it fed
     const s = node(selId);
@@ -158,8 +158,8 @@ export function fusionFromClip(clipId, findClip) {
   const start = Object.values(layout()).flat().find((x) => x.clip.id === c.id)?.start ?? c.start ?? 0, dur = +clipDur(c, S.mediaById).toFixed(3);
   const f = newFrom(m.id, +(c.in || 0), c.speed || 1, dur);
   const tr = placeOver(f, start, f0.track);
-  commit(`Open in Fusion: ${m.name}`);
-  toast(`"${f.name}" made on ${tr} over the clip (maroon) - double-click it to open it in Fusion`);
+  commit(`Open in Nodes: ${m.name}`);
+  toast(`"${f.name}" made on ${tr} over the clip (maroon) - double-click it to open it in Nodes`);
   return true;
 }
 // ✂ Roto (Edit page button / right-click): the selected video clip's subject cut out by the AI and laid on the track

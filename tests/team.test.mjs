@@ -13,6 +13,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ON = process.env.VEDIT_TEST_SERVER === '1';
 const PORT = 3919, TEAM = 3918, L = `http://127.0.0.1:${PORT}`, T = `http://127.0.0.1:${TEAM}`;
 let srv = null, tmp = null;
+const KEY = 'team-test-key'; // (the key the test editor signs its Claude tokens with - see server.mjs claudeToken)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // (the team door answers with a cookie; each "PC" here is just the cookie it holds)
 async function call(base, m, u, b, cookie) {
@@ -25,7 +26,7 @@ const login = (name, password) => call(T, 'POST', '/team/login', { name, passwor
 test('team: start a test editor with its own team door', async () => {
   if (!ON) return 'skip';
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vedit-team-'));
-  srv = spawn(process.execPath, [path.join(ROOT, 'server.mjs')], { cwd: ROOT, env: { ...process.env, PORT: String(PORT), TEAM_PORT: String(TEAM), VEDIT_DATA: tmp, VEDIT_NO_RESUME: '1', VEDIT_CLUSTER: '0' }, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+  srv = spawn(process.execPath, [path.join(ROOT, 'server.mjs')], { cwd: ROOT, env: { ...process.env, PORT: String(PORT), TEAM_PORT: String(TEAM), VEDIT_DATA: tmp, VEDIT_NO_RESUME: '1', VEDIT_CLUSTER: '0', VEDIT_KEY: KEY }, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
   let log = ''; srv.stdout.on('data', (d) => { log += d; }); srv.stderr.on('data', (d) => { log += d; });
   for (let i = 0; i < 60; i++) { try { if ((await call(L, 'GET', '/api/version')).status === 200) break; } catch {} await sleep(500); if (i === 59) throw new Error(`test editor did not start:\n${log.slice(-800)}`); }
   for (const u of [{ name: 'Ravi', password: 'ravi-pass-1', role: 'editor' }, { name: 'Client', password: 'client-pass-1', role: 'viewer' }, { name: 'Sita', password: 'sita-pass-1', role: 'editor' }]) {
@@ -93,6 +94,41 @@ test('projects: each editor sees only their own; the owner sees all; a share let
   same((await call(T, 'POST', `/api/projects/share?p=${p}`, { shared: [] }, ravi)).status, 200);
   assert(!(await names(sita)).includes('Team Test'), 'unshared: gone again');
   same((await call(T, 'GET', `/api/project?p=${p}`, undefined, sita)).status, 404);
+});
+
+// 🛡 an editor's Claude: its edtool calls reach the editor's own port (the owner's) with a token - and are that editor's
+test("claude: an editor's Claude reaches only that editor's projects through the owner's port", async () => {
+  if (!ON) return 'skip';
+  const crypto = await import('node:crypto');
+  const tok = (name, role = 'editor') => { const b = Buffer.from(JSON.stringify({ name, role, until: Date.now() + 60e3 })).toString('base64url'); return `${b}.${crypto.createHmac('sha256', KEY).update(b).digest('base64url')}`; };
+  const get = async (u, t) => (await fetch(L + u, { headers: { 'x-vedit-claude': t } })).status;
+  const p = encodeURIComponent('Team Test');
+  same(await get(`/api/project?p=${p}`, tok('Ravi')), 200, "Ravi's Claude opens Ravi's project");
+  same(await get(`/api/project?p=${p}`, tok('Sita')), 404, "Sita's Claude does not reach it");
+  same(await get(`/api/project?p=${p}`, tok('Sita', 'owner')), 404, 'a token never makes anyone the owner');
+  same(await get(`/api/project?p=${p}`, 'made.up'), 403, 'a made-up token is refused');
+  same(await get(`/api/project?p=${p}`, tok('Nobody')), 403, 'so is one of a person not in the team');
+  same((await fetch(`${L}/api/project?p=${p}`)).status, 200, 'the owner (no token) still opens everything');
+});
+
+// 📊 the report door for Limelight Flow: the owner makes the token; with it, the day's report and who is online - read only
+test('report: the team door answers the report only with the report token', async () => {
+  if (!ON) return 'skip';
+  const ravi = (await login('Ravi', 'ravi-pass-1')).cookie;
+  same((await call(T, 'POST', '/api/team/report', {}, ravi)).status, 403, 'an editor cannot get the token');
+  const k = (await call(L, 'POST', '/api/team/report', {})).body;
+  assert(k.token?.length >= 20 && /:3918$/.test(k.url), 'the owner gets the token and the address');
+  same((await call(L, 'POST', '/api/team/report', {})).body.token, k.token, 'the same token again');
+  const get = async (u, tok) => { const r = await fetch(T + u, { headers: tok ? { Authorization: `Bearer ${tok}` } : {} }); return { status: r.status, body: await r.json() }; };
+  same((await get('/report/today')).status, 401);
+  same((await get('/report/today', 'wrong')).status, 401);
+  const r = await get('/report/today', k.token);
+  same(r.status, 200); assert(Array.isArray(r.body.people) && r.body.text.includes('Limelight'), 'the day report');
+  assert(!JSON.stringify(r.body).includes('hash'), 'nothing of the sign-ins');
+  same((await get('/report/online', k.token)).status, 200);
+  const n = (await call(L, 'POST', '/api/team/report', { new: true })).body.token;
+  same((await get('/report/online', k.token)).status, 401, 'a new token: the old one stops');
+  same((await get('/report/online', n)).status, 200);
 });
 
 test('publish: an account that is not connected is refused at once (not queued to fail later)', async () => {

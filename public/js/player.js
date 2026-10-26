@@ -34,7 +34,8 @@ const direct = (m) => ON_LAN && m?.kind === 'video' && m.status === 'ready' && m
   // five keyed 4K drone layers decoded at once made the monitor stutter)
   && ((m.vcodec === 'hevc' && HEVC[m.pixfmt]) || (m.vcodec === 'h264' && /^yuvj?420p$/.test(m.pixfmt || '')));
 export const canPlay = (m) => !!m && (m.playable || direct(m));
-export const playUrl = (m) => (direct(m) ? m.urls.play.replace(/\/play$/, '/orig') : m.urls.play);
+// (a file that plays as it is but has a light copy: that copy in Fast / 1/4 - a jump shows its frame at once)
+export const playUrl = (m) => (direct(m) ? m.urls.play.replace(/\/play$/, '/orig') : m.proxy === 'none' && m.lite === 'ready' && playback !== 'full' ? `${m.urls.play}?lite=1` : m.urls.play);
 import { lookCss } from './looks.js';
 import { buildFxNodes } from './audiofx.js';
 import { buildClipAudioChain, fadeShape } from './audioeffects.js';
@@ -520,18 +521,30 @@ function look(c, rel = 0) {
 }
 function fitStyle(el, c, rel = 0) {
   const mode = c.fit || S.project.settings.fit || (isVertical() ? 'blur' : 'fit');
-  el.style.objectFit = mode === 'fill' ? 'cover' : 'contain';
+  el.style.objectFit = mode === 'fill' ? 'cover' : mode === 'stretch' ? 'fill' : 'contain';
   el.style.objectPosition = `${propAt(c, 'cropX', rel) * 100}% ${propAt(c, 'cropY', rel) * 100}%`;
   return mode;
 }
 const isVertical = () => { const [w, h] = ASPECTS[S.project.settings.aspect] || [16, 9]; return h > w; };
 
+// 🖼 a jump to another file: the picture showing until then stays up (as the element's poster) until the new file has
+// its first frame - the monitor used to go black for that moment, at every jump or scrub onto another clip
+const holdCv = document.createElement('canvas');
+function holdFrame(v) {
+  try {
+    if (v.hidden || v.readyState < 2 || !v.videoWidth) { v.removeAttribute('poster'); return; }
+    const w = Math.min(960, v.videoWidth), h = Math.max(2, Math.round((w * v.videoHeight) / v.videoWidth));
+    holdCv.width = w; holdCv.height = h; holdCv.getContext('2d').drawImage(v, 0, 0, w, h);
+    v.poster = holdCv.toDataURL('image/jpeg', 0.75);
+    v.addEventListener('seeked', () => v.removeAttribute('poster'), { once: true });
+  } catch { v.removeAttribute('poster'); }
+}
 function syncVideo(v, m, c, start, t, play, vol, track = 'V1') {
   // 🎥 a stabilised shot plays its stabilised copy once the server has made it (stabprev.js); until then the file
   const st = stabState(c, m), stab = st?.status === 'ready' ? st : null, banner = stabBanner(st);
   if (banner && mode === 'program') { els.vwStab.hidden = false; els.vwStab.textContent = banner; }
   const url = stab ? stab.url : playUrl(m);
-  if (v.dataset.src !== url) { v.src = url; v.dataset.src = url; }
+  if (v.dataset.src !== url) { holdFrame(v); v.src = url; v.dataset.src = url; }
   v.dataset.cid = c.id;
   // speed ramps: the source position and playback rate follow the ramp curve (tighter resync while ramping)
   const D = clipDur(c, S.mediaById), sp = speedAt(c, t - start, D);
@@ -1161,6 +1174,7 @@ function drawOverlays(t, isPlay) {
         else drawGraphic(ctx, FW, FH, c.gfx || {}, rel, x.end - x.start);
         el.style.opacity = String(fadeK(c, rel, x.end - x.start));
         el.style.mixBlendMode = c.blend ? CSS_BLEND[c.blend] || c.blend : ''; // (🎭 text / shapes / templates blend as well)
+        setMask(el, c.omask); // (◐ Opacity mask on a graphic - a Color Matte as a shape)
         live.add(c.id); order.push(el); el.hidden = false; el.style.pointerEvents = 'none';
         continue;
       }

@@ -9,7 +9,8 @@ import { FX_PRESETS } from './audiofx.js';
 import { $, $$, h, esc, toast } from './ui.js';
 import { openReedit, currentEditOpts } from './reedit.js';
 import { runAgentWith } from './agent.js';
-import { applyCinematic, removeCinematic, stabilizeClips } from './looks.js';
+import { applyCinematic, removeCinematic, stabilizeClips, setFilmLayer, filmLayerOf } from './looks.js';
+import { FILM_LOOKS as FILM_STOCKS } from './film.js';
 import { templateById } from './templates.js';
 import { CUTFX } from './fx.js';
 import { openVoiceOver, openDub } from './voiceover.js';
@@ -442,6 +443,24 @@ async function run(text) {
       const n = stabilizeClips(list, level);
       done.push(level ? `${n} shot${n === 1 ? '' : 's'} will be stabilized (${level}) - visible in Accurate preview or the render` : `Stabilize off (${n} shots)`); continue;
     }
+    // 🎞 Limelight Film over the whole edit: "limelight film lagao", "dehancer jaisa look", "golden film", "16mm grain wala film",
+    // "film effect hatao", "film grain zyada" (changes the layer that is there)
+    if (/(limelight film|dehancer|film (effect|stock|print|emulation)|halation|\b(35|16|8) ?mm\b)/.test(p)) {
+      const pick = /(golden|sunehr|sunehar)/.test(p) ? 'golden' : /(monsoon|cool|thand)/.test(p) ? 'monsoon' : /(faded|fade|purana|old print)/.test(p) ? 'faded'
+        : /bleach/.test(p) ? 'bleach' : /(tungsten|night|raat)/.test(p) ? 'tungsten' : /(silver|black ?(and|&) ?white|\bb ?& ?w\b|kaala safed)/.test(p) ? 'silver' : /clean/.test(p) ? 'clean' : /classic/.test(p) ? 'classic' : '';
+      const size = /\b8 ?mm\b/.test(p) ? 'coarse' : /\b16 ?mm\b/.test(p) ? 'medium' : /\b35 ?mm\b/.test(p) ? 'fine' : '';
+      const cur = filmLayerOf(P)?.effects?.find((e) => e.type === 'film');
+      if (R.remove.test(p)) { setFilmLayer(P, '', S.mediaById); done.push('Removed Limelight Film'); continue; }
+      if (cur && !pick) { // (one is there: make it stronger / softer, change the grain size)
+        const up = !R.less.test(p), k = /grain/.test(p) ? 'grain' : /halation/.test(p) ? 'halation' : 'strength';
+        cur.p[k] = +Math.min(1, Math.max(0, (cur.p[k] ?? 0.4) + (up ? 0.15 : -0.15) * s)).toFixed(2);
+        if (size) cur.p.grainSize = size;
+        done.push(`Limelight Film ${k === 'strength' ? 'look' : k}: ${Math.round(cur.p[k] * 100)}%${size ? `, ${size} grain` : ''}`); continue;
+      }
+      const look = pick || cur?.p.look || 'classic', tr = setFilmLayer(P, look, S.mediaById, size ? { grainSize: size } : {});
+      done.push(tr ? `🎞 Limelight Film (${FILM_STOCKS[look].label}${size ? `, ${size} grain` : ''}) over the whole edit on ${tr} - change it in Effect Controls` : 'Limelight Film: the timeline is empty');
+      continue;
+    }
     if (/(cinematic|film look|filmy|movie look|सिनेमैटिक)/.test(p) && !/(sirf|only) colou?r/.test(p)) {
       if (R.remove.test(p)) { removeCinematic(P); done.push('Removed the cinematic look'); }
       else { applyCinematic(P, { strength: s }); done.push(`Cinematic look: film grade${P.settings.look.letterbox ? ', 2.39 black bars' : ''}, vignette, grain`); }
@@ -682,6 +701,7 @@ function helpText() {
     'Sound design: "sound design karo", "sfx kam karo", "sfx hatao" (whoosh, hits, risers on A3)',
     'Cut effects: "3rd shot par glitch lagao", "light leak lagao", "whip lagao", "flash lagao", "film burn lagao", "effects hatao"',
     'Stabilize & look: "stabilize karo", "3rd shot stabilize karo", "cinematic banao", "kaali patti hatao", "grain badhao"',
+    'Limelight Film: "limelight film lagao", "golden film effect", "16mm film look", "film grain zyada", "film effect hatao"',
     'Colour: "auto color karo", "thoda warm", "cool", "black and white", "vivid", "cinematic", "zyada roshni", "contrast badhao", "3rd shot ka color theek karo", "color hata do"',
     'Shots: "3rd shot hata do", "last shot slow motion", "shot 2 ko 4 sec ka karo", "shot 5 ko shuru mein le jao"',
     'Length: "video 30 sec ki karo"',

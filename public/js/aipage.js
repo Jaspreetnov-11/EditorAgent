@@ -3,7 +3,7 @@
 // like Higgsfield (one-click camera moves on the selected shot), and the AI edit tools: script se first cut, live
 // same-day edit, archive search, QC, planar tracking, the agent, voice-over, auto reels.
 import { S, on, commit, emit, findClip, layout } from './store.js';
-import { api, enc, watchJob } from './api.js';
+import { api, enc, watchJob, upload } from './api.js';
 import { uid, fmt, clipDur } from './model.js';
 import { esc, toast, modal } from './ui.js';
 import { refreshMedia, uploadFiles } from './mediapool.js';
@@ -53,6 +53,7 @@ const G = {
   agent: '<path d="M8 1.5l1.3 3.7L13 6.5 9.3 7.8 8 11.5 6.7 7.8 3 6.5l3.7-1.3z"/><path d="M12.5 11v3M11 12.5h3"/>',
   vo: '<rect x="5.5" y="1.5" width="5" height="8" rx="2.5"/><path d="M3 7.5a5 5 0 0 0 10 0M8 12.5v2"/>',
   reels: '<rect x="4" y="1.5" width="8" height="13" rx="1.5"/><path d="M7 6l3 2-3 2z"/>',
+  music: '<path d="M6 12.5V3.5l7.5-2v9"/><circle cx="4.2" cy="12.5" r="1.8"/><circle cx="11.7" cy="10.5" r="1.8"/>',
 };
 const glyph = (k) => `<svg class="lab-g" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${G[k] || ''}</svg>`;
 
@@ -60,37 +61,69 @@ const selClip = () => { const id = [...S.sel][0]; const f = id && findClip(id); 
 
 export function mountAI(el) {
   root = el;
+  const card = (win, ic, title, sub, extra = '') => `<button class="lab-card" data-win-open="${win}"><span class="lab-card-ic">${glyph(ic)}</span><span class="lab-card-t"><b>${esc(title)}</b><small>${esc(sub)}</small></span>${extra}</button>`;
+  const win = (id, title, body, wide = false) => `<section class="lab-win${wide ? ' wide' : ''}" data-win="${id}" hidden role="dialog" aria-label="${esc(title)}"><div class="lab-win-h"><b>${esc(title)}</b><span class="grow"></span><button class="icon-btn" data-win-close aria-label="Close" title="Close (Esc)">✕</button></div><div class="lab-win-b">${body}</div></section>`;
   el.innerHTML = `<div class="lab">
-    <header class="lab-head"><div><h1>Labs</h1><p>AI tools for voice cloning, camera moves and faster edits - all running on this computer.</p></div></header>
-    <section class="lab-sec">
-      <div class="lab-sec-h"><div><span class="lab-kicker">Motion templates</span><h2>One-click camera moves</h2></div><p class="lab-note" data-tplsel></p><button class="lab-link" data-a="untpl">Remove from selected</button></div>
-      <div class="lab-grid" data-tpls>${TEMPLATES.map((t) => `<button class="lab-tile" data-tpl="${t.id}"><span class="lab-tile-ic">${glyph(t.id)}</span><span class="lab-tile-t"><b>${esc(t.label)}</b><small>${esc(t.sub)}</small></span>${t.video ? '<i class="lab-tag">video</i>' : ''}</button>`).join('')}</div>
-    </section>
-    ${labsWorkHTML()}
-    <section class="lab-hero">
-      <div class="lab-hero-ic">${glyph('clone')}</div>
-      <div class="lab-hero-txt"><span class="lab-kicker">Voice cloning</span><h2>Any voice, from a short sample</h2>
-        <p>Give it 10-15 seconds of someone speaking - a clip, a file or your microphone - then type what they should say. It is spoken in that same voice, Hindi or English, on this computer.</p>
-        <p class="lab-note" data-dubsel></p></div>
-      <div class="lab-hero-act"><span class="lab-pill" data-vst></span><button class="primary" data-a="clone">Clone a voice</button><button class="lab-link" data-a="setup" hidden>Set up same-voice AI (one time, about 5 GB)</button></div>
-    </section>
-    <section class="lab-sec">
-      <div class="lab-sec-h"><div><span class="lab-kicker">Tools</span><h2>Edit faster</h2></div></div>
-      <div class="lab-list">${TOOLS.map(([id, l, s]) => `<button class="lab-row" data-tool="${id}"><span class="lab-row-ic">${glyph(id)}</span><span class="lab-tile-t"><b>${esc(l)}</b><small>${esc(s)}</small></span><svg class="lab-chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5L10.5 8 6 12.5"/></svg></button>`).join('')}</div>
-    </section></div>`;
+    <header class="lab-head"><div><h1>Labs</h1><p>AI tools and libraries - click one to open it.</p></div></header>
+    <div class="lab-cards">
+      ${card('voice', 'clone', 'VoiceVerse', 'Clone any voice, design voices, dub - the full app', '<span class="lab-pill" data-vvst></span>')}
+      ${card('music', 'music', 'Music library', 'Ready music for every edit', '<span class="lab-pill" data-mcount></span>')}
+      ${card('moves', 'dolly', 'Camera moves', 'One-click moves on the selected shots')}
+      ${card('work', 'reels', 'Labs timeline', 'Edit a Labs clip - templates, effects, AI', '<span class="lab-pill" data-lcount></span>')}
+      ${TOOLS.map(([id, l, sub]) => `<button class="lab-card" data-tool="${id}"><span class="lab-card-ic">${glyph(id)}</span><span class="lab-card-t"><b>${esc(l)}</b><small>${esc(sub)}</small></span></button>`).join('')}
+    </div>
+    <div class="lab-scrim" data-win-close hidden></div>
+    ${win('moves', 'Camera moves', `<div class="lab-sec-h"><p class="lab-note" data-tplsel></p><button class="lab-link" data-a="untpl">Remove from selected</button></div>
+      <div class="lab-grid" data-tpls>${TEMPLATES.map((t) => `<button class="lab-tile" data-tpl="${t.id}"><span class="lab-tile-ic">${glyph(t.id)}</span><span class="lab-tile-t"><b>${esc(t.label)}</b><small>${esc(t.sub)}</small></span>${t.video ? '<i class="lab-tag">video</i>' : ''}</button>`).join('')}</div>`)}
+    ${win('work', 'Labs timeline', labsWorkHTML(), true)}
+    ${win('voice', 'VoiceVerse', `<div class="vv-box" data-vvbox><p class="lab-note">Checking VoiceVerse…</p></div>
+      <p class="lab-note" data-dubsel hidden></p><span class="lab-pill" data-vst hidden></span><button class="lab-link" data-a="setup" hidden>Set up same-voice dubbing (one time, about 5 GB)</button>`, true)}
+    ${win('music', 'Music library', `<div class="lab-sec-h"><input type="search" class="lab-find" data-mfind placeholder="Find music…" aria-label="Find music"><button class="lab-link" data-a="mcollect" title="Copy the music used in every project (A2, Music bins) into the library">From all projects</button><button class="lab-link" data-a="madd">Add music…</button><input type="file" accept="audio/*" multiple hidden data-mfile></div>
+      <div class="lab-music" data-music><p class="lab-note">Loading…</p></div>`)}
+  </div>`;
   mountLabsWork(el.querySelector('[data-work]'));
+  el.querySelector('[data-mfind]').oninput = drawMusic;
+  el.querySelector('[data-mfile]').onchange = (e) => { addMusic([...e.target.files]); e.target.value = ''; };
   el.addEventListener('click', (e) => {
+    const w = e.target.closest('[data-win-open]')?.dataset.winOpen; if (w) return openWin(w);
+    if (e.target.closest('[data-win-close]')) return closeWin();
     const a = e.target.closest('[data-a]')?.dataset.a, tpl = e.target.closest('[data-tpl]')?.dataset.tpl, tool = e.target.closest('[data-tool]')?.dataset.tool;
     if (a === 'clone') openVoiceClone();
     if (a === 'setup') setupVoice();
+    if (a === 'vvopen') openVoiceVerse();
+    if (a === 'madd') el.querySelector('[data-mfile]').click();
+    if (a === 'mcollect') collectMusic();
+    const mp = e.target.closest('[data-mplay]')?.dataset.mplay, mu = e.target.closest('[data-muse]')?.dataset.muse;
+    if (mp) playMusic(mp);
+    if (mu) useMusic(mu);
     // (with a Labs clip open, the templates go on it - Update on timeline puts them on the edit)
     if (a === 'untpl') { if (!labClear()) removeTemplates(); }
     if (tpl) { if (!labTemplate(templateById(tpl))) putTemplate(templateById(tpl)); }
     if (tool) runTool(tool);
   });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.page === 'ai' && openWinId && !document.querySelector('dialog[open]')) closeWin(); });
 }
-export function showAI() { if (!root) return; drawSel(); voiceState(); drawLabs(); }
-export function hideAI() { stopLabs(); }
+// 🪟 each Labs tool opens in its own window over the page (one at a time; Esc / ✕ / outside closes it)
+let openWinId = null;
+export function openWin(id) {
+  if (!root) return;
+  closeWin();
+  const w = root.querySelector(`[data-win="${id}"]`); if (!w) return;
+  w.hidden = false; root.querySelector('.lab-scrim').hidden = false; openWinId = id;
+  if (id === 'music') loadMusic();
+  if (id === 'voice') vvWindow();
+  if (id === 'work') drawLabs();
+}
+function closeWin() {
+  if (!root || !openWinId) return;
+  root.querySelector(`[data-win="${openWinId}"]`).hidden = true; root.querySelector('.lab-scrim').hidden = true;
+  if (openWinId === 'work') stopLabs();
+  if (openWinId === 'music') { mAudio.pause(); mPlaying = ''; }
+  openWinId = null;
+}
+on('labsWork', () => { if (root) openWin('work'); }); // (a Labs clip opened from the timeline)
+export function showAI() { if (!root) return; drawSel(); voiceState(); vvState(); drawLabs(); loadMusic(); const n = Object.keys(S.project?.labs || {}).length; root.querySelector('[data-lcount]').textContent = n ? `${n} clip${n > 1 ? 's' : ''}` : ''; }
+export function hideAI() { closeWin(); stopLabs(); mAudio.pause(); }
 on('select', () => { if (S.page === 'ai') drawSel(); });
 on('change', () => { if (S.page === 'ai') drawLabs(); }); // (undo / redo of a Labs edit)
 
@@ -143,12 +176,29 @@ async function runTool(id) {
   }
 }
 
-// ---------------- 🧬 voice cloning ----------------
+// ---------------- 🎙 VoiceVerse (voice cloning) ----------------
+// VoiceStudio installed on the editor's PC as "VoiceVerse": its app runs the voice AI (server: /api/voiceverse)
+async function vvState() {
+  const st = await api('GET', '/api/voiceverse').catch(() => ({ installed: false, running: false }));
+  const s = root.querySelector('[data-vvst]');
+  s.textContent = st.running ? 'Ready' : st.installed ? 'Closed' : 'Setting up';
+  s.classList.toggle('on', !!st.running);
+  return st;
+}
+async function openVoiceVerse() {
+  try {
+    const r = await api('POST', '/api/voiceverse/open', {});
+    if (r.running) return toast('VoiceVerse is already open on the editor PC');
+    toast('Opening VoiceVerse on the editor PC - the first start takes a minute');
+    for (let i = 0; i < 40; i++) { await new Promise((ok) => setTimeout(ok, 3000)); if ((await vvState()).running) { toast('VoiceVerse is ready'); if (openWinId === 'voice') vvWindow(); return; } }
+  } catch (e) { toast(e.message, 'err'); }
+}
+
 // a voice sample (the selected clip from its In, any clip with sound, a file, or 15 s from the microphone) + the words ->
-// the words spoken in that voice (offline same-voice AI, server: POST /api/tts provider 'clone') -> A1 at the playhead
+// the words spoken in that voice (VoiceVerse, server: POST /api/tts provider 'clone') -> A1 at the playhead
 const withSound = () => S.media.filter((m) => m.kind === 'audio' || (m.kind === 'video' && m.hasAudio));
 export async function openVoiceClone() {
-  const vs = await api('GET', '/api/aivoice').catch(() => ({ ready: false }));
+  const vv = await api('GET', '/api/voiceverse').catch(() => ({ installed: false, running: false })), vs = { ready: vv.running };
   const c = selClip(), cm = c && S.mediaById[c.clip.mediaId];
   const body = document.createElement('div');
   body.className = 'vo vclone';
@@ -166,9 +216,9 @@ export async function openVoiceClone() {
     <textarea name="text" rows="7" placeholder="नमस्कार, मैं आपका स्वागत करता हूँ…"></textarea>
     <label class="chk"><input type="checkbox" name="subs" checked> Subtitles from it (exact words, timed to the voice)</label>
     <label class="chk"><input type="checkbox" name="place" checked> Put it on A1 (Voice-over) at the playhead</label>
-    ${vs.ready ? '' : '<p class="vo-note">The same-voice AI is not set up on this computer yet - press "Set up same-voice AI" on the Labs page first (one time).</p>'}
+    ${vs.ready ? '' : `<p class="vo-note">${vv.installed ? 'VoiceVerse is closed - press "Open VoiceVerse" on the Labs page, wait until it says ready, then come back.' : 'VoiceVerse is not installed on the editor PC yet.'}</p>`}
     <div class="ag-foot"><span class="muted small" data-count></span><span class="grow"></span><button type="button" data-close>Cancel</button><button type="button" class="primary" data-go${vs.ready ? '' : ' disabled'}>Make it in this voice</button></div>`;
-  const dlg = modal('Voice cloning', body, { width: 640 });
+  const dlg = modal('VoiceVerse - clone a voice', body, { width: 640 });
   const q = (x) => body.querySelector(x), sel = q('[name="ref"]'), st = q('[data-st]'), ta = q('[name="text"]');
   // the samples: the selected clip first (from its In), then every file with sound
   const fill = (pick) => {
@@ -330,4 +380,77 @@ export async function openAiDub(clipId = selClip()?.id) {
     } catch (x) { toast(x.job?.log?.slice(-1)[0] || x.message, 'err'); }
     finally { emit('job', { running: false }); }
   };
+}
+
+// ---------------- 🎵 music library ----------------
+// Library/music on the editor PC, shared by every project and editor: listen, Use (into Media + A2 Music at the
+// playhead), Add music (files from this computer go into the library for everyone)
+let tracks = [], mPlaying = '';
+const mAudio = new Audio();
+mAudio.onended = () => { mPlaying = ''; drawMusic(); };
+async function loadMusic() {
+  try { tracks = await api('GET', '/api/library/music'); } catch { tracks = []; }
+  root.querySelector('[data-mcount]').textContent = tracks.length ? `${tracks.length} tracks` : '';
+  drawMusic();
+}
+function drawMusic() {
+  const box = root.querySelector('[data-music]'), q = root.querySelector('[data-mfind]').value.trim().toLowerCase();
+  const list = tracks.filter((t) => !q || t.title.toLowerCase().includes(q));
+  const mb = (n) => `${(n / 1048576).toFixed(1)} MB`;
+  box.innerHTML = list.length ? `<div class="lab-list">${list.map((t) => `<div class="lab-row lab-mrow">
+      <button class="icon-btn lab-mplay${mPlaying === t.name ? ' on' : ''}" data-mplay="${esc(t.name)}" title="${mPlaying === t.name ? 'Stop' : 'Listen'}">${mPlaying === t.name ? '<svg viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1" fill="currentColor"/></svg>' : '<svg viewBox="0 0 16 16"><path d="M5 3.5v9l7-4.5z" fill="currentColor"/></svg>'}</button>
+      <span class="lab-tile-t"><b>${esc(t.title)}</b><small>${mb(t.size)}</small></span>
+      <button class="small" data-muse="${esc(t.name)}" title="Into this project's Media and onto A2 (Music) at the playhead">Use</button></div>`).join('')}</div>`
+    : `<p class="lab-note">${tracks.length ? 'No music matches.' : 'No music in the library yet - press Add music… to put mp3 / wav files in it for everyone.'}</p>`;
+}
+function playMusic(name) {
+  if (mPlaying === name) { mAudio.pause(); mPlaying = ''; return drawMusic(); }
+  mAudio.src = `/api/library/music/file?name=${enc(name)}`; mAudio.play().catch(() => {}); mPlaying = name; drawMusic();
+}
+async function useMusic(name) {
+  try {
+    toast('Adding the music…');
+    const m = await api('POST', `/api/library/music/use?p=${enc(S.proj)}`, { name });
+    await refreshMedia();
+    S.project.tracks.A2 ||= [];
+    S.project.tracks.A2.push({ id: uid(), type: 'audio', mediaId: m.id, start: +S.playhead.toFixed(3), in: 0, volume: 1 });
+    commit(`Music: ${m.name}`);
+    toast(`${m.name} is on A2 (Music) at ${fmt(S.playhead)} - also in Media › Music`);
+  } catch (e) { toast(e.message, 'err'); }
+}
+async function addMusic(files) {
+  let n = 0;
+  for (const f of files) {
+    try { toast(`Adding ${f.name} to the music library…`); await upload(`/api/library/music/add?name=${enc(f.name)}`, f); n++; }
+    catch (e) { toast(`${f.name}: ${e.message}`, 'err'); }
+  }
+  if (n) { toast(`${n} track${n > 1 ? 's' : ''} added to the music library`); loadMusic(); }
+}
+
+// every project's music into the library (server: the music on A2 / in Music bins of all projects, copied once)
+async function collectMusic() {
+  if (!confirm('Copy the music of every project (A2 Music track, Music bins) into the music library for everyone?\n\nVoice-overs and sound effects are left out; a track already in the library is not copied again.')) return;
+  emit('job', { running: true, label: 'Collecting music from all projects…' });
+  try {
+    const j = await api('POST', '/api/library/music/collect', {});
+    const r = (await watchJob(j.id, (x) => emit('job', { running: true, label: `Music · ${x.stage || '…'} ${x.progress || 0}%` }))).result;
+    toast(`${r.copied} new track${r.copied === 1 ? '' : 's'} in the music library (from ${r.projects} projects${r.same ? `, ${r.same} already there` : ''}${r.missing ? `, ${r.missing} file${r.missing === 1 ? '' : 's'} not found` : ''})`);
+    loadMusic();
+  } catch (e) { toast(e.message, 'err'); }
+  finally { emit('job', { running: false }); }
+}
+
+// 🎙 the VoiceVerse window: the app's own screens (served by its engine on the editor PC, through the editor) when it
+// runs; otherwise what to do - open it, or wait while it is being set up on the editor PC
+async function vvWindow() {
+  const box = root.querySelector('[data-vvbox]'), st = await vvState();
+  if (st.running && st.ui) {
+    if (!box.querySelector('iframe')) box.innerHTML = '<iframe class="vv-frame" src="/voiceverse/" title="VoiceVerse" allow="microphone; clipboard-write; autoplay"></iframe>';
+    return;
+  }
+  box.innerHTML = st.running
+    ? '<div class="vv-msg"><b>VoiceVerse is running</b><p>Its screens are not ready on the editor PC yet - open the VoiceVerse app on the editor PC itself for now.</p></div>'
+    : st.installed
+      ? '<div class="vv-msg"><b>VoiceVerse is closed</b><p>Start it on the editor PC - its screens open here after a few seconds.</p><button class="primary" data-a="vvopen">Open VoiceVerse</button></div>'
+      : '<div class="vv-msg"><b>VoiceVerse is being set up on the editor PC</b><p>Voice cloning, voice design, dubbing and audiobooks - it appears here when the setup is finished.</p></div>';
 }

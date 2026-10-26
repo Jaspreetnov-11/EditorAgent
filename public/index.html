@@ -2,7 +2,7 @@
 <html lang="en" data-look="limelight">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Limelight</title>
 <link rel="icon" type="image/png" href="/img/favicon.png?v=4">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -12,10 +12,19 @@
 <link rel="stylesheet" href="/css/app.css">
 <link rel="stylesheet" href="/css/ui2.css">
 <link rel="stylesheet" href="/css/limelight.css">
+<link rel="stylesheet" href="/css/mobile.css">
 </head>
 <body>
 <div id="app"></div>
-<script type="module" src="/js/main.js"></script>
+<script type="module">
+// 🗂 the window itself is the strip of project tabs (tabs.js) - each tab is an editor (main.js) in a frame. A phone /
+// tablet, an editor already in a tab, or ?notabs=1 runs the editor straight in the page as before.
+import { deviceMode } from '/js/phonecore.js';
+const q = new URLSearchParams(location.search);
+let pick = q.get('ui') || ''; try { pick ||= localStorage.getItem('ve-device') || ''; } catch {}
+const tabs = window.top === window && !q.has('tab') && !q.has('notabs') && deviceMode({ w: innerWidth, h: innerHeight, coarse: matchMedia('(pointer: coarse)').matches, pick }) === 'desktop';
+import(tabs ? '/js/tabs.js' : '/js/main.js');
+</script>
 <script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});</script>
 </body>
 </html>

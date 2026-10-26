@@ -35,6 +35,7 @@ const P = {
   assistant: '<path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/><path d="M5.5 7h.01M8 7h.01M10.5 7h.01"/>',
   report: '<path d="M4 1.5h5.5l3 3v10H4z"/><path d="M9 1.5V5h3.5M6 8h5M6 10.5h5"/>',
   export: '<path d="M8 10V2M5 5l3-3 3 3"/><path d="M2.5 9.5v4h11v-4"/>',
+  review: '<path d="M2.5 3.5h11v7.5H7l-3 2.5V11H2.5z"/><path d="M6.6 5.6 9.4 7.2 6.6 8.8z"/>',
   folder: '<path d="M1.75 4.25a1 1 0 0 1 1-1h3.4l1.5 1.5h5.6a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1z"/><path d="M1.75 7h12.5"/>',
   folderMove: '<path d="M1.75 4.25a1 1 0 0 1 1-1h3.4l1.5 1.5h5.6a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1z"/><path d="M5.5 9.5h5M8.5 7.5l2 2-2 2"/>',
   trash: '<path d="M2.5 4.5h11M6.5 4.5V3h3v1.5"/><path d="M3.75 4.5l.7 9a1 1 0 0 0 1 .9h5.1a1 1 0 0 0 1-.9l.7-9"/><path d="M6.75 7v4.5M9.25 7v4.5"/>',

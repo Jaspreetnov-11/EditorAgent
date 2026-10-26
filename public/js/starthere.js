@@ -13,6 +13,8 @@ import { JOBS, TYPES, openAgent } from './agent.js';
 import { voicePicker } from './voiceover.js';
 import { openPromptGuide } from './promptguide.js';
 
+// (INLINE false: the steps are no longer put on Home, the Media page or the empty timeline - Tools › Automation opens them)
+const INLINE = false;
 const HIDE = 've-start-hide', JOBKEY = 've-start-job', SCRIPTKEY = 've-start-script', FEW = 6; // (Home: the big card only with fewer projects than this)
 export const startHidden = () => { try { return localStorage.getItem(HIDE) === '1'; } catch { return false; } };
 const setHidden = (v) => { try { if (v) localStorage.setItem(HIDE, '1'); else localStorage.removeItem(HIDE); } catch {} };
@@ -41,6 +43,7 @@ const scriptLine = (t) => `<input class="sh-script" data-shscript value="${esc(t
 // el: Home; count: projects shown; newProject(): the New project dialog (home.js)
 export function mountHomeStart(el, count, newProject) {
   $('.sh-home', el)?.remove(); $('[data-shopen]', el)?.remove();
+  if (!INLINE) return; // (only in Tools › Automation now - asked 2026-10-26)
   const big = !startHidden() && count < FEW;
   if (!big) { // the steps one click away: a small button beside + New project
     $('.home-actions', el)?.insertAdjacentHTML('afterbegin', `<button class="small" data-shopen title="Automation: a complete video in 5 easy steps - script, footage, voice-over and music, the Agent's edit, export">Automation</button>`);
@@ -213,7 +216,7 @@ export function mountProjectStart(setBusy) {
 }
 let lastKey = '';
 export function refreshProjectStart() {
-  const show = !!S.project && !startHidden() && !hasEdit();
+  const show = INLINE && !!S.project && !startHidden() && !hasEdit();
   const key = `${S.proj}|${show}|${hasFootage()}|${pendingJob()}|${S.media.length}`;
   if (key === lastKey && (!show || $('.sh-over'))) return;
   lastKey = key;
@@ -228,7 +231,7 @@ export function refreshProjectStart() {
 }
 // Tools › Automation: the steps in a window (and shown again where they were, if they had been hidden)
 export function openStartHere() {
-  setHidden(false); lastKey = ''; refreshProjectStart();
+  if (INLINE) { setHidden(false); lastKey = ''; refreshProjectStart(); }
   const body = h(`<div class="sh sh-dlg"><div class="dv-actions"><button type="button" class="link small" data-shguide>Prompt guide</button><span class="grow"></span><button data-close>Close</button></div></div>`);
   const dlg = modal(`Automation - ${TITLE.toLowerCase()}`, body, { width: 600, onClose: () => shown.delete(body) });
   bind(body, () => dlg.close());

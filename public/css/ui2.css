@@ -771,3 +771,7 @@ html.ui2 .sm-loop.on { color: var(--accent); }
 .proj .proj-by { display: inline-flex; align-items: center; gap: 4px; color: var(--accent-2, #f0c674); }
 .proj .proj-by svg { width: 12px; height: 12px; }
 .share-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 12px; margin: 10px 0 14px; }
+/* 💬 Review (menu bar): new client comments since the reviews were last opened */
+.menubar .mb-review { position: relative; }
+.menubar .mb-badge { min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px; background: var(--accent, #f5c400); color: #111; font-size: 10px; font-weight: 700; line-height: 15px; text-align: center; }
+.crv-top { margin-bottom: 10px; gap: 10px; align-items: center; }

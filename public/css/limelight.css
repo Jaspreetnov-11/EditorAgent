@@ -27,8 +27,8 @@ html.ui2[data-look="limelight"] {
   --hair: rgba(255,255,255,.065); --hair-2: rgba(255,255,255,.1);
   --lift: 0 1px 0 rgba(255,255,255,.04) inset, 0 12px 32px -18px rgba(0,0,0,.9);
   --glass: rgba(20,20,23,.97);
-  --v-clip: #0d6fa8; --v2-clip: #5b5bd6; --a-clip: #2f7d4f; --t-clip: #6b6b6b;
-  --clip-vb: #10263a; --clip-vl: #0d6fa8; --clip-vs: #1a86c4; --clip-ab: #13291c; --clip-al: #2f7d4f; --clip-as: #3a9761; --clip-tl: #5d5d66;
+  --v-clip: #45474d; --v2-clip: #5b5bd6; --a-clip: #2f7d4f; --t-clip: #6b6b6b;
+  --clip-vb: #1c1d20; --clip-vl: #45474d; --clip-vs: #6b6e76; --clip-ab: #13291c; --clip-al: #2f7d4f; --clip-as: #3a9761; --clip-tl: #5d5d66;
   --tc: #f7f7f8; --r: 12px; --hdr: 48px;
   /* Helvetica Now (installed on the editing PC); PCs without it fall back to Helvetica Neue / Helvetica, then the bundled Inter */
   --ui-font: "LL Helvetica Now Text", "Helvetica Now Text", "Helvetica Neue", Helvetica, "LL Inter", Arial, "Nirmala UI", sans-serif;
@@ -178,7 +178,7 @@ html.ui2[data-look="limelight"] :is(.isec > h4, .isec-h):not(#colorPage *, .page
 /* the open folder on Home: the triangle in its corner */
 html.ui2[data-look="limelight"] .pf-chip.on::after { content: ""; position: absolute; top: 10px; right: 10px; width: 11px; height: 11px; background: var(--tri) center / contain no-repeat; }
 /* toasts: the triangle instead of a coloured edge */
-html.ui2[data-look="limelight"] .toast { border-left: 0; padding-left: 30px; position: relative; }
+html.ui2[data-look="limelight"] .toast { border-left: 0; padding-left: 30px; position: fixed; bottom: 72px; width: max-content; }
 html.ui2[data-look="limelight"] .toast::before { content: ""; position: absolute; left: 12px; top: 50%; width: 10px; height: 10px; margin-top: -5px; background: var(--tri) center / contain no-repeat; }
 /* a running job: the triangle pulses instead of a dot */
 html.ui2[data-look="limelight"] .jc-dot { width: 9px; height: 9px; border-radius: 0; background: var(--tri) center / contain no-repeat; box-shadow: none; }
@@ -621,3 +621,9 @@ html.ui2[data-look="limelight"] .ag2-adv .ag-type span small { font-size: 11px; 
 .ag2-sb.kept > i { background: rgba(60,60,66,.85); }
 .ag2-sb.kept { opacity: .5; }
 .ag2-sb.kept:hover, .ag2-sb.kept.on { opacity: 1; }
+
+/* 📁 Home: inside a folder - "Projects › Soman" (Projects goes back to the folders) */
+#homeCrumb { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+#homeCrumb .home-up { background: none; border: 0; padding: 0; font: inherit; color: var(--muted); cursor: pointer; }
+#homeCrumb .home-up:hover { color: var(--text); }
+#homeCrumb .home-sep { color: var(--faint); font-weight: 400; }

@@ -38,6 +38,28 @@ test('nas down: a test editor with a project on "the NAS"', async () => {
   assert(fs.readFileSync(path.join(nas, NAME, 'project.json'), 'utf8').includes('before'), 'saved on the NAS');
 });
 
+// ⚡ an open NAS project is answered from memory (no look at the NAS on every edit): a change made to its file some other
+// way still reaches it, and a restore is not undone by a save of the open copy still on its way
+test('nas: an outside change to an open NAS project reaches it; a restore is not undone by a queued save', async () => {
+  if (!ON) return 'skip';
+  const f = path.join(nas, NAME, 'project.json');
+  const pj = JSON.parse(fs.readFileSync(f, 'utf8'));
+  pj.tracks.V1.push({ id: 'x1', type: 'title', text: 'from outside', dur: 2 });
+  fs.writeFileSync(f, JSON.stringify(pj));
+  let seen = false;
+  for (let i = 0; i < 10 && !seen; i++) { await sleep(400); seen = (await api('GET', `/api/project?p=${P}`)).tracks.V1.some((c) => c.text === 'from outside'); }
+  assert(seen, 'the outside change is in the open project');
+  // a version, then an edit (its save queued), then the version back: the edit must not come back
+  const v = await api('POST', `/api/versions/save?p=${P}`, { label: 'v1' });
+  assert(v?.file, 'a version was saved');
+  await api('POST', `/api/live/ops?p=${P}&client=t1`, op('t9', 'after version'));
+  await api('POST', `/api/versions/restore?p=${P}&file=${encodeURIComponent(v.file)}&named=1`);
+  await sleep(1500);
+  assert(!fs.readFileSync(f, 'utf8').includes('after version'), 'the restore stays');
+  assert(!(await api('GET', `/api/project?p=${P}`)).tracks.V1.some((c) => c.text === 'after version'), 'the open project has the restored version');
+  await api('POST', `/api/live/ops?p=${P}&client=t1`, op('t1b', 'before')); await sleep(800); // (back to an edit with "before" for the next test)
+});
+
 test('nas down: edits are kept here while the NAS is away, and written back when it answers', async () => {
   if (!ON) return 'skip';
   fs.renameSync(nas, `${nas}-away`); fs.writeFileSync(nas, ''); // (the NAS stops answering: not even a folder can be made there)

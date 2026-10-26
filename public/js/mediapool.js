@@ -32,7 +32,7 @@ export function mountPool(el, { big = false } = {}) {
     <button class="small" data-a="batch" title="Batch: subtitles, transcripts, scans or renders for many clips at once - now or overnight; watch a folder for new footage">Batch</button>
     <button class="small" data-a="smart" title="Smart footage: shot tags, find a shot by what it shows (jharna dikhao), near-copies and bad clips, match cameras">Smart</button>
     <button class="small" data-a="archive" title="Search all the old footage on the NAS / drives (every project) by what it shows, and bring a shot in">Archive</button>
-    <input type="file" multiple hidden data-file accept="video/*,audio/*,image/*,.mxf,.mts,.m2ts,.mpeg,.cube,.srt">
+    <input type="file" multiple hidden data-file accept="video/*,audio/*,image/*,.psd,.mxf,.mts,.m2ts,.mpeg,.cube,.srt">
     <span class="grow"></span>
     <span class="pool-q" data-q></span>
   </div>

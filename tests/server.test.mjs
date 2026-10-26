@@ -126,6 +126,46 @@ test('two renders started together write two different files', async () => {
   }
 });
 
+// 🎛 Clip Attributes (Resolve-style) and 🎞 Limelight Film in a real export: lens correction, Stretch, the Lanczos
+// resize filter, a 0.5× slow motion with optical flow (Enhanced Faster) and the film effect - the export works and is
+// as long as the slowed clip
+test('🎛 Clip Attributes + 🎞 Limelight Film render: lens, stretch, resize filter, optical flow, film', async () => {
+  if (!ON) return 'skip';
+  const set = (k, v) => ({ o: 'set', p: ['tracks', 'V1', '#cB', k], v });
+  await api('POST', `/api/live/ops?p=${P}&client=t1`, { label: 'attrs', ops: [set('lens', -0.5), set('fit', 'stretch'), set('resize', 'sharper'), set('speed', 0.5), set('smooth', true), set('motionEst', 'efast'),
+    set('effects', [{ id: 'f1', type: 'film', on: true, p: { look: 'golden', grain: 0.4, halation: 0.5, weave: 0.3 } }])] });
+  const cB = (await api('GET', `/api/project?p=${P}`)).tracks.V1.find((c) => c.id === 'cB');
+  same([cB.lens, cB.fit, cB.resize, cB.speed, cB.smooth, cB.motionEst, cB.effects?.[0]?.type], [-0.5, 'stretch', 'sharper', 0.5, true, 'efast', 'film'], 'the clip has them');
+  await api('POST', `/api/live/save?p=${P}`); // (the live edits on disk first - as the editor and edtool do before a render)
+  const j = await job((await api('POST', `/api/render?p=${P}`, { preset: 'master', filename: 'attrs' })).id, 300000);
+  const f = path.join(tmp, 'Projects', NAME, 'renders', j.result.output);
+  const d = +spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', f], { encoding: 'utf8' }).stdout;
+  assert(Math.abs(d - 4) < 0.3, `the 2 s clip at 0.5× is ${d}s (want 4s)`);
+  await api('POST', `/api/live/ops?p=${P}&client=t1`, { label: 'attrs off', ops: ['lens', 'fit', 'resize', 'smooth', 'motionEst'].map((k) => set(k, undefined)).concat([set('speed', 1), set('effects', [])]) });
+  await api('POST', `/api/live/save?p=${P}`);
+});
+
+// ◐ an Opacity mask on a graphic (a Color Matte made into a shape): red only inside the ellipse, the shot below outside
+test('◐ Color Matte with an Opacity mask: the matte shows only inside the shape', async () => {
+  if (!ON) return 'skip';
+  const { gfxKey } = await import('../public/js/graphics.js'), { newMask } = await import('../public/js/shapemask.js');
+  const pj = await api('GET', `/api/project?p=${P}`), fps = pj.settings.fps || 30;
+  const gfx = { tpl: 'comp', compId: 'cm1', comp: { id: 'cm1', name: 'Color Matte', w: 1920, h: 1080, dur: 2, bg: '#ff0000', layers: [] } };
+  // (the editor bakes a graphic to a .mov before a render - here a red one is made the same way it would be named)
+  const gdir = path.join(tmp, 'Projects', NAME, 'cache', 'graphics'); fs.mkdirSync(gdir, { recursive: true });
+  ff(['-f', 'lavfi', '-i', `color=c=red:s=1920x1080:r=${fps}:d=2`, '-c:v', 'qtrle', '-pix_fmt', 'argb', path.join(gdir, `${gfxKey(gfx, 1920, 1080, fps, 2)}.mov`)]);
+  await api('POST', `/api/live/ops?p=${P}&client=t1`, { label: 'matte', ops: [{ o: 'ins', p: ['tracks', 'V2'], v: { id: 'gm', type: 'graphic', start: 0, dur: 2, gfx, omask: { ...newMask('ellipse'), feather: 0 } }, after: null }] });
+  await api('POST', `/api/live/save?p=${P}`);
+  const j = await job((await api('POST', `/api/render?p=${P}`, { preset: 'master', filename: 'matte' })).id, 300000);
+  const f = path.join(tmp, 'Projects', NAME, 'renders', j.result.output);
+  const px = (x, y) => [...spawnSync('ffmpeg', ['-v', 'error', '-ss', '1', '-i', f, '-vf', `crop=1:1:${x}:${y},format=rgb24`, '-frames:v', '1', '-f', 'rawvideo', '-'], { maxBuffer: 1e6 }).stdout];
+  const mid = px(960, 540), corner = px(40, 40);
+  assert(mid[0] > 200 && mid[1] < 60 && mid[2] < 60, `red inside the shape: ${mid}`);
+  assert(!(corner[0] > 200 && corner[1] < 60 && corner[2] < 60), `not red outside it: ${corner}`);
+  await api('POST', `/api/live/ops?p=${P}&client=t1`, { label: 'matte off', ops: [{ o: 'del', p: ['tracks', 'V2'], id: 'gm' }] });
+  await api('POST', `/api/live/save?p=${P}`);
+});
+
 test('💾 disk: counts the render and cleans the render cache', async () => {
   if (!ON) return 'skip';
   const d = await api('GET', `/api/disk?p=${P}`);

@@ -13,7 +13,8 @@ import { openReels } from './reels.js';
 import { openMulticam } from './multicam.js';
 import { openVoiceOver } from './voiceover.js';
 import { openScriptEdit, scriptPicker } from './scriptedit.js';
-import { applyCinematic, stabilizeAll, setFilmLook } from './looks.js';
+import { applyCinematic, stabilizeAll, setFilmLook, setFilmLayer } from './looks.js';
+import { FILM_LOOKS as FILM_STOCKS } from './film.js';
 import { openPromptGuide } from './promptguide.js';
 
 export const TYPES = [
@@ -316,6 +317,7 @@ export function openAgent(setBusy, { job = null, type = null, vo = null, music =
         </div></section>
         <section class="re-card"><header class="re-card-h"><b>Look &amp; finish</b><small>Colour, steadiness and effects</small></header><div class="fgrid">
           <label class="fld"><span>Film look (colour of the whole edit)</span><select name="look"><option value="">None (just balanced)</option><option selected>Teal & Orange</option><option>Warm Film</option><option>Golden Hour</option><option>Moody Dark</option><option>Travel Vivid</option><option>Indian Heritage</option><option>Bleach Bypass</option><option>Clean Natural</option></select></label>
+          <label class="fld"><span>🎞 Limelight Film (grain, halation, film print - an effect over the edit)</span><select name="film"><option value="">None</option>${Object.entries(FILM_STOCKS).map(([k, l]) => `<option value="${k}">${l.label}</option>`).join('')}</select></label>
           <label class="chk"><input type="checkbox" name="autoColor" checked> Auto colour every shot</label>
           <label class="chk"><input type="checkbox" name="detectLog" checked> Detect LOG footage and add a LUT</label>
           <label class="chk"><input type="checkbox" name="stabilize"> Stabilize shaky shots (slower render)</label>
@@ -361,7 +363,7 @@ export function openAgent(setBusy, { job = null, type = null, vo = null, music =
   const applyType = () => {
     const t = TYPES.find((x) => x.id === st.type);
     f('aspect').value = t.aspect; f('pace').value = t.pace; f('target').value = t.target; f('subtitles').checked = t.subtitles;
-    f('editStyle').value = t.editStyle || (t.id === 'reel' ? 'montage' : 'standard'); f('cinematic').checked = !!t.cinematic; if (t.look) f('look').value = t.look;
+    f('editStyle').value = t.editStyle || (t.id === 'reel' ? 'montage' : 'standard'); f('cinematic').checked = !!t.cinematic; if (t.look) f('look').value = t.look; f('film').value = t.film || '';
   };
   const setType = (id) => {
     if (!TYPES.some((t) => t.id === id)) return;
@@ -574,7 +576,7 @@ export function openAgent(setBusy, { job = null, type = null, vo = null, music =
       music: f('music').value || null, musicBest: f('musicBest').checked, keepSound: f('keepSound').checked, outline: f('outline').value,
       // "Same as the reference" becomes the reference's real shape here ('ref' used to become the new sequence's
       // frame size, which is no size at all, and Claude was told "Format ref")
-      aspect: f('aspect').value === 'ref' ? refAspect(S.mediaById[f('reference').value]) : f('aspect').value, pace: f('pace').value, clipSpeed: +f('clipSpeed').value, stabilize: f('stabilize').checked, cinematic: f('cinematic').checked, fx: f('fx').checked, sfx: f('sfx').checked, look: f('look').value, editStyle: f('editStyle').value, stock: false, ...(scr.scenes?.length ? { scenes: scr.scenes } : {}), target: +f('target').value, autoColor: f('autoColor').checked, detectLog: f('detectLog').checked,
+      aspect: f('aspect').value === 'ref' ? refAspect(S.mediaById[f('reference').value]) : f('aspect').value, pace: f('pace').value, clipSpeed: +f('clipSpeed').value, stabilize: f('stabilize').checked, cinematic: f('cinematic').checked, film: f('film').value, fx: f('fx').checked, sfx: f('sfx').checked, look: f('look').value, editStyle: f('editStyle').value, stock: false, ...(scr.scenes?.length ? { scenes: scr.scenes } : {}), target: +f('target').value, autoColor: f('autoColor').checked, detectLog: f('detectLog').checked,
       ...(st.type === 'reference' && f('reference').value ? { reference: f('reference').value } : {}),
       subtitles: f('subtitles').checked, style: f('style').value, title: f('title').value.trim(), endText: f('endText').value.trim(), names: f('names').value.trim(),
       styleName: f('styleName').value, notes: text,
@@ -680,6 +682,7 @@ async function applyAgentResult(r, o) {
   if (o.stabilize) stabilizeAll(S.project, 'medium');
   if (o.cinematic) applyCinematic(S.project); else if ('cinematic' in o) S.project.settings.look = { letterbox: '', vignette: 0, grain: 0 };
   if (o.look !== undefined) setFilmLook(S.project, o.look, o.look ? 0.85 : 0);
+  if (o.film !== undefined) { const tr = setFilmLayer(S.project, o.film, S.mediaById); if (tr) toast(`🎞 Limelight Film (${FILM_STOCKS[o.film].label}) on ${tr} over the whole edit - change it in Effect Controls`); }
   // a learnt style brings its own look (film LUT, bars) and photo zoom setting
   if (r.settings) { if (r.settings.look) S.project.settings.look = r.settings.look; if ('kenburns' in r.settings) S.project.settings.kenburns = r.settings.kenburns; }
   S.project.agentReport = { at: Date.now(), ...r.report };

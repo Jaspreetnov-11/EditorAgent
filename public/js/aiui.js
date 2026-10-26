@@ -101,6 +101,20 @@ export function aiHTML(c) {
 
 // a new copy of the shot's piece (AI fill / AI enhance) takes its place on the timeline with the same timing; what was
 // there is kept (clip.filled) for ↶ Original shot. areas: the boxes the copy has baked in (they come off the clip)
+// ✨ AI enhance / Super Scale of the shot's piece [in, out] (Real-ESRGAN, engine/enhance.py): the shot then plays the copy.
+// clip: () => the clip now; o = { model: 'fast' | 'detail', height: 0 | 1080 | 2160, denoise: 0..1 }; label(text) shows progress
+export async function enhanceClip(clip, o, label = () => {}, render = () => {}) {
+  const c = clip(), m = c && S.mediaById[c.mediaId]; if (!m) return false;
+  const a0 = c.in || 0, a1 = c.out ?? m.duration;
+  emit('job', { running: true, label: 'Enhancing…' });
+  label('Enhancing… starting'); toast(`AI enhance started - about ${Math.max(15, Math.round((a1 - a0) * (o.model === 'detail' ? 80 : 28)))} s for this ${(a1 - a0).toFixed(1)} s shot`);
+  try {
+    const job = await api('POST', `/api/enhance?p=${enc(S.proj)}`, { mediaId: c.mediaId, in: a0, out: a1, model: o.model, height: +o.height || 0, denoise: o.denoise ?? 0.5 });
+    const j = await watchJob(job.id, (x) => { const l = x.stage?.startsWith('Waiting') ? `${x.stage}` : `Enhancing… ${x.progress || 0}%`; label(l); emit('job', { running: true, label: l }); });
+    if (await swapIn(clip, j.result, a0, a1, 'enhance', [])) { commit('AI enhance'); render(); toast('Enhanced - the shot now plays the enhanced copy (Original shot brings it back)'); return true; }
+    return false;
+  } finally { emit('job', { running: false }); }
+}
 async function swapIn(clip, r, a0, a1, kind, areas) {
   const { refreshMedia } = await import('./mediapool.js');
   for (let i = 0; i < 60; i++) { await refreshMedia(); const n = S.mediaById[r.mediaId]; if (n && ['ready', 'error'].includes(n.status)) break; await new Promise((ok) => setTimeout(ok, 1000)); }
@@ -155,13 +169,8 @@ export function bindAi(root, id, render) {
         if (await swapIn(clip, j.result, a0, a1, 'fill', areas)) { commit('AI fill'); render(); toast('Filled - the shot now plays the AI-filled copy (Original shot brings it back)'); }
       }
       if (a === 'enhance') {
-        const m = S.mediaById[c.mediaId]; if (!m) return;
-        const a0 = c.in || 0, a1 = c.out ?? m.duration, q = (s) => root.querySelector(s).value;
-        emit('job', { running: true, label: 'Enhancing…' });
-        b.textContent = 'Enhancing… starting'; toast(`AI enhance started - about ${Math.max(15, Math.round((a1 - a0) * (q('[data-enh-model]') === 'detail' ? 80 : 28)))} s for this ${(a1 - a0).toFixed(1)} s shot`);
-        const job = await api('POST', `/api/enhance?p=${enc(S.proj)}`, { mediaId: c.mediaId, in: a0, out: a1, model: q('[data-enh-model]'), height: +q('[data-enh-h]'), denoise: +q('[data-enh-dn]') });
-        const j = await watchJob(job.id, (x) => { const l = x.stage?.startsWith('Waiting') ? `${x.stage}` : `Enhancing… ${x.progress || 0}%`; b.textContent = l; emit('job', { running: true, label: l }); });
-        if (await swapIn(clip, j.result, a0, a1, 'enhance', [])) { commit('AI enhance'); render(); toast('Enhanced - the shot now plays the enhanced copy (Original shot brings it back)'); }
+        const q = (s) => root.querySelector(s).value;
+        await enhanceClip(clip, { model: q('[data-enh-model]'), height: +q('[data-enh-h]'), denoise: +q('[data-enh-dn]') }, (l) => { b.textContent = l; }, render);
       }
       if (a === 'unfill') {
         const f = c.filled; if (!f) return;

@@ -16,7 +16,7 @@ import { openAudioGain, soundClips } from './audiogain.js';
 import { copyClips, pasteClips, clipboard } from './clipboard.js';
 import { TOOL_GROUPS, groupClick, MANY_SELECT } from './toolgroups.js';
 import { pickTabs } from './seqtabs.js';
-import { clipDur, uid, fmtTC, fmt, trackList, trackKind, trackNum, ensureTrack, frameScale, addTrack, syncLinked, linkAudioOf, linkedPartner, linkedIds, groupedIds, syncShift, shiftStory, rippleMarkers, evalKeys, fmtTime, freeAudioTrack, RAMPS, setRamp, rampPts, rampPart, profileAt, TRANSITIONS, setTransition, trHandles, takeTransitions, giveTransitions, propAt, keepLength, sourceAt } from './model.js';
+import { clipDur, uid, fmtTC, fmt, trackList, trackKind, trackNum, ensureTrack, frameScale, addTrack, syncLinked, linkAudioOf, linkedPartner, linkedIds, groupedIds, syncShift, shiftStory, rippleMarkers, evalKeys, fmtTime, freeAudioTrack, RAMPS, setRamp, rampPts, rampPart, profileAt, TRANSITIONS, setTransition, trHandles, transIn, takeTransitions, giveTransitions, propAt, keepLength, sourceAt } from './model.js';
 import { $, $$, h, esc, clamp, toast, modal } from './ui.js';
 import { api, enc } from './api.js';
 import { openGraphics } from './gfxui.js';
@@ -75,8 +75,9 @@ export function mountTimeline(el) {
       ${actBtn('make')}${actBtn('fx')}
       <span class="sep"></span>
       <button data-act="mcomp" class="tl-letter" title="M · Motion comp: the selected video clip becomes a Motion comp - animate it in Motion (also on the clip's right-click)" aria-label="Motion comp"><b>M</b></button>
-      <button data-act="mfusion" class="tl-letter" title="F · Fusion: open the selected video clip in Fusion - node effects (also on the clip's right-click)" aria-label="Fusion"><b>F</b></button>
+      <button data-act="mfusion" class="tl-letter" title="N · Nodes: open the selected video clip in Nodes - node effects (also on the clip's right-click)" aria-label="Nodes"><b>N</b></button>
       <button data-act="mlabs" class="tl-letter" title="L · Labs: edit the selected video clip in Labs - templates, AI (also on the clip's right-click)" aria-label="Labs"><b>L</b></button>
+      <button data-act="mpreset" class="tl-letter" title="P · Presets: open the selected graphic on the Presets page to edit it live (nothing selected = the Presets page - intros, logo stings, lower thirds…)" aria-label="Presets"><b>P</b></button>
       <button data-act="mgen" class="tl-letter" title="G · Generative: Generative Fill (remove / add things, reframe, enhance with AI) or Generative Extend (the clip carries on past its end) for the selected video clip" aria-label="Generative"><b>G</b></button>
       <span class="sep"></span>
       <button data-act="snap" class="tog" title="Snap (N): clips, cuts and the playhead pull into line when they come close - no tiny gaps, overlaps or one-frame flashes. Off: move a clip freely, frame by frame">${ICON.magnet}<span>Snap</span></button>
@@ -151,10 +152,12 @@ export function mountTimeline(el) {
       if (!id) toast('Select a video clip on the timeline first, then press Roto', 'err'); else rotoFromClip(id, findClip);
     }
     if (a === 'sfx') autoSoundDesign().catch((err) => toast(err.message, 'err'));
-    // M / F / L: the selected video clip into Motion, Fusion or Labs (the same as its right-click)
+    // 🅿 P: the selected graphic onto the Presets page (nothing graphic selected: just the page, to pick a preset)
+    if (a === 'mpreset') { const id = [...S.sel][0], c = id && findClip(id)?.clip; emit('openPreset', c?.type === 'graphic' && !['comp', 'fusion'].includes(c.gfx?.tpl) ? c : null); return; }
+    // M / N / L: the selected video clip into Motion, Nodes or Labs (the same as its right-click)
     if (a === 'mcomp' || a === 'mfusion' || a === 'mlabs') {
       const id = [...S.sel].find((x) => findClip(x)?.clip.type === 'video');
-      if (!id) toast(`Select a video clip on the timeline first, then press ${a === 'mcomp' ? 'M' : a === 'mfusion' ? 'F' : 'L'}`, 'err');
+      if (!id) toast(`Select a video clip on the timeline first, then press ${a === 'mcomp' ? 'M' : a === 'mfusion' ? 'N' : 'L'}`, 'err');
       else if (a === 'mcomp') makeCompFromClip(id, findClip); else if (a === 'mfusion') fusionFromClip(id, findClip); else labsFromClip(id);
     }
     // G: the generative tools for the selected video clip - Generative Fill (Effect Controls) or Generative Extend
@@ -196,7 +199,8 @@ export function mountTimeline(el) {
     if (e.altKey) { e.preventDefault(); setZoom(S.zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15), true, e.clientX); return; }
     if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
     e.preventDefault();
-    const up = e.ctrlKey || e.shiftKey, d = (e.deltaMode === 1 ? e.deltaY * 32 : e.deltaY) * (up ? 1 : 1.5);
+    // (a wheel notch moved 150 px sideways - too fast to follow; now about 50 px, tracks 60 px)
+    const up = e.ctrlKey || e.shiftKey, d = (e.deltaMode === 1 ? e.deltaY * 32 : e.deltaY) * (up ? 0.6 : 0.5);
     if (up) scroller.scrollTop += d; else scroller.scrollLeft += d;
   }, { passive: false });
   new ResizeObserver(() => { if (pendingCenter && scroller.clientHeight >= 80) centerTracks(); if (pendingFit && scroller.clientWidth >= 80) fitZoom(); else drawRuler(); }).observe(scroller);
@@ -205,7 +209,7 @@ export function mountTimeline(el) {
   headsEl.addEventListener('wheel', (e) => {
     if (e.altKey) { e.preventDefault(); setTrackZoom(vZoom * (e.deltaY < 0 ? 1.12 : 1 / 1.12)); return; } // ⇕ taller / shorter tracks
     e.preventDefault();
-    scroller.scrollTop += (e.deltaMode === 1 ? e.deltaY * 32 : e.deltaY);
+    scroller.scrollTop += (e.deltaMode === 1 ? e.deltaY * 32 : e.deltaY) * 0.6;
     headsEl.scrollTop = scroller.scrollTop;
   }, { passive: false });
 
@@ -401,7 +405,7 @@ export function fitZoom() {
 }
 
 // ---------------- render ----------------
-const mName = (c) => (c.labsId && S.project.labs?.[c.labsId] ? S.project.labs[c.labsId].name : c.type === 'title' ? (c.text || 'Title').split('\n')[0] : c.type === 'adjust' ? 'Adjustment layer' : c.type === 'graphic' ? (c.gfx?.tpl === 'fusion' ? `${c.gfx.fusion?.name || 'Fusion'}` : c.gfx?.tpl === 'comp' ? `${c.gfx.comp?.name || 'Comp'}` : `${c.gfx?.title || GFX[c.gfx?.tpl]?.label || 'Graphic'}`) : nestedName(c) || S.mediaById[c.mediaId]?.name || 'Missing media');
+const mName = (c) => (c.labsId && S.project.labs?.[c.labsId] ? S.project.labs[c.labsId].name : c.type === 'title' ? (c.text || 'Title').split('\n')[0] : c.type === 'adjust' ? 'Adjustment layer' : c.type === 'graphic' ? (c.gfx?.tpl === 'fusion' ? `${c.gfx.fusion?.name || 'Nodes'}` : c.gfx?.tpl === 'comp' ? `${c.gfx.comp?.name || 'Comp'}` : `${c.gfx?.title || GFX[c.gfx?.tpl]?.label || 'Graphic'}`) : nestedName(c) || S.mediaById[c.mediaId]?.name || 'Missing media');
 // a nested clip is named after its sequence (renaming the sequence renames the clip)
 const nestedName = (c) => { const sid = S.mediaById[c.mediaId]?.seqOf; const s = sid && seqList(S.project).find((x) => x.id === sid); return s ? `${s.name}` : null; };
 
@@ -714,7 +718,7 @@ function clipHTML(track, x, i) {
     const sp = c.speed || 1, loop = c.loop ? Math.max(0.05, (c.out ?? m.duration) - (c.in || 0)) : 0;
     wv = `<canvas class="clip-wave" data-wm="${m.id}" data-t0="${x.start}" data-vs="${vs}" data-in="${c.in || 0}" data-sp="${sp}" data-loop="${loop}"></canvas>`;
   } else if (c.type === 'title') bg = `background:${track === 'V1' ? esc(c.bg || '#0b2545') : ''}`;
-  else if (c.type === 'graphic') bg = c.gfx?.tpl === 'comp' || c.gfx?.tpl === 'fusion' ? '' : 'background:linear-gradient(90deg,#0b2545,#1d4e89)';
+  else if (c.type === 'graphic') bg = c.gfx?.tpl === 'comp' || c.gfx?.tpl === 'fusion' ? '' : 'background:linear-gradient(90deg,#26272b,#3b3d42)';
   // 🎨 kinds you can tell apart at a glance: ⤵ nested sequence (green), 🎬 Motion comp (orange), ✨ Fusion (maroon)
   const kind = c.labsId ? ' k-labs' : c.gfx?.tpl === 'comp' ? ' k-comp' : c.gfx?.tpl === 'fusion' ? ' k-fusion' : c.mediaId && S.mediaById[c.mediaId]?.seqOf ? ' k-nest' : '';
   const badges = [c.color && Object.keys(c.color).length ? '<i title="Colour graded">CC</i>' : '', c.speed && c.speed !== 1 ? `<i>${c.speed}×</i>` : '',
@@ -1147,6 +1151,15 @@ function onRowsDown(e) {
       open: trim === 'r' && i === V1.length - 1 }; // (the last shot may grow freely to the right)
   };
   for (const t of multi) { const x = findClip(t.id); t.orig = JSON.parse(JSON.stringify(x.clip)); if (t.track === 'V1') t.v1 = v1State(x.index); }
+  // ⧓ a main-story edge with a transition on it: the transition is taken off properly first (each shot gives back the
+  // frames it lent, so nothing moves) and put back on that cut when the trim ends. Left on, the shot's end was measured
+  // with the frames it lent under the next shot: the first nudge made the edge jump by the transition's length and the
+  // next shot slid along and got shorter (it looked like the trim pushed or overwrote the clip after it).
+  let trimTr = null;
+  if (trim && track === 'V1' && S.tool !== 'rolling' && S.tool !== 'rate') {
+    const V1 = S.project.tracks.V1, ti = trim === 'r' ? f.index + 1 : f.index, tc = V1[ti];
+    if (ti > 0 && tc && transIn(tc)) { const tr = tc.transitionIn; trimTr = { cId: id, side: trim, type: tr.type, dur: tr.dur, ...trHandles(tr) }; setTransition(S.project, S.mediaById, ti, null); render(); }
+  }
   if (trim && track === 'V1') {
     const L0 = layout().V1, nb = S.project.tracks.V1[f.index + (trim === 'r' ? 1 : -1)];
     v1 = v1State(f.index);
@@ -1156,7 +1169,7 @@ function onRowsDown(e) {
       roll = { aId: A.id, bId: B.id, a0: JSON.parse(JSON.stringify(A)), b0: JSON.parse(JSON.stringify(B)), cut0: L0[iB].start };
     }
   }
-  drag = { id, track, from: track, made: [], el, x0: e.clientX, y0: e.clientY, moved: false, trim, v1, roll, multi, collapse, rate: !!trim && S.tool === 'rate', remix: !!trim && S.tool === 'remix' && f.clip.type === 'audio', orig: JSON.parse(JSON.stringify(f.clip)), index: f.index,
+  drag = { id, track, from: track, made: [], el, x0: e.clientX, y0: e.clientY, moved: false, trim, trimTr, v1, roll, multi, collapse, rate: !!trim && S.tool === 'rate', remix: !!trim && S.tool === 'remix' && f.clip.type === 'audio', orig: JSON.parse(JSON.stringify(f.clip)), index: f.index,
     // where on the clip it was taken (sec from its start) - from the timeline, not the element: select() above has
     // already redrawn the clips, so `el` may be a removed one (its position read as 0 and drops landed seconds off)
     grab: timeAt(e.clientX) - (layout()[track]?.find((x) => x.clip.id === id)?.start ?? f.clip.start ?? 0),
@@ -1353,6 +1366,14 @@ function slipSlide(e, id, track) {
 
 // A V1 shot just trimmed (c; o = as it was): the gap next to the trimmed end takes up the difference so nothing else
 // moves - a shorter shot leaves a gap, a longer one only uses up a gap that is there (it never covers the next shot).
+// ⧓ after a trim: the transition back on the trimmed cut - with a shot there, the same one (its frames lent again, so
+// nothing moves); with a gap there now, a fade to / from black as long (as a moved clip's transitions do)
+function putTrimTransition(tr) {
+  const V1 = S.project.tracks.V1, c = V1.find((x) => x.id === tr.cId); if (!c) return;
+  const i = V1.indexOf(c), ti = tr.side === 'r' ? i + 1 : i, nb = V1[tr.side === 'r' ? i + 1 : i - 1];
+  if (nb && !nb.gap && ti > 0) setTransition(S.project, S.mediaById, ti, tr.type, 0, { hA: tr.hA, hB: tr.hB });
+  else if (tr.side === 'r') c.fadeOut = +Math.min(5, tr.dur).toFixed(2); else c.fadeIn = +Math.min(5, tr.dur).toFixed(2);
+}
 function v1KeepPlace(c, o, m, stretched = false, v = drag.v1) {
   const V1 = S.project.tracks.V1, sp = c.speed || 1, right = drag.trim === 'r';
   const d0 = clipDur(o, S.mediaById);
@@ -1476,8 +1497,14 @@ function onDragMove(e) {
   if (drag.rate) { rateStretch(c, o, m, dt, pts); if (drag.v1 && !drag.v1.ripple) v1KeepPlace(c, o, m, true); if (c.link) syncLinked(S.project, S.mediaById, drag.id); render(); return; }
   if (drag.trim) {
     const L = layout()[f.track].find((x) => x.clip.id === c.id), s0 = drag.v1 ? drag.v1.s0 : L.start;
+    // ▭ on the other tracks an edge stops at the clip next to it on the same track, as in Premiere (it used to run on
+    // over it: two clips on one track at once, the later one covered - it looked overwritten)
+    const nbs = drag.track === 'V1' ? [] : (layout()[drag.track] || []).filter((x) => x.clip.id !== c.id && !drag.multi.some((t) => t.id === x.clip.id));
+    const o0 = o.start || 0, oEnd = o0 + clipDur(o, S.mediaById);
+    const prevEnd = Math.max(0, ...nbs.filter((x) => x.end <= o0 + 0.001).map((x) => x.end));
+    const nextStart = Math.min(Infinity, ...nbs.filter((x) => x.start >= oEnd - 0.001).map((x) => x.start));
     if (drag.trim === 'l') {
-      const tEdge = snap((drag.track === 'V1' ? s0 : o.start || 0) + dt, pts);
+      const tEdge = Math.max(prevEnd, snap((drag.track === 'V1' ? s0 : o.start || 0) + dt, pts));
       let d = tEdge - (drag.track === 'V1' ? s0 : o.start || 0);
       if (c.type === 'video' || (c.type === 'audio' && !c.loop)) {
         const ni = clamp((o.in || 0) + d * sp, 0, (o.out ?? m?.duration ?? 0) - 0.1 * sp);
@@ -1487,7 +1514,7 @@ function onDragMove(e) {
       if (o.markers) { c.markers = o.markers.map((m) => ({ ...m, t: +(m.t - d).toFixed(3) })).filter((m) => m.t >= 0); if (!c.markers.length) delete c.markers; } // (📍 they stay on their frames)
     } else {
       const startT = drag.track === 'V1' ? s0 : o.start || 0;
-      const endT = snap(startT + clipDur(o, S.mediaById) + dt, pts);
+      const endT = Math.min(nextStart, snap(startT + clipDur(o, S.mediaById) + dt, pts));
       const nd = Math.max(0.2, endT - startT);
       if (c.type === 'video' || (c.type === 'audio' && !c.loop)) {
         const max = m?.duration ?? Infinity;
@@ -1691,7 +1718,8 @@ function onDragUp(e) {
   const d = drag; drag = null;
   // (tracks this drag made at the edge that ended up empty go again)
   const dropMade = () => { for (const id of d?.made || []) if (!S.project.tracks[id]?.length) { delete S.project.tracks[id]; delete S.project.trackState?.[id]; } };
-  if (!d || !d.moved) { dropMade(); S.linkLead = null; if (d?.collapse && !d.trim) select(d.id, false); else if (d?.made.length) render(); return; }
+  if (d?.trimTr) putTrimTransition(d.trimTr); // (⧓ the transition taken off for the trim goes back on its cut)
+  if (!d || !d.moved) { dropMade(); S.linkLead = null; if (d?.collapse && !d.trim) select(d.id, false); else if (d?.made.length || d?.trimTr) render(); return; }
   dropMade();
   // 🎬 let go over the Source / Program monitor: the clip opens in the Source monitor at its In, and stays where it was
   const overMon = e && !d.trim && !d.roll && !d.rate && !d.multi?.length && document.elementFromPoint(e.clientX, e.clientY)?.closest('.srcmon, .mon-dock, .edit-grid.ws-monsrc .viewer');
@@ -2110,7 +2138,8 @@ function onContext(e) {
     ...(soundClips([id]).length ? [['gain', 'Audio gain…', 'G']] : []),
     ...((c.type === 'video' || c.type === 'audio') && !linkedPartner(S.project, c) ? [['mute', c.mute ? 'Unmute' : 'Mute']] : []),
     ...(linkedPartner(S.project, c) ? [['unlink', 'Unlink audio / video']] : c.type === 'video' && S.mediaById[c.mediaId]?.hasAudio && !c.link ? [['linkA', 'Separate audio (linked)']] : c.type === 'video' && c.link && S.mediaById[c.mediaId]?.hasAudio ? [['linkA', 'Bring back its sound (linked)']] : []),
-    ...(c.type === 'video' ? ['-', ['comp', 'Make Motion comp (animate it in Motion)'], ['fusion', 'Open in Fusion (node effects)'], ['labs', c.labsId ? 'Open in Labs' : 'Edit in Labs (templates, AI)']] : []),
+    ...(c.type === 'video' ? ['-', ['comp', 'Make Motion comp (animate it in Motion)'], ['fusion', 'Open in Nodes (node effects)'], ['labs', c.labsId ? 'Open in Labs' : 'Edit in Labs (templates, AI)']] : []),
+    ...(c.type === 'graphic' && !['comp', 'fusion'].includes(c.gfx?.tpl) ? ['-', ['preset', 'Edit in Presets (live preview)']] : []),
     ...(c.mediaId ? ['-', ['replace', 'Replace clip…']] : []),
     '-', ['more', 'More…'],
   ];
@@ -2158,6 +2187,7 @@ function onContext(e) {
     if (a === 'comp') makeCompFromClip(id, findClip); // (stays on the timeline: double-click the orange clip to open it)
     if (a === 'behind') textBehindFromClip(id, findClip);
     if (a === 'fusion') fusionFromClip(id, findClip); // (double-click the maroon clip to open it)
+    if (a === 'preset') emit('openPreset', c);
     if (a === 'labs') labsFromClip(id); // (a yellow copy over it on V3; double-click it to open it in Labs)
     if (a === 'roto') rotoFromClip(id, findClip);
     if (a === 'ramp') rampMenu(e);

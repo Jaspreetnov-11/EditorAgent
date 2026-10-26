@@ -3,7 +3,7 @@
 import { ic } from './lineicons.js';
 import { S, on, emit, commit, saveNow, duration } from './store.js';
 import { api, enc, watchJob } from './api.js';
-import { fmtTC, ASPECTS, rangeOf, seqHash } from './model.js';
+import { fmtTC, ASPECTS, shapeLabel, rangeOf, seqHash } from './model.js';
 import { PRESETS, presetById, presetWarnings, REFRAME } from './presets.js';
 import { CAPTION_STYLES } from './templates.js';
 import { seqList, seqOf } from './model.js';
@@ -20,22 +20,43 @@ import { localSaveAvailable, whyNoLocal, localDir, pickLocalDir, saveToLocal } f
 let root, busy = false;
 // the render queue lives on the server (it keeps rendering while you edit, even with this page closed)
 let rq = { items: [], gpu: false }, qTimer = null;
+// the platform cards on the left: an icon and the shape / size each platform gets
+const CARD_ICON = { reel: 'phone', 'insta-feed': 'image', shorts: 'phone', youtube: 'play', facebook: 'video', x: 'chat', linkedin: 'team', whatsapp: 'chat', broadcast: 'monitor', master: 'star', prores: 'film' };
+const cardSpec = (p) => `${p.aspects.length ? p.aspects.join(' / ') : 'Any shape'} · ${p.short >= 2160 ? '4K' : `${p.short}p`}${p.sizeMB ? ` · ≤${p.sizeMB} MB` : ''}`;
 
 export function mountDeliver(el) {
   root = el;
+  // three panels: platforms (left) · player + settings (middle) · render queue and finished files (right)
   el.innerHTML = `<div class="deliver">
-    <section class="dv-col">
-      <h2>Export</h2>
+    <section class="dv-col dv-left">
+      <h2>Platform</h2>
+      <select id="dvPreset" hidden>${PRESETS.map((p) => `<option value="${p.id}">${esc(p.label)}</option>`).join('')}</select>
+      <div class="dv-cards">${PRESETS.map((p) => `<button class="dv-card" data-pc="${p.id}" title="${esc(`${p.label} - ${cardSpec(p)}`)}">${ic(CARD_ICON[p.id] || 'video')}<span class="dv-card-t">${esc(p.label)}</span></button>`).join('')}</div>
+      <div class="fgrid dv-frame">
+        <label class="fld"><span>Frame</span><select id="dvAspect">${Object.keys(ASPECTS).map((a) => `<option>${a}</option>`).join('')}<option value="custom">Custom size…</option></select></label>
+        <div class="fld dv-custom" id="dvCustomF" hidden><span>Size (pixels)</span><div class="dv-wh"><input id="dvCW" type="number" min="16" max="8192" step="2" placeholder="Width" title="Width in pixels"><b>×</b><input id="dvCH" type="number" min="16" max="8192" step="2" placeholder="Height" title="Height in pixels"></div></div>
+        <label class="fld" id="dvFitF"><span>Reframe with</span><select id="dvFit">${REFRAME.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></label>
+      </div>
+      <button class="accent wide" id="dvBundle" title="One click: the same edit for several platforms (Reel, YouTube, WhatsApp…), rendered one after another">All platforms…</button>
+    </section>
+    <section class="dv-col dv-mid">
+      <div class="dv-play">
+        <div class="dv-phead"><div class="segbtns"><button data-dvv="program" title="The edit as it is now (the timeline)">Program</button><button data-dvv="render" title="A rendered file - pick one under Renders">Render</button></div><span class="muted small grow" id="dvNow">Program: the edit as it is now - render it to watch the final file here</span></div>
+        <div class="dv-pbody" id="dvProg"></div>
+        <video id="dvVideo" controls playsinline hidden></video>
+      </div>
+      <div class="dv-go"><div class="dv-spec" id="dvSpec"></div><button class="primary big" id="dvRender" title="Goes into the render queue - keep editing while it renders">Render video</button></div>
+      <ul class="warns" id="dvWarn" hidden></ul>
+      <div class="dv-tabs" role="tablist"><button data-dvt="set" role="tab">Settings</button><button data-dvt="xml" role="tab" id="dvXmlJump" title="Hand this edit to Premiere Pro / DaVinci Resolve - the timeline with its clips, cuts, titles">Premiere / Resolve</button><button data-dvt="tools" role="tab">Check &amp; publish</button></div>
+      <div class="dv-set">
+      <div class="dv-pane" data-dvp="set">
+      <div class="fgrid dv-g2">
       <label class="fld"><span>File name</span><input id="dvName"></label>
       <div class="fld" id="dvSaveF" data-saverow hidden><span>Save to</span><div class="dv-saveto"><input id="dvSaveTo" data-savepath readonly placeholder="This project's folder (renders / output)" title="Where the finished video and the exported timeline go. Empty = the project's own folder."><button class="small" data-savebrowse title="A folder on the editing computer or the network drive (Z:)">Browse</button><button class="small" data-savelocal title="A folder on the computer you are sitting at - finished renders and exported timelines you start are saved into it">This PC</button><button class="small" data-saveclear title="Back to the project's folder" hidden>✕</button></div></div>
       <label class="fld" id="dvSeqF"><span>Sequence</span><select id="dvSeq" title="Which timeline of this project to render"></select></label>
       <label class="fld" id="dvRangeF" hidden><span>Range</span><select id="dvRange" title="The timeline's In / Out (I / O on the timeline)"><option value="io"></option><option value="whole">Whole timeline</option></select></label>
-      <label class="fld"><span>Platform</span><select id="dvPreset">${PRESETS.map((p) => `<option value="${p.id}">${esc(p.label)}</option>`).join('')}</select></label>
-      <div class="fgrid dv-frame">
-        <label class="fld"><span>Frame</span><select id="dvAspect">${Object.keys(ASPECTS).map((a) => `<option>${a}</option>`).join('')}</select></label>
-        <label class="fld" id="dvFitF"><span>Reframe with</span><select id="dvFit">${REFRAME.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></label>
       </div>
-      <details class="dv-q" open><summary>Quality</summary><div class="fgrid">
+      <details class="dv-q" open><summary>Quality</summary><div class="fgrid dv-g3">
         <label class="fld"><span>Resolution</span><select id="qRes"><option value="">Platform default</option><option value="2160">4K UHD (2160p)</option><option value="1440">2K QHD (1440p)</option><option value="1080">Full HD (1080p)</option><option value="720">HD (720p)</option><option value="480">SD (480p)</option></select></label>
         <label class="fld"><span>Frame rate</span><select id="qFps"><option value="">Same as the edit</option><option>24</option><option>25</option><option>30</option><option>50</option><option>60</option></select></label>
         <label class="fld"><span>Codec</span><select id="qCodec"><option value="">Platform default</option><option value="h264">H.264 (plays everywhere)</option><option value="hevc">H.265 / HEVC (half the size)</option><option value="prores">ProRes 422 HQ (editing master)</option><option value="dnxhr">DNxHR HQ .mov (Avid / broadcast)</option><option value="gif">GIF (720 wide, no sound)</option><option value="png">PNG frames (a picture per frame, in a folder)</option><option value="wav">WAV - sound only (24-bit)</option><option value="mp3">MP3 - sound only (320k)</option></select></label>
@@ -45,33 +66,34 @@ export function mountDeliver(el) {
         <label class="chk" title="For client review copies: the sequence timecode at the bottom of the picture"><input type="checkbox" id="qBurnTC"> Burn in timecode</label>
         <label class="chk" title="The sequence's name at the top left of the picture"><input type="checkbox" id="qBurnName"> Burn in sequence name</label>
       </div></details>
-      <div class="dv-spec" id="dvSpec"></div>
-      <ul class="warns" id="dvWarn" hidden></ul>
-      <button class="primary big wide" id="dvRender" title="Goes into the render queue - keep editing while it renders">Render video</button>
-      <button class="wide" id="dvXmlJump" title="Hand this edit to Premiere Pro / DaVinci Resolve - the timeline with its clips, cuts, titles (below)">Export timeline (XML for Premiere / Resolve)…</button>
-      <button class="accent wide" id="dvBundle" title="One click: the same edit for several platforms (Reel, YouTube, WhatsApp…), rendered one after another">All platforms…</button>
       <div class="dv-gpu" id="dvGpu"></div>
-      <h2 class="dv-h">Render queue <button class="link small" id="dvQClear" title="Remove finished, failed and stopped renders from the list">Clear finished</button></h2>
-      <div id="dvQueue" class="dv-list"></div>
-      <button class="wide" id="dvPreview">Quick accurate preview (low-res)</button>
-      <button class="wide" id="dvQC" title="Before it goes out: black frames, stuck picture, flashing, broadcast-safe colours, loudness for the channel, spelling of the titles">QC check the edit</button>
-      <div class="row-in"><button class="wide" id="dvThumb" title="Make a thumbnail from the best frames of the video">Thumbnail</button><button class="wide accent" id="dvPublish" title="Upload to YouTube, Facebook and Instagram - now or at a set time">Publish</button></div>
+      </div>
+      <div class="dv-pane" data-dvp="tools" hidden>
+      <div class="dv-tools">
+      <button id="dvPreview">${ic('eye')} Quick accurate preview (low-res)</button>
+      <button id="dvQC" title="Before it goes out: black frames, stuck picture, flashing, broadcast-safe colours, loudness for the channel, spelling of the titles">${ic('check')} QC check the edit</button>
+      <button id="dvThumb" title="Make a thumbnail from the best frames of the video">${ic('image')} Thumbnail</button><button class="accent" id="dvPublish" title="Upload to YouTube, Facebook and Instagram - now or at a set time">${ic('upload')} Publish</button>
+      </div>
       <div class="job" id="dvJob" hidden><div class="job-top"><span id="dvJobL"></span><span id="dvJobT"></span></div><div class="bar"><div id="dvBar"></div></div>
         <details><summary>Log</summary><pre id="dvLog"></pre></details></div>
-      <h2 class="dv-h">Renders <button class="link small" id="dvOpenR">Open folder</button></h2>
-      <div id="dvList" class="dv-list"></div>
+      </div>
+      <div class="dv-pane" data-dvp="xml" hidden>
       <h2 id="dvXmlH">Export timeline · Premiere Pro / DaVinci Resolve</h2>
       <p class="muted dv-note">Hand this edit to an editor: clips, cuts, dissolves, speed, volume, titles and markers land on their timeline, linked to the original camera files.</p>
       <label class="fld"><span>Media (for another computer)</span><select id="dvXmlMedia"><option value="trim">Collect the used parts of the clips (+1 s handles) - smallest, best to send</option><option value="full">Collect whole files - every file the edit uses, copied</option><option value="none">Don't copy - link to the files on this computer</option></select></label>
       <label class="fld"><span>Colour</span><select id="dvXmlColor"><option value="lut">A LUT file per graded clip (quick)</option><option value="bake">Colour + film LUT + flash effects baked into new clips (exact, slower)</option><option value="none">Leave colour out</option></select></label>
       <div class="fld" data-saverow hidden><span>Save to</span><div class="dv-saveto"><input data-savepath readonly placeholder="This project's folder (exports)" title="Where the exported timeline folder goes"><button class="small" data-savebrowse title="A folder on the editing computer or the network drive (Z:)">Browse</button><button class="small" data-savelocal title="A folder on the computer you are sitting at - finished renders and exported timelines you start are saved into it">This PC</button><button class="small" data-saveclear title="Back to the project's folder" hidden>✕</button></div></div>
       <button class="accent wide" id="dvXml">Export timeline (XML)</button>
-      <div id="dvXmlList" class="dv-list"></div>
+      </div>
+      </div>
     </section>
-    <section class="dv-col dv-play">
-      <div class="dv-phead"><div class="segbtns"><button data-dvv="program" title="The edit as it is now (the timeline)">Program</button><button data-dvv="render" title="A rendered file - pick one under Renders">Render</button></div><span class="muted small grow" id="dvNow">Program: the edit as it is now - render it to watch the final file here</span></div>
-      <div class="dv-pbody" id="dvProg"></div>
-      <video id="dvVideo" controls playsinline hidden></video>
+    <section class="dv-col dv-right">
+      <h2 class="dv-h">Render queue <button class="link small" id="dvQClear" title="Remove finished, failed and stopped renders from the list">Clear finished</button></h2>
+      <div id="dvQueue" class="dv-list"></div>
+      <h2 class="dv-h">Renders <button class="link small" id="dvOpenR">Open folder</button></h2>
+      <div id="dvList" class="dv-list"></div>
+      <h2 class="dv-h">Exported timelines</h2>
+      <div id="dvXmlList" class="dv-list"></div>
     </section>
     <!-- subtitles: moved out of Deliver (captions live in Edit > CC); kept hidden so a burned-in file set earlier still renders -->
     <section class="dv-col" hidden>
@@ -91,8 +113,13 @@ export function mountDeliver(el) {
       <button id="subSave" class="wide">Save subtitles</button>
     </section></div>`;
   $('#dvPreset', el).onchange = applyPreset;
-  $('#dvAspect', el).onchange = syncSpec;
-  $('#dvSeq', el).onchange = () => { const x = seqList(S.project).find((q) => (q.open ? '' : q.id) === $('#dvSeq', root).value); if (x) $('#dvAspect', root).value = x.data.settings?.aspect || $('#dvAspect', root).value; syncSpec(); };
+  $('#dvAspect', el).onchange = () => {
+    // Custom size starts from the frame it had, so only the number you want changes
+    if ($('#dvAspect', root).value === 'custom' && !$('#dvCW', root).value) { const [w, h] = ASPECTS[S.project.settings.aspect] || ASPECTS['16:9']; $('#dvCW', root).value = w; $('#dvCH', root).value = h; }
+    syncSpec();
+  };
+  ['dvCW', 'dvCH'].forEach((k) => ($(`#${k}`, el).oninput = syncSpec));
+  $('#dvSeq', el).onchange = () => { const x = seqList(S.project).find((q) => (q.open ? '' : q.id) === $('#dvSeq', root).value); if (x) setFrame(x.data.settings?.aspect || frame()); syncSpec(); };
   ['qRes', 'qFps', 'qCodec', 'qCrf', 'qAbr', 'qGpu'].forEach((k) => ($(`#${k}`, el).onchange = syncSpec));
   $('#qGpu', el).addEventListener('change', (e) => { e.target.dataset.touched = '1'; });
   $('#dvFit', el).onchange = syncSpec;
@@ -120,7 +147,9 @@ export function mountDeliver(el) {
     try { const d = await pickLocalDir(); setSaveTo(''); setLocal(true); syncSaveTo(); toast(`Finished files you start go to "${d.name}" on this PC`); }
     catch (e) { if (e.name !== 'AbortError') toast(e.message, 'err'); }
   }));
-  $('#dvXmlJump', el).onclick = () => { $('#dvXmlH', el).scrollIntoView({ behavior: 'smooth', block: 'start' }); $('#dvXml', el).focus({ preventScroll: true }); $('#dvXml', el).classList.add('pulse'); setTimeout(() => $('#dvXml', el)?.classList.remove('pulse'), 1600); };
+  $$('[data-pc]', el).forEach((b) => (b.onclick = () => { $('#dvPreset', root).value = b.dataset.pc; applyPreset(); }));
+  $$('[data-dvt]', el).forEach((b) => (b.onclick = () => showTab(b.dataset.dvt)));
+  showTab((() => { try { return localStorage.getItem('ve-dv-tab'); } catch { return ''; } })() || 'set');
   $('#dvOpenR', el).onclick = () => openSub('renders');
   $('#trGo', el).onclick = transcribe;
   $('#subPick', el).onchange = (e) => loadSub(e.target.value);
@@ -166,6 +195,13 @@ function showView(v) {
   else returnViewer();
   dispatchEvent(new Event('resize'));
 }
+// the settings tabs under the player: Settings · Premiere / Resolve · Check & publish (the last one picked is remembered)
+function showTab(t) {
+  if (!$(`[data-dvp="${t}"]`, root)) t = 'set';
+  $$('[data-dvt]', root).forEach((b) => b.setAttribute('aria-selected', String(b.dataset.dvt === t)));
+  $$('[data-dvp]', root).forEach((p) => (p.hidden = p.dataset.dvp !== t));
+  try { localStorage.setItem('ve-dv-tab', t); } catch {}
+}
 // the Program monitor goes back to the Edit page
 export function hideDeliver() { $('#dvVideo', root)?.pause(); returnViewer(); }
 function returnViewer() {
@@ -176,7 +212,18 @@ function returnViewer() {
 // Frame: the edit's own shape when the platform takes it, otherwise the platform's preferred shape (reframed).
 function pickAspect() {
   const p = presetById($('#dvPreset', root).value), a = S.project.settings.aspect;
-  $('#dvAspect', root).value = !p.aspects.length || p.aspects.includes(a) ? a : p.aspects[0];
+  setFrame(!p.aspects.length || p.aspects.includes(a) ? a : p.aspects[0]);
+}
+// 📐 the Frame: a named shape (16:9, 9:16…) or Custom size - any width × height, sent as "2560x1080" like a custom sequence
+function setFrame(a) {
+  const named = Object.keys(ASPECTS).includes(a);
+  $('#dvAspect', root).value = named ? a : 'custom';
+  if (!named && a in ASPECTS) [$('#dvCW', root).value, $('#dvCH', root).value] = ASPECTS[a];
+}
+function frame() {
+  if ($('#dvAspect', root).value !== 'custom') return $('#dvAspect', root).value;
+  const w = +$('#dvCW', root).value, h = +$('#dvCH', root).value;
+  return w >= 16 && h >= 16 ? `${Math.round(w)}x${Math.round(h)}` : S.project.settings.aspect;
 }
 function applyPreset() {
   const p = presetById($('#dvPreset', root).value);
@@ -198,7 +245,12 @@ function syncRange() {
   if (r) $('#dvRange option[value="io"]', root).textContent = `In to Out: ${fmtTC(r.in, fps)} - ${fmtTC(r.out, fps)} (${(r.out - r.in).toFixed(1)}s)`;
 }
 const wholeTimeline = () => !$('#dvRangeF', root).hidden && $('#dvRange', root).value === 'whole';
-const current = () => ({ whole: wholeTimeline() || undefined, seq: $('#dvSeq', root).value || undefined, preset: $('#dvPreset', root).value, aspect: $('#dvAspect', root).value, fit: $('#dvFit', root).value, filename: $('#dvName', root).value.trim(), quality: quality() });
+const current = () => {
+  const aspect = frame(), q = quality();
+  // a custom size renders at exactly that size (not scaled to the platform's usual resolution)
+  if ($('#dvAspect', root).value === 'custom' && ASPECTS[aspect]) q.res = String(Math.min(...ASPECTS[aspect]));
+  return { whole: wholeTimeline() || undefined, seq: $('#dvSeq', root).value || undefined, preset: $('#dvPreset', root).value, aspect, fit: $('#dvFit', root).value, filename: $('#dvName', root).value.trim(), quality: q };
+};
 
 function specOf(job) {
   const p = presetById(job.preset), s = S.project.settings, q = job.quality || {};
@@ -211,11 +263,13 @@ function syncSpec() {
   if (!root || !S.project) return;
   const s = S.project.settings, d = duration(), job = current(), p = presetById(job.preset), sp = specOf(job);
   $('#dvFitF', root).style.visibility = sp.reframe ? 'visible' : 'hidden';
+  $('#dvCustomF', root).hidden = $('#dvAspect', root).value !== 'custom';
+  $$('[data-pc]', root).forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.pc === job.preset)));
   $('#qGpu', root).disabled = !S.health.nvenc;
   // GPU encoding is on by default when it works; unticking it (remembered while the page is open) renders on the CPU
   if (S.health.nvenc && !$('#qGpu', root).dataset.touched) $('#qGpu', root).checked = true;
   $('#qGpuL', root).title = S.health.nvenc ? '' : 'NVIDIA encoder not available - update the NVIDIA driver (610 or newer) to use it';
-  $('#dvSpec', root).innerHTML = `<div><b>${sp.w}×${sp.h}</b> (${job.aspect}${sp.reframe ? `, reframed from ${s.aspect}` : ''}) · ${sp.fps} fps · ${fmtTC(d, s.fps)}</div>
+  $('#dvSpec', root).innerHTML = `<div><b>${sp.w}×${sp.h}</b> (${esc(shapeLabel(job.aspect))}${sp.reframe ? `, reframed from ${esc(shapeLabel(s.aspect))}` : ''}) · ${sp.fps} fps · ${fmtTC(d, s.fps)}</div>
     <div>${sp.codec} · loudness ${p.loudness} LUFS</div>
     <div>${S.project.subtitles?.file ? `Subtitles burned in: ${esc(S.project.subtitles.file)}` : 'No burned-in subtitles'}</div>`;
   const w = presetWarnings(p, { aspect: job.aspect, duration: d });
@@ -252,7 +306,7 @@ export async function pollQueue() {
     if ((it.state !== 'done' && it.state !== 'failed') || seenDone.has(it.id)) continue;
     seenDone.add(it.id);
     if (firstPoll) continue; // already finished before this page opened
-    if (it.state === 'done') { toast(`Render complete: ${it.out}`); if (it.project === S.proj) newDone = true; if (mine.has(it.id)) { mine.delete(it.id); keepMine(); toThisPc(`${it.url}?download`, it.out); } }
+    if (it.state === 'done') { toast(it.skipped?.length ? `Render complete: ${it.out} - ⚠ left out: ${it.skipped.join('; ')}` : `Render complete: ${it.out}`, it.skipped?.length ? 'err' : ''); if (it.project === S.proj) newDone = true; if (mine.has(it.id)) { mine.delete(it.id); keepMine(); toThisPc(`${it.url}?download`, it.out); } }
     else toast(`Render failed: ${it.label} - ${it.error || 'see the queue'}`, 'err');
   }
   firstPoll = false;
@@ -317,7 +371,7 @@ function drawQueue() {
       <div class="muted small mono">${esc(j.out)}</div>
       ${j.copiedTo ? `<div class="small good">also saved to ${esc(j.copiedTo)}</div>` : j.copyError ? `<div class="warn small">Could not copy to your folder: ${esc(j.copyError)}</div>` : j.saveTo && j.state !== 'done' ? `<div class="muted small">→ ${esc(j.saveTo)}</div>` : ''}
       ${j.state === 'rendering' ? `<div class="bar"><div style="width:${Math.max(2, j.progress)}%"></div></div><div class="muted small">${j.progress}% · ${esc(j.stage || '')}</div>` : ''}
-      ${j.state === 'failed' && j.error ? `<div class="warn small">${esc(j.error)}</div>` : ''}</div>`;
+      ${j.state === 'failed' && j.error ? `<div class="warn small">${esc(j.error)}</div>` : ''}${j.skipped?.length ? `<div class="warn small">⚠ Left out (could not be made - the rest rendered): ${j.skipped.map(esc).join('<br>')}</div>` : ''}</div>`;
   }).join('') || '<div class="muted">Nothing in the queue. <b>Render video</b> adds the edit here; you can keep editing while it renders.</div>';
   $$('[data-qcancel]', el).forEach((b) => (b.onclick = async () => { await api('POST', `/api/queue/cancel?id=${b.dataset.qcancel}`); pollQueue(); }));
   $$('[data-qretry]', el).forEach((b) => (b.onclick = async () => { await api('POST', `/api/queue/retry?id=${b.dataset.qretry}`); pollQueue(); }));
@@ -438,7 +492,7 @@ async function loadExports() {
   if (!root || !S.proj) return;
   const list = await api('GET', `/api/exports?p=${enc(S.proj)}`).catch(() => []);
   $('#dvXmlList', root).innerHTML = list.slice(0, 6).map((x) => `<div class="dv-item"><span class="link">${esc(x.name)}</span>
-    <a class="link small" href="/api/export/zip?p=${enc(S.proj)}&name=${enc(x.name)}" download title="Download the whole folder as one .zip to this PC">Download (.zip)</a>${S.me?.role !== 'viewer' ? `<button class="link small" data-xopen="${esc(x.name)}">Open folder</button>` : ''}</div>`).join('');
+    <a class="link small" href="/api/export/zip?p=${enc(S.proj)}&name=${enc(x.name)}" download title="Download the whole folder as one .zip to this PC">Download (.zip)</a>${S.me?.role !== 'viewer' ? `<button class="link small" data-xopen="${esc(x.name)}">Open folder</button>` : ''}</div>`).join('') || '<div class="muted">None yet - Premiere / Resolve tab makes one</div>';
   $$('[data-xopen]', root).forEach((b) => (b.onclick = () => openSub(`exports/${b.dataset.xopen}`)));
 }
 

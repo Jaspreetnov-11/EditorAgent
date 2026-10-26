@@ -17,6 +17,9 @@ import { mountHomeStart } from './starthere.js';
 // 🏷 project tags: search box + tag chips above the grid (kept while Home is open); a tag just changed here is shown at
 // once (the list from the server catches up a moment later)
 let homeQ = '', homeTag = '';
+// 📁 Home opens on the folders only (homeRoot); a folder opened shows its projects. At the top, a search finds projects
+// in every folder.
+let homeRoot = true;
 const tagNow = new Map(); // project -> { tags, at }
 const tagsOf = (p) => { const x = tagNow.get(p.name); return x && Date.now() - x.at < 60000 ? x.tags : p.tags || []; };
 function filterCards(el) {
@@ -29,26 +32,30 @@ function filterCards(el) {
   });
   $$('[data-htag]', el).forEach((b) => b.classList.toggle('on', b.dataset.htag === homeTag));
   const none = $('.home-none', el); if (none) none.hidden = shown > 0 || (!q && !homeTag);
+  const grid = $('#projGrid', el); if (grid && homeRoot) grid.hidden = !q; // (the folders' page: projects only for a search)
 }
 
 export async function renderHome(el, openProject) {
   el.innerHTML = `<div class="home">
     <div class="home-brand" aria-label="limelight - Elevate &amp; Illuminate"><img class="hb-logo" src="/img/limelight-logo-white.png" alt="limelight - Elevate &amp; Illuminate"></div>
     <div class="home-head">
-      <div><h1>Projects</h1><span id="projRoot" hidden></span></div>
-      <div class="home-actions"><button class="small" data-a="team" hidden title="Admin: people who can sign in from other computers - names, passwords, roles (Owner / Editor / Viewer), shared folders, render farm">Team &amp; users</button><button class="small" data-a="sessions" hidden title="Who worked in the editor, when and for how long - the last 30 days">Sessions</button><button class="link small" data-a="deleted" hidden>Recycle Bin</button><button class="small home-refresh" data-a="refresh" title="Refresh: load the editor again (newest version) - always here">Refresh</button><button class="primary big" data-a="new">+ New project</button></div>
+      <div><h1 id="homeCrumb">Projects</h1><span id="projRoot" hidden></span></div>
+      <div class="home-actions"><button class="small" data-a="team" hidden title="Admin: people who can sign in from other computers - names, passwords, roles (Owner / Editor / Viewer), shared folders, render farm">Team &amp; users</button><button class="small" data-a="dash" hidden title="Dashboard: every PC of the editor right now - CPU, RAM, GPU, video memory, heat, power, storage">Dashboard</button><button class="small" data-a="sessions" hidden title="Who worked in the editor, when and for how long - the last 30 days">Sessions</button><button class="link small" data-a="deleted" hidden>Recycle Bin</button><button class="small home-refresh" data-a="refresh" title="Refresh: load the editor again (newest version) - always here">Refresh</button><button class="primary big" data-a="new">+ New project</button></div>
     </div>
     <div class="pf-bar" id="pfBar"></div>
     <div class="home-find"><input type="search" id="homeQ" placeholder="Search projects or #tag" aria-label="Search projects"><div class="chips" id="homeTags"></div></div>
     <div class="proj-grid" id="projGrid"><div class="muted">Loading…</div></div>
   </div>`;
+  let newOpen = openProject; // (inside a folder: the new project goes in it - set once the folders are loaded)
   el.onclick = async (e) => {
     if (e.target.closest('[data-a="refresh"]')) return location.reload(); // (🔄 always on Home - also when the projects could not load)
+    if (e.target.closest('[data-a="up"]')) { try { localStorage.setItem('ve-home-at', 'root'); } catch {} return renderHome(el, openProject); } // (📁 back to the folders)
     if (e.target.closest('[data-a="signin"]')) { location.href = '/team/logout'; return; } // (back to the sign-in page)
-    if (e.target.closest('[data-a="new"]')) return newProjectDialog(openProject);
+    if (e.target.closest('[data-a="new"]')) return newProjectDialog(newOpen);
     if (e.target.closest('[data-a="deleted"]')) return deletedDialog(() => renderHome(el, openProject));
     if (e.target.closest('[data-a="team"]')) return openTeam(); // 👥 admin: users, passwords, roles
     if (e.target.closest('[data-a="sessions"]')) return openSessions(); // 📊 who worked how long
+    if (e.target.closest('[data-a="dash"]')) return import('./safety.js').then((x) => x.openSafety('perf')); // 📊 the owner's dashboard
     const ht = e.target.closest('[data-htag]');
     if (ht) { homeTag = homeTag === ht.dataset.htag ? '' : ht.dataset.htag; return filterCards(el); }
     const pt = e.target.closest('[data-ptag]');
@@ -68,23 +75,31 @@ export async function renderHome(el, openProject) {
   try {
     const [list0, health, me, pf0] = await Promise.all([api('GET', '/api/projects'), api('GET', '/api/health'), api('GET', '/api/me').catch(() => ({})), api('GET', '/api/project-folders').catch(() => null)]);
     pf = pf0 || { folders: [], map: {}, old: true };
-    // 📁 the folder chosen above the grid (remembered in this browser)
-    let cur = 'all'; try { cur = localStorage.getItem('ve-home-folder') || 'all'; } catch {}
-    if (cur !== 'all' && cur !== 'none' && !pf.folders.some((f) => f.id === cur)) cur = 'all';
-    const inF = (p) => pf.map[p.name] || null, list = list0.filter((p) => cur === 'all' || (cur === 'none' ? !inF(p) : inF(p) === cur));
+    // 📁 the folder open (remembered in this browser): 'root' = the folders only, 'all' / 'none' / a folder's id = its projects
+    let cur = 'root'; try { cur = localStorage.getItem('ve-home-at') || 'root'; } catch {}
+    if (!['root', 'all', 'none'].includes(cur) && !pf.folders.some((f) => f.id === cur)) cur = 'root';
+    homeRoot = cur === 'root';
+    const inF = (p) => pf.map[p.name] || null, list = list0.filter((p) => homeRoot || cur === 'all' || (cur === 'none' ? !inF(p) : inF(p) === cur));
     renderBar(el, list0, cur, () => renderHome(el, openProject));
+    // inside a folder: "Projects › Soman" (Projects goes back to the folders); a new project made here goes in this folder
+    const fname = cur === 'all' ? 'All projects' : cur === 'none' ? 'Not in a folder' : pf.folders.find((f) => f.id === cur)?.name || '';
+    $('#homeCrumb', el).innerHTML = homeRoot ? 'Projects' : `<button class="home-up" data-a="up" title="Back to all folders">Projects</button><span class="home-sep">›</span><span class="home-here">${esc(fname)}</span>`;
+    $('#homeTags', el).hidden = homeRoot;
+    const openHere = homeRoot || cur === 'all' || cur === 'none' || pf.old ? openProject
+      : async (name) => { try { pf = await api('POST', '/api/project-folders', { folders: pf.folders, map: { ...pf.map, [name]: cur } }); } catch {} openProject(name); };
+    newOpen = openHere;
     // deleting / bringing back projects: the owner, on this computer
     const owner = me.role === 'owner';
     // 🔐 whose a project is: the owner may share any, a team member the ones they made
     const meName = String(me.local ? '' : me.name || '').toLowerCase(), mine = (p) => owner || me.local || String(p.by || '').toLowerCase() === meName;
-    for (const a of ['team', 'sessions']) { const tb = $(`[data-a="${a}"]`, el); if (tb) tb.hidden = !owner; } // (the team's admin: owners only)
+    for (const a of ['team', 'sessions', 'dash']) { const tb = $(`[data-a="${a}"]`, el); if (tb) tb.hidden = !owner; } // (the team's admin: owners only)
     S.health = health;
     $('#projRoot', el).textContent = health.projectsFolder;
     const grid = $('#projGrid', el);
-    grid.innerHTML = `<button class="proj new" data-a="new"><span>+</span><b>New project</b><small>Save it in any folder - Z:, D: or a shared PC</small></button>` +
+    grid.innerHTML = (homeRoot ? '' : `<button class="proj new" data-a="new"><span>+</span><b>New project</b><small>Save it in any folder - Z:, D: or a shared PC</small></button>`) +
       list.map((p) => `<div class="proj" data-open="${esc(p.name)}" data-tags="${esc(JSON.stringify(tagsOf(p)))}" draggable="true" tabindex="0" role="button" aria-label="Open ${esc(p.name)}">
         <div class="proj-th" style="${p.thumb ? `background-image:url('${p.thumb}')` : ''}"><span class="badge">${esc(p.aspect || '')}</span></div>
-        <div class="proj-info"><b>${esc(p.name)}</b>${tagsOf(p).length ? `<span class="proj-tags">${tagChips(tagsOf(p))}</span>` : ''}${inF(p) && cur === 'all' ? `<small class="pf-tag">${esc(pf.folders.find((f) => f.id === inF(p))?.name || '')}</small>` : ''}<small>${p.duration ? `${fmt(p.duration)} · ` : ''}${p.clips} clips · ${p.media} media</small>${p.place ? `<small class="mono" title="Saved in ${esc(p.place)}">${esc(p.place)}</small>` : ''}
+        <div class="proj-info"><b>${esc(p.name)}</b>${tagsOf(p).length ? `<span class="proj-tags">${tagChips(tagsOf(p))}</span>` : ''}${inF(p) && (cur === 'all' || homeRoot) ? `<small class="pf-tag">${esc(pf.folders.find((f) => f.id === inF(p))?.name || '')}</small>` : ''}<small>${p.duration ? `${fmt(p.duration)} · ` : ''}${p.clips} clips · ${p.media} media</small>${p.place ? `<small class="mono" title="Saved in ${esc(p.place)}">${esc(p.place)}</small>` : ''}
         <small>${new Date(p.modified).toLocaleString()}</small>${p.by && !mine(p) ? `<small class="proj-by">${ic('team')} shared by ${esc(p.by)}</small>` : (owner || me.local) && p.by ? `<small class="proj-by">${ic('team')} ${esc(p.by)}${p.shared?.length ? ` · shared with ${esc(p.shared.join(', '))}` : ''}</small>` : p.shared?.length ? `<small class="proj-by">${ic('team')} shared with ${esc(p.shared.join(', '))}</small>` : ''}</div>
         <div class="proj-btns">${mine(p) ? `<button class="icon-btn" data-share="${esc(p.name)}" title="Share with team members (they see it and can edit it with you)" aria-label="Share ${esc(p.name)}">${ic('team')}</button>` : ''}<button class="icon-btn" data-ptag="${esc(p.name)}" title="Tags (labels to find it by - client, kind of work, status…)" aria-label="Tags of ${esc(p.name)}">${ic('tag')}</button>${me.role !== 'viewer' ? `<button class="icon-btn" data-ren="${esc(p.name)}" title="Rename project" aria-label="Rename ${esc(p.name)}">${ic('edit')}</button>` : ''}<button class="icon-btn" data-move="${esc(p.name)}" title="Move to a folder (or drag the card onto a folder above)" aria-label="Move ${esc(p.name)} to a folder">${icon('folderMove')}</button><button class="icon-btn" data-folder="${esc(p.name)}" title="Open project folder" aria-label="Open folder of ${esc(p.name)}">${icon('folder')}</button>${owner ? `<button class="icon-btn proj-del" data-del="${esc(p.name)}" title="Delete project (to the Recycle Bin, or for good)" aria-label="Delete ${esc(p.name)}">${icon('trash')}</button>` : ''}</div></div>`).join('');
     mountHomeStart(el, list0.length, () => newProjectDialog(openProject)); // 🚩 first-edit steps for someone new
@@ -103,7 +118,7 @@ export async function renderHome(el, openProject) {
     const qi = $('#homeQ', el); qi.value = homeQ;
     qi.oninput = () => { homeQ = qi.value; filterCards(el); };
     filterCards(el);
-    if (cur !== 'all' && !list.length) grid.insertAdjacentHTML('beforeend', '<div class="muted pf-empty">No projects in this folder yet - drag a project card onto the folder above, or use on a card.</div>');
+    if (!homeRoot && cur !== 'all' && !list.length) grid.insertAdjacentHTML('beforeend', '<div class="muted pf-empty">No projects in this folder yet - on the Projects page, drag a project onto this folder, or use the move button on its card.</div>');
   } catch (e) {
     // signed out (the session ended): straight to the sign-in page from here, instead of a dead end
     const out = /sign in/i.test(e.message);
@@ -128,12 +143,15 @@ async function savePF(next, refresh) {
 }
 const newId = () => `f${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
 function renderBar(el, list, cur, refresh) {
-  const bar = $('#pfBar', el), count = (id) => list.filter((p) => (id === 'none' ? !pf.map[p.name] : pf.map[p.name] === id)).length;
+  const bar = $('#pfBar', el);
+  if (cur !== 'root') { bar.innerHTML = ''; bar.hidden = true; return; } // (inside a folder: its projects only - Projects › goes back)
+  const count = (id) => list.filter((p) => (id === 'none' ? !pf.map[p.name] : pf.map[p.name] === id)).length;
   // big folder tiles (a folder picture, its name, how many projects); drop a project card on one to move it there
   const chip = (id, label, n, kind = 'folder', extra = '') => `<button class="pf-chip pf-${kind}${cur === id ? ' on' : ''}" data-pf="${id}"${id !== 'all' ? ' data-drop' : ''} title="${label}">${FOLDER_SVG}<b>${label}</b><i>${n} project${n === 1 ? '' : 's'}</i>${extra}</button>`;
+  bar.hidden = false;
   bar.innerHTML = chip('all', 'All projects', list.length, 'all') + pf.folders.map((f) => chip(f.id, esc(f.name), count(f.id), 'folder', `<span class="pf-x" data-pfedit="${f.id}" title="Rename / delete">${ic('more')}</span>`)).join('')
     + (pf.folders.length ? chip('none', 'Not in a folder', count('none'), 'none') : '') + '<button class="pf-chip add" data-pfnew><span class="pf-plus">+</span><b>New folder</b></button>';
-  const pick = (id) => { try { localStorage.setItem('ve-home-folder', id); } catch {} refresh(); };
+  const pick = (id) => { try { localStorage.setItem('ve-home-at', id); } catch {} refresh(); };
   bar.onclick = (e) => {
     const ed = e.target.closest('[data-pfedit]');
     if (ed) { e.stopPropagation(); return folderMenu(ed, ed.dataset.pfedit, refresh); }
@@ -177,7 +195,7 @@ function folderMenu(anchor, id, refresh) {
     if (k === 'rename') { const name = prompt('Folder name', f.name)?.trim(); if (name) savePF({ folders: pf.folders.map((x) => (x.id === id ? { ...x, name } : x)), map: pf.map }, refresh); }
     if (k === 'delete' && confirm(`Delete the folder "${f.name}"? Its projects are not deleted - they go back to All projects.`)) {
       const map = Object.fromEntries(Object.entries(pf.map).filter(([, v]) => v !== id));
-      try { localStorage.setItem('ve-home-folder', 'all'); } catch {}
+      try { localStorage.setItem('ve-home-at', 'root'); } catch {}
       savePF({ folders: pf.folders.filter((x) => x.id !== id), map }, refresh);
     }
   });

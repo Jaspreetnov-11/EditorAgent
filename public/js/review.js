@@ -81,6 +81,7 @@ export function watchPhoneNotes() {
   clearTimeout(phoneTimer);
   const tick = async () => {
     if (!S.proj) return;
+    if (document.hidden) { phoneTimer = setTimeout(tick, 10000); return; } // (a tab in the background / a sleeping editor tab: when it is shown)
     try {
       const got = await api('GET', `/api/review/notes?p=${enc(S.proj)}&take=1`);
       if (got.length) {
@@ -184,7 +185,23 @@ const notePlain = (s) => String(s ?? '').replace(DEC_RE, '').replace(DRAW_RE, ''
 const noteHTML = (s) => { const t = String(s ?? ''); return `${esc(notePlain(t))}${DRAW_RE.test(t) ? ' (drawing)' : ''}`; };
 const STW = { waiting: 'Waiting', changes: 'Changes requested', approved: 'Approved' };
 let crvLinks = [], crvDoor = true, newsTimer = null, newsSince = Date.now();
-const crvGet = () => api('GET', `/api/clientreview?proj=${enc(S.proj)}`).then((r) => { crvLinks = r.links; crvDoor = r.door; return r; });
+const crvGet = () => api('GET', `/api/clientreview?proj=${enc(S.proj)}`).then((r) => { crvLinks = r.links; crvDoor = r.door; reviewBadge(); return r; });
+// 💬 the menu bar's Review button: how many client comments came since this project's reviews were last opened here
+const seenKey = () => `ve-crv-seen:${S.proj}`;
+function reviewBadge() {
+  const b = document.getElementById('reviewBadge'); if (!b) return;
+  let seen = 0; try { seen = +localStorage.getItem(seenKey()) || 0; } catch {}
+  const n = crvLinks.reduce((k, l) => k + l.comments.filter((c) => !c.team && c.at > seen).length, 0);
+  b.hidden = !n; b.textContent = n > 99 ? '99+' : String(n);
+}
+// Review (menu bar): the project's review links and what the clients said - or straight to sending one when there is none
+export async function openReviewHub() {
+  if (!S.proj) return;
+  try { await crvGet(); } catch (e) { return toast(e.message, 'err'); }
+  try { localStorage.setItem(seenKey(), String(Date.now())); } catch {}
+  reviewBadge();
+  return crvLinks.length ? openReviews() : openSendReview();
+}
 const copyLink = (url) => navigator.clipboard.writeText(url).then(() => toast('Review link copied - send it to the client'), () => prompt('Copy this link', url));
 const verChips = (l) => l.versions.map((v) => `<span class="crv-v ${v.status}" title="Version ${v.n}: ${STW[v.status]}${v.decidedBy ? ` by ${esc(v.decidedBy)}` : ''}">V${v.n}</span>`).join('');
 async function drawReviews() {
@@ -201,6 +218,7 @@ async function drawReviews() {
 function watchClientNews() {
   if (newsTimer) return;
   const tick = async () => {
+    if (document.hidden) { newsTimer = setTimeout(tick, 15000); return; }
     try {
       const got = await api('GET', `/api/clientreview/news?since=${newsSince}`);
       if (got.length) {
@@ -247,7 +265,9 @@ export async function openSendReview(render) {
 }
 
 export async function openReviews() {
-  const dlg = modal('Client reviews', '<div data-crl><div class="muted pad">Loading…</div></div>', { width: 720 });
+  const dlg = modal('Client reviews', `<div class="nt-row crv-top"><span class="grow muted small">Each link shows the client one video - they comment at moments and approve. Click a time to jump there on the timeline.</span>
+    <button class="primary small" data-crsend>Send a render for review…</button></div><div data-crl><div class="muted pad">Loading…</div></div>`, { width: 720 });
+  $('[data-crsend]', dlg.el).onclick = () => { dlg.el.close?.(); openSendReview(); };
   const fps = S.project?.settings.fps || 30;
   const draw = async () => {
     await crvGet();

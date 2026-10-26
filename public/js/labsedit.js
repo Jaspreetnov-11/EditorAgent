@@ -47,7 +47,7 @@ export function labsFromClip(clipId) {
   commit(`Edit in Labs: ${m.name}`);
   toast(`"${name}" made on ${tr} over the clip (yellow) - edit it on the Labs page, double-click it to open it again`);
   openId = id; T = 0; selKey = null;
-  emit('gotoPage', 'ai');
+  emit('gotoPage', 'ai'); emit('labsWork'); // (the Labs timeline window opens on it)
   return id;
 }
 export function openLabsClip(c) {
@@ -55,7 +55,7 @@ export function openLabsClip(c) {
   // a Labs clip copied from another project: its edit comes from the clip itself
   if (!labs()[c.labsId]) { labs()[c.labsId] = { id: c.labsId, name: S.mediaById[c.mediaId]?.name || 'Labs', dur: clipDur(c, S.mediaById), clip: JSON.parse(JSON.stringify(c)) }; commit('Bring back Labs edit'); }
   openId = c.labsId; T = 0; selKey = null;
-  emit('gotoPage', 'ai');
+  emit('gotoPage', 'ai'); emit('labsWork'); // (the Labs timeline window opens on it)
 }
 
 // every change to the draft goes through here: saved (undo-able), the timeline follows when live, the page redraws

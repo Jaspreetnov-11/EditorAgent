@@ -7,6 +7,7 @@ import { mountSourceMonitor } from './sourcemon.js';
 import { copyClips, pasteClips, syncClipboard } from './clipboard.js';
 import { S, on, emit, commit, undo, redo, canUndo, canRedo, resetHistory, saveNow, setMedia, RECOVER_KEY, CLIENT, connectLive, disconnectLive, sendPresence, restoreMySeq, findClip } from './store.js';
 import { openTeam } from './team.js';
+import { mountChatDock } from './chatdock.js';
 import { api, enc } from './api.js';
 import { $, $$, h, esc, toast } from './ui.js';
 import { renderHome, openXmlFile } from './home.js';
@@ -37,11 +38,12 @@ import { openSequences, seqName, openSequence, nestSelected } from './sequences.
 import { keyOf, commandFor, keyState, stepMany } from './keys.js';
 import { openShortcuts } from './keysui.js';
 import { linkedIds, uid, setTransition, arrangeLayers } from './model.js';
-import { mountNotesPanel, addNote, watchPhoneNotes, openVersions, refreshNotes } from './review.js';
+import { mountNotesPanel, addNote, watchPhoneNotes, openVersions, refreshNotes, openReviewHub } from './review.js';
 import { loadFootage } from './smart.js';
 import { mountText, showText, hideText } from './textedit.js';
 import { mountMotion, showMotion, hideMotion, openCompClip } from './motionpage.js';
 import { mountFusion, showFusion, hideFusion, openFusionClip } from './fusionpage.js';
+import { mountPresets, showPresets, hidePresets, openPresetClip } from './presetspage.js';
 import { mountMenuBar, openLogo, openBackups } from './menubar.js';
 import { openTemplates } from './titlesui.js';
 import { openCustomTemplates } from './customtpl.js';
@@ -49,6 +51,9 @@ import { openAudioGain } from './audiogain.js';
 import { nudgeSelected, moveSelectedTrack, groupSelected, ungroupSelected, replaceEdit, typeTimecode, closeAllGaps, goGap, addClipMarker, exportFrame } from './editing.js';
 import { toggleTrimMode } from './trimmode.js';
 import './presence.js'; // 📊 session time (Team & users > Sessions)
+import { mountPhone, phoneOpened } from './phone.js'; // 📱 phone / tablet layouts (a touch screen only)
+import { tabClaim } from './tabclient.js'; // 🗂 this editor as one of the window's project tabs (tabs.js)
+import './touch.js'; // 👆 touch: drag on the timeline, pinch, long-press
 
 applyLook(); // 🖥 Studio (Premiere-style) look unless this browser chose Classic (⚙ in the header)
 window.addEventListener('focus', () => { if (S.proj) syncClipboard(); });
@@ -59,10 +64,18 @@ const app = $('#app');
 app.innerHTML = '<div id="home"></div><div id="editor" hidden></div>';
 const homeEl = $('#home'), editorEl = $('#editor');
 // (Labs took Audio's place in the page bar - the Audio page opens from Window > Audio)
-const PAGES = [['media', 'Media'], ['edit', 'Edit'], ['motion', 'Motion'], ['fusion', 'Fusion'], ['color', 'Color'], ['ai', 'Labs'], ['deliver', 'Deliver']];
+const PAGES = [['media', 'Media'], ['edit', 'Edit'], ['motion', 'Motion'], ['fusion', 'Nodes'], ['color', 'Color'], ['ai', 'Labs'], ['presets', 'Presets'], ['deliver', 'Deliver']];
 
 // 🧰 Tools tab (before Media): what used to crowd the top bar, as big labelled tiles in a few groups. Every tile keeps
 // its data-a, so the click handler below, the menus (runMenu 'a:') and whoAmI (Team / Mazbooti) find it as before.
+// 💬 the office chat: an editor in a tab asks the tab strip to open its panel; without tabs (a phone, ?notabs=1) this
+// page has its own round button and panel
+const chatDock = window.top === window ? mountChatDock() : null;
+const openChat = () => (chatDock ? chatDock.show(true) : window.top.postMessage({ chat: 'open' }, location.origin));
+if (chatDock) { // (the chat is the open project's: #/p/<project>; none on the project list)
+  const fromHash = () => { const m = /^#\/p\/([^/?]+)/.exec(location.hash); let p = null; try { p = m ? decodeURIComponent(m[1]) : null; } catch {} chatDock.setProject(p); };
+  addEventListener('hashchange', fromHash); fromHash();
+}
 const TOOLS = [
   ['AI se edit', [['agent', 'agent', 'Agent', 'Whole edit from footage, VO, music', 'Let the agent make the whole edit from your footage, voice-over and music', 'accent'],
     ['reedit', 'reedit', 'Re-edit', 'New VO, music, pace or format', 'Change the voice-over, music, pace or format and let the agent rebuild this edit'],
@@ -77,8 +90,10 @@ const TOOLS = [
     ['mediamgr', 'media', 'Media manager', 'Relink, pack, clean up', 'Media manager: relink offline files, pack the project, clean up disk'],
     ['activity', 'activity', 'Activity', 'Who changed what', 'Activity: who changed what on this project - take back one person\'s one change'],
     ['zones', 'zones', 'Zones', 'Who owns which part', 'Zones: who owns which part of the timeline - warns before you change someone else\'s part'],
+    ['chat', 'team', 'Project chat', 'Talk about this project', 'Project chat: everyone who can open this project - messages, photos and files'],
     ['team', 'team', 'Team', 'Logins, roles, folders', 'Team: other computers in the office edit too (logins, roles, shared folders)', '', true],
-    ['safety', 'health', 'Mazbooti', 'Health, backup, standby PC', 'Mazbooti: health, nightly backup, standby PC', 'sf-btn', true]]],
+    ['safety', 'health', 'Mazbooti', 'Health, backup, standby PC', 'Mazbooti: health, nightly backup, standby PC', 'sf-btn', true],
+    ['dash', 'activity', 'Dashboard', 'CPU, GPU, RAM, storage of every PC', 'Dashboard: every PC of the editor right now - CPU, RAM, GPU, video memory, heat, power, storage', '', true]]],
   ['Layout', [['workspace', 'zones', 'Workspace', '', 'Workspaces: Premiere Pro, DaVinci Resolve, Limelight or your own - resize, swap and save panel layouts', 'ws-btn'],
     ['shortcuts', 'keyboard', 'Shortcuts', 'See and set every key', 'Keyboard shortcuts: see every key and set your own (Ctrl+Alt+K)']]],
 ];
@@ -116,6 +131,7 @@ function shell() {
     <section class="page" data-page="color" id="colorPage" hidden></section>
     <section class="page" data-page="audio" id="audioPage" hidden></section>
     <section class="page" data-page="ai" id="aiPage" hidden></section>
+    <section class="page" data-page="presets" id="presetsPage" hidden></section>
     <section class="page" data-page="deliver" id="deliverPage" hidden></section>
   </main>
   <nav class="pagebar" aria-label="Pages">${PAGES.map(([k, l]) => `<button data-page-btn="${k}">${l}</button>`).join('')}
@@ -124,7 +140,7 @@ function shell() {
   // the top bar is gone: its buttons went to the 🧰 Tools tab, and the project's name, sequence, save state, jobs, who is
   // signed in, Reload and ⇪ Export sit in the menu bar's one line (same ids, so the code filling them is unchanged)
   editorEl.querySelector('.menubar').insertAdjacentHTML('beforeend', `<span class="mb-proj"><span class="pname" id="pName"></span><button class="seqbtn" data-a="seq" title="Sequences: several timelines in this project (film, teaser, reel…), nesting, versions"><span id="seqName"></span> ▾</button><span class="save" id="saveState"></span></span>
-    <span class="mb-sp"></span><span class="jobchip" id="jobChip" hidden></span><button class="jobchip qchip" id="queueChip" data-a="deliver" title="Render queue - open Export" hidden></button><span class="people" id="peopleChip" hidden></span><span class="me" id="meChip" hidden></span><button class="mb-reload" data-a="refresh" title="Reload: save, then load the editor again (newest version, panels fresh)">${icon('refresh')}Reload</button><button class="primary mb-export" data-a="deliver" title="Export: render the video, XML for Premiere / Resolve, publish">${icon('export')}Export</button>`);
+    <span class="mb-sp"></span><span class="jobchip" id="jobChip" hidden></span><button class="jobchip qchip" id="queueChip" data-a="deliver" title="Render queue - open Export" hidden></button><span class="people" id="peopleChip" hidden></span><span class="me" id="meChip" hidden></span><button class="mb-reload" data-a="refresh" title="Reload: save, then load the editor again (newest version, panels fresh)">${icon('refresh')}Reload</button><button class="mb-reload mb-review" data-a="review" title="Review: send a finished render to the client as a link (no sign-in, phone or computer) - they comment at moments of the video and approve; their comments come back here">${icon('review')}Review<span class="mb-badge" id="reviewBadge" hidden></span></button><button class="primary mb-export" data-a="deliver" title="Export: render the video, XML for Premiere / Resolve, publish">${icon('export')}Export</button>`);
   mountWorkspaces(editorEl.querySelector('.edit-grid')); // 🪟 workspaces: Premiere / Resolve / Limelight / your own layouts
   mountSourceMonitor($('#srcMon')); mountDock(editorEl.querySelector('.edit-grid')); mountMonDock(editorEl.querySelector('.edit-grid')); // 🎬 Premiere's two monitors (Studio look)
   editorEl.addEventListener('click', (e) => {
@@ -140,6 +156,7 @@ function shell() {
     if (a === 'assistant') toggleAssistant();
     if (a === 'brand') openBrandKit(setBusy);
     if (a === 'deliver') showPage('deliver');
+    if (a === 'review') openReviewHub(); // 💬 client review links: send a render, read and answer the comments
     if (a === 'seq') openSequences();
     if (a === 'versions') openVersions();
     if (a === 'refresh') { toast('Saving and refreshing…'); saveNow(true).catch(() => {}).finally(() => location.reload()); } // (🔄 nothing unsaved is lost)
@@ -147,8 +164,10 @@ function shell() {
     if (a === 'activity') openActivity();
     if (a === 'zones') openZones();
     if (a === 'mediamgr') openMediaMgr();
-    if (a === 'safety') import('./safety.js').then((x) => x.openSafety());
+    if (a === 'safety') import('./safety.js').then((x) => x.openSafety('health'));
+    if (a === 'dash') import('./safety.js').then((x) => x.openSafety('perf')); // 📊 the owner's dashboard
     if (a === 'team') openTeam();
+    if (a === 'chat') openChat();
     if (a === 'starthere') openStartHere();
     if (a === 'promptguide') openPromptGuide();
     const p = e.target.closest('[data-page-btn]')?.dataset.pageBtn;
@@ -173,8 +192,10 @@ function shell() {
   safely('Color page', () => mountColor($('#colorPage')));
   safely('Audio page', () => mountAudio($('#audioPage')));
   safely('AI page', () => mountAI($('#aiPage')));
+  safely('Presets page', () => mountPresets($('#presetsPage'))); // 🅿 motion templates, edited live
   safely('Assistant', () => mountAssistant(setBusy));
   safely('Automation', () => mountProjectStart(setBusy)); // 🚩 the first-edit steps while the sequence is empty
+  safely('Phone', () => mountPhone(editorEl, { showPage, selectTab })); // 📱 (shown only on a phone)
 }
 
 // a menu item (menubar.js): a keyboard command, a top-bar button, a page, or one of these
@@ -218,7 +239,9 @@ async function whoAmI() {
   $('[data-a="team"]').hidden = !(S.me.local && S.me.role === 'owner');
   // 🩺 Mazbooti: the owner on the editing computer (a dot when something needs a look)
   const sf = $('[data-a="safety"]');
-  if (sf && S.me.local && S.me.role === 'owner' && sf.hidden) { sf.hidden = false; import('./safety.js').then((x) => x.watchSafety(sf)); }
+  // (also the owner signed in from another PC - the server now runs on its own PC, the owner works elsewhere)
+  { const db = $('[data-a="dash"]'); if (db) db.hidden = S.me.role !== 'owner'; } // 📊
+  if (sf && S.me.role === 'owner' && sf.hidden) { sf.hidden = false; import('./safety.js').then((x) => x.watchSafety(sf)); }
   // 🖥 this is a standby PC's editor (the main one is down): say so, once per page
   if (S.me.standby && !$('#sbBanner')) $('.menubar').after(h(`<div id="sbBanner" class="ro-banner sb" role="status">Standby editor on ${esc(S.me.standby)} - the main editor is down. Work as usual: everything saved here goes back to it when it is up again.</div>`));
 }
@@ -299,6 +322,9 @@ function openComp(c) { openCompClip(c); showPage('motion'); }
 on('openComp', openComp);
 function openFusion(c) { openFusionClip(c); showPage('fusion'); }
 on('openFusion', openFusion);
+// 🅿 a graphic into the Presets page (P on the timeline / right-click); nothing graphic selected = just the page
+function openPreset(c) { if (c) openPresetClip(c); showPage('presets'); }
+on('openPreset', openPreset);
 on('openClip', (id) => {
   S.sel = new Set([id]); emit('select');
   const f = findClip(id), c = f?.clip, m = c?.mediaId && S.mediaById[c.mediaId];
@@ -338,6 +364,7 @@ export function showPage(p) {
   safely('Color page', () => (p === 'color' ? showColor() : hideColor()));
   safely('Audio page', () => (p === 'audio' ? showAudio() : hideAudio()));
   safely('AI page', () => (p === 'ai' ? showAI() : hideAI()));
+  safely('Presets page', () => (p === 'presets' ? showPresets() : hidePresets()));
   safely('Text page', () => (p === 'text' ? showText() : hideText()));
   safely('Motion page', () => (p === 'motion' ? showMotion() : hideMotion()));
   safely('Fusion page', () => (p === 'fusion' ? showFusion() : hideFusion()));
@@ -352,6 +379,7 @@ async function loadLuts() { try { S.luts = await api('GET', `/api/luts?p=${enc(S
 // cannot be read at all goes back to Home)
 const safely = (label, fn) => { try { const r = fn(); return r?.catch ? r.catch((e) => reportError(label, e)) : r; } catch (e) { reportError(label, e); } };
 async function openProject(name) {
+  if (!tabClaim(name)) return; // (🗂 open in another tab already: that tab is shown)
   let project;
   try { project = await api('GET', `/api/project?p=${enc(name)}`); }
   catch (e) { toast(e.message, 'err'); goHome(); return; }
@@ -385,6 +413,7 @@ async function openProject(name) {
     if (!PAGES.some(([k]) => k === pg)) pg = 'edit'; // (a page no longer in the bar, e.g. the old Text page)
     safely('Page', () => showPage(S.media.length ? (pg === 'deliver' ? 'edit' : pg) : 'media'));
     safely('Viewer', () => setMode('program')); // also refreshes the viewer title when switching projects
+    safely('Phone', phoneOpened);
     // everyone with edit rights edits together (🔴 live); only viewers watch
     await safely('Who am I', whoAmI); S.readOnly = S.me?.role === 'viewer' || !!S.me?.hold; S.lockHolder = null; emit('readonly', {}); safely('Presence', sendPresence);
     safely('Agent job', () => resumeAgentJob(setBusy)); // an agent edit still running on the server (page refreshed / reopened)
