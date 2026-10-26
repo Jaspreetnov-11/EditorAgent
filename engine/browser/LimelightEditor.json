@@ -1,6 +1,6 @@
 {
-  "_": "Limelight Editor.exe settings - change here, no rebuild needed. urls: tried in this order when one does not answer.",
-  "urls": ["https://editor.limelightcorp.in/", "http://Jaspreet/"],
+  "_": "Limelight Editor.exe settings - change here, no rebuild needed. urls: tried in this order when one does not answer (PC A by name, PC A by address, then PC B - the standby, which answers only while it has taken over).",
+  "urls": ["https://editor.limelightcorp.in/", "http://192.168.0.200/", "http://192.168.0.205:3100/"],
   "allowedHosts": ["editor.limelightcorp.in", "jaspreet", "localhost", "127.0.0.1"],
   "allowedNets": ["192.168."],
   "diskCacheGB": 20,

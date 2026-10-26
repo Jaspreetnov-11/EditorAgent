@@ -156,6 +156,48 @@ namespace LimelightEditor
             else { FormBorderStyle = FormBorderStyle.Sizable; WindowState = before; }
         }
 
+        // 🗂 the editor's project tabs in the title bar, like Chrome / Explorer: a page that draws its own title bar (the
+        // tab strip, public/js/tabs.js) says so ("win:custom") and Windows' caption goes - the sides and bottom still resize,
+        // the strip's empty part drags / snaps / double-click maximises (WebView2 "app-region: drag"). Any other page (sign
+        // in, "not answering") keeps the normal title bar.
+        bool custom, customAsked;
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        static extern int GetSystemMetrics(int i);
+        void SetCustom(bool on)
+        {
+            if (custom == on) return;
+            custom = on;
+            SetWindowPos(Handle, IntPtr.Zero, 0, 0, 0, 0, 0x0020 | 0x0002 | 0x0001 | 0x0004 | 0x0010); // SWP_FRAMECHANGED|NOMOVE|NOSIZE|NOZORDER|NOACTIVATE
+            SendWindowState();
+        }
+        protected override void WndProc(ref Message m)
+        {
+            // WM_NCCALCSIZE: Windows works out the frame as always, then the top goes back up - no caption, same borders
+            if (m.Msg == 0x0083 && m.WParam != IntPtr.Zero && custom && !full)
+            {
+                var top = System.Runtime.InteropServices.Marshal.ReadInt32(m.LParam, 4);
+                base.WndProc(ref m);
+                // (maximised, the window reaches past the screen by its frame: keep the strip on the screen)
+                var pad = WindowState == FormWindowState.Maximized ? GetSystemMetrics(33) + GetSystemMetrics(92) : 0; // SM_CYFRAME + SM_CXPADDEDBORDER
+                System.Runtime.InteropServices.Marshal.WriteInt32(m.LParam, 4, top + pad);
+                m.Result = IntPtr.Zero;
+                return;
+            }
+            base.WndProc(ref m);
+        }
+        FormWindowState lastState = (FormWindowState)(-1);
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            if (WindowState != lastState) { lastState = WindowState; SendWindowState(); }
+        }
+        void SendWindowState()
+        {
+            try { web.CoreWebView2?.PostWebMessageAsJson("{\"win\":\"" + (WindowState == FormWindowState.Maximized ? "max" : "normal") + "\"}"); } catch { }
+        }
+
         async Task Start()
         {
             var data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LimelightEditor");
@@ -181,7 +223,23 @@ namespace LimelightEditor
                 return;
             }
             var wv = web.CoreWebView2;
-            wv.Settings.UserAgent = wv.Settings.UserAgent + " LimelightEditor/" + Program.Version;
+            // (a WebView2 too old for a page-drawn title bar: the page is not told it can draw one - "LimelightFrame/1")
+            var frame = false;
+            try { wv.Settings.IsNonClientRegionSupportEnabled = true; frame = true; } catch { }
+            wv.Settings.UserAgent = wv.Settings.UserAgent + " LimelightEditor/" + Program.Version + (frame ? " LimelightFrame/1" : "");
+            wv.WebMessageReceived += (o, e) =>
+            {
+                if (!Allowed(e.Source)) return;
+                string m; try { m = e.TryGetWebMessageAsString(); } catch { return; }
+                if (m == "win:custom" && frame) { customAsked = true; SetCustom(true); }
+                else if (m == "win:min") WindowState = FormWindowState.Minimized;
+                else if (m == "win:max") WindowState = WindowState == FormWindowState.Maximized ? FormWindowState.Normal : FormWindowState.Maximized;
+                else if (m == "win:close") Close();
+                else if (m == "win:state") SendWindowState();
+            };
+            // a new page: the normal title bar again unless it draws its own (asked before it finished loading - no flicker)
+            wv.NavigationStarting += (o, e) => { customAsked = false; };
+            wv.NavigationCompleted += (o, e) => { if (!customAsked) SetCustom(false); };
             wv.Settings.AreDevToolsEnabled = s.DevTools;
             wv.Settings.IsStatusBarEnabled = false;
             wv.Settings.IsZoomControlEnabled = false; // (Ctrl+wheel is the timeline's)

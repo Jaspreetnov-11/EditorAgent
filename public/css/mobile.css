@@ -1,0 +1,277 @@
+/* 📱 Phone and tablet (phone.js sets html.phone / html.tablet, and html.touch for both - only on a touch screen).
+   Nothing in this file applies to a desktop with a mouse: every rule starts with html.phone, html.tablet or html.touch. */
+
+.ph-top, .ph-nav, .ph-dock { display: none; }
+
+/* ================= touch (tablet and phone): finger-sized, nothing that needs a mouse to hover ================= */
+html.touch { -webkit-tap-highlight-color: transparent; }
+html.touch .menubar { height: 34px; font-size: 13.5px; }
+html.touch .menubar .mb-top { height: 32px; padding: 0 12px; }
+html.touch .menubar .mb-drop { top: 34px; }
+html.touch .menubar .mb-drop button { padding: 10px 14px; }
+html.touch .pagebar { height: 48px; }
+html.touch .pagebar button { padding: 0 18px; }
+html.touch .ptabs button, html.touch .ui-dock button, html.touch .mon-dock button { min-height: 34px; }
+html.touch .icon-btn { min-width: 34px; min-height: 34px; }
+html.touch .vw-ctrl .icon-btn { min-width: 40px; min-height: 40px; }
+html.touch input[type=range] { min-height: 28px; }
+html.touch input[type=checkbox], html.touch input[type=radio] { width: 20px; height: 20px; }
+html.touch .dlg-head .icon-btn[data-close] { min-width: 44px; min-height: 44px; font-size: 18px; }
+/* (what a mouse finds by hovering is always shown) */
+html.touch .proj .proj-del, html.touch .mo-comp .icon-btn, html.touch .ws-grip, html.touch .clip.sel .tr-btn { opacity: 1; }
+html.touch .ctpl-tile .ctpl-acts { display: flex; }
+/* the timeline and the monitor take every finger themselves (touch.js: drag clips, pan, pinch, long-press) */
+html.touch #tlScroll, html.touch .tl-ruler, html.touch #tlPlayhead, html.touch #vwStage, html.touch .vw-ruler, html.touch .vw-zoombar,
+html.touch .ws-split, html.touch .wh-c, html.touch .cp-stage { touch-action: none; }
+html.touch .tl-heads { touch-action: pan-y; }
+html.touch #tlScroll, html.touch .clip { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+/* a clip's ends are wider to catch with a finger; a picked clip shows them */
+html.touch .trim { width: 18px; }
+html.touch .clip.sel .trim { background: #ffc21a2e; }
+html.touch #tlPlayhead::before { content: ''; position: absolute; top: 0; bottom: 0; left: -10px; width: 22px; }
+/* the panel drag lines are easier to take */
+html.touch .ws-split.v { width: 18px; margin-left: -6px; }
+html.touch .ws-split.h { height: 18px; margin-top: -6px; }
+
+/* ---------- tablet: the full editor, arranged to fit ---------- */
+/* a narrow tablet: the menu bar and the page bar keep to one line (pinch zooms the timeline instead of the slider) */
+@media (max-width: 1100px) {
+  html.tablet .menubar .mb-top { padding: 0 8px; }
+  html.tablet .menubar .mb-reload { font-size: 0; padding: 0 8px; }
+  html.tablet .menubar .mb-reload .ico { font-size: 13px; }
+  html.tablet .pagebar .pb-zoom { display: none; }
+  html.tablet .pagebar button { padding: 0 12px; }
+}
+/* standing up (portrait): monitor on top, Media / Effect Controls side by side, the timeline at the bottom - no page
+   scroll (the desktop's narrow-window rules stacked everything into one long scrolling page) */
+@media (orientation: portrait) {
+  html.tablet, html.tablet body { overflow: hidden; }
+  html.tablet .page { position: absolute; }
+  html.tablet .pages { overflow: hidden; }
+  html.tablet .edit-grid { position: absolute; inset: 0; display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important; grid-template-rows: minmax(0, 40fr) minmax(0, 24fr) minmax(0, 36fr) !important;
+    grid-template-areas: "viewer viewer" "pool insp" "tl tl" !important; }
+  html.tablet .pages .edit-grid.edit-grid > :is(.viewer, .pool, .inspector, .timeline) { display: flex !important; height: auto; max-height: none; min-height: 0; }
+  html.tablet .edit-grid > .viewer { grid-area: viewer !important; } html.tablet .edit-grid > .pool { grid-area: pool !important; }
+  html.tablet .edit-grid > .inspector { grid-area: insp !important; } html.tablet .edit-grid > .timeline { grid-area: tl !important; }
+  html.tablet .pages .edit-grid.edit-grid > :is(.srcmon, .ws-split, .mon-dock, .ui-dock) { display: none !important; }
+  html.tablet .deliver, html.tablet .media-page { position: absolute; inset: 0; overflow: auto; }
+  html.tablet .tl-heads { width: 112px; }
+}
+
+/* ================= phone ================= */
+html.phone, html.phone body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+html.phone body { font-size: 14.5px; -webkit-text-size-adjust: 100%; }
+/* (16 px text in boxes: iPhone zooms the whole page into a smaller one) */
+html.phone input, html.phone textarea, html.phone select { font-size: 16px; }
+html.phone #editor { height: 100dvh; padding-top: env(safe-area-inset-top); box-sizing: border-box; }
+html.phone .menubar, html.phone .pagebar, html.phone #sbBanner { display: none !important; }
+
+/* top bar: Projects · the project · Undo / Redo · more */
+html.phone .ph-top { display: flex; align-items: center; gap: 2px; flex: none; height: 52px; padding: 0 4px; background: var(--bg-2); border-bottom: 1px solid var(--line); position: relative; }
+.ph-ib { min-width: 44px; height: 44px; display: inline-grid; place-items: center; grid-auto-flow: column; gap: 2px; padding: 0 8px; background: none; border: 0; border-radius: 10px; color: var(--text); font-size: 18px; }
+.ph-ib:active { background: var(--panel-3); }
+.ph-ib .ico, .ph-ib .lic { width: 20px; height: 20px; }
+.ph-ib:disabled { opacity: .35; }
+.ph-top [data-ph="home"] { font-size: 14px; color: var(--accent); padding: 0 8px 0 4px; }
+.ph-top .ph-back { font-size: 26px; line-height: 1; margin-top: -3px; }
+.ph-name { flex: 1; min-width: 0; display: grid; line-height: 1.2; padding: 0 4px; }
+.ph-name b { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ph-name small { font-size: 11.5px; color: var(--muted); }
+.ph-name small.error { color: var(--red, #ff6b6b); }
+.ph-job { position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: linear-gradient(90deg, transparent, var(--accent), transparent); background-size: 50% 100%; background-repeat: no-repeat; animation: ph-run 1.2s linear infinite; }
+.ph-job[hidden] { display: none; }
+@keyframes ph-run { from { background-position: -50% 0; } to { background-position: 150% 0; } }
+
+/* tab bar at the bottom */
+html.phone .ph-nav { display: flex; flex: none; height: calc(58px + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom); background: var(--bg-2); border-top: 1px solid var(--line); position: relative; z-index: 80; }
+.ph-nav button { flex: 1; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; background: none; border: 0; border-radius: 0; color: var(--muted); font-size: 11.5px; font-weight: 600; padding: 0; }
+.ph-nav button[aria-current="true"] { color: var(--accent); }
+.ph-nav .ico, .ph-nav .lic { width: 22px; height: 22px; }
+.ph-nav .ph-T { font: 700 19px/22px Georgia, serif; height: 22px; }
+.ph-badge { position: absolute; top: 6px; left: calc(50% + 8px); min-width: 16px; height: 16px; border-radius: 8px; background: var(--accent); color: #111; font-size: 10.5px; line-height: 16px; text-align: center; padding: 0 4px; }
+.ph-badge[hidden] { display: none; }
+
+/* the Edit page: the monitor on top, the dock (strip / text / notes) below */
+html.phone .pages { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+html.phone .edit-grid { position: absolute; inset: 0; display: flex !important; flex-direction: column; padding: 0; gap: 0; }
+html.phone .pages .edit-grid.edit-grid > :not(.viewer):not(.ph-dock) { display: none !important; }
+html.phone .pages .edit-grid.edit-grid > .viewer { display: flex !important; flex: none; height: min(42dvh, calc(56.25vw + 12px)); min-height: 180px; border: 0; border-radius: 0; }
+html.phone[data-asp="tall"] .pages .edit-grid.edit-grid > .viewer { height: 42dvh; }
+html.phone .pages .edit-grid.edit-grid > .ph-dock { display: flex !important; flex: 1 1 0; min-height: 0; min-width: 0; flex-direction: column; background: var(--bg); }
+html.phone .viewer .vw-head, html.phone .viewer .vw-row, html.phone .viewer .vw-ruler, html.phone .viewer .vw-zoombar, html.phone .viewer .vw-src, html.phone .viewer .vw-ctrl { display: none !important; }
+html.phone .viewer .vw-stage { flex: 1; min-height: 0; }
+
+.ph-mode { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-x: hidden; }
+.ph-mode[hidden] { display: none; }
+.ph-time { display: flex; align-items: center; gap: 2px; padding: 4px 4px; flex: none; min-width: 0; }
+.ph-time .ph-ib { min-width: 40px; padding: 0 6px; }
+.ph-play { width: 54px; height: 44px; border-radius: 22px; border: 0; background: var(--accent); color: var(--accent-ink, #111); font-size: 17px; font-weight: 700; margin: 0 4px; }
+.ph-tc { font: 14px/1.2 var(--mono, Consolas, monospace); color: var(--muted); white-space: nowrap; }
+.ph-tc b { color: var(--text); font-weight: 600; }
+
+/* the strip: the edit sideways under a fixed playhead line - a finger moves through it, a tap picks a clip */
+.ph-stripw { position: relative; flex: none; min-width: 0; background: #08080a; border-block: 1px solid var(--line); }
+.ph-strip { overflow-x: auto; overflow-y: hidden; touch-action: pan-x; scrollbar-width: none; padding: 6px 0; overscroll-behavior-x: contain; }
+.ph-strip::-webkit-scrollbar { display: none; }
+html.phone .ph-strip.ph-strip { scrollbar-width: none !important; }
+.ph-strip-in { position: relative; box-sizing: border-box; padding: 0 var(--half, 50%); min-height: 40px; }
+.ph-row { position: relative; height: 26px; margin: 3px 0; }
+.ph-row.main { height: 54px; }
+.ph-row.snd { height: 16px; }
+.ph-tk { display: none; }
+.ph-b { position: absolute; top: 0; bottom: 0; padding: 0 6px; border: 1px solid #0008; border-radius: 6px; background: #2a2b2f center/cover no-repeat; color: #fff; font-size: 11.5px; text-align: left; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; display: flex; align-items: center; min-width: 0; }
+.ph-b span { overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 2px #000; }
+.ph-b.k-video, .ph-b.k-image { background-color: #2a2b2f; }
+.ph-b.k-text { background-color: #7a4bb5; }
+.ph-b.k-graphic { background-color: #2f7d6d; }
+.ph-b.k-adjust { background-color: #555; }
+.ph-b.k-audio { background-color: #1f6b3d; font-size: 10px; }
+.ph-b.sel { outline: 3px solid var(--accent); outline-offset: -2px; z-index: 1; }
+.ph-ph { position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; margin-left: -1px; background: var(--accent); box-shadow: 0 0 6px #000; pointer-events: none; z-index: 2; }
+.ph-ph::before { content: ''; position: absolute; top: 0; left: -6px; border: 7px solid transparent; border-top-color: var(--accent); }
+.ph-empty { margin: 8px 16px; color: var(--muted); font-size: 13px; white-space: normal; position: sticky; left: 0; width: calc(100vw - 32px); }
+
+.ph-acts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding: 8px; flex: none; }
+.ph-acts button { min-height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 4px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--panel-2); color: var(--text); font-size: 12px; }
+.ph-acts button:active { background: var(--panel-3); }
+.ph-acts button:disabled { opacity: .4; }
+.ph-acts .lic { width: 20px; height: 20px; }
+.ph-sel { flex: 1; min-height: 0; overflow: auto; padding: 0 12px 12px; }
+.ph-sel p { margin: 6px 2px; }
+.ph-selhead { display: grid; gap: 1px; margin: 2px 0 8px; }
+.ph-selhead b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ph-selhead small { color: var(--muted); font-size: 12px; }
+.ph-fld { display: grid; gap: 4px; margin: 0 0 10px; }
+.ph-fld > span { font-size: 12px; color: var(--muted); }
+.ph-fld input, .ph-fld textarea, .ph-card textarea { width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel); color: var(--text); resize: vertical; }
+.ph-fld input:focus, .ph-fld textarea:focus, .ph-card textarea:focus { outline: none; border-color: var(--accent); }
+
+/* Text and Notes tabs: a list under the monitor */
+.ph-list, .ph-notes { overflow: auto; padding: 8px 12px calc(12px + env(safe-area-inset-bottom)); }
+.ph-lhead { display: flex; align-items: center; gap: 8px; margin: 6px 0 8px; }
+.ph-lhead b { font-size: 14px; }
+.ph-lhead .grow { flex: 1; }
+.ph-lhead button { min-height: 38px; padding: 0 14px; }
+.ph-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px 2px; margin-bottom: 8px; }
+.ph-card > small { margin-left: 6px; }
+.ph-card > textarea { margin-bottom: 8px; }
+.ph-at { min-height: 32px; padding: 0 10px; margin: 0 0 6px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--accent); font: 12px var(--mono, Consolas, monospace); }
+html.phone .ph-notes #notesPanel { display: block !important; }
+html.phone .ph-notes .nt-add textarea { width: 100%; box-sizing: border-box; min-height: 64px; }
+html.phone .ph-notes button { min-height: 40px; }
+html.phone .ph-notes .nt-tools { flex-wrap: wrap; gap: 6px; }
+
+/* AI tab: the Assistant fills the space between the bars, the Agent and friends on top */
+html.phone .as { position: fixed !important; left: 0 !important; right: 0 !important; width: auto !important; top: calc(52px + env(safe-area-inset-top)) !important; bottom: calc(58px + env(safe-area-inset-bottom)) !important;
+  height: auto !important; max-height: none !important; border: 0 !important; border-radius: 0 !important; z-index: 75; box-shadow: none; }
+html.phone .as-head { padding: 6px 10px; flex-wrap: wrap; }
+html.phone .as-head [data-x] { min-width: 44px; min-height: 40px; }
+html.phone .as-quick { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none !important; }
+html.phone .as-quick .chip { flex: none; min-height: 34px; font-size: 13px; }
+html.phone .as-msg { font-size: 14.5px; }
+html.phone .as-in { padding: 8px; gap: 6px; align-items: flex-end; }
+html.phone .as-in textarea { min-height: 48px; }
+html.phone .as-in button[type=submit] { min-height: 48px; padding: 0 16px; }
+.ph-ai { display: none; }
+html.phone .ph-ai { display: flex; gap: 6px; padding: 8px; overflow-x: auto; flex: none; border-bottom: 1px solid var(--line); scrollbar-width: none !important; }
+html.phone .ph-ai button { flex: none; min-height: 42px; padding: 0 14px; border-radius: 21px; display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; }
+
+/* Export tab: the Deliver page in one column - Render, the queue and the finished files (the hand-off to Premiere /
+   Resolve and the big monitor are for the desktop) */
+html.phone .deliver { position: absolute; inset: 0; display: block !important; overflow: auto; padding: 10px 12px calc(16px + env(safe-area-inset-bottom)); }
+html.phone .deliver .dv-play, html.phone #dvXmlJump, html.phone #dvXmlH, html.phone #dvXmlH ~ * { display: none !important; }
+html.phone .deliver .dv-col { display: flex; flex-direction: column; gap: 8px; }
+html.phone .deliver .fgrid { grid-template-columns: 1fr 1fr; }
+html.phone .deliver button { min-height: 44px; }
+html.phone .deliver .dv-saveto { flex-wrap: wrap; }
+html.phone .media-page { position: absolute; inset: 0; overflow: auto; grid-template-columns: 1fr; }
+
+/* the other pages a dialog may open (Color, Motion…) at least scroll */
+html.phone .page:not(.p-edit) { overflow: auto; }
+
+/* dialogs: the whole screen */
+html.phone dialog, html.phone .dlg { width: 100vw !important; max-width: 100vw !important; height: auto; max-height: 100dvh !important; margin: auto 0 0; border-radius: 16px 16px 0 0; box-sizing: border-box; padding-bottom: env(safe-area-inset-bottom); }
+html.phone .dlg-body { max-height: calc(100dvh - 80px); padding: 12px; }
+html.phone .dlg button, html.phone .dlg select, html.phone .dlg input:not([type=checkbox]):not([type=radio]):not([type=range]) { min-height: 42px; }
+html.phone .dlg .fgrid, html.phone .dlg [class*="-grid"] { grid-template-columns: 1fr !important; }
+
+/* more menu (⋯) */
+.ph-menu { position: fixed; right: 8px; z-index: 120; min-width: 230px; padding: 6px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 14px; box-shadow: 0 18px 40px #000b; display: grid; }
+.ph-menu button, .ph-menu a { min-height: 46px; padding: 0 14px; text-align: left; background: none; border: 0; border-radius: 10px; color: var(--text); font: inherit; font-size: 15px; display: flex; align-items: center; text-decoration: none; }
+.ph-menu button:active, .ph-menu a:active { background: var(--panel-3); }
+.ph-menu .ph-out { color: var(--red, #ff6b6b); }
+
+/* the toast and the offline / read-only banners clear the bars */
+html.phone .toast { bottom: calc(70px + env(safe-area-inset-bottom)) !important; max-width: calc(100vw - 24px); box-sizing: border-box; z-index: 200; }
+html.phone .ro-banner { font-size: 12.5px; }
+
+/* Home: the projects, two to a row */
+html.phone #home { height: 100dvh; }
+html.phone .home { padding: calc(14px + env(safe-area-inset-top)) 14px calc(24px + env(safe-area-inset-bottom)); overflow: auto; -webkit-overflow-scrolling: touch; }
+html.phone[data-look] .home-brand { margin: 0 0 12px; }
+html.phone[data-look] .home-brand .hb-logo { height: 40px; max-width: 100%; }
+/* (the projects first; the first-edit steps card after them) */
+html.phone .home { display: flex; flex-direction: column; }
+html.phone .home > * { flex: none; }
+html.phone .home .sh-home { order: 10; margin: 18px 0 0; }
+html.phone .home-head { margin-bottom: 12px; gap: 10px; }
+html.phone .home-head h1 { font-size: 22px; margin: 0; }
+html.phone .home-actions { gap: 8px; flex-wrap: wrap; }
+html.phone .home-actions button { min-height: 40px; }
+html.phone .home-find input[type=search] { width: 100%; min-height: 44px; }
+html.phone .proj-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+html.phone .proj.new { min-height: 120px; padding: 12px; }
+html.phone .proj.new small { display: none; }
+html.phone .proj .proj-btns { left: 6px; flex-wrap: wrap; justify-content: flex-end; }
+html.phone .proj-grid .proj .proj-btns .icon-btn { width: 32px; height: 32px; min-width: 32px; min-height: 32px; }
+html.phone .pf-bar { overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
+@media (orientation: landscape) { html.phone .proj-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); } }
+
+/* a phone held sideways: the monitor on the left, the dock on the right */
+@media (orientation: landscape) {
+  html.phone .edit-grid { flex-direction: row; }
+  html.phone .pages .edit-grid.edit-grid > .viewer { height: auto; width: 56vw; min-height: 0; }
+  html.phone .ph-top { height: 44px; }
+  html.phone .ph-nav { height: calc(48px + env(safe-area-inset-bottom)); }
+  html.phone .ph-nav button { flex-direction: row; gap: 6px; }
+  html.phone .as { top: calc(44px + env(safe-area-inset-top)) !important; bottom: calc(48px + env(safe-area-inset-bottom)) !important; left: 40vw !important; }
+  html.phone .ph-acts button { min-height: 44px; flex-direction: row; }
+}
+
+/* a touch screen showing the desktop editor by choice (⋯ > Desktop view): the way back */
+.ph-auto { display: none; }
+html.picked-desktop .ph-auto { display: block; position: fixed; right: 10px; bottom: 54px; z-index: 300; min-height: 40px; padding: 0 14px; border-radius: 20px; border: 1px solid var(--line-2); background: var(--panel); color: var(--text); box-shadow: 0 8px 24px #000a; }
+
+/* right-click menus (a long press on touch) with finger-sized rows */
+html.touch .ctx button { min-height: 40px; }
+
+/* the Agent window on a phone: one column that fits, its buttons wrap onto two rows */
+html.phone .dlg .ag, html.phone .dlg .ag2 { grid-template-columns: minmax(0, 1fr) !important; }
+html.phone .dlg .ag > *, html.phone .dlg .ag2 > * { min-width: 0; }
+html.phone .dlg .ag-foot { flex-wrap: wrap; margin-left: -12px !important; margin-right: -12px !important; padding: 10px 12px !important; }
+html.phone .dlg .ag-foot button { flex: 1 1 auto; min-height: 44px; }
+html.phone .dlg .ag2-hero { padding: 14px 12px 12px; }
+
+/* 🏁 Start: the four big cards under the monitor */
+html.phone:not([data-ph-pane="edit"]) .ph-time .ph-zoom { display: none; }
+.ph-start { overflow: auto; padding: 4px 12px calc(12px + env(safe-area-inset-bottom)); }
+.ph-ask { margin: 4px 2px 10px; font-size: 17px; font-weight: 700; }
+.ph-cards { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.ph-card-b { min-height: 104px; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end; gap: 3px; padding: 12px; text-align: left;
+  border: 1px solid var(--line-2); border-radius: 16px; background: var(--panel-2); color: var(--text); }
+.ph-card-b:first-child { background: linear-gradient(160deg, #ffc21a33, var(--panel-2) 70%); border-color: #ffc21a66; }
+.ph-card-b:active, .ph-tlcard:active { background: var(--panel-3); }
+.ph-card-b .ico, .ph-card-b .lic { width: 26px; height: 26px; color: var(--accent); margin-bottom: auto; }
+.ph-card-b .ph-T { color: var(--accent); font: 700 24px/26px Georgia, serif; margin-bottom: auto; }
+.ph-card-b b { font-size: 15.5px; }
+.ph-card-b small { font-size: 12px; color: var(--muted); line-height: 1.3; white-space: normal; }
+.ph-card-b b, .ph-card-b small { max-width: 100%; }
+.ph-tlcard { width: 100%; margin-top: 10px; min-height: 58px; display: flex; align-items: center; gap: 12px; padding: 0 14px; text-align: left;
+  border: 1px solid var(--line-2); border-radius: 16px; background: var(--panel); color: var(--text); }
+.ph-tlcard .lic { width: 22px; height: 22px; color: var(--accent); }
+.ph-tlcard span { flex: 1; display: grid; }
+.ph-tlcard small { color: var(--muted); font-size: 12px; }
+.ph-tlcard i { font-style: normal; font-size: 22px; color: var(--muted); }
+.ph-status { margin: 12px 2px 0; color: var(--muted); font-size: 12.5px; text-align: center; }
+@media (orientation: landscape) { html.phone .ph-card-b { min-height: 72px; } }
