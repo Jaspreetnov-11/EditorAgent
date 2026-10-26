@@ -29,7 +29,10 @@ const SB = path.join(LIVE, 'standby.json'), HOST = os.hostname();
 // onto the NAS mirror once it answers again, and the main editor brings them in as usual.
 const LOCAL = opt('local', path.join(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'), 'StandbyLive'));
 const mirrorOk = (d) => { try { return fs.statSync(path.join(d, 'mirror.json')).isFile(); } catch { return false; } };
-let dataDir = LIVE; // (where the standby editor runs from: the NAS mirror, or this PC's copy when the NAS is down)
+// 🚚 --release: the NAS folder this PC's code is copied from (Start Standby Editor.bat); a newer release.json there = new code
+const RELEASE = opt('release');
+const releaseId = (d) => readJsonFile(path.join(d, 'release.json'), null)?.id || null;
+let dataDir = LIVE; //(where the standby editor runs from: the NAS mirror, or this PC's copy when the NAS is down)
 const log = (m) => console.log(`${new Date().toLocaleTimeString()}  ${m}`);
 const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
 const writeSb = (o) => { try { fs.writeFileSync(`${SB}.tmp`, JSON.stringify(o, null, 1)); fs.renameSync(`${SB}.tmp`, SB); } catch (e) { log(`⚠ could not write ${SB}: ${e.message}`); } };
@@ -92,7 +95,14 @@ process.on('SIGTERM', async () => { await handBack('Stopping'); process.exit(0);
 
 log(`🖥 Standby for ${MAIN} - mirror ${LIVE} (a copy kept in ${LOCAL}). Takes over after ${Math.round(AFTER / 1000)} s without an answer. Keep this window open.`);
 let downSince = 0, upSince = 0;
+// 🚚 a new release on the NAS (tools/server/deploy.ps1): stop while only watching, so the launcher copies it and starts again
+const takeRelease = () => {
+  if (since || !RELEASE) return;
+  const id = releaseId(RELEASE);
+  if (id && id !== releaseId(ROOT) && !fs.existsSync(path.join(RELEASE, 'deploying.lock'))) { log(`new editor code on the NAS (${id}) - restarting to take it`); process.exit(0); }
+};
 for (;;) {
+  takeRelease(); // (first: copying the mirror below can take a while)
   const up = await mainUp();
   if (!since && mirrorOk(LIVE)) await mirrorDir(LIVE, LOCAL).catch((e) => log(`⚠ could not copy the mirror to ${LOCAL}: ${e.message}`)); // (💾 kept in step)
   if (!since) {
@@ -102,5 +112,6 @@ for (;;) {
     if (!upSince) { upSince = Date.now(); log('the main editor answers again - handing back once it has stayed up 2 minutes'); }
     if (Date.now() - upSince >= AFTER) { upSince = 0; await handBack('The main editor is back'); }
   } else upSince = 0;
+  takeRelease();
   await sleep(EVERY);
 }

@@ -22,5 +22,17 @@
 !/tools/
 /tools/*
 !/tools/farm/
+!/tools/watch/
+!/tools/meshlink/
+!/tools/server/
+!/tools/access/
+!/tools/kit/
+!/tools/nascare/
+/tools/access/*.msi
 *.zip
 *.log
+/tools/meshlink/bin/
+/tools/meshlink/data/
+!/flow/
+/flow/data/
+/flow/node_modules/

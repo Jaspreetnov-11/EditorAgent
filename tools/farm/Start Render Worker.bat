@@ -29,9 +29,13 @@ if not exist "%DIR%\token.txt" (
   echo Farm token chahiye: editor mein Team ^> Render farm se copy karo.
   set /p "T=Token paste karo aur Enter dabao: "
   call echo %%T%%> "%DIR%\token.txt"
+  rem (the whole "node worker.mjs ... <token>" line pasted: keep only the token - 24 letters 0-9 a-f)
+  powershell -NoProfile -Command "$t = Get-Content '%DIR%\token.txt' -Raw; $m = [regex]::Matches($t, '\b[0-9a-f]{24}\b'); if ($m.Count) { Set-Content '%DIR%\token.txt' $m[$m.Count - 1].Value -NoNewline -Encoding ascii }"
 )
 
 rem this launcher on this PC, a hidden starter, and the starter in Startup (the old visible one is taken out)
+rem (helpers started earlier - maybe with a wrong token - are stopped first: one helper per PC)
+powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'LimelightWorker\\worker\.(bat|mjs)' -and $_.ProcessId -ne $PID } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>nul
 copy /y "%~f0" "%DIR%\worker.bat" >nul
 > "%DIR%\hidden.vbs" echo CreateObject("WScript.Shell").Run """%DIR%\worker.bat"" hidden", 0, False
 set "SU=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
@@ -48,8 +52,9 @@ exit /b
 
 :run
 rem (waits use ping: timeout needs a console, and this runs hidden)
-set /p TOKEN=<"%DIR%\token.txt"
 :start
+rem (the token is read each round: a token changed in token.txt is used from the next start, no old loop keeps a wrong one)
+set /p TOKEN=<"%DIR%\token.txt"
 rem (the log is kept to about 5 MB: the older half moves to worker.old.log)
 for %%A in ("%DIR%\worker.log") do if %%~zA GTR 5000000 move /y "%DIR%\worker.log" "%DIR%\worker.old.log" >nul
 if exist "%SHARE%\editor.txt" copy /y "%SHARE%\editor.txt" "%DIR%\editor.txt" >nul

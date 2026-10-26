@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Limelight NAS Care</title>
+<style>
+:root { --bg:#141414; --panel:#1e1e1e; --panel2:#262626; --line:#333; --text:#eee; --dim:#9a9a9a; --acc:#f5c400; --ok:#3ecf74; --warn:#f0a020; --bad:#ff5050; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 "Segoe UI",system-ui,sans-serif; }
+header { display:flex; align-items:center; gap:14px; padding:10px 16px; background:#0d0d0d; border-bottom:2px solid var(--acc); flex-wrap:wrap; }
+header h1 { font-size:17px; margin:0; } header h1 b { color:var(--acc); }
+nav { display:flex; gap:2px; padding:0 12px; background:#101010; border-bottom:1px solid var(--line); overflow-x:auto; }
+nav button { background:none; border:0; color:var(--dim); padding:10px 14px; cursor:pointer; font:inherit; border-bottom:2px solid transparent; white-space:nowrap; }
+nav button.on { color:var(--acc); border-color:var(--acc); }
+main { padding:16px; max-width:1300px; margin:auto; }
+section { display:none; } section.on { display:block; }
+.card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:14px; }
+.grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(290px,1fr)); gap:14px; }
+h2 { font-size:15px; margin:0 0 10px; color:var(--acc); } h3 { font-size:14px; margin:12px 0 6px; }
+button.b, select, input { background:var(--panel2); color:var(--text); border:1px solid #444; border-radius:5px; padding:6px 11px; font:inherit; }
+button.b { cursor:pointer; } button.b:hover { border-color:var(--acc); }
+button.p { background:var(--acc); color:#111; border-color:var(--acc); font-weight:600; }
+button.d { border-color:var(--bad); color:#ffb0b0; }
+button:disabled { opacity:.4; cursor:not-allowed; }
+.dim { color:var(--dim); } .ok { color:var(--ok); } .warn { color:var(--warn); } .bad { color:var(--bad); }
+.bar { height:10px; background:#333; border-radius:5px; overflow:hidden; margin:6px 0; } .bar i { display:block; height:100%; background:var(--ok); }
+table { width:100%; border-collapse:collapse; font-size:13px; } td, th { padding:5px 7px; border-bottom:1px solid #2c2c2c; text-align:left; vertical-align:top; }
+th { color:var(--dim); font-weight:500; position:sticky; top:0; background:var(--panel); }
+td.n, th.n { text-align:right; white-space:nowrap; } .path { word-break:break-all; }
+.scroll { max-height:520px; overflow:auto; }
+.pill { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; background:#333; }
+.pill.ok { background:#173d26; } .pill.warn { background:#4a3510; } .pill.bad { background:#4d1717; color:#fff; }
+#jobbar { display:none; background:#2a2410; border:1px solid var(--acc); border-radius:6px; padding:8px 12px; margin-bottom:14px; }
+#mode { margin-left:auto; display:flex; align-items:center; gap:8px; }
+.row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:8px 0; }
+.alert { padding:6px 10px; border-left:3px solid var(--warn); background:#221d10; margin:4px 0; border-radius:3px; }
+.alert.danger { border-color:var(--bad); background:#2a1212; }
+.big { font-size:22px; font-weight:600; }
+label.ck { display:inline-flex; gap:5px; align-items:center; }
+textarea { width:100%; min-height:90px; background:var(--panel2); color:var(--text); border:1px solid #444; border-radius:5px; font:13px monospace; padding:6px; }
+.browser { max-height:260px; overflow:auto; border:1px solid var(--line); border-radius:5px; }
+.browser div { padding:4px 10px; cursor:pointer; } .browser div:hover { background:#2c2c2c; }
+@media (max-width:640px) { main { padding:10px; } header { padding:8px 10px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1><b>Limelight</b> NAS Care</h1>
+  <label>Share <select id="share"></select></label>
+  <span id="busy" class="pill"></span>
+  <div id="mode"><span id="modeText" class="pill ok">Read-only (safe)</span><button class="b" id="allowBtn">Allow changes</button></div>
+</header>
+<nav id="tabs"></nav>
+<main>
+  <div id="jobbar"><b id="jobKind"></b> <span id="jobNote" class="dim"></span> <button class="b d" style="float:right" onclick="post('/api/stop')">Stop</button></div>
+  <div id="lastjob" class="dim" style="margin-bottom:10px"></div>
+
+  <section id="t-health">
+    <div class="grid" id="spaceCards"></div>
+    <div class="card"><h2>NAS hardware (disks, SMART, temperature)</h2><div id="hw"></div></div>
+    <div class="card"><h2>Alerts</h2><div id="alerts"></div></div>
+    <div class="card"><h2>What keeps the NAS safe</h2><div id="advice"></div>
+      <div class="row"><button class="b" onclick="post('/api/check').then(load)">Check health now</button></div></div>
+  </section>
+
+  <section id="t-report">
+    <div class="card"><h2>Scan</h2>
+      <p class="dim">A scan only <b>reads</b> the file list (names, sizes, dates) - gently, a few folders at a time, and it pauses while the editor is rendering. A big share takes hours: start it in the evening. "Full check" = scan + used-by-projects + unused report + duplicates.</p>
+      <div class="row"><button class="b p" onclick="job('full')">Full check</button><button class="b" onclick="job('scan')">Scan only</button><button class="b" onclick="job('unused')">Unused report</button><button class="b" onclick="job('dups')">Duplicate report</button><button class="b" onclick="job('refs')">Re-read projects</button></div>
+      <div id="scanInfo" class="dim"></div>
+    </div>
+    <div class="grid"><div class="card"><h2>Biggest folders</h2><div id="byTop" class="scroll"></div></div>
+      <div class="card"><h2>By type</h2><div id="byKind"></div><h3>By year (last change)</h3><div id="byYear"></div></div></div>
+    <div class="card"><h2>Largest files</h2><div id="largest" class="scroll"></div></div>
+    <div class="card"><h2>Scan problems</h2><div id="scanErr" class="dim"></div></div>
+  </section>
+
+  <section id="t-dups">
+    <div class="card"><h2>Duplicate files</h2>
+      <p class="dim">Same size and same content samples. Before anything moves, each copy is read in full and compared byte for byte with the copy that stays. The copy that stays: one a project uses, else one in a protected folder, else the oldest. Copies used by a project, in protected folders, or changed recently never move.</p>
+      <div class="row"><span id="dupInfo"></span><button class="b" onclick="exportCsv('dups')">Download report (CSV)</button><label class="ck"><input type="checkbox" id="dupAll" onchange="tickAll('dup',this.checked)">tick all shown</label><button class="b p" id="dupGo" onclick="cleanDups()">Move ticked copies to bin</button></div>
+      <div id="dupList" class="scroll" style="max-height:640px"></div></div>
+  </section>
+
+  <section id="t-unused">
+    <div class="card"><h2>Unused and junk files</h2>
+      <p class="dim">"Old" = not changed for <span id="ud"></span> days and not used by any editor / Premiere / After Effects project the scan found. Temp, cache (Media Cache, peak files...) and zero-byte files are junk the apps make again. Moved files go to the bin first and can be put back.</p>
+      <div class="row"><select id="cat"></select><span id="catInfo"></span><button class="b" onclick="exportCsv('unused')">Download report (CSV)</button><label class="ck"><input type="checkbox" id="unAll" onchange="tickAll('un',this.checked)">tick all shown</label><button class="b p" onclick="cleanFiles()">Move ticked to bin</button></div>
+      <div id="unList" class="scroll" style="max-height:640px"></div></div>
+  </section>
+
+  <section id="t-org">
+    <div class="card"><h2>Organise a folder</h2>
+      <p class="dim">Sorts the loose files at the top of one folder into sub-folders. You see the plan first; nothing moves until you press Apply, and the whole batch can be undone from the Bin &amp; history tab. Files a project uses, and media next to a project file, stay where they are so no project loses its links.</p>
+      <div class="row"><b>Folder:</b> <span id="orgPath" class="path dim">choose below</span></div>
+      <div class="browser" id="browser"></div>
+      <div class="row"><select id="orgMode"><option value="template">Limelight project template (01 Footage, 02 Audio, 03 Graphics, 04 Project Files, 05 Exports...)</option><option value="type">By type (Videos, Photos, Audio, Graphics, Documents...)</option><option value="date">By date (2026 \ 2026-10)</option></select>
+        <label class="ck"><input type="checkbox" id="orgMedia">move media too (even next to project files)</label>
+        <button class="b" onclick="plan()">Show plan</button><button class="b p" id="orgApply" disabled onclick="applyPlan()">Apply plan</button></div>
+      <div id="orgPlan"></div></div>
+    <div class="card"><h2>New project folder</h2>
+      <div class="row">Inside the chosen folder, make <input id="npName" placeholder="Project name"> with the template folders <button class="b" onclick="newProject()">Create</button></div></div>
+  </section>
+
+  <section id="t-bin">
+    <div class="card"><h2>Bin &amp; history</h2>
+      <p class="dim">Every clean-up and every organise is one batch here. "Put back" moves the files back where they were. Bin files stay on the NAS in <code>_NAS Care Bin</code> on the same share (no space is freed until a batch is emptied). Emptying is the only real delete, allowed only after the bin has kept it for the days set in Settings.</p>
+      <div id="batches"></div></div>
+  </section>
+
+  <section id="t-settings">
+    <div class="card"><h2>Settings</h2>
+      <div class="grid">
+        <div><h3>Shares</h3><textarea id="sShares"></textarea><p class="dim">One per line: ID | root | \\NAS\share | name</p><button class="b" onclick="saveSet({detectShares:true})">Find mapped NAS drives again</button></div>
+        <div><h3>Protected folders (never cleaned)</h3><textarea id="sProtect"></textarea><p class="dim">Paths inside the share, one per line.</p></div>
+        <div><h3>Project folders (editor projects)</h3><textarea id="sRoots"></textarea><h3>Editor addresses (pause while busy)</h3><textarea id="sEditors" style="min-height:50px"></textarea></div>
+      </div>
+      <div class="grid">
+        <div><h3>Gentle on the NAS</h3>
+          <div class="row">Read speed cap <input id="sRead" type="number" style="width:80px"> MB/s</div>
+          <div class="row">Folders at once <input id="sConc" type="number" style="width:60px"> (1-8)</div>
+          <div class="row">Pause every 250 files <input id="sGentle" type="number" style="width:70px"> ms</div></div>
+        <div><h3>Rules</h3>
+          <div class="row">"Old" after <input id="sDays" type="number" style="width:80px"> days</div>
+          <div class="row">Never touch files changed in the last <input id="sProtDays" type="number" style="width:60px"> days</div>
+          <div class="row">Duplicates bigger than <input id="sDupMB" type="number" style="width:70px"> MB</div>
+          <div class="row">Bin keeps batches <input id="sKeep" type="number" style="width:60px"> days before they can be emptied</div></div>
+        <div><h3>Alarms</h3>
+          <div class="row">Warn below <input id="sFree" type="number" style="width:60px"> % free, danger below <input id="sCrit" type="number" style="width:60px"> %</div>
+          <div class="row"><label class="ck"><input type="checkbox" id="sCan">ransomware canary files</label> <label class="ck"><input type="checkbox" id="sWatch">mass-change watch</label></div>
+          <div class="row">Mass change = more than <input id="sWatchLim" type="number" style="width:80px"> changes / minute</div>
+          <div class="row">WhatsApp (CallMeBot) phone <input id="sPhone" style="width:140px"> key <input id="sKey" style="width:90px"></div></div>
+        <div><h3>NAS hardware (SNMP, read-only)</h3>
+          <div class="row">NAS IP <input id="sHost" placeholder="192.168.0.99" style="width:140px"></div>
+          <div class="row">Community <input id="sComm" placeholder="e.g. public" style="width:140px"></div>
+          <p class="dim">In QTS: Control Panel › Network &amp; File Services › SNMP › turn on SNMP v1/v2, set a community name. NAS Care only reads.</p></div>
+      </div>
+      <div class="row"><button class="b p" onclick="saveSet()">Save settings</button><span id="dataDir" class="dim"></span></div></div>
+  </section>
+</main>
+<script>
+const TOKEN = '__TOKEN__';
+let ST = null, SHARE = null, UN = null, DU = null, ORG = null, orgFolder = null;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const gb = (b) => b == null ? '-' : b >= 1099511627776 ? (b / 1099511627776).toFixed(2) + ' TB' : b >= 1073741824 ? (b / 1073741824).toFixed(1) + ' GB' : (b / 1048576).toFixed(1) + ' MB';
+const num = (n) => (n ?? 0).toLocaleString('en-IN');
+const when = (t) => t ? new Date(t).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : 'never';
+const dayOf = (t) => new Date(t).toISOString().slice(0, 10);
+async function api(method, url, body) {
+  const r = await fetch(url, { method, headers: { 'x-nascare': TOKEN, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { alert(j.error || r.statusText); throw new Error(j.error); }
+  return j;
+}
+const get = (u) => api('GET', u), post = (u, b) => api('POST', u, b || {});
+
+const TABS = [['health', 'Health'], ['report', 'Scan & report'], ['dups', 'Duplicates'], ['unused', 'Unused & junk'], ['org', 'Organise'], ['bin', 'Bin & history'], ['settings', 'Settings']];
+$('tabs').innerHTML = TABS.map(([k, n]) => `<button data-t="${k}">${n}</button>`).join('');
+function tab(k) { for (const b of $('tabs').children) b.classList.toggle('on', b.dataset.t === k); for (const s of document.querySelectorAll('section')) s.classList.toggle('on', s.id === 't-' + k); try { localStorage.nasTab = k; } catch {} showTab(k); }
+$('tabs').onclick = (e) => e.target.dataset.t && tab(e.target.dataset.t);
+$('share').onchange = () => { SHARE = $('share').value; UN = DU = null; showTab(cur()); };
+const cur = () => document.querySelector('section.on')?.id.slice(2);
+
+async function load() {
+  ST = await get('/api/state');
+  const sel = $('share');
+  if (!sel.options.length || sel.options.length !== ST.settings.shares.length) { sel.innerHTML = ST.settings.shares.map((s) => `<option value="${esc(s.id)}">${esc(s.id)}: ${esc(s.name || s.root)}</option>`).join(''); if (!SHARE) SHARE = ST.settings.shares[0]?.id; sel.value = SHARE; }
+  $('modeText').textContent = ST.allowChanges ? `Changes allowed until ${new Date(ST.allowUntil).toLocaleTimeString('en-IN', { timeStyle: 'short' })}` : 'Read-only (safe)';
+  $('modeText').className = 'pill ' + (ST.allowChanges ? 'warn' : 'ok');
+  $('allowBtn').textContent = ST.allowChanges ? 'Back to read-only' : 'Allow changes';
+  $('busy').textContent = ST.editorBusy ? 'Editor busy - NAS Care slows down' : 'Editor idle';
+  $('busy').className = 'pill ' + (ST.editorBusy ? 'warn' : '');
+  $('jobbar').style.display = ST.job ? 'block' : 'none';
+  if (ST.job) { $('jobKind').textContent = `${ST.job.kind} ${ST.job.share || ''}`; $('jobNote').textContent = ST.job.note; }
+  const lj = ST.lastJob;
+  $('lastjob').innerHTML = lj ? `Last: <b>${esc(lj.kind)} ${esc(lj.share || '')}</b> ${lj.ok ? '<span class="ok">done</span>' : lj.stopped ? 'stopped' : `<span class="bad">failed: ${esc(lj.error)}</span>`} ${esc(lj.summary || '')} <span class="dim">(${when(lj.ended)})</span>` : '';
+  if (cur() === 'health') showHealth();
+}
+$('allowBtn').onclick = async () => {
+  if (ST.allowChanges) { await post('/api/allow', { on: false }); return load(); }
+  const c = prompt('Allow NAS Care to move files for the next 60 minutes?\nFiles only move into the bin / folders you approve, and can be put back.\n\nType YES to allow:');
+  if (c) { await post('/api/allow', { on: true, confirm: c.trim().toUpperCase() }); load(); }
+};
+async function job(kind) { await post('/api/job', { kind, share: SHARE }); load(); }
+
+function showHealth() {
+  $('spaceCards').innerHTML = ST.settings.shares.map((s) => {
+    const h = ST.health[s.id] || {};
+    if (h.online === false) return `<div class="card"><h2>${esc(s.id)}: ${esc(s.name)}</h2><div class="bad big">Offline</div><div>${esc(h.error)}</div></div>`;
+    const usedPct = h.total ? 100 - h.freePct : 0, cls = h.freePct < ST.settings.critFreePct ? 'bad' : h.freePct < ST.settings.minFreePct ? 'warn' : 'ok';
+    const pr = h.probe || {}, ca = h.canary || {};
+    return `<div class="card"><h2>${esc(s.id)}: ${esc(s.name)}</h2>
+      <div class="big ${cls}">${h.total ? h.freePct + '% free' : '...'}</div><div class="bar"><i style="width:${usedPct}%;background:var(--${cls === 'ok' ? 'ok' : cls})"></i></div>
+      <div>${gb(h.used)} used of ${gb(h.total)} · <b>${gb(h.free)}</b> free</div>
+      <div class="dim">${h.perDay != null ? `Grows ${gb(Math.abs(h.perDay))}/day ${h.perDay < 0 ? '(shrinking)' : ''}${h.fullInDays != null ? ` · full in about <b class="${h.fullInDays < 30 ? 'bad' : ''}">${h.fullInDays} days</b>` : ''}` : 'Growth: needs a few hours of history'}</div>
+      <div>Speed check: ${pr.error ? `<span class="bad">${esc(pr.error)}</span>` : pr.t ? `write ${pr.writeMBs} MB/s, read ${pr.readMBs} MB/s, ${pr.latencyMs} ms ${pr.same ? '<span class="ok">✓ read-back same</span>' : '<span class="bad">✗ READ-BACK DIFFERENT</span>'}` : '...'}</div>
+      <div>Ransomware canaries: ${!ST.settings.canaries ? 'off' : ca.error ? `<span class="warn">${esc(ca.error)}</span>` : ca.t ? (ca.ok ? '<span class="ok">✓ untouched</span>' : `<span class="bad">✗ ${esc(ca.bad.join('; '))}</span>`) : '...'}</div>
+      <div>Change watch: ${h.watchError ? `<span class="warn">${esc(h.watchError)}</span>` : `${num(h.changesPerMin)} changes last minute`}</div>
+      <div>Snapshots: ${h.snapshots ? '<span class="ok">on</span>' : '<span class="warn">not seen</span>'} · Recycle bin: ${h.recycle ? '<span class="ok">on</span>' : '<span class="warn">not seen</span>'}</div></div>`;
+  }).join('');
+  const hw = ST.hardware;
+  $('hw').innerHTML = !hw ? '<span class="dim">Not set up. Put the NAS IP and SNMP community in Settings to see disks, SMART and temperatures here.</span>'
+    : hw.error ? `<span class="warn">${esc(hw.error)}</span>`
+    : `<div><b>${esc(hw.name)}</b> <span class="dim">${esc(hw.descr)}</span> · up ${hw.uptimeHours ?? '-'} h · CPU ${esc(hw.cpu ?? '-')} · CPU temp ${esc(hw.cpuTemp ?? '-')} · system temp ${esc(hw.sysTemp ?? '-')}</div>
+      <h3>Disks</h3><table><tr><th>Disk</th><th>Model</th><th>Size</th><th>Temp</th><th>Status</th><th>SMART</th></tr>${hw.disks.map((d) => `<tr><td>${esc(d.descr || d.index)}</td><td>${esc(d.model)}</td><td>${esc(d.capacity)}</td><td>${esc(d.temp)}</td><td>${esc(d.status)}</td><td class="${/good|normal|ok/i.test(d.smart) ? 'ok' : 'bad'}">${esc(d.smart)}</td></tr>`).join('') || '<tr><td colspan=6 class="dim">no disk table from this NAS</td></tr>'}</table>
+      <h3>Volumes</h3><table><tr><th>Volume</th><th>Size</th><th>Free</th><th>Status</th></tr>${hw.volumes.map((v) => `<tr><td>${esc(v.descr)}</td><td>${esc(v.total)}</td><td>${esc(v.free)}</td><td>${esc(v.status)}</td></tr>`).join('')}</table>
+      <div class="dim">${hw.found} values read · ${when(hw.t)}</div>`;
+  $('alerts').innerHTML = ST.alerts.length ? ST.alerts.map((a) => `<div class="alert ${a.level}"><span class="dim">${when(a.t)}</span> ${esc(a.text)}</div>`).join('') : '<span class="ok">No alerts.</span>';
+  const adv = [];
+  for (const s of ST.settings.shares) { const h = ST.health[s.id] || {}; if (h.freePct < ST.settings.minFreePct) adv.push(`<b>${esc(s.id)}:</b> is too full. Keep ${ST.settings.minFreePct}%+ free: run a Full check, clear duplicates and junk, move finished projects to the archive NAS.`); if (h.total && !h.snapshots) adv.push(`<b>${esc(s.id)}:</b> no snapshots seen - turn on snapshots in QTS Storage &amp; Snapshots (the best cure for ransomware).`); }
+  adv.push('NAS Care never deletes on its own: clean-ups go to <code>_NAS Care Bin</code> on the same share and can be put back. It never copies between shares, listens on this PC only and starts read-only every time.');
+  adv.push('Keep a second copy off the NAS (USB disk / cloud) for finished work - RAID is not a backup.');
+  adv.push('Keep QTS and apps updated, turn off UPnP / port forwarding to the NAS, and use a strong admin password with 2-step login.');
+  $('advice').innerHTML = adv.map((a) => `<div class="alert" style="border-color:var(--acc)">${a}</div>`).join('');
+}
+
+async function showReport() {
+  const r = ST.reports[SHARE] || {};
+  $('scanInfo').innerHTML = r.scanned ? `Scanned ${when(r.scanned)}${r.complete ? '' : ' <span class="warn">(stopped part-way)</span>'}: ${num(r.files)} files, ${gb(r.bytes)}. Projects read: ${ST.refs ? `${num(ST.refs.projects)} projects, ${num(ST.refs.paths)} media paths (${when(ST.refs.t)})` : 'not yet'}.` : 'Not scanned yet.';
+  const s = await get('/api/summary?share=' + encodeURIComponent(SHARE));
+  if (!s) { for (const id of ['byTop', 'byKind', 'byYear', 'largest', 'scanErr']) $(id).innerHTML = ''; return; }
+  const rows = (o) => Object.entries(o).sort((a, b) => b[1].bytes - a[1].bytes);
+  $('byTop').innerHTML = `<table><tr><th>Folder</th><th class="n">Files</th><th class="n">Size</th><th>Last change</th></tr>${rows(s.byTop).map(([k, v]) => `<tr><td class="path">${esc(k)}</td><td class="n">${num(v.files)}</td><td class="n">${gb(v.bytes)}</td><td class="dim">${v.newest ? dayOf(v.newest) : ''}</td></tr>`).join('')}</table>`;
+  $('byKind').innerHTML = `<table>${rows(s.byKind).map(([k, v]) => `<tr><td>${k}</td><td class="n">${num(v.files)}</td><td class="n">${gb(v.bytes)}</td></tr>`).join('')}</table>`;
+  $('byYear').innerHTML = `<table>${Object.entries(s.byYear).sort().reverse().map(([k, v]) => `<tr><td>${k}</td><td class="n">${num(v.files)}</td><td class="n">${gb(v.bytes)}</td></tr>`).join('')}</table>`;
+  $('largest').innerHTML = `<table>${s.largest.map(([p, b, m]) => `<tr><td class="path">${esc(p)}</td><td class="n">${gb(b)}</td><td class="dim">${dayOf(m)}</td></tr>`).join('')}</table>`;
+  $('scanErr').innerHTML = `${num(s.errorCount)} folders/files could not be read${s.errors.length ? ':<br>' + s.errors.slice(0, 30).map(esc).join('<br>') : '.'}${s.suspicious.length ? `<div class="alert danger">Files that look like ransomware: ${s.suspicious.slice(0, 20).map(esc).join('<br>')}</div>` : ''}`;
+}
+
+async function showDups() {
+  DU = await get('/api/dups?share=' + encodeURIComponent(SHARE) + '&limit=1500');
+  if (!DU) { $('dupInfo').textContent = 'No duplicate report yet - run "Duplicate report" or "Full check".'; $('dupList').innerHTML = ''; return; }
+  $('dupInfo').innerHTML = `<b>${num(DU.groups.length)}</b> groups · <b>${gb(DU.wasted)}</b> can be freed ${DU.complete ? '' : '<span class="warn">(stopped part-way)</span>'} · ${when(DU.t)}`;
+  $('dupList').innerHTML = DU.groups.map((g) => `<div class="card" style="padding:8px;margin-bottom:8px"><label class="ck"><input type="checkbox" class="dup" value="${g.id}"> <b>${gb(g.wasted)}</b> to free · ${g.members.length} copies of ${gb(g.size)}</label>
+    <table>${g.members.map((m) => `<tr><td style="width:90px">${m.rel === g.keep ? '<span class="pill ok">KEEP</span>' : m.used ? '<span class="pill">used</span>' : m.prot ? '<span class="pill">protected</span>' : '<span class="pill warn">to bin</span>'}</td><td class="path">${esc(m.rel)}</td><td class="dim">${dayOf(m.m)}</td></tr>`).join('')}</table></div>`).join('') || '<span class="ok">No duplicates found.</span>';
+}
+async function cleanDups() {
+  const ids = [...document.querySelectorAll('.dup:checked')].map((x) => x.value);
+  if (!ids.length) return alert('Tick some groups first.');
+  if (!confirm(`Check ${ids.length} groups byte for byte and move the extra copies to the bin? The KEEP copy stays.`)) return;
+  await post('/api/clean/dups', { share: SHARE, ids }); load();
+}
+
+const CATS = [['old', 'Old, not used by any project'], ['temp', 'Temporary / unfinished downloads'], ['cache', 'Cache files (Media Cache, peak files...)'], ['empty', 'Zero-byte files'], ['emptyDirs', 'Empty folders']];
+$('cat').innerHTML = CATS.map(([k, n]) => `<option value="${k}">${n}</option>`).join('');
+$('cat').onchange = () => drawUnused();
+async function showUnused() { $('ud').textContent = ST.settings.unusedDays; UN = await get('/api/unused?share=' + encodeURIComponent(SHARE) + '&limit=3000'); drawUnused(); }
+function drawUnused() {
+  if (!UN) { $('catInfo').textContent = 'No report yet - run "Unused report" or "Full check".'; $('unList').innerHTML = ''; return; }
+  const c = $('cat').value;
+  if (c === 'emptyDirs') { $('catInfo').innerHTML = `<b>${num(UN.emptyDirs.length)}</b> empty folders`; $('unList').innerHTML = `<table>${UN.emptyDirs.map((d) => `<tr><td style="width:24px"><input type="checkbox" class="un" value="${esc(d)}"></td><td class="path">${esc(d)}</td></tr>`).join('')}</table>`; return; }
+  const t = UN.totals[c];
+  $('catInfo').innerHTML = `<b>${num(t[0])}</b> files · <b>${gb(t[1])}</b> · ${num(UN.usedSkipped)} kept because a project uses them, ${num(UN.protSkipped)} in protected folders`;
+  $('unList').innerHTML = `<table><tr><th></th><th>File</th><th class="n">Size</th><th>Last change</th></tr>${UN.cats[c].map(([p, b, m]) => `<tr><td style="width:24px"><input type="checkbox" class="un" value="${esc(p)}"></td><td class="path">${esc(p)}</td><td class="n">${gb(b)}</td><td class="dim">${dayOf(m)}</td></tr>`).join('')}</table>`;
+}
+async function cleanFiles() {
+  const rels = [...document.querySelectorAll('.un:checked')].map((x) => x.value);
+  if (!rels.length) return alert('Tick some files first.');
+  if (!confirm(`Move ${rels.length} items to the bin? Each one is checked again first (not changed, not used, not protected).`)) return;
+  await post('/api/clean/files', { share: SHARE, cat: $('cat').value, rels }); load();
+}
+function tickAll(cls, on) { for (const x of document.querySelectorAll('.' + cls)) x.checked = on; }
+async function exportCsv(what) { const r = await get(`/api/export?share=${encodeURIComponent(SHARE)}&what=${what}`); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['\ufeff' + r.csv], { type: 'text/csv' })); a.download = r.name; a.click(); }
+
+async function browse(p) {
+  const list = await get('/api/browse' + (p ? '?path=' + encodeURIComponent(p) : ''));
+  orgFolder = p || null; $('orgPath').textContent = p || 'choose below'; $('orgApply').disabled = true; $('orgPlan').innerHTML = '';
+  const up = p ? (/^[A-Za-z]:\\$/.test(p) ? '' : p.replace(/\\[^\\]+\\?$/, '') || '') : null;
+  $('browser').innerHTML = (p ? `<div data-p="${esc(/^[A-Za-z]:$/.test(up) ? up + '\\' : up)}">⬆ up</div>` : '') + list.map((d) => `<div data-p="${esc(d.path)}">📁 ${esc(d.name)}</div>`).join('');
+}
+$('browser').onclick = (e) => { const p = e.target.dataset.p; if (p !== undefined) browse(p); };
+async function plan() {
+  if (!orgFolder) return alert('Choose a folder first.');
+  ORG = await post('/api/organise/plan', { folder: orgFolder, mode: $('orgMode').value, includeMedia: $('orgMedia').checked });
+  $('orgApply').disabled = !ORG.moves.length;
+  $('orgPlan').innerHTML = `${ORG.warnings.map((w) => `<div class="alert">${esc(w)}</div>`).join('')}<h3>${num(ORG.moves.length)} files will move</h3><div class="scroll"><table>${ORG.moves.map((m) => `<tr><td class="path">${esc(m.name)}</td><td>→</td><td class="path ok">${esc(m.sub)}</td></tr>`).join('')}</table></div>
+    ${ORG.skipped.length ? `<h3>${num(ORG.skipped.length)} stay</h3><div class="scroll dim">${ORG.skipped.map((s) => `${esc(s.name)} - ${esc(s.why)}`).join('<br>')}</div>` : ''}`;
+}
+async function applyPlan() { if (!confirm(`Move ${ORG.moves.length} files into the new folders? This can be undone from Bin & history.`)) return; await post('/api/organise/apply', { id: ORG.id }); $('orgApply').disabled = true; load(); }
+async function newProject() { if (!orgFolder) return alert('Choose the folder to make it in first.'); const r = await post('/api/newproject', { parent: orgFolder, name: $('npName').value }); alert('Made ' + r.dir); browse(orgFolder); }
+
+async function showBin() {
+  const list = await get('/api/batches');
+  $('batches').innerHTML = list.length ? `<table><tr><th>When</th><th>Share</th><th>What</th><th class="n">Files</th><th class="n">Size</th><th>State</th><th></th></tr>${list.map((b) => `<tr><td>${when(b.created)}</td><td>${esc(b.share)}</td><td>${esc(b.reason)}<div class="dim path">${b.sample.map((x) => esc(x.from)).join('<br>')}${b.moved > 5 ? '<br>...' : ''}</div>${b.skipped ? `<div class="dim">${b.skipped} left alone</div>` : ''}</td><td class="n">${num(b.moved)}</td><td class="n">${gb(b.bytes)}</td>
+    <td>${b.restored ? '<span class="pill">put back</span>' : b.purged ? '<span class="pill">emptied</span>' : b.kind === 'folder' ? '<span class="pill ok">organised</span>' : '<span class="pill warn">in bin</span>'}</td>
+    <td>${!b.restored && !b.purged && b.moved ? `<button class="b" onclick="restore('${b.id}')">${b.kind === 'folder' ? 'Undo' : 'Put back'}</button>${b.kind !== 'folder' ? ` <button class="b d" onclick="purge('${b.id}',${b.moved})">Empty</button>` : ''}` : ''}</td></tr>`).join('')}</table>` : '<span class="dim">Nothing yet.</span>';
+}
+async function restore(id) { if (!confirm('Put these files back where they were?')) return; const r = await post('/api/restore', { id }); alert(`${r.ok} put back${r.fail.length ? `, ${r.fail.length} could not: ` + r.fail.slice(0, 5).join('; ') : ''}`); showBin(); }
+async function purge(id, n) { const c = prompt(`Delete these ${n} files from the bin FOR GOOD? This cannot be undone by NAS Care (the NAS recycle bin / snapshots may still have them).\n\nType DELETE:`); if (!c) return; const r = await post('/api/purge', { id, confirm: c.trim() }); alert(`${r.purged} files deleted, ${gb(r.bytes)} freed`); showBin(); }
+
+function showSettings() {
+  const s = ST.settings;
+  $('sShares').value = s.shares.map((x) => [x.id, x.root, x.unc, x.name].join(' | ')).join('\n');
+  $('sProtect').value = s.protect.join('\n'); $('sRoots').value = s.projectRoots.join('\n'); $('sEditors').value = s.editorUrls.join('\n');
+  $('sRead').value = s.readMBs; $('sConc').value = s.scanConcurrency; $('sGentle').value = s.gentleMs; $('sDays').value = s.unusedDays; $('sProtDays').value = s.protectDays; $('sDupMB').value = s.minDupMB; $('sKeep').value = s.binKeepDays;
+  $('sFree').value = s.minFreePct; $('sCrit').value = s.critFreePct; $('sCan').checked = s.canaries; $('sWatch').checked = s.watch; $('sWatchLim').value = s.watchLimit;
+  $('sPhone').value = s.whatsapp.phone; $('sKey').value = s.whatsapp.apikey; $('sHost').value = s.snmp.host; $('sComm').value = s.snmp.community;
+  $('dataDir').textContent = 'Reports and history are kept on this PC in ' + ST.data;
+}
+async function saveSet(extra) {
+  const lines = (id) => $(id).value.split('\n').map((x) => x.trim()).filter(Boolean);
+  await post('/api/settings', extra || {
+    shares: lines('sShares').map((l) => { const [id, root, unc, name] = l.split('|').map((x) => x.trim()); return { id, root, unc, name }; }),
+    protect: lines('sProtect'), projectRoots: lines('sRoots'), editorUrls: lines('sEditors'),
+    readMBs: $('sRead').value, scanConcurrency: $('sConc').value, gentleMs: $('sGentle').value, unusedDays: $('sDays').value, protectDays: $('sProtDays').value, minDupMB: $('sDupMB').value, binKeepDays: $('sKeep').value,
+    minFreePct: $('sFree').value, critFreePct: $('sCrit').value, canaries: $('sCan').checked, watch: $('sWatch').checked, watchLimit: $('sWatchLim').value,
+    whatsapp: { phone: $('sPhone').value, apikey: $('sKey').value }, snmp: { host: $('sHost').value, community: $('sComm').value },
+  });
+  $('share').innerHTML = ''; await load(); showSettings(); alert('Saved.');
+}
+
+function showTab(k) {
+  if (!ST) return;
+  ({ health: showHealth, report: showReport, dups: showDups, unused: showUnused, org: () => orgFolder === null && browse(), bin: showBin, settings: showSettings })[k]?.();
+}
+let wasJob = false;
+setInterval(async () => { await load().catch(() => {}); if (wasJob && !ST?.job && cur() !== 'org' && cur() !== 'settings') showTab(cur()); wasJob = !!ST?.job; }, 3000);
+load().then(() => { let t = 'health'; try { t = localStorage.nasTab || t; } catch {} tab(t); });
+</script>
+</body>
+</html>
