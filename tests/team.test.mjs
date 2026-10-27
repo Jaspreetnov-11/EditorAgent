@@ -146,6 +146,17 @@ test('publish: an account that is not connected is refused at once (not queued t
   same(acc.body.youtube.connected, false); assert(!JSON.stringify(acc.body).includes('Secret'), 'no secrets');
 });
 
+test('team: everyone may look at the Dashboard; the team itself stays with the owner', async () => {
+  if (!ON) return 'skip';
+  const ed = (await login('Ravi', 'ravi-pass-1')).cookie, vw = (await login('Client', 'client-pass-1')).cookie;
+  for (const c of [ed, vw]) {
+    const r = await call(T, 'GET', '/api/team/perf', undefined, c);
+    same(r.status, 200); assert(Array.isArray(r.body.pcs) && r.body.health, 'the Dashboard numbers');
+    same((await call(T, 'GET', '/api/team', undefined, c)).status, 403);
+    same((await call(T, 'GET', '/api/team/sessions', undefined, c)).status, 403);
+  }
+});
+
 test('team: signing out ends that PC\'s session only', async () => {
   if (!ON) return 'skip';
   const a = (await login('Ravi', 'ravi-pass-1')).cookie, b = (await login('Ravi', 'ravi-pass-1')).cookie;

@@ -17,10 +17,10 @@ test('film: it is a clip effect with its settings; every look has a curve, a dye
 test('film: look strength 0 changes nothing; full strength uses the look; values out of range are held in it', () => {
   eq(lookChain('golden', 0), '');
   const full = lookChain('golden', 1);
-  assert(full.startsWith("curves=all='0.000/0.020") && full.includes('colorchannelmixer=') && full.includes('colorbalance=') && full.includes('eq=saturation=1.060'), full);
+  assert(full.startsWith("curves=all='0.000/0.030") && full.includes('colorchannelmixer=') && full.includes('colorbalance=') && full.includes('eq=saturation=1.100'), full);
   assert(!lookChain('clean', 1).includes('colorchannelmixer'), 'no dye mix when the look has none');
   const g = filmGraph({ look: 'nope', grain: 9, halation: -3, grainSize: 'huge' }, { W: 1280, H: 720, F: 24 }).graph('a', 'b');
-  assert(g.includes("curves=all='0.000/0.012") && !g.includes('[bh0]') && g.includes('color=c=0x808080:s=752x424:r=24'), 'unknown look -> Classic, halation 0 -> none, grain 1 medium');
+  assert(g.includes("curves=all='0.000/0.045") && !g.includes('[bh0]') && g.includes('color=c=0x808080:s=752x424:r=24'), 'unknown look -> Classic, halation 0 -> none, grain 1 medium');
 });
 
 test('film: the whole graph (look, halation, bloom, grain, vignette, weave, flicker) renders in FFmpeg at the frame size', () => {

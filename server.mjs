@@ -24,6 +24,7 @@ import { stabOf, usesPython, VFX } from './public/js/effects.js';
 import { ensureLuts, guessLogLut } from './engine/lutgen.mjs';
 import { listFonts, fontFile } from './engine/fontnames.mjs';
 import { ensureLooks } from './engine/looklut.mjs';
+import { speakHindiNumbers } from './engine/hindinum.mjs';
 import { keywords, searchStock, downloadStock } from './engine/stock.mjs';
 import { measure, autoGrade, looksLog, matchGrade } from './engine/colorstats.mjs';
 import { colorFilters, stager, isNeutral } from './engine/color.mjs';
@@ -42,7 +43,7 @@ import { readXmeml, aspectOf } from './engine/xmlimport.mjs';
 import { ensureSfx, listSfx, SFX_KINDS } from './engine/sfx.mjs';
 import { gyroflowExe, findLog, gyroSamples, stabilise, LOG_EXT as GF_LOG } from './engine/gyroflow.mjs';
 import { runNightly, mirrorLive, restoreProject, nights as backupNights, standbyState, liveDir, dayOf, safeDir } from './engine/safety.mjs';
-import { pickHelper, toTaskArgs, gpuProxyArgs, bestPoll, noteRate } from './engine/helpers.mjs';
+import { pickHelper, toTaskArgs, gpuProxyArgs, bestPoll, noteRate, helperScore } from './engine/helpers.mjs';
 import { inNight, nightSource, recentProjects } from './engine/nightshift.mjs';
 import { projectOwner, canSee, requestProject } from './engine/access.mjs';
 import { lineIndex, fairOrder } from './engine/priority.mjs';
@@ -238,49 +239,57 @@ if (process.platform === 'win32') {
 // "python" can be the Microsoft Store stub, which starts but fails - require a real exit 0.
 const PYTHON = ['python', 'python3', 'py'].find((b) => spawnSync(b, ['--version']).status === 0) || 'python';
 // 🧬 same-voice dubbing has its own Python (its pinned torch / transformers would break the editor's other AI tools)
-const AIVOICE_PY = path.join(ROOT, 'tools', 'aivoice', 'venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
-const aiVoiceReady = () => fs.existsSync(path.join(ROOT, 'tools', 'aivoice', 'venv', 'Lib', 'site-packages', 'chatterbox', 'mtl_tts.py'));
+// (VEDIT_AIVOICE: a standby PC's editor folder is made the same as the NAS's at every start, so its venv - ~5 GB - lives
+// next to it and engine/standby.mjs names it here)
+const AIVOICE_DIR = process.env.VEDIT_AIVOICE || path.join(ROOT, 'tools', 'aivoice');
+const AIVOICE_PY = path.join(AIVOICE_DIR, 'venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
+const aiVoiceReady = () => fs.existsSync(path.join(AIVOICE_DIR, 'venv', 'Lib', 'site-packages', 'chatterbox', 'mtl_tts.py')) && aiVoiceHome();
 let aiVoiceSetup = null;
-// 🎙 VoiceVerse (Labs voice cloning): VoiceStudio (github.com/debpalash/VoiceStudio, AGPL) installed on this PC - its
-// own app runs the voice AI and a local API (default :3900); the editor sends it a 15 s sample + one sentence at a time.
-// config.voiceverse = { url, exe } where the defaults do not fit
-const VV_EXE_DEFAULT = 'D:\\VoiceVerse\\app\\VoiceStudio.exe';
-const vvUrl = () => String(config().voiceverse?.url || 'http://127.0.0.1:3900').replace(/\/+$/, '');
-const vvExe = () => config().voiceverse?.exe || VV_EXE_DEFAULT;
-async function vvHealth() {
-  try { const r = await fetch(`${vvUrl()}/health`, { signal: AbortSignal.timeout(2500) }); return r.ok; } catch { return false; }
+// a venv copied from another PC (the server move) still names that PC's Python (pyvenv.cfg home) and does not start at
+// all; pointed at this PC's own Python of the same version, it runs again. false = it cannot start here.
+let aiVoiceHomeOk = null;
+function aiVoiceHome() {
+  if (aiVoiceHomeOk !== null) return aiVoiceHomeOk;
+  const cfg = path.join(AIVOICE_DIR, 'venv', 'pyvenv.cfg');
+  try {
+    const t = fs.readFileSync(cfg, 'utf8'), home = /^home\s*=\s*(.+?)\s*$/m.exec(t)?.[1], ver = /^version(?:_info)?\s*=\s*(.+?)\s*$/m.exec(t)?.[1];
+    if (!home || fs.existsSync(path.join(home, process.platform === 'win32' ? 'python.exe' : 'python3'))) return (aiVoiceHomeOk = true);
+    const r = spawnSync(PYTHON, ['-c', 'import sys;print(sys.executable);print(sys.version.split()[0])'], { encoding: 'utf8', windowsHide: true });
+    const [exe, v] = String(r.stdout || '').trim().split(/\r?\n/);
+    if (!exe || !v || v !== ver) { console.log(`🧬 the same-voice Python (tools/aivoice/venv) wants Python ${ver} at ${home} - not on this PC`); return (aiVoiceHomeOk = false); }
+    fs.copyFileSync(cfg, `${cfg}.bak`);
+    fs.writeFileSync(cfg, t.split(home).join(path.dirname(exe)));
+    console.log(`🧬 the same-voice Python (tools/aivoice/venv) now uses ${path.dirname(exe)}`);
+    return (aiVoiceHomeOk = true);
+  } catch { return (aiVoiceHomeOk = true); }
 }
-function vvOpen() {
-  if (!fs.existsSync(vvExe())) throw err(400, `VoiceVerse is not installed on this computer (${vvExe()})`);
-  spawn(vvExe(), [], { detached: true, stdio: 'ignore', windowsHide: false }).unref();
+// 💥 VFX AI (VFX page: depth and sky mattes - engine/vfxai.py, Depth Anything V2 Small, Apache-2.0) has its own Python
+// as well (VEDIT_VFXAI: another folder for it, like VEDIT_AIVOICE); set up once per computer from the VFX page
+const VFXAI_DIR = process.env.VEDIT_VFXAI || path.join(ROOT, 'tools', 'vfxai');
+const VFXAI_PY = path.join(VFXAI_DIR, 'venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
+const VFXAI_MODELS = path.join(VFXAI_DIR, 'models');
+const vfxAiReady = () => fs.existsSync(VFXAI_PY) && fs.existsSync(path.join(VFXAI_DIR, 'venv', 'Lib', 'site-packages', 'transformers')) && fs.existsSync(path.join(VFXAI_MODELS, 'depth-anything-v2-small', 'model.safetensors'));
+let vfxAiSetup = null;
+// 🎙 VoiceVerse (Labs voice cloning, the editor's own): a person's voice saved once - a clean 15 s sample - and any script
+// spoken in it by the same-voice model above (Chatterbox, MIT - fine for client work). Every project can use a saved voice:
+// Library/voices/<id>/sample.wav + voice.json { name, at, by, from } (a test editor keeps its own)
+const VOICES = path.join(DATA === ROOT ? LIB : path.join(DATA, 'Library'), 'voices');
+fs.mkdirSync(VOICES, { recursive: true });
+const voiceDir = (id) => { if (!/^v[0-9a-z]{6,24}$/.test(String(id || ''))) throw err(404, 'That voice is not in the library'); return path.join(VOICES, id); };
+const listCloneVoices = () => fs.readdirSync(VOICES).filter((d) => /^v[0-9a-z]+$/.test(d) && fs.existsSync(path.join(VOICES, d, 'sample.wav')))
+  .map((id) => ({ id, ...readJSON(path.join(VOICES, id, 'voice.json'), {}) })).sort((a, b) => (b.at || 0) - (a.at || 0));
+// up to 15 s of speech from <from> s into a file -> a clean sample: rumble and hiss down, pauses over 0.6 s taken out,
+// one even level, mono 24 kHz (what the model listens at). A clean, close sample is most of how good the clone sounds.
+async function takeVoiceSample(src, from, out) {
+  const af = 'highpass=f=70,afftdn=nr=10:nf=-30,silenceremove=start_periods=1:start_threshold=-40dB:stop_periods=-1:stop_duration=0.6:stop_threshold=-40dB,loudnorm=I=-20:TP=-2';
+  const r = await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-ss', String(Math.max(0, +from || 0)), '-i', src, '-vn', '-af', af, '-t', '15', '-ac', '1', '-ar', '24000', out]);
+  if (r.code !== 0) throw err(400, `Could not take the voice sample: ${r.stderr.slice(-200)}`);
+  const d = +(await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', out])).stdout || 0;
+  if (d < 4) throw err(400, `Only ${d.toFixed(1)} s of speech in that sample - give 10-15 s of one person talking clearly`);
+  return d;
 }
-// its screens through the editor (the editor's sign-in protects them; the engine itself stays on 127.0.0.1). The screens
-// (tools/voiceverse/install-ui.mjs) call the engine at /voiceverse/api/<x> - that is the engine's own /<x>
-function vvProxy(req, res, u) {
-  let rest = u.pathname.slice('/voiceverse'.length) + u.search;
-  if (rest.startsWith('/api/')) rest = rest.slice(4);
-  const t = new URL(vvUrl()), headers = { ...req.headers, host: t.host };
-  delete headers.cookie; delete headers.authorization; delete headers['accept-encoding']; // (the editor's sign-in stays with the editor)
-  const up = http.request({ hostname: t.hostname, port: t.port, method: req.method, path: rest === '/' ? '/index.html' : rest, headers }, (r) => {
-    res.writeHead(r.statusCode, r.headers); r.pipe(res);
-  });
-  up.on('error', () => { if (!res.headersSent) send(res, 502, { error: 'VoiceVerse is not running on the editor PC' }); else res.end(); });
-  req.pipe(up);
-}
-// its screens are there when the engine serves its page
-async function vvUi() {
-  try { const r = await fetch(`${vvUrl()}/index.html`, { signal: AbortSignal.timeout(2500) }); return r.ok && /html/.test(r.headers.get('content-type') || ''); } catch { return false; }
-}
-// one line in the sample's voice -> a WAV file
-async function vvSpeak(text, ref, lang, out) {
-  const fd = new FormData();
-  fd.append('text', text); fd.append('language', lang === 'hi' ? 'Hindi' : 'English');
-  fd.append('ref_audio', new Blob([fs.readFileSync(ref)], { type: 'audio/wav' }), 'voice.wav');
-  fd.append('max_chunk_chars', '0');
-  const r = await fetch(`${vvUrl()}/generate`, { method: 'POST', body: fd, signal: AbortSignal.timeout(10 * 60 * 1000) });
-  if (!r.ok) { const t = await r.text().catch(() => ''); let m = t; try { m = JSON.parse(t).detail || t; } catch {} throw new Error(`VoiceVerse: ${typeof m === 'string' ? m.slice(0, 300) : JSON.stringify(m).slice(0, 300)}`); }
-  fs.writeFileSync(out, Buffer.from(await r.arrayBuffer()));
-}
+// how the voice speaks: the model's exaggeration (emotion) and cfg (lower = slower, more deliberate)
+const VOICE_STYLES = { calm: { exaggeration: 0.35, cfg: 0.5 }, natural: { exaggeration: 0.5, cfg: 0.5 }, lively: { exaggeration: 0.75, cfg: 0.35 } };
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml',
@@ -341,6 +350,10 @@ const track = (st, file, res) => { st.file = file; openStreams.add(st); const do
 // ⚡ the editor's own files (public/: scripts, styles, icons) are kept in memory once read: reading them goes through
 // Node's few file workers, which slow camera files on the NAS (scans, proxies) can keep busy for seconds - every
 // one of ~100 scripts then waited, and the editor stayed black for a minute
+// 🗺 where Motion's Map layer gets its tiles (style -> URL with {z} {x} {y}); Esri's World services
+const MAP_TILES = { satellite: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+  street: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+  dark: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}' };
 const PUBLIC_DIR = path.join(ROOT, 'public'), memFiles = new Map(); // file -> { mtime, size, buf }
 function serveFile(req, res, file, cache = false) {
   if (file && file.startsWith(PUBLIC_DIR) && !req.headers.range) {
@@ -1289,7 +1302,7 @@ async function makeWave(file, out, proj = null) {
 // small 540p proxy - for editors over the internet: streaming the camera file to them, every 2 s cut jumping to a new
 // place in it, kept the viewer black. On this computer the file itself still plays (full quality, it is right here).
 const heavy = (m) => m.kind === 'video' && m.proxy === 'none' && ((m.bitrate || 0) > 8e6 || (m.width || 0) * (m.height || 0) > 1920 * 1080);
-const liteQueued = new Set(); // projects whose light copies were asked for since the start
+const liteQueued = new Map(); // project -> the media looked at for a light copy since the start
 // 🎞 old 540p preview copies of the files on a project's timelines are made again at 1080p, in the background (once
 // per project and server start). Files the monitor plays itself (HEVC, H.264 - see player.js) are left as they are,
 // unless bigger than 1080p (Fast playback plays their copy).
@@ -1318,16 +1331,24 @@ function upgradeProxies(proj) {
 // ⚡ and every file on a timeline gets one too, whatever its size: the monitor's Fast / 1/4 playback plays it (540p, a
 // keyframe every 12 frames). Playing the camera file straight from the NAS kept the monitor black for 3-5 s after each
 // jump or cut (a 7 Mbit/s 1080p slow-motion file: the browser fetched minutes of it before showing a frame)
+// Each file is looked at once per start, but whenever it first needs one: it used to be the whole project once, when it was
+// first opened - a shot put on the timeline after that (by hand or by the agent) streamed the camera file until a restart.
 function ensureLite(proj) {
-  if (liteQueued.has(proj)) return;
-  liteQueued.add(proj);
+  let seen = liteQueued.get(proj);
+  if (!seen) liteQueued.set(proj, (seen = new Set()));
   const used = usedMediaIds(proj);
+  let n = 0;
   for (const m of mediaDb(proj).items) {
-    if (!(heavy(m) || (m.kind === 'video' && m.proxy === 'none' && used.has(m.id) && !m.alphaPlay)) || m.lite === 'ready' && fs.existsSync(P(proj, 'cache', 'proxies', `${m.id}.mp4`))) continue;
-    m.lite = 'queued'; proxyQ.push({ proj, id: m.id });
+    if (seen.has(m.id) || !(heavy(m) || (m.kind === 'video' && m.proxy === 'none' && used.has(m.id) && !m.alphaPlay))) continue;
+    seen.add(m.id);
+    if (m.lite === 'ready' && fs.existsSync(P(proj, 'cache', 'proxies', `${m.id}.mp4`))) continue;
+    m.lite = 'queued'; proxyQ.push({ proj, id: m.id }); n++;
   }
-  pump();
+  if (n) pump();
 }
+// (after a change to the edit - a moment later, once per burst of changes: a drag sends many)
+const liteSoon = new Map();
+const ensureLiteSoon = (proj) => { if (liteSoon.has(proj)) return; liteSoon.set(proj, setTimeout(() => { liteSoon.delete(proj); try { ensureLite(proj); } catch {} }, 1500)); };
 // 🎞 The preview copy of a file the browser cannot play (MXF, ProRes, 4:2:2, 10-bit H.264) is 1080p and nearly as good
 // as the file (crf 18) - the monitor is to look like the footage, as in Premiere. It was 540p / crf 26 and the monitor
 // looked soft. (The light copy for editors over the internet stays small: it has to stream.) PROXY_H marks the new ones.
@@ -1741,7 +1762,7 @@ function pumpQueue() {
         delete it.on;
       }
       saveQueue(); pumpQueue();
-    })) { it.stage = `On ${it.on}…`; saveQueue(); continue; }
+    }, !!rqActive)) { it.stage = `On ${it.on}…`; saveQueue(); continue; }
     if (rqActive) { it.state = 'waiting'; delete it.started; it.stage = ''; continue; }
     saveQueue();
     const p = spawn(process.execPath, [path.join(ROOT, 'engine', 'render2.mjs'), it.jobFile], { cwd: ROOT, windowsHide: true });
@@ -1815,7 +1836,18 @@ function projectAccess(name) {
   const rec = accessDb()[name] || {};
   return { owner: projectOwner(rec, projectPlaces()[name], teamCfg().userProjects || 'Z:\\Editor Projects', teamNames()) || ownerName(), shared: rec.shared || [] };
 }
-const mayOpen = (who, name) => { const a = projectAccess(name); return canSee(who, a.owner, a.shared); };
+const mayOpen = (who, name) => { const a = projectAccess(name); return canSee(who, a.owner, a.shared) || inMyFolder(who, name); };
+// 📁 Home folders given to people (the owner: a folder's ⋯ > Assign to people): f.users. A folder named like a team
+// member ("Vishal", "Guna Reels") is theirs until it is assigned by hand. A team member with folders of their own sees
+// those folders and every project in them (whoever made it) - and nothing else on Home.
+const isMember = (who) => !!who && !who.local && who.role !== 'owner';
+const folderUsers = (f) => (Array.isArray(f.users) ? f.users : teamNames().filter((n) => { const a = String(n).toLowerCase(), b = String(f.name || '').toLowerCase(); return a && (b === a || b.startsWith(`${a} `)); }));
+function myFolderIds(who) {
+  if (!isMember(who)) return null;
+  const me = String(who.name || '').toLowerCase();
+  return projectFolders().folders.filter((f) => folderUsers(f).some((n) => String(n).toLowerCase() === me)).map((f) => f.id);
+}
+const inMyFolder = (who, name) => { const ids = myFolderIds(who); return !!ids?.length && ids.includes(projectFolders().map[name]); };
 // a project in the Recycle Bin: its name (its record is kept under it), and whether this person may see / restore / purge it
 const binName = (folder) => readJSON(path.join(recycleBin(), folder, 'project.json'), {}).name || String(folder).replace(/ \(deleted .*$/, '');
 const binMay = (who, folder) => { const rec = accessDb()[binName(folder)] || {}; return canSee(who, rec.by || ownerName(), rec.shared || []); };
@@ -1885,9 +1917,23 @@ function listDir(dir, filter) {
 
 // 📁 Home folders: { folders: [{ id, name }], map: { project: folderId } }
 const FOLDERS_FILE = path.join(DATA, 'project-folders.json');
+let pfCache = null; // (read once per change of the file: every request's access check looks at it)
 function projectFolders() {
+  let mt = 0; try { mt = fs.statSync(FOLDERS_FILE).mtimeMs; } catch {}
+  if (pfCache?.mt === mt) return pfCache.v;
   const x = readJSON(FOLDERS_FILE, null) || {};
-  return { folders: Array.isArray(x.folders) ? x.folders : [], map: x.map && typeof x.map === 'object' ? x.map : {} };
+  const v = { folders: Array.isArray(x.folders) ? x.folders : [], map: x.map && typeof x.map === 'object' ? x.map : {} };
+  pfCache = { mt, v };
+  return v;
+}
+// what a person sees of the folders: the owner all of them (with whom each is given to); a team member their own
+// folders - or, with none, the folders that hold a project they may see - and the places of only the projects they see
+function foldersFor(who, visible) {
+  const pf = projectFolders();
+  if (!isMember(who)) return { ...pf, folders: pf.folders.map((f) => ({ ...f, users: folderUsers(f), auto: !Array.isArray(f.users) })), people: teamNames() };
+  const mine = myFolderIds(who), see = new Set(visible), map = Object.fromEntries(Object.entries(pf.map).filter(([pn]) => see.has(pn)));
+  const ids = new Set(mine.length ? mine : Object.values(map));
+  return { folders: pf.folders.filter((f) => ids.has(f.id)).map(({ id, name }) => ({ id, name })), map, mine };
 }
 function projectSummary(name) {
   const pj = readJSON(P(name, 'project.json'), null);
@@ -2050,7 +2096,9 @@ const appOf = (night) => (night
   ? { files: [[PLACES_FILE, 'project-places.json'], [path.join(DATA, 'project-folders.json'), 'project-folders.json']], dirs: [[LIB, 'Library'], [GLOBAL_LUTS, 'LUTs']], config: config() }
   // (the live mirror also carries the sign-ins - hashes of the cookies, never the cookies - so a standby that takes over
   // lets everyone carry on without signing in again)
-  : { files: [[path.join(DATA, 'project-folders.json'), 'project-folders.json'], [SESS_FILE, 'team-sessions.json']], config: config() });
+  : { files: [[path.join(DATA, 'project-folders.json'), 'project-folders.json'], [SESS_FILE, 'team-sessions.json']], config: config(),
+    // (and the VoiceVerse voices - a standby's VOICES is <mirror>/Library/voices - so a voice-over can go on there)
+    dirs: [[VOICES, path.join('Library', 'voices')]] });
 // (⚙ with project workers: each worker saves what it keeps)
 // (only projects with a save still pending: every open project used to be written again - a new time each run - so
 // with the mirror every 30 s each one went to the NAS and into the mirror over and over)
@@ -2751,7 +2799,8 @@ function allowed(who, method, p) {
   if (/^\/api\/(me|lock|unlock|clientlog)$/.test(p) || /^\/api\/chat(\/|$)/.test(p)) return true; // (💬 viewers chat too)
   if (method !== 'GET' && OWNER_CHANGES.some((r) => r.test(p))) return false;
   // (reading the settings only tells whether keys are set; the publish list and accounts show no tokens)
-  if (OWNER_ONLY.some((r) => r.test(p))) return method === 'GET' && p === '/api/team/shortcut'; // (the shortcut is only a link)
+  // (the shortcut is only a link; 📊 the Dashboard - how hard the editor works on each PC - is for everyone to see)
+  if (OWNER_ONLY.some((r) => r.test(p))) return method === 'GET' && (p === '/api/team/shortcut' || p === '/api/team/perf');
   if (who.role === 'viewer') return method === 'GET';
   return true;
 }
@@ -2877,7 +2926,7 @@ function startTeam() {
     // a user removed (or demoted) by the owner loses access at once
     const usr = s && (teamCfg().users || []).find((x) => x.name === s.name);
     if (!s || !usr) {
-      if (/^\/(api|pm|pf|lg|voiceverse)\//.test(u.pathname)) return send(res, 401, { error: 'Sign in again' });
+      if (/^\/(api|pm|pf|lg)\//.test(u.pathname)) return send(res, 401, { error: 'Sign in again' });
       if (/^\/(css|js|img)\//.test(u.pathname)) return serveFile(req, res, path.join(ROOT, 'public', path.normalize(decodeURIComponent(u.pathname)))); // (img: the logo on the sign-in page)
       if (/^\/(manifest\.webmanifest|sw\.js)$/.test(u.pathname)) return serveFile(req, res, path.join(ROOT, 'public', u.pathname.slice(1))); // (🖥 install as a Desktop app, from the sign-in page)
       return serveFile(req, res, path.join(ROOT, 'public', 'team', 'login.html'));
@@ -2997,7 +3046,7 @@ const farmView = () => ({ on: !!farm.server, port: FARM_PORT, token: farm.server
 // heat / power - and its last hour. This server samples itself every 10 s; the helpers send theirs with their hello.
 const perf = { live: null, hist: [], nas: { ms: [], errors: 0, at: 0, hist: [] } };
 if (!IS_WORKER) {
-  const tick = () => liveStats().then((s) => { perf.live = s; addPoint(perf.hist, s); }).catch(() => {});
+  const tick = () => liveStats({ disk: path.parse(path.resolve(DATA)).root.slice(0, 2) }).then((s) => { perf.live = s; addPoint(perf.hist, s); }).catch(() => {});
   tick(); setInterval(tick, 10000).unref();
   // 🗄 the NAS answers how fast: every 30 s 1 MB written (to disk, not a cache) and read back, next to the backups - tiny
   // next to its real work, so it does not wear it. Two misses in a row = "does not answer".
@@ -3204,8 +3253,14 @@ function helperRender({ proj, jobFile, duration = 60, label = '', onLine, task }
   try { job = readJSON(jobFile, null); } catch { job = null; }
   if (!job?.output) return null;
   // 🐍 Brush Strokes / Paint Bucket / Rolling Shutter Repair / Morph Cut run engine/pyfx.py: only a PC with OpenCV takes them
-  const h = pickHelper(String(proj), helperPCs(), helperOf, farmCfg().pins || {}, usesPython(job.project) ? ['render', 'cv2'] : 'render');
-  if (!h || !farm.polls.some((p) => p.w.id === h.id && p.lane === 'render')) return null; // (not free for a render right now)
+  const needs = usesPython(job.project) ? ['render', 'cv2'] : ['render'], pinned = !!(farmCfg().pins || {})[proj];
+  const h = pickHelper(String(proj), helperPCs(), helperOf, farmCfg().pins || {}, needs);
+  const free = (id) => farm.polls.some((p) => p.w.id === id && p.lane === 'render');
+  // 🖥 the project's own PC when it is free; else (not pinned to it) any free PC that can, the one expected to finish
+  // first (bestPoll) - a render used to wait for the server PC while other helpers sat idle, or went to a slow PC
+  // only because the project had been given to it
+  const own = h && free(h.id) ? h.id : null;
+  if (!own && (pinned || !farm.polls.some((p) => p.lane === 'render' && !p.w.paused && needs.every((k) => p.w.specs?.[k])))) return null; // (no PC free for a render right now)
   const pjText = JSON.stringify(job.project), luts = {}, need = [];
   for (const [n, f] of Object.entries(job.luts || {})) {
     if (!pjText.includes(JSON.stringify(n))) continue; // (only the LUTs this timeline uses)
@@ -3215,19 +3270,24 @@ function helperRender({ proj, jobFile, duration = 60, label = '', onLine, task }
   }
   for (const m of Object.values(job.media || {})) { let size = null; try { size = fs.statSync(m.path).size; } catch {} need.push({ path: m.path, size }); }
   if (job.subtitlesPath) need.push({ path: job.subtitlesPath });
-  const t = { id: crypto.randomBytes(6).toString('hex'), kind: 'render', label: `${proj}: ${label || path.basename(job.output)}`, lane: 'render', helper: h.id, proj,
+  // (sizes: the edit's seconds, so noteRate learns each PC's render speed - seconds of edit per second - for bestPoll)
+  const t = { id: crypto.randomBytes(6).toString('hex'), kind: 'render', label: `${proj}: ${label || path.basename(job.output)}`, lane: 'render', helper: own, needs, proj,
     job: { ...job, luts, farm: null }, need, dirs: [path.dirname(job.output), job.segCache ? path.dirname(job.segCache) : null].filter(Boolean),
-    out: job.output, onLine, state: 'waiting', limitMs: Math.max(1800, (duration || 60) * 120) * 1000, pc: h.name };
+    out: job.output, onLine, state: 'waiting', limitMs: Math.max(1800, (duration || 60) * 120) * 1000, sizes: [Math.max(0, +duration || 0) * 1e6] };
   const done = new Promise((ok) => { t.finish = ok; });
   farm.tasks.set(t.id, t); farm.waiting.push(t); farmPump();
   if (t.state !== 'taken') { t.finish = () => {}; farmEnd(t, new Error('not taken')); return null; } // (the PC asked for something else meanwhile)
+  t.pc = farm.workers.get(t.worker)?.name || h?.name || 'a helper';
   task?.(t);
   return done;
 }
-// a render from the render queue on its project's helper (finish(error, PC name) when it ends)
+// this PC's strength in helperScore's terms (threads, an NVIDIA encoder, RAM)
+const serverSpecs = () => ({ cores: os.cpus().length, nvenc: !!healthCache?.nvenc, ramGB: Math.round(os.totalmem() / 2 ** 30) });
+// a render from the render queue on its project's helper (finish(error, PC name) when it ends) - only while this PC is
+// already rendering one: free, it is the fastest place for it (rqBusy: the queue's own render running here)
 const rqHelp = new Map(); // queue id -> farm task
-function renderOnHelper(it, onLine, finish) {
-  if (it.noHelper) return false;
+function renderOnHelper(it, onLine, finish, rqBusy = true) {
+  if (it.noHelper || !rqBusy) return false;
   const p = helperRender({ proj: it.project, jobFile: it.jobFile, duration: it.duration, label: it.out, onLine, task: (t) => { rqHelp.set(it.id, t); it.on = t.pc; } });
   if (!p) return false;
   p.then((e) => { const pc = rqHelp.get(it.id)?.pc; rqHelp.delete(it.id); finish(e, pc); });
@@ -3414,7 +3474,9 @@ async function claudeStatus(force = false) {
   return { available: ok, exe, reason: claudeAuth.msg };
 }
 // kept narrow on purpose: read anything, write only its own edit files, run only the editor's own tool (engine/edtool.mjs)
-const CLAUDE_TOOLS = ['Read', 'Glob', 'Grep', 'TodoWrite', 'Write(Projects/**/cache/claude/**)', 'Edit(Projects/**/cache/claude/**)', 'Bash(node engine/edtool.mjs:*)'];
+// (a PC without Git Bash - PC A - gives Claude Code a PowerShell tool instead of Bash: edtool is allowed there too, or
+// every call stopped at "requires approval" and the agent could do nothing)
+const CLAUDE_TOOLS = ['Read', 'Glob', 'Grep', 'TodoWrite', 'Write(Projects/**/cache/claude/**)', 'Edit(Projects/**/cache/claude/**)', 'Bash(node engine/edtool.mjs:*)', 'PowerShell(node engine/edtool.mjs:*)'];
 // 🛡 never readable, for anyone: Claude runs in the app folder and may read files there without asking, so an editor could
 // have it print config.json (password hashes, YouTube / ElevenLabs keys, farm token), the HTTPS key or the sign-ins
 const CLAUDE_DENY = ['config.json', 'ssl/**', 'team-sessions.json', 'sessions-log.json', 'client-reviews.json', '**/.env', 'logs/**', 'chat/**'] // (💬 people's own chats too)
@@ -3438,6 +3500,27 @@ function limitHit(why) {
 // (the team's main sequence keeps the old session.json)
 const claudeSeq = (name, seq) => { const s = String(seq || ''); return s && /^[\w-]{1,80}$/.test(s) && s !== seqOf(liveOf(name).pj).id ? s : ''; };
 const claudeSession = (name, seq) => P(name, 'cache', 'claude', seq ? `session-${seq}.json` : 'session.json');
+// ❓ one Help answer: Claude (the backup model - quick) with the help guide, reading only the editor's code and guides
+function helpAsk(exe, q, sid) {
+  const args = ['-p', q, '--output-format', 'json', '--append-system-prompt-file', path.join(ROOT, 'engine', 'help-guide.md'), '--max-turns', '12',
+    '--allowedTools', ['Read(public/**)', 'Read(engine/*.md)', 'Grep(public/**)', 'Glob(public/**)'].join(','),
+    '--disallowedTools', [...CLAUDE_DENY, 'Bash', 'PowerShell', 'Write', 'Edit', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Task'].join(','),
+    '--permission-mode', 'default', '--model', CLAUDE_BACKUP(), ...(sid ? ['--resume', sid] : [])];
+  return new Promise((ok, bad) => {
+    const p = spawn(exe, args, { cwd: ROOT, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
+    let out = '', errText = '';
+    const t = setTimeout(() => { killTree(p); bad(err(504, 'The help took too long - ask again, a little shorter')); }, 180000);
+    p.stdout.on('data', (d) => { out += d; });
+    p.stderr.on('data', (d) => { errText = (errText + d).slice(-2000); });
+    p.on('error', (e) => { clearTimeout(t); bad(e); });
+    p.on('close', () => {
+      clearTimeout(t);
+      let j = null; try { j = JSON.parse(out.trim().split(/\r?\n/).pop()); } catch {}
+      if (j && !j.is_error && j.result) return ok({ text: j.result, sid: j.session_id || sid });
+      bad(err(502, j?.result || errText.trim().split(/\r?\n/).pop() || 'The help could not answer'));
+    });
+  });
+}
 function claudeChat(name, message, reset, who = null, seq = '') {
   const exe = claudeExe();
   if (!exe) throw err(400, 'Claude Code is not installed on this computer');
@@ -3617,6 +3700,7 @@ function liveOf(name) {
     clearTimeout(L.timer); L.timer = null;
     L.pj = normalizeProject(readJSON(f)); L.mtime = mt; L.rev++; L.log = [];
     liveSend(L, { type: 'reset', rev: L.rev, project: L.pj });
+    ensureLiteSoon(name);
   }
   return L;
 }
@@ -3649,6 +3733,7 @@ function liveSend(L, msg, only = null) {
 }
 function liveWrite(name, L, now = false) {
   if (L.view) { logCrash('live save', `${name}: not written here - its project worker keeps it`); return; }
+  ensureLiteSoon(name); // (⚡ a shot just put on a timeline - by hand, the agent, an undo - gets its light copy now, not after a restart)
   clearTimeout(L.timer);
   const go = (soon) => {
     L.timer = null; L.pj.modified = Date.now(); const f = P(name, 'project.json');
@@ -3737,16 +3822,22 @@ function toUnc(p) {
 }
 const whoLabel = (who) => (who.local ? `${who.name} (this PC)` : who.name);
 
-// 🧬 voice-over in the voice of a recording (Phase 22, like ElevenLabs voice cloning): up to 15 s of b.refMediaId (from
-// b.refIn) is the voice; the script is spoken sentence by sentence (a blank line = a longer pause) and joined, with
-// subtitles timed per sentence. lang: 'hi' for Devanagari scripts, else 'en'.
+// 🎙 VoiceVerse voice-over (like ElevenLabs voice cloning, on this PC): the voice is a saved one (b.voiceId) or up to 15 s
+// of b.refMediaId from b.refIn; the script is spoken sentence by sentence by the same-voice model (a blank line = a longer
+// pause), each take's silent ends trimmed, joined, levelled for voice-over (-16 LUFS) and sped to b.speed, with subtitles
+// timed per sentence. b.style: calm | natural | lively. lang: 'hi' for Devanagari scripts, else 'en'.
 function cloneVoiceOver(name, b, lang) {
-  const m = mediaItem(name, b.refMediaId);
-  if (!m || !(m.hasAudio || m.kind === 'audio')) throw err(400, 'Pick the recording whose voice should speak');
+  const saved = b.voiceId ? { dir: voiceDir(b.voiceId), ...readJSON(path.join(voiceDir(b.voiceId), 'voice.json'), {}) } : null;
+  if (saved && !fs.existsSync(path.join(saved.dir, 'sample.wav'))) throw err(404, 'That voice is not in the library any more');
+  const m = saved ? null : mediaItem(name, b.refMediaId);
+  if (!saved && !(m && (m.hasAudio || m.kind === 'audio'))) throw err(400, 'Pick the voice that should speak');
+  if (!aiVoiceReady()) throw err(400, 'VoiceVerse is not set up on the editor PC yet - press "Set up VoiceVerse" in Labs › VoiceVerse');
+  const style = VOICE_STYLES[b.style] || VOICE_STYLES.natural, speed = Math.min(1.2, Math.max(0.85, +b.speed || 1));
   // sentences (। . ! ?), long ones cut at commas; paragraphs remember the pause after them
   const chunks = [];
   for (const para of String(b.text).replace(/\*+/g, '').split(/\n\s*\n/)) {
-    const ss = para.replace(/\s+/g, ' ').trim().split(/(?<=[।॥.!?])\s+/).filter(Boolean);
+    // (each line its own sentence too: a list - दिनांक / समय / स्थान - has no । between its lines)
+    const ss = para.split(/\n/).flatMap((l) => l.replace(/\s+/g, ' ').trim().split(/(?<=[।॥.!?])\s+/)).filter(Boolean);
     for (const s of ss) {
       // (short pieces: the voice model wanders off - made-up words - more often on long ones)
       if (s.length <= 150) { chunks.push({ text: s, gap: 0.3 }); continue; }
@@ -3757,32 +3848,38 @@ function cloneVoiceOver(name, b, lang) {
     if (chunks.length) chunks[chunks.length - 1].gap = 0.75;
   }
   if (!chunks.length) throw err(400, 'Write the voice-over text first');
+  const who = saved?.name || m.name.replace(/\.[^.]+$/, '');
   return startTask('tts', async (job) => {
     const wd = fs.mkdtempSync(P(name, 'cache', 'vo-'));
     try {
-      if (!(await vvHealth())) throw new Error('VoiceVerse is not running - press "Open VoiceVerse" on the Labs page, wait for it to start, then try again');
       job.stage = 'Listening to the voice…'; job.progress = 2;
       const ref = path.join(wd, 'voice.wav');
-      const rr = await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-ss', String(Math.max(0, +b.refIn || 0)), '-i', m.path, '-vn', '-af', 'silenceremove=start_periods=1:start_threshold=-40dB', '-t', '15', '-ac', '1', '-ar', '24000', ref]);
-      if (rr.code !== 0) throw new Error(`Could not take the voice sample: ${rr.stderr.slice(-200)}`);
-      const files = chunks.map((_, k) => path.join(wd, `s${k}.wav`));
-      for (let k = 0; k < chunks.length; k++) {
-        job.progress = 5 + Math.round((k / chunks.length) * 85); job.stage = `Speaking ${k + 1}/${chunks.length}…`;
-        await vvSpeak(chunks[k].text, ref, lang, files[k]);
-      }
-      // joined with the pauses; subtitles from where each sentence lands
+      if (saved) fs.copyFileSync(path.join(saved.dir, 'sample.wav'), ref); else await takeVoiceSample(m.path, b.refIn, ref);
+      const raw = chunks.map((_, k) => path.join(wd, `r${k}.wav`)), files = chunks.map((_, k) => path.join(wd, `s${k}.wav`));
+      const jf = path.join(wd, 'clone.json');
+      writeJSON(jf, { ref, lang, exaggeration: style.exaggeration, cfg: style.cfg, lines: chunks.map((c, k) => ({ text: lang === 'hi' ? speakHindiNumbers(c.text) : c.text, out: raw[k] })) });
+      const res = await cloneVoice(jf, (x) => { const p = /^PROGRESS (\d+) (.*)/.exec(x); if (p) { job.progress = 3 + Math.round(+p[1] * 0.85); job.stage = `${p[2]}…`; } });
+      if (res.error) throw new Error(`VoiceVerse: ${res.error}`);
+      // each take without the silence (and breath noise) before and after it - the pauses are set here
+      job.stage = 'Finishing the voice-over…'; job.progress = 90;
+      const trim = 'silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.05,areverse,silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.08,areverse';
       const durs = [];
-      for (const f of files) durs.push(+(await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', f])).stdout || 0);
+      for (let k = 0; k < chunks.length; k++) {
+        const tr = await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-i', raw[k], '-af', trim, '-ar', '48000', '-ac', '1', files[k]]);
+        if (tr.code !== 0) fs.copyFileSync(raw[k], files[k]);
+        durs.push(+(await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', files[k]])).stdout || 0);
+      }
+      // joined with the pauses, then one voice-over level: rumble off, gently compressed, -16 LUFS, peaks under -1.5 dB
       const g = files.map((_, k) => `[${k}:a]aresample=48000,aformat=channel_layouts=stereo,apad=pad_dur=${chunks[k].gap}[a${k}]`);
-      g.push(`${files.map((_, k) => `[a${k}]`).join('')}concat=n=${files.length}:v=0:a=1[out]`);
-      const base = safeName(`AI VO ${m.name.replace(/\.[^.]+$/, '').slice(0, 30)} voice ${localStamp()}`);
+      g.push(`${files.map((_, k) => `[a${k}]`).join('')}concat=n=${files.length}:v=0:a=1,highpass=f=60,acompressor=threshold=-18dB:ratio=2.5:attack=5:release=80${speed !== 1 ? `,atempo=${speed.toFixed(3)}` : ''},loudnorm=I=-16:TP=-1.5:LRA=9[out]`);
+      const base = safeName(`AI VO ${who.slice(0, 30)}${saved ? '' : ' voice'} ${localStamp()}`);
       const out = P(name, 'imports', `${base}.mp3`);
       const gf = path.join(wd, 'graph.txt'); fs.writeFileSync(gf, g.join(';'));
-      const cr = await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...files.flatMap((f) => ['-i', f]), '-/filter_complex', gf, '-map', '[out]', '-c:a', 'libmp3lame', '-b:a', '192k', out]);
+      const cr = await run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...files.flatMap((f) => ['-i', f]), '-/filter_complex', gf, '-map', '[out]', '-ar', '48000', '-c:a', 'libmp3lame', '-b:a', '192k', out]);
       if (cr.code !== 0) throw new Error(`Could not join the voice-over: ${cr.stderr.slice(-300)}`);
       let srt = null;
       if (b.subtitles) {
-        const tc = (t) => { const ms = Math.round(t * 1000), p = (x, w = 2) => String(x).padStart(w, '0'); return `${p(Math.floor(ms / 3600000))}:${p(Math.floor(ms / 60000) % 60)}:${p(Math.floor(ms / 1000) % 60)},${p(ms % 1000, 3)}`; };
+        const tc = (t) => { const ms = Math.round((t / speed) * 1000), p = (x, w = 2) => String(x).padStart(w, '0'); return `${p(Math.floor(ms / 3600000))}:${p(Math.floor(ms / 60000) % 60)}:${p(Math.floor(ms / 1000) % 60)},${p(ms % 1000, 3)}`; };
         let t = 0; const cues = [];
         chunks.forEach((c, k) => { cues.push(`${k + 1}\n${tc(t)} --> ${tc(t + durs[k])}\n${c.text}\n`); t += durs[k] + c.gap; });
         srt = P(name, 'subs', `${base}.srt`); fs.writeFileSync(srt, cues.join('\n'), 'utf8');
@@ -3790,7 +3887,7 @@ function cloneVoiceOver(name, b, lang) {
       const it = addMediaFile(name, out, { bin: 'AI voice-over', imported: true });
       saveMedia(name, true);
       for (let i = 0; i < 40 && it && mediaItem(name, it.id)?.status !== 'ready'; i++) await new Promise((ok) => setTimeout(ok, 300));
-      return { mediaId: it?.id, subs: srt ? path.basename(srt) : null, duration: mediaItem(name, it?.id)?.duration ?? durs.reduce((a, d, k) => a + d + chunks[k].gap, 0), sentences: chunks.length };
+      return { mediaId: it?.id, subs: srt ? path.basename(srt) : null, duration: mediaItem(name, it?.id)?.duration ?? durs.reduce((a, d, k) => a + d + chunks[k].gap, 0) / speed, sentences: chunks.length, retried: res.retried || 0 };
     } finally { fs.rmSync(wd, { recursive: true, force: true }); }
   }, { project: name });
 }
@@ -3803,7 +3900,7 @@ const routes = {
   // busy: work that a restart would cut off (an agent edit, Claude, a render) - a newer copy starting then leaves this one running
   // 🛟 Mazbooti (owner only): health, the nightly backup, restores and the standby PC
   'GET /api/safety': () => healthView(),
-  'GET /api/team/perf': () => perfView(), // (📊 owner only, like all of /api/team)
+  'GET /api/team/perf': () => perfView(), // (📊 everyone signed in may look - see allowed())
   'POST /api/safety': async (req) => {
     const b = await readJson(req), patch = {};
     if (typeof b.on === 'boolean') patch.on = b.on;
@@ -3862,7 +3959,9 @@ const routes = {
     return healthView();
   },
   // (⚙ the project workers' jobs count too - a newer editor never replaces one with an edit running in a worker)
-  'GET /api/version': async () => ({ build: BUILD, busy: [...jobs.values()].filter((j) => j.status === 'running').length + (rqActive ? 1 : 0) + rqHelp.size + (await workerStates()).reduce((n, w) => n + (w.jobs?.length || 0), 0) }),
+  // main: this is a deployed editor (the server PC / a standby has release.json) - Limelight Editor.exe on the same PC uses
+  // it straight; a coding / test run (no release.json) never takes over that window
+  'GET /api/version': async () => ({ build: BUILD, main: fs.existsSync(path.join(ROOT, 'release.json')), busy: [...jobs.values()].filter((j) => j.status === 'running').length + (rqActive ? 1 : 0) + rqHelp.size + (await workerStates()).reduce((n, w) => n + (w.jobs?.length || 0), 0) }),
   'POST /api/shutdown': async (req, res) => {
     const busy = [...jobs.values()].filter((j) => j.status === 'running').length + (rqActive ? 1 : 0) + rqHelp.size + (await workerStates()).reduce((n, w) => n + (w.jobs?.length || 0), 0);
     if (busy) return send(res, 409, { error: `${busy} job(s) running - not closing` });
@@ -3870,9 +3969,11 @@ const routes = {
 
   // projects
   // (🔐 a team member gets only their projects and the ones shared with them; by / shared say whose and with whom)
-  'GET /api/projects': async (req) => { const pf = projectFolders(), pl = projectPlaces(); return (await allSummaries())
+  'GET /api/projects': async (req) => { const pf = projectFolders(), pl = projectPlaces(), mine = myFolderIds(req.who); return (await allSummaries())
     .map((p) => ({ ...p, group: pf.map[p.name] || null, place: pl[p.name] || null, ...(({ owner, shared }) => ({ by: owner, shared }))(projectAccess(p.name)) }))
-    .filter((p) => canSee(req.who, p.by, p.shared)).sort((a, b) => b.modified - a.modified); },
+    // (📁 a team member with folders of their own: the projects in them, and their own ones not in any folder yet)
+    .filter((p) => (mine?.length ? mine.includes(p.group) || (!p.group && canSee(req.who, p.by, [])) : canSee(req.who, p.by, p.shared)))
+    .sort((a, b) => b.modified - a.modified); },
   // 🔐 share a project with team members (by name): its maker or the owner. GET: whose it is, with whom, and who there is
   'GET /api/projects/share': (req, res, u) => { const name = needProject(q(u, 'p')), a = projectAccess(name); return { ...a, people: teamNames().filter((n) => n !== a.owner) }; },
   'POST /api/projects/share': async (req, res, u) => {
@@ -3896,7 +3997,7 @@ const routes = {
     return { name };
   },
   // 📁 folders on Home to sort projects into (only a grouping: the project folders on disk stay where they are)
-  'GET /api/project-folders': () => projectFolders(),
+  'GET /api/project-folders': async (req) => foldersFor(req.who, isMember(req.who) ? (await allSummaries()).map((p) => p.name).filter((n) => mayOpen(req.who, n)) : []),
   // 🏷 a project's tags (in its project.json, through the live path - an open timeline gets them at once): { tags }
   'POST /api/project/tags': async (req, res, u) => {
     const name = needProject(q(u, 'p')), tags = cleanTags((await readJson(req)).tags), L = liveOf(name);
@@ -3910,13 +4011,25 @@ const routes = {
   },
   'POST /api/project-folders': async (req) => {
     const b = await readJson(req), folders = [], ids = new Set(), map = {};
+    // 🔐 a team member sees only part of the folders: what they send is merged - they may move the projects they see
+    // between the folders they see, never make, rename, delete or give away folders (that would wipe the others')
+    if (isMember(req.who)) {
+      if (req.who.role === 'viewer') throw err(403, 'A viewer cannot move projects');
+      const cur = projectFolders(), visible = (await allSummaries()).map((p) => p.name).filter((n) => mayOpen(req.who, n)), mineV = foldersFor(req.who, visible), okF = new Set(mineV.folders.map((f) => f.id));
+      if ((Array.isArray(b.folders) ? b.folders : []).some((f) => !okF.has(f?.id))) throw err(403, 'Only the owner makes or changes folders');
+      const next = { ...cur.map };
+      for (const pn of visible) { const want = b.map?.[pn]; if (want && okF.has(want)) next[pn] = want; else if (!want && okF.has(cur.map[pn])) delete next[pn]; }
+      writeJSON(FOLDERS_FILE, { folders: cur.folders, map: next });
+      return foldersFor(req.who, visible);
+    }
+    const known = teamNames();
     for (const f of (Array.isArray(b.folders) ? b.folders : []).slice(0, 300)) {
       const id = String(f?.id || '').replace(/[^\w-]/g, '').slice(0, 40), name = String(f?.name || '').trim().slice(0, 80);
-      if (id && name && !ids.has(id)) { ids.add(id); folders.push({ id, name }); }
+      if (id && name && !ids.has(id)) { ids.add(id); folders.push({ id, name, ...(Array.isArray(f.users) && !f.auto ? { users: [...new Set(f.users.map(String))].filter((n) => known.includes(n)) } : {}) }); }
     }
     for (const [p, id] of Object.entries(b.map || {})) if (ids.has(id) && safeName(p) === p && fs.existsSync(P(p, 'project.json'))) map[p] = id;
     writeJSON(FOLDERS_FILE, { folders, map });
-    return { folders, map };
+    return foldersFor(req.who, []);
   },
   // 📂 File > Open: a Premiere Pro / Resolve timeline (Final Cut Pro 7 XML) becomes a new project with the same cut -
   // the footage is used where the XML says it is (the NAS), nothing is copied. Body { xml: the file's text, place? }
@@ -4552,6 +4665,29 @@ const routes = {
   // 🔤 the font picker (fontpick.js): every font family installed on this computer - their files served below, so an
   // editor on any PC can use (and bake) them - and Google Fonts' families (fetched once a week, kept; none when offline)
   'GET /api/fonts': async () => ({ pc: pcFonts(), google: await googleFonts() }),
+  // ❓ Help chat (public/js/helpbot.js): a question about using the editor, answered by Claude from engine/help-guide.md
+  // and the editor's own code - read only (no project, no edtool, no writing). Body { q, sid } -> { text, sid }
+  'POST /api/help/ask': async (req) => {
+    const b = await readJson(req), qn = String(b.q || '').trim().slice(0, 2000);
+    if (!qn) throw err(400, 'Type a question');
+    const exe = claudeExe();
+    if (!exe) throw err(400, 'The AI help needs Claude Code on the editor PC - the quick answers still work');
+    return helpAsk(exe, qn, /^[\w-]{8,80}$/.test(String(b.sid || '')) ? b.sid : null);
+  },
+  // 🗺 map tiles for Motion's Map layer (public/js/geomap.js): fetched once from Esri's tile service, then from disk
+  // (DATA/MapTiles - shared by every project; a render bakes from these, so a map looks the same every time)
+  'GET /api/maptile': async (req, res, u) => {
+    const s = q(u, 's'), z = +q(u, 'z'), x = +q(u, 'x'), y = +q(u, 'y'), src = MAP_TILES[s];
+    if (!src || ![z, x, y].every(Number.isInteger) || z < 0 || z > 18 || x < 0 || y < 0 || x >= 2 ** z || y >= 2 ** z) return send(res, 400, { error: 'Not a map tile' });
+    const f = path.join(DATA, 'MapTiles', s, String(z), `${x}_${y}.jpg`);
+    if (!fs.existsSync(f)) {
+      const r = await fetch(src.replace('{z}', z).replace('{x}', x).replace('{y}', y), { headers: { 'User-Agent': 'LimelightEditor/1.0' }, signal: AbortSignal.timeout(20000) }).catch(() => null);
+      if (!r?.ok) return send(res, 502, { error: `The map service did not send the tile${r ? ` (${r.status})` : ''}` });
+      fs.mkdirSync(path.dirname(f), { recursive: true });
+      fs.writeFileSync(`${f}.part`, Buffer.from(await r.arrayBuffer())); fs.renameSync(`${f}.part`, f);
+    }
+    return serveFile(req, res, f);
+  },
   'GET /api/fonts/file': (req, res, u) => { const file = fontFile(q(u, 'f')); if (!file) throw err(404, 'No such font file'); return serveFile(req, res, file, true); },
   'GET /api/luts': (req, res, u) => Object.keys(lutMap(needProject(q(u, 'p')))).sort(),
   'GET /api/lut/file': (req, res, u) => {
@@ -4629,7 +4765,9 @@ const routes = {
       if (r.code !== 0) { fs.rmSync(`${out}.part.mp4`, { force: true }); throw new Error(`Could not render "${sname}": ${r.stderr.trim().split(/\r?\n/).pop()}`); }
       fs.renameSync(`${out}.part.mp4`, out);
       let it = mediaDb(name).items.find((m) => m.seqOf === b.seq);
-      if (it) { const st = fs.statSync(out); Object.assign(it, { size: st.size, mtime: st.mtimeMs, status: 'queued' }); enqueue(name, it.id); }
+      if (it) { // (its old preview / light copy is of the old version: made again, or the monitor kept showing the old picture)
+        const st = fs.statSync(out); Object.assign(it, { size: st.size, mtime: st.mtimeMs, status: 'queued' }); delete it.lite; delete it.proxyH; fs.rmSync(P(name, 'cache', 'proxies', `${it.id}.mp4`), { force: true }); enqueue(name, it.id);
+      }
       else it = addMediaFile(name, out, { bin: 'Sequences' }) || mediaDb(name).items.find((m) => m.path.toLowerCase() === path.resolve(out).toLowerCase());
       Object.assign(it, { seqOf: b.seq, seqHash: seqHash(view), name: `🎞 ${sname}` });
       saveMedia(name, true);
@@ -6611,24 +6749,81 @@ const routes = {
       return { lines: out, to };
     }, { project: name });
   },
-  // 🎙 VoiceVerse: is it installed / running on the editor's PC; open its app (the voice AI starts with it)
-  'GET /api/voiceverse': async () => { const running = await vvHealth(); return { installed: fs.existsSync(vvExe()), running, ui: running && await vvUi(), url: vvUrl() }; },
-  'POST /api/voiceverse/open': async () => { if (await vvHealth()) return { running: true }; vvOpen(); return { starting: true }; },
+  // 🎙 VoiceVerse: is the voice model set up here; the saved voices; a voice saved from a project's clip
+  // ({ name, refMediaId, refIn }, ?p=); one deleted ({ id }); a voice's sample to listen to (?id=)
+  'GET /api/voiceverse': () => ({ ready: aiVoiceReady(), setting: aiVoiceSetup?.status === 'running' ? { id: aiVoiceSetup.id, stage: aiVoiceSetup.stage } : null, voices: listCloneVoices() }),
+  'POST /api/voiceverse/voices': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req), m = mediaItem(name, b.refMediaId);
+    if (!m || !(m.hasAudio || m.kind === 'audio')) throw err(400, 'Pick a clip or recording with the voice in it');
+    const title = String(b.name || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+    if (!title) throw err(400, 'Give the voice a name');
+    const id = `v${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, dir = path.join(VOICES, id);
+    fs.mkdirSync(dir, { recursive: true });
+    try {
+      const dur = await takeVoiceSample(m.path, b.refIn, path.join(dir, 'sample.wav'));
+      writeJSON(path.join(dir, 'voice.json'), { name: title, at: Date.now(), by: req.who?.name || '', from: `${name} › ${m.name}`, dur: +dur.toFixed(1) });
+    } catch (e) { fs.rmSync(dir, { recursive: true, force: true }); throw e; }
+    return { id, voices: listCloneVoices() };
+  },
+  'POST /api/voiceverse/voices/delete': async (req) => { const b = await readJson(req); fs.rmSync(voiceDir(b.id), { recursive: true, force: true }); return { voices: listCloneVoices() }; },
+  'GET /api/voiceverse/sample': (req, res, u) => serveFile(req, res, path.join(voiceDir(q(u, 'id')), 'sample.wav')),
   // 🧬 the same-voice model lives in its own Python (tools/aivoice/venv); set up once per computer
   'GET /api/aivoice': () => ({ ready: aiVoiceReady(), setting: aiVoiceSetup?.status === 'running' ? { id: aiVoiceSetup.id, stage: aiVoiceSetup.stage } : null }),
   'POST /api/aivoice/setup': (req) => {
     if (req.who && req.who.role !== 'owner' && !req.who.local) throw err(403, 'Only the owner can install the AI voice');
     if (aiVoiceSetup?.status === 'running') return aiVoiceSetup;
     aiVoiceSetup = startTask('setup', async (job) => {
-      const venv = path.join(ROOT, 'tools', 'aivoice', 'venv');
+      const venv = path.join(AIVOICE_DIR, 'venv');
       const step = async (stage, pct, cmd, args) => { job.stage = stage; job.progress = pct; const r = await run(cmd, args, { onLine: (l) => job.log.push(l.slice(0, 200)) }); if (r.code !== 0) throw new Error(`${stage} failed: ${r.stderr.slice(-400)}`); };
       if (!fs.existsSync(AIVOICE_PY)) await step('Making its own Python…', 2, PYTHON, ['-m', 'venv', venv]);
-      await step('Downloading PyTorch for the GPU (~2.5 GB)…', 10, AIVOICE_PY, ['-m', 'pip', 'install', 'torch==2.6.0', 'torchaudio==2.6.0', '--index-url', 'https://download.pytorch.org/whl/cu124']);
-      await step('Installing the voice model…', 60, AIVOICE_PY, ['-m', 'pip', 'install', 'chatterbox-tts==0.1.7']);
+      await step('Installing the voice model…', 10, AIVOICE_PY, ['-m', 'pip', 'install', 'chatterbox-tts==0.1.7']);
+      // (after the model, which asks for torch 2.6: that build has no kernels for RTX 50xx cards - 2.7 with CUDA 12.8 runs on
+      // those and on the older ones; pip only warns that the version differs)
+      await step('Downloading PyTorch for the GPU (~3 GB)…', 50, AIVOICE_PY, ['-m', 'pip', 'install', 'torch==2.7.1', 'torchaudio==2.7.1', '--index-url', 'https://download.pytorch.org/whl/cu128']);
+      aiVoiceHomeOk = null;
       job.stage = 'Ready'; return { ready: aiVoiceReady() };
     });
     return aiVoiceSetup;
   },
+  // 💥 VFX AI: depth / sky mattes of a piece of a clip (body { kind: 'depth' | 'sky', mediaId, in, out } - seconds in the
+  // file), kept in cache/vfxai (made once). The VFX effects read them: Depth fog, Depth of field, Sky replacement.
+  'GET /api/vfxai': () => ({ ready: vfxAiReady(), setting: vfxAiSetup?.status === 'running' ? { id: vfxAiSetup.id, stage: vfxAiSetup.stage } : null }),
+  'POST /api/vfxai/setup': (req) => {
+    if (req.who && req.who.role !== 'owner' && !req.who.local) throw err(403, 'Only the owner can install the VFX AI');
+    if (vfxAiSetup?.status === 'running') return vfxAiSetup;
+    vfxAiSetup = startTask('setup', async (job) => {
+      const venv = path.join(VFXAI_DIR, 'venv');
+      const step = async (stage, pct, cmd, args) => { job.stage = stage; job.progress = pct; const r = await run(cmd, args, { onLine: (l) => job.log.push(l.slice(0, 200)) }); if (r.code !== 0) throw new Error(`${stage} failed: ${r.stderr.slice(-400)}`); };
+      fs.mkdirSync(VFXAI_DIR, { recursive: true });
+      if (!fs.existsSync(VFXAI_PY)) await step('Making its own Python…', 2, PYTHON, ['-m', 'venv', venv]);
+      // (torch 2.7 with CUDA 12.8: runs on RTX 50xx cards and on the older ones)
+      await step('Downloading PyTorch for the GPU (~3 GB)…', 8, VFXAI_PY, ['-m', 'pip', 'install', 'torch==2.7.1', 'torchvision==0.22.1', '--index-url', 'https://download.pytorch.org/whl/cu128']);
+      await step('Installing the depth model libraries…', 70, VFXAI_PY, ['-m', 'pip', 'install', 'transformers==4.46.3', 'opencv-python-headless==4.10.0.84', 'numpy<2.3']);
+      await step('Downloading the depth model (Depth Anything V2 Small)…', 90, VFXAI_PY, [path.join(ROOT, 'engine', 'vfxai.py'), 'fetch', '--models', VFXAI_MODELS]);
+      job.stage = 'Ready'; return { ready: vfxAiReady() };
+    });
+    return vfxAiSetup;
+  },
+  'POST /api/vfxai': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req), m = mediaItem(name, b.mediaId), kind = b.kind === 'sky' ? 'sky' : 'depth';
+    if (!m || m.kind !== 'video') throw err(400, 'This needs a video clip');
+    if (!vfxAiReady()) throw err(400, 'VFX AI is not set up on this PC yet - VFX page > AI > Set up');
+    const t0 = Math.max(0, +(+b.in || 0).toFixed(3)), t1 = Math.min(m.duration || 1e9, +(+b.out || m.duration || 0).toFixed(3));
+    if (!(t1 - t0 > 0.1)) throw err(400, 'The clip is too short');
+    const fps = Math.min(60, Math.max(10, +b.fps || m.fps || 30)), file = `${m.id}-${kind}-${t0}-${t1}-${fps}-v1.mp4`, out = P(name, 'cache', 'vfxai', file);
+    if (fs.existsSync(out)) return startTask('vfxai', async () => ({ file: `vfxai/${file}`, t0, cached: true }), { project: name });
+    fs.mkdirSync(path.dirname(out), { recursive: true });
+    return startTask('vfxai', async (job) => {
+      job.stage = kind === 'sky' ? 'Finding the sky (AI)…' : 'Measuring depth (AI)…';
+      const r = await run(VFXAI_PY, [path.join(ROOT, 'engine', 'vfxai.py'), kind, analysisFile(name, m), String(t0), String(t1), `${out}.part.mp4`, '--fps', String(fps), '--models', VFXAI_MODELS],
+        { onLine: (l) => { const x = /\[(\d+)\/(\d+)\]/.exec(l); if (x) job.progress = Math.round((+x[1] / +x[2]) * 100); } });
+      if (r.code !== 0 || !fs.existsSync(`${out}.part.mp4`)) { fs.rmSync(`${out}.part.mp4`, { force: true }); throw new Error(`Could not make the ${kind} matte: ${r.stderr.trim().split(/\r?\n/).pop()}`); }
+      fs.renameSync(`${out}.part.mp4`, out);
+      return { file: `vfxai/${file}`, t0 };
+    }, { project: name });
+  },
+  // (f = 'vfxai/<file>' or 'mattes/<file>' - the subject mattes of ✂ one-click roto)
+  'GET /api/vfxai/file': (req, res, u) => { const f = String(q(u, 'f') || ''), dir = f.split('/')[0]; if (!['vfxai', 'mattes'].includes(dir)) throw err(400, 'Bad file'); return serveFile(req, res, P(needProject(q(u, 'p')), 'cache', dir, path.basename(f)), true); },
   'PUT /api/settings': async (req) => {
     const b = await readJson(req), c = config();
     c.stock = { ...(c.stock || {}) };
@@ -6705,11 +6900,13 @@ const routes = {
   'GET /api/job': (req, res, u) => {
     const j = jobs.get(q(u, 'id'));
     if (!j) throw err(404, 'no such job');
-    return { ...j, log: j.log.slice(-80), elapsed: ((j.ended || Date.now()) - j.started) / 1000 };
+    // (leaseBeat: the timer that renews a helper slot - a Timeout object, which cannot be sent as JSON)
+    const { leaseBeat, ...x } = j;
+    return { ...x, log: j.log.slice(-80), elapsed: ((j.ended || Date.now()) - j.started) / 1000 };
   },
   // Skip: the agent stops reading more clips and edits with the ones it has looked at
   'POST /api/jobs/skip': (req, res, u) => { const j = jobs.get(q(u, 'id')); if (!j) throw err(404, 'job not found'); j.skips = (j.skips || 0) + 1; return { skips: j.skips }; },
-  'GET /api/jobs': async () => [...[...jobs.values()].filter((j) => j.status === 'running').map(({ log, proc, events, ...j }) => j), ...(await workerStates()).flatMap((w) => w.jobs || [])],
+  'GET /api/jobs': async () => [...[...jobs.values()].filter((j) => j.status === 'running').map(({ log, proc, events, leaseBeat, ...j }) => j), ...(await workerStates()).flatMap((w) => w.jobs || [])],
 };
 
 // ---------------- ⚙ project workers: routing, the worker side, starting them ----------------
@@ -6877,9 +7074,6 @@ async function handle(req, res, who) {
       if (m[3] === 'play' && file === C('proxies', `${it.id}.mp4`)) return serveFile(req, res, await localPreview(file), false); // (💽 from this PC's drive once copied)
       return serveFile(req, res, file, m[3] !== 'play' && m[3] !== 'orig');
     }
-    // 🎙 VoiceVerse's own screens and engine, behind the editor's sign-in: /voiceverse/<path> -> its engine on this PC
-    if (u.pathname === '/voiceverse') { res.writeHead(302, { Location: '/voiceverse/' }); return res.end(); }
-    if (u.pathname.startsWith('/voiceverse/')) return vvProxy(req, res, u);
     // 🎞 a Library template's thumbnail / preview: /lg/<id>/<thumb.png|preview.webm>
     m = /^\/lg\/([0-9a-f]{10})\/(thumb\.png|preview\.webm)$/.exec(u.pathname);
     if (req.method === 'GET' && m) return serveFile(req, res, path.join(GFXLIB, m[1], m[2]), true);

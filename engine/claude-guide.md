@@ -110,6 +110,13 @@ A real film look (print colour, halation round lights, film grain in the midtone
 layer (looks: clean, golden, monsoon, faded, bleach, tungsten, classic, silver; `film off` takes it away). On one clip
 only: an effect `{ "type":"film", "p":{ "look":"golden", "strength":0.8, "grain":0.35, "grainSize":"medium",
 "halation":0.35, "halRadius":18, "bloom":0.15, "vignette":0.25, "weave":0, "flicker":0 } }` in the clip's `effects`.
+💥 VFX (the VFX page; presets and parameters in public/js/vfxpresets.js, vfxlib.js, vfxfx.js): an element over a shot is a
+graphic clip on a free V track over it `{ "type":"graphic", "start", "dur", "blend":"screen", "vfxOf":"<shot id>", "gfx":{ "tpl":"vfx",
+"vfx":{ "kind":"explosion", "seed":7, "p":{ "x":50, "y":58, "size":38, "at":0.15 } } } }` - kinds: muzzle, explosion, sparks, smoke,
+fire, lightning, beam, forcefield, leak, flare, dirt, rain, snow, dust, burn, screen (smoke / snow / screen: no blend). On the shot
+itself, `effects` types vxhaze (heat haze), vxshock (shockwave), vxglitch, vxholo (hologram), vxkey (Chroma Key Pro, V2+),
+and the AI ones vxsky, vxfog, vxdof - those need a matte made on the VFX page (AI tab) first, so tell the user to press it there.
+Bullet time = a `ramp` "bullet" with `smooth: true`. Like any graphic, elements bake in the open editor before a render.
 Captions (lyrics/subtitles burnt in, word by word): `{"captions":{"on":true,"style":{"preset":"karaoke"},"cues":[{"start":1,"end":3,"text":"…"}]}}`.
 More caption tracks (e.g. a second language): `captions.tracks: [{"id":"en1","name":"English","lang":"en","on":true,"style":{…},"cues":[…]}]` -
 the `captions` object itself is track 1; every track with `on` shows and is burned in, stacked above track 1 at the same position.

@@ -18,7 +18,7 @@ const NEW = ['levels', 'procamp', 'extract', 'lighting', 'autolevels', 'unsharp'
   'convkernel', 'shadowhl', 'camerablur', 'channelblur', 'blendfx', 'lightning', 'cellpattern', 'eyedropper', 'writeon', 'vrproj', 'vrrotate', 'vrplane', 'alphaadjust', 'despill', 'noisealpha', 'dropshadow', 'radialshadow', 'bevelalpha', 'roughen', 'texturize', 'hhold', 'vhold', 'gradwipe', 'sdrconform',
   // done in Python with OpenCV (engine/pyfx.py)
   'paintbucket', 'brushstrokes', 'rollingshutter'];
-const PREMIERE_FOLDERS = ['Adjust', 'Blur & sharpen', 'Channel', 'Color Correction', 'Colour', 'Distort', 'Generate', 'Image Control', 'Keying', 'Noise & Grain', 'Perspective', 'Stylize', 'Time', 'Transform', 'Transition', 'Utility', 'Video', 'Immersive Video'];
+const PREMIERE_FOLDERS = ['VFX', 'Adjust', 'Blur & sharpen', 'Channel', 'Color Correction', 'Colour', 'Distort', 'Generate', 'Image Control', 'Keying', 'Noise & Grain', 'Perspective', 'Stylize', 'Time', 'Transform', 'Transition', 'Utility', 'Video', 'Immersive Video'];
 const hasFF = spawnSync('ffmpeg', ['-hide_banner', '-version'], { windowsHide: true }).status === 0;
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vedit-pfx-'));
 fs.copyFileSync(['C:/Windows/Fonts/arial.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'].find((f) => fs.existsSync(f)) || process.execPath, path.join(tmp, 'f.ttf'));
@@ -230,7 +230,10 @@ test('a render with Python effects goes only to a helper PC with OpenCV (else it
   const hs = [{ id: 'a', name: 'A', specs: { cores: 16, render: true } }, { id: 'b', name: 'B', specs: { cores: 4, render: true, cv2: true } }];
   same(pickHelper('p1', hs, new Map([['p1', 'a']]), {}, ['render', 'cv2']), null);
   same(pickHelper('p2', hs, new Map([['p2', 'b']]), {}, ['render', 'cv2'])?.id, 'b');
-  assert(fs.readFileSync(path.join(ROOT, 'server.mjs'), 'utf8').includes("usesPython(job.project) ? ['render', 'cv2'] : 'render'"), 'server.mjs asks for cv2');
+  assert(fs.readFileSync(path.join(ROOT, 'server.mjs'), 'utf8').includes("usesPython(job.project) ? ['render', 'cv2'] : ['render']"), 'server.mjs asks for cv2');
+  // (any free PC may take a render when the project's own is busy - bestPoll still only gives it to one with OpenCV)
+  const { bestPoll } = await import('../engine/helpers.mjs');
+  same(bestPoll(hs.map((w) => ({ lane: 'render', w })), { lane: 'render', needs: ['render', 'cv2'] }), 1);
 });
 
 test('pyfx.py: Paint Bucket fills the area round its point, Brush Strokes and Rolling Shutter Repair keep length and sound', () => {

@@ -35,7 +35,9 @@ const direct = (m) => ON_LAN && m?.kind === 'video' && m.status === 'ready' && m
   && ((m.vcodec === 'hevc' && HEVC[m.pixfmt]) || (m.vcodec === 'h264' && /^yuvj?420p$/.test(m.pixfmt || '')));
 export const canPlay = (m) => !!m && (m.playable || direct(m));
 // (a file that plays as it is but has a light copy: that copy in Fast / 1/4 - a jump shows its frame at once)
-export const playUrl = (m) => (direct(m) ? m.urls.play.replace(/\/play$/, '/orig') : m.proxy === 'none' && m.lite === 'ready' && playback !== 'full' ? `${m.urls.play}?lite=1` : m.urls.play);
+const playUrl0 = (m) => (direct(m) ? m.urls.play.replace(/\/play$/, '/orig') : m.proxy === 'none' && m.lite === 'ready' && playback !== 'full' ? `${m.urls.play}?lite=1` : m.urls.play);
+// (a nested sequence is rendered again into the same file name: its version in the address, so the monitor loads the new one)
+export const playUrl = (m) => { const u = playUrl0(m); return m.seqOf && m.mtime ? `${u}${u.includes('?') ? '&' : '?'}v=${Math.round(m.mtime)}` : u; };
 import { lookCss } from './looks.js';
 import { buildFxNodes } from './audiofx.js';
 import { buildClipAudioChain, fadeShape } from './audioeffects.js';
@@ -295,11 +297,12 @@ function frameWH() {
 function setViewZoom(z, at = null) {
   const st = $('#vwStage', root); if (!st || !S.project) return;
   const [w, h] = frameWH(), pad = rul?.pad() || 0, fitK = Math.min((st.clientWidth - 16 - pad) / w, (st.clientHeight - 16 - pad) / h);
-  if (z !== 'fit') { z = Math.min(8, Math.max(0.05, z)); if (z <= fitK * 1.001) z = 'fit'; } // (smaller than fitting: back to Fit)
+  // (smaller than Fit is allowed too - the frame sits small in the middle, like Premiere's 10% / 25%; right at Fit = Fit)
+  if (z !== 'fit') { z = Math.min(8, Math.max(0.03, fitK * 0.1, z)); if (Math.abs(z / fitK - 1) < 0.04) z = 'fit'; }
   const b0 = frame.getBoundingClientRect(), sr = st.getBoundingClientRect();
   const p = at || { x: sr.left + sr.width / 2, y: sr.top + sr.height / 2 }, u = (p.x - b0.left) / b0.width, v = (p.y - b0.top) / b0.height;
   viewZoom = z; sizeFrame();
-  if (z !== 'fit') { const b1 = frame.getBoundingClientRect(); st.scrollLeft += b1.left + u * b1.width - p.x; st.scrollTop += b1.top + v * b1.height - p.y; }
+  if (st.classList.contains('zoomed')) { const b1 = frame.getBoundingClientRect(); st.scrollLeft += b1.left + u * b1.width - p.x; st.scrollTop += b1.top + v * b1.height - p.y; }
   const sel = $('[data-vzoom]', root);
   if (sel) {
     sel.querySelector('[data-cur]')?.remove();
@@ -311,7 +314,7 @@ function setViewZoom(z, at = null) {
 function sizeFrame() {
   const st = $('#vwStage', root); if (!st || !S.project) return;
   const [w, h] = frameWH(), pad = rul?.pad() || 0, W = st.clientWidth - 16 - pad, H = st.clientHeight - 16 - pad, k = viewZoom === 'fit' ? Math.min(W / w, H / h) : viewZoom;
-  st.classList.toggle('zoomed', viewZoom !== 'fit');
+  st.classList.toggle('zoomed', viewZoom !== 'fit' && (w * k > W || h * k > H)); // (scrollbars only when it is bigger than the view)
   frame.style.width = `${Math.max(10, w * k)}px`; frame.style.height = `${Math.max(10, h * k)}px`;
   frame.style.setProperty('--fh', `${h * k}px`);
   rul?.draw();
@@ -1028,6 +1031,29 @@ function drawMaskUI() {
   el.hidden = !mt;
   if (!mt) return;
   const v = movedMask(mt.m, mt.tf), pc = (n) => `${(n * 100).toFixed(3)}%`;
+  // ✒ pen: its outline and a dot per point (drag a dot, drag inside to move it all, double-click the outline = a new
+  // point); ▤ gradient: a line from where it is fully seen to where it is gone, a handle at each end
+  const kind = mt.m.shape === 'pen' || mt.m.shape === 'gradient' ? mt.m.shape : 'box';
+  if (el.dataset.kind !== kind) { el.innerHTML = ''; el.dataset.kind = kind; }
+  if (kind !== 'box') {
+    if (!el.firstChild) {
+      el.innerHTML = `<svg class="mk-svg" viewBox="0 0 1 1" preserveAspectRatio="none"><polygon data-mk="pmove"/><line/></svg><div class="mk-pts"></div><span class="mk-tip">${kind === 'pen' ? 'Drag the dots · drag inside to move · double-click the edge = new point · right-click a dot = remove · Esc to finish' : 'Drag the ends: fully seen → gone · Esc to finish'}</span>`;
+      el.addEventListener('pointerdown', maskDrag);
+      el.addEventListener('dblclick', maskAddPoint);
+      el.addEventListener('contextmenu', maskDelPoint);
+    }
+    const poly = el.querySelector('polygon'), line = el.querySelector('line'), box = el.querySelector('.mk-pts');
+    if (kind === 'pen') {
+      const P = v.pts || [];
+      poly.setAttribute('points', P.map(([x, y]) => `${x},${y}`).join(' ')); line.setAttribute('x1', 0); line.setAttribute('x2', 0); line.setAttribute('y1', 0); line.setAttribute('y2', 0);
+      box.innerHTML = P.map(([x, y], i) => `<b class="mk-h mk-p" data-mk="p${i}" style="left:${pc(x)};top:${pc(y)}"></b>`).join('');
+    } else {
+      poly.setAttribute('points', '');
+      line.setAttribute('x1', v.x0); line.setAttribute('y1', v.y0); line.setAttribute('x2', v.x1); line.setAttribute('y2', v.y1);
+      box.innerHTML = `<b class="mk-h mk-g0" data-mk="g0" style="left:${pc(v.x0)};top:${pc(v.y0)}" title="Fully seen"></b><b class="mk-h mk-g1" data-mk="g1" style="left:${pc(v.x1)};top:${pc(v.y1)}" title="Gone"></b>`;
+    }
+    return;
+  }
   if (!el.firstChild) {
     el.innerHTML = `<div class="mk-shape" data-mk="move"></div>${['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].map((k) => `<b class="mk-h" data-mk="${k}"></b>`).join('')}<span class="mk-tip">Drag to move · handles to size · Esc to finish</span>`;
     el.addEventListener('pointerdown', maskDrag);
@@ -1046,6 +1072,16 @@ function maskDrag(e) {
   let moved = false;
   const mv = (ev) => {
     const dx = (ev.clientX - e.clientX) / r.width, dy = (ev.clientY - e.clientY) / r.height;
+    if (kind === 'pmove' || /^p\d+$/.test(kind) || kind === 'g0' || kind === 'g1') { // (pen points / gradient ends)
+      const cur = maskTarget(); if (!cur) return;
+      const nv = { ...v0 };
+      if (kind === 'pmove') nv.pts = v0.pts.map(([x, y]) => [x + dx, y + dy]);
+      else if (kind[0] === 'p') { const i = +kind.slice(1); nv.pts = v0.pts.map((p, j) => (j === i ? [p[0] + dx, p[1] + dy] : p)); }
+      else if (kind === 'g0') { nv.x0 = v0.x0 + dx; nv.y0 = v0.y0 + dy; } else { nv.x1 = v0.x1 + dx; nv.y1 = v0.y1 + dy; }
+      const back = unmovedMask(nv, cur.tf);
+      cur.set({ ...cur.m, ...(back.pts ? { pts: back.pts } : {}), ...(cur.m.shape === 'gradient' ? { x0: back.x0, y0: back.y0, x1: back.x1, y1: back.y1 } : {}) });
+      moved = true; drawProgram(S.playhead, false); emit('maskMoved'); return;
+    }
     let { x, y, w, h } = v0;
     if (kind === 'move') { x += dx; y += dy; } else {
       let l = v0.x - v0.w / 2, rt = v0.x + v0.w / 2, tp = v0.y - v0.h / 2, bt = v0.y + v0.h / 2;
@@ -1062,6 +1098,42 @@ function maskDrag(e) {
   };
   const up = () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); if (moved) commit('Move mask', `mask:${S.maskEdit?.clipId}`); };
   window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+}
+// ✒ pen mask: double-click its outline = a new point there (between the two nearest), right-click a dot = remove it
+function maskAddPoint(e) {
+  const mt = maskTarget(); if (mt?.m.shape !== 'pen') return;
+  const r = frame.getBoundingClientRect(), p = [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height], P = movedMask(mt.m, mt.tf).pts || [];
+  let best = 0, bd = Infinity;
+  P.forEach((a, i) => { const b = P[(i + 1) % P.length], dx = b[0] - a[0], dy = b[1] - a[1], u = clamp(((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy || 1), 0, 1), d = Math.hypot(a[0] + u * dx - p[0], a[1] + u * dy - p[1]); if (d < bd) { bd = d; best = i + 1; } });
+  const nv = [...P]; nv.splice(best, 0, p);
+  mt.set({ ...mt.m, pts: unmovedMask({ ...mt.m, pts: nv }, mt.tf).pts }); commit('Mask point'); drawProgram(S.playhead, false);
+}
+function maskDelPoint(e) {
+  const k = e.target.closest('[data-mk]')?.dataset.mk, mt = maskTarget(); if (!/^p\d+$/.test(k || '') || mt?.m.shape !== 'pen') return;
+  e.preventDefault(); if (mt.m.pts.length <= 3) return toast('A shape needs 3 points at least');
+  mt.set({ ...mt.m, pts: mt.m.pts.filter((_, i) => i !== +k.slice(1)) }); commit('Remove mask point'); drawProgram(S.playhead, false);
+}
+// ✒ draw a pen mask: click point by point on the monitor; click the first point, double-click or Enter closes it.
+// Resolves the points as fractions of the frame, or null (Esc / fewer than 3)
+export function pickPath(hint = 'Click point by point around the shape · click the first point, double-click or Enter to close · Backspace undoes · Esc cancels') {
+  return new Promise((done) => {
+    pause();
+    const ov = document.createElement('div'); ov.className = 'lyr boxpick quadpick';
+    ov.innerHTML = `<span>${esc(hint)}</span><svg viewBox="0 0 1 1" preserveAspectRatio="none"><polygon fill="rgba(255,194,26,.18)" stroke="#ffc21a" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
+    frame.append(ov);
+    const pts = [], poly = ov.querySelector('polygon');
+    const draw = () => { ov.querySelectorAll('i').forEach((d) => d.remove()); for (const [x, y] of pts) { const d = document.createElement('i'); d.style.left = `${x * 100}%`; d.style.top = `${y * 100}%`; ov.append(d); } poly.setAttribute('points', pts.map((p) => p.join(',')).join(' ')); };
+    const finish = (ok) => { ov.remove(); window.removeEventListener('keydown', key, true); done(ok && pts.length >= 3 ? pts.map(([x, y]) => [+x.toFixed(4), +y.toFixed(4)]) : null); };
+    const key = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); } if (e.key === 'Enter') { e.preventDefault(); finish(true); } if (e.key === 'Backspace') { e.preventDefault(); pts.pop(); draw(); } };
+    window.addEventListener('keydown', key, true);
+    ov.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const r = frame.getBoundingClientRect(), p = [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height];
+      if (pts.length >= 3 && Math.hypot((p[0] - pts[0][0]) * r.width, (p[1] - pts[0][1]) * r.height) < 12) return finish(true);
+      pts.push(p); draw();
+    });
+    ov.addEventListener('dblclick', (e) => { e.preventDefault(); pts.pop(); finish(true); }); // (the double-click's 2nd click added a point)
+  });
 }
 on('maskEdit', () => { if (mode === 'program' && !playing) drawProgram(S.playhead, false); else drawMaskUI(); });
 on('select', () => { if (S.maskEdit && !S.sel.has(S.maskEdit.clipId)) { S.maskEdit = null; drawMaskUI(); } });
@@ -1148,7 +1220,11 @@ function drawCaption(t) {
     return `<div style="position:absolute;left:7%;right:7%;display:flex;justify-content:center;${place}"><span style="font-family:'${esc(st.font || 'Arial')}','Nirmala UI',sans-serif;font-size:${px.toFixed(2)}cqh;color:${esc(st.color || '#fff')};${st.box ? `background:${esc(st.box)};padding:.12em .4em;` : `-webkit-text-stroke:${((st.outline ?? 3) / 40).toFixed(2)}em #000;paint-order:stroke fill;`}">${at.words.map((w) => (w.active ? `<b style="color:${esc(st.hl || '#ffd400')};display:inline-block;transform:scale(${(1 + 0.18 * w.pop).toFixed(3)})">${esc(w.w)}</b>` : esc(w.w))).join(' ')}</span></div>`;
   }).join('');
 }
+// a CSS background list cut into its layers (commas inside gradients' brackets stay)
+const cssLayers = (bg) => { const out = []; let d = 0, a = 0; for (let i = 0; i < bg.length; i++) { const ch = bg[i]; if (ch === '(') d++; else if (ch === ')') d--; else if (ch === ',' && !d) { out.push(bg.slice(a, i).trim()); a = i + 1; } } out.push(bg.slice(a).trim()); return out.filter(Boolean); };
+let fxoLay = [], adjLay = []; // (the shot's and the adjustment layers' overlay backgrounds: [css, isGrain])
 function drawOverlays(t, isPlay) {
+  adjLay = [];
   const L = layout(), ts = S.project.trackState, stack = els.lyOvStack, below = [];
   [els.lyA, els.lyB, els.lyImg, els.lyGrade, els.lyCard].forEach((e) => { if (!e.hidden) below.push(e); });
   const live = new Set(), order = [];
@@ -1162,6 +1238,8 @@ function drawOverlays(t, isPlay) {
         const col = c.color || {}, ef = effectsCss(c, (frame?.clientWidth || 640) / ((ASPECTS[S.project.settings.aspect] || [1920])[0]));
         const f = [ef.filter, (col.contrast ?? 1) !== 1 ? `contrast(${col.contrast})` : '', (col.saturation ?? 1) !== 1 ? `saturate(${col.saturation})` : '', col.exposure ? `brightness(${Math.pow(2, col.exposure).toFixed(3)})` : ''].filter(Boolean).join(' ');
         if (f) below.forEach((e) => (e.style.filter = `${e.style.filter || ''} ${f}`.trim()));
+        if (ef.overlay) adjLay.push(...cssLayers(ef.overlay).map((x) => [x, false]));
+        if (ef.grain) adjLay.push([ef.grain, true]);
         continue;
       }
       if (c.type === 'graphic') {
@@ -1175,6 +1253,7 @@ function drawOverlays(t, isPlay) {
         el.style.opacity = String(fadeK(c, rel, x.end - x.start));
         el.style.mixBlendMode = c.blend ? CSS_BLEND[c.blend] || c.blend : ''; // (🎭 text / shapes / templates blend as well)
         setMask(el, c.omask); // (◐ Opacity mask on a graphic - a Color Matte as a shape)
+        el.style.filter = c.effects?.length ? effectsCss(c, (frame?.clientWidth || 640) / FW).filter || '' : ''; // (🎛 its effects)
         live.add(c.id); order.push(el); el.hidden = false; el.style.pointerEvents = 'none';
         continue;
       }
@@ -1291,6 +1370,7 @@ function drawProgramNow(t, isPlay) {
   if (tr && pe && ce && pe !== ce) trDraw(tr, pe, ce);
   // the shot's overlay effects (vignette), over its picture and moving with it
   { const lk2 = cur && !cur.clip.disabled && cur.clip.type !== 'title' ? look(cur.clip, t - cur.start) : null; const lay = lk2 ? [lk2.overlay, lk2.grain].filter(Boolean) : []; els.lyFxo.hidden = !lay.length;
+    fxoLay = lay.map((l) => [l, l === lk2.grain]);
     if (lay.length) { els.lyFxo.style.background = lay.join(', '); els.lyFxo.style.transform = lk2.transform; els.lyFxo.style.backgroundPosition = lay.map((l) => (l === lk2.grain ? grainShift() : '0 0')).join(', '); } }
   // the shot that just came is still loading (a jump to a new place in the file, over the internet): the last frame of
   // the one before stays up under it instead of black, until the new one has a picture
@@ -1316,6 +1396,8 @@ function drawProgramNow(t, isPlay) {
   drawFxMasks(cur, t);
   // ---- overlay tracks (V2, V3, … bottom to top) ----
   drawOverlays(t, isPlay);
+  // 🎚 an adjustment layer's vignette / grain (🎞 Limelight Film) over the whole frame, with the shot's own ones
+  if (adjLay.length) { const all = [...fxoLay, ...adjLay]; els.lyFxo.hidden = false; els.lyFxo.style.transform = ''; els.lyFxo.style.background = all.map((x) => x[0]).join(', '); els.lyFxo.style.backgroundPosition = all.map((x) => (x[1] ? grainShift() : '0 0')).join(', '); }
   drawCaption(t);
 
   // ---- cut effect overlay (flash, light leak, film burn, strobe) of the shot on V1 ----

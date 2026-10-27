@@ -10,7 +10,7 @@ import { uid, clipDur, compTrack, sourceAt, propAt, evalKeys, RAMPS, rampPts, se
 import { effectsCss, VFX, newEffect } from './effects.js';
 import { CUTFX, fxPreview } from './fx.js';
 import { esc, toast } from './ui.js';
-import { applyTemplate, clearTemplate, templateNames } from './aitemplates.js';
+import { applyTemplate, clearTemplate, templateNames, templateById } from './aitemplates.js';
 
 // what a Labs edit changes on its clip (the rest - start, track - belongs to the timeline)
 const LAB_FIELDS = ['in', 'out', 'speed', 'keys', 'ramp', 'rampPts', 'smooth', 'cutFx', 'hits', 'effects', 'tpl', 'color', 'opacity'];
@@ -79,6 +79,28 @@ export function labTemplate(t) {
   changed(t.label);
   toast(`${t.label} added${all.length > 1 ? ` to ${all.length} Labs clips` : ''}${live ? ' - on the timeline too' : ' - press Update on timeline'}`);
   return true;
+}
+// 🎥 camera moves right in the Labs timeline (its Camera row): from the playhead to the end of the clip (the move's
+// keyframes start there; before it the shot stays as it is, its "on the cut" effect becomes a hit there), or the whole
+// clip with the playhead at the start
+const CAM_MOVES = ['crashin', 'crashout', 'dolly', 'drone', 'arc', 'roll', 'quake', 'flashpop'];
+function labCamera(id) {
+  const t = templateById(id), L = labOpen(); if (!t || !L) return;
+  const t0 = T > 0.05 && T < L.dur - 0.3 ? +T.toFixed(3) : 0;
+  if (!t0) return labTemplate(t);
+  const fps = S.project.settings?.fps || 25, hold = +Math.max(0, t0 - 1 / fps).toFixed(3), z = (p) => KEYABLE[p]?.def ?? 0;
+  const at = { ...t, id: `${t.id}@${t0.toFixed(2)}`, make: (D) => {
+    const r = t.make(Math.max(0.3, D - t0)), keys = {};
+    for (const [p, ks] of Object.entries(r.keys || {})) keys[p] = [{ t: 0, v: z(p) }, ...(hold > 0 ? [{ t: hold, v: z(p) }] : []), ...ks.map((k) => ({ ...k, t: +(k.t + t0).toFixed(3) }))];
+    return { keys, effects: (r.effects || []).map((e) => ({ ...e, from: t0 })) };
+  } };
+  const cf = t.make(1).cutFx;
+  for (const x of targets()) {
+    applyTemplate(x.clip, at, durOf(x), S.mediaById, { stack: true });
+    if (cf && CUTFX[cf.type]) (x.clip.hits ||= []).push({ t: t0, type: cf.type, dur: cf.dur || CUTFX[cf.type].dur });
+  }
+  changed(`${t.label} at ${fmtT(t0)}`);
+  toast(`${t.label} from ${fmtT(t0)} - its keyframes are on the Zoom / Position / Rotation rows (drag them)`);
 }
 export function labClear() {
   const L = labOpen(); if (!L) return false;
@@ -178,6 +200,8 @@ function onClick(e) {
   if (a === 'clrkeys') { delete L.clip.keys?.[b.dataset.p]; if (L.clip.keys && !Object.keys(L.clip.keys).length) delete L.clip.keys; selKey = null; changed(`clear ${KEYABLE[b.dataset.p]?.label}`); }
   if (a === 'delkey') delKey();
   if (a === 'addhit') addHit(Math.min(T, L.dur - 0.05));
+  if (a === 'cam') return labCamera(b.dataset.id);
+  if (a === 'camclear') return labClear();
   if (a === 'rmhit') { L.clip.hits.splice(+b.dataset.i, 1); if (!L.clip.hits.length) delete L.clip.hits; changed('remove hit'); }
   if (a === 'colreset') { for (const x of targets()) for (const [k2] of COLOR) { if (x.clip.color) delete x.clip.color[k2]; } for (const x of targets()) if (x.clip.color && !Object.keys(x.clip.color).length) delete x.clip.color; changed('reset colour'); }
   if (a === 'rmfx') { L.clip.effects = (L.clip.effects || []).filter((x) => x.id !== b.dataset.id); if (!L.clip.effects.length) delete L.clip.effects; changed('remove effect'); }
@@ -256,7 +280,7 @@ function delKey() {
 // effect's end (its length)
 function onPointer(e) {
   const L = labOpen(); if (!L || e.button !== 0) return;
-  const tl = e.target.closest('[data-lanes]'); if (!tl) return;
+  const tl = e.target.closest('[data-lanes]'); if (!tl || e.target.closest('.lbt-cams')) return; // (a camera move button: no scrub)
   const lane = tl.querySelector('.lbt-ruler .lbt-lane'), r = lane.getBoundingClientRect(), D0 = L.dur;
   // times snap to frames, and to the playhead / other keyframes when close (Alt: no snapping)
   const fps = S.project.settings?.fps || 25, px = D0 / r.width;
@@ -415,6 +439,7 @@ function drawTimeline() {
   el.innerHTML = `<div class="lbt" data-lanes style="width:${Math.round(nw + (cw - nw) * zoom)}px">
     <div class="lbt-row lbt-ruler"><span class="lbt-name"></span><div class="lbt-lane">${ticks.join('')}</div></div>
     ${row('Video', `<div class="lbt-clip"><i class="lbt-trim l" data-trim="l" title="Drag: the In point"></i><b>${esc(L.name)}</b>${c.tpl ? `<i class="lbt-tpl">${esc(templateNames(c))}</i>` : ''}<span class="lbt-len">${D.toFixed(2)} s</span><i class="lbt-trim r" data-trim="r" title="Drag: the duration"></i></div>`)}
+    ${row('Camera', `<div class="lbt-cams">${CAM_MOVES.map((id) => { const t = templateById(id); const on = (c.tpl?.ids || [c.tpl?.id]).some((x) => String(x || '').split('@')[0] === id); return t ? `<button class="lbt-cam${on ? ' on' : ''}" data-l="cam" data-id="${id}" title="${esc(t.sub)} - from the playhead (at the start: the whole clip)">${ic(t.icon)}${esc(t.label)}</button>` : ''; }).join('')}${c.tpl ? '<button class="lab-link" data-l="camclear" title="Take the moves / templates off">Clear</button>' : ''}</div>`)}
     ${PROPS.map(propRow).join('')}
     ${row('Speed', pts ? `<svg class="lbt-curve" viewBox="0 0 100 100" preserveAspectRatio="none"><polyline points="${curve}"/></svg><small class="lbt-cap">${esc(RAMPS[c.ramp]?.label || 'Custom ramp')}</small>` : `<small class="lbt-cap">${c.speed && c.speed !== 1 ? `${c.speed}× all through` : 'Normal speed'}</small>`)}
     ${row('Hits', `${(c.hits || []).map((h, i) => `<div class="lbt-hit" data-hit data-i="${i}" style="left:${pct(h.t)};width:max(26px, ${pct(+h.dur || CUTFX[h.type]?.dur || 0.3)})" title="${esc(CUTFX[h.type]?.label || h.type)} at ${fmtT(h.t)} - drag to move"><span>${esc(CUTFX[h.type]?.label || h.type)}</span><i class="lbt-trim r" data-hitend data-i="${i}" title="Drag: its length"></i></div>`).join('')}${(c.hits || []).length ? '' : '<small class="lbt-cap">Double-click to add a hit (flash, shake, glitch…) at that moment</small>'}`, ' data-hits')}

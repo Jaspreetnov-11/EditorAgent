@@ -12,12 +12,14 @@ const f3 = (v) => (+v).toFixed(3);
 // css = what the live viewer shows instead (approximate)
 export const FILM_LOOKS = {
   clean: { label: 'Clean Negative', curve: [[0, 0.01], [0.25, 0.22], [0.5, 0.51], [0.75, 0.79], [1, 0.98]], mix: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], bal: [[0, 0, 0], [0, 0, 0], [0, 0, 0]], sat: 1, css: 'contrast(1.06)' },
-  golden: { label: 'Golden Hour Print', curve: [[0, 0.02], [0.25, 0.21], [0.5, 0.52], [0.75, 0.81], [1, 0.97]], mix: [[1.04, -0.02, -0.02], [0.02, 0.99, -0.01], [-0.02, 0.04, 0.98]], bal: [[0.02, 0, -0.04], [0.05, 0.01, -0.06], [0.08, 0.03, -0.08]], sat: 1.06, css: 'contrast(1.08) saturate(1.06) sepia(0.16)' },
+  golden: { label: 'Golden Hour Print', curve: [[0, 0.03], [0.25, 0.2], [0.5, 0.53], [0.75, 0.83], [1, 0.96]], mix: [[1.06, -0.03, -0.03], [0.03, 0.98, -0.01], [-0.03, 0.05, 0.96]], bal: [[0.03, 0, -0.06], [0.08, 0.02, -0.09], [0.11, 0.04, -0.11]], sat: 1.1, css: 'contrast(1.14) saturate(1.12) sepia(0.26)' },
   monsoon: { label: 'Monsoon Cool', curve: [[0, 0.03], [0.25, 0.23], [0.5, 0.5], [0.75, 0.77], [1, 0.95]], mix: [[0.97, 0.03, 0], [0.01, 1, -0.01], [0, 0.05, 0.98]], bal: [[-0.04, 0.01, 0.05], [-0.03, 0.01, 0.03], [-0.02, 0, 0.02]], sat: 0.9, css: 'contrast(1.04) saturate(0.9) hue-rotate(-6deg)' },
   faded: { label: 'Faded Print', curve: [[0, 0.08], [0.25, 0.26], [0.5, 0.5], [0.75, 0.74], [1, 0.92]], mix: [[1, 0, 0], [0.02, 0.98, 0], [0, 0.02, 0.98]], bal: [[0.03, 0.01, -0.01], [0.02, 0, -0.02], [0.01, 0, -0.02]], sat: 0.82, css: 'contrast(0.88) saturate(0.82) brightness(1.03) sepia(0.08)' },
   bleach: { label: 'Bleach Bypass', curve: [[0, 0], [0.25, 0.17], [0.5, 0.5], [0.75, 0.85], [1, 1]], mix: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], bal: [[0, 0, 0.01], [0, 0, 0], [0.01, 0.01, 0]], sat: 0.55, css: 'contrast(1.22) saturate(0.55)' },
   tungsten: { label: 'Night Tungsten', curve: [[0, 0.01], [0.25, 0.2], [0.5, 0.5], [0.75, 0.81], [1, 0.98]], mix: [[1.02, -0.02, 0], [-0.01, 1.01, 0], [-0.03, 0.03, 1]], bal: [[-0.05, 0, 0.07], [0, 0, 0], [0.07, 0.02, -0.06]], sat: 1.04, css: 'contrast(1.1) saturate(1.04)' },
-  classic: { label: 'Classic Cinema', curve: [[0, 0.015], [0.25, 0.19], [0.5, 0.5], [0.75, 0.82], [1, 0.975]], mix: [[1.03, -0.01, -0.02], [-0.02, 1.03, -0.01], [-0.01, -0.03, 1.04]], bal: [[0, 0.01, 0.02], [0.02, 0, -0.01], [0.03, 0.01, -0.02]], sat: 1.08, css: 'contrast(1.12) saturate(1.08)' },
+  // (made stronger 2026-10-28: the old one was hard to tell from the clip - a real print S-curve with lifted, cool
+  // shadows and warm, rolled-off highlights, the teal / orange of cinema)
+  classic: { label: 'Classic Cinema', curve: [[0, 0.045], [0.15, 0.11], [0.35, 0.3], [0.5, 0.5], [0.7, 0.75], [0.88, 0.9], [1, 0.95]], mix: [[1.08, -0.04, -0.04], [-0.04, 1.07, -0.03], [-0.03, -0.06, 1.09]], bal: [[-0.07, 0.01, 0.09], [0.04, 0, -0.04], [0.09, 0.03, -0.08]], sat: 1.14, css: 'contrast(1.22) saturate(1.16) sepia(0.14) hue-rotate(-5deg) brightness(0.98)' },
   silver: { label: 'Silver B&W', curve: [[0, 0.01], [0.25, 0.19], [0.5, 0.5], [0.75, 0.83], [1, 0.99]], mix: [[0.36, 0.54, 0.1], [0.36, 0.54, 0.1], [0.36, 0.54, 0.1]], bal: [[0, 0, 0], [0, 0, 0], [0, 0, 0]], sat: 1, css: 'grayscale(1) contrast(1.15)' },
 };
 // grain size: how much smaller the noise picture is made before it is scaled up (bigger = coarser grain)
@@ -25,13 +27,13 @@ const GRAIN_SIZE = { fine: 1, medium: 1.7, coarse: 2.8 };
 
 export const FILM_PARAMS = {
   look: { label: 'Look', type: 'select', def: 'classic', options: Object.entries(FILM_LOOKS).map(([k, l]) => [k, l.label]) },
-  strength: { label: 'Look strength', min: 0, max: 1, step: 0.05, def: 0.8 },
-  halation: { label: 'Halation', min: 0, max: 1, step: 0.05, def: 0.35 },
+  strength: { label: 'Look strength', min: 0, max: 1, step: 0.05, def: 1 },
+  halation: { label: 'Halation', min: 0, max: 1, step: 0.05, def: 0.5 },
   halRadius: { label: 'Halation size', min: 4, max: 60, step: 1, def: 18, unit: 'px' },
-  bloom: { label: 'Bloom', min: 0, max: 1, step: 0.05, def: 0.15 },
-  grain: { label: 'Grain', min: 0, max: 1, step: 0.05, def: 0.35 },
+  bloom: { label: 'Bloom', min: 0, max: 1, step: 0.05, def: 0.25 },
+  grain: { label: 'Grain', min: 0, max: 1, step: 0.05, def: 0.4 },
   grainSize: { label: 'Grain size', type: 'select', def: 'medium', options: [['fine', 'Fine (35mm)'], ['medium', 'Medium (16mm)'], ['coarse', 'Coarse (8mm)']] },
-  vignette: { label: 'Vignette', min: 0, max: 1, step: 0.05, def: 0.25 },
+  vignette: { label: 'Vignette', min: 0, max: 1, step: 0.05, def: 0.4 },
   weave: { label: 'Gate weave', min: 0, max: 1, step: 0.05, def: 0 },
   flicker: { label: 'Flicker', min: 0, max: 1, step: 0.05, def: 0 },
 };
@@ -69,15 +71,15 @@ export function filmGraph(p0, { W = 1920, H = 1080, F = 30 } = {}) {
     // halation: only the bright parts, blurred wide, turned red-orange, laid over with screen
     if (p.halation > 0) {
       g.push(`[${cur}]split[${b}h0][${b}h1]`);
-      g.push(`[${b}h1]curves=all='0/0 0.6/0 0.85/0.55 1/1',gblur=sigma=${f3(Math.max(1, p.halRadius * k))},colorchannelmixer=rr=1:rg=0:rb=0:gr=0.32:gg=0.06:gb=0:br=0.05:bg=0:bb=0.04[${b}h2]`);
-      g.push(`[${b}h0][${b}h2]blend=all_mode=screen:all_opacity=${f3(clamp(p.halation * 0.9, 0, 1))}[${b}h]`);
+      g.push(`[${b}h1]curves=all='0/0 0.55/0 0.8/0.6 1/1',gblur=sigma=${f3(Math.max(1, p.halRadius * k))},colorchannelmixer=rr=1:rg=0:rb=0:gr=0.32:gg=0.06:gb=0:br=0.05:bg=0:bb=0.04[${b}h2]`);
+      g.push(`[${b}h0][${b}h2]blend=all_mode=screen:all_opacity=${f3(clamp(p.halation, 0, 1))}[${b}h]`);
       cur = `${b}h`;
     }
     // bloom: a softer, wider, neutral glow from the highlights
     if (p.bloom > 0) {
       g.push(`[${cur}]split[${b}b0][${b}b1]`);
       g.push(`[${b}b1]curves=all='0/0 0.5/0 1/0.9',gblur=sigma=${f3(Math.max(2, 42 * k))}[${b}b2]`);
-      g.push(`[${b}b0][${b}b2]blend=all_mode=screen:all_opacity=${f3(clamp(p.bloom * 0.6, 0, 1))}[${b}bl]`);
+      g.push(`[${b}b0][${b}b2]blend=all_mode=screen:all_opacity=${f3(clamp(p.bloom * 0.8, 0, 1))}[${b}bl]`);
       cur = `${b}bl`;
     }
     // grain: grey noise (new every frame), made smaller and scaled up for a coarser grain, laid over with "overlay" -
@@ -108,7 +110,7 @@ export function filmCss(p0, grainCss) {
   const p = Object.fromEntries(Object.keys(FILM_PARAMS).map((k) => [k, P(p0 || {}, k)]));
   const L = FILM_LOOKS[p.look], f = [];
   if (p.strength > 0) f.push(L.css.replace(/(contrast|saturate|brightness)\(([\d.]+)\)/g, (_, fn, v) => `${fn}(${f3(1 + (v - 1) * p.strength)})`).replace(/(sepia|grayscale)\(([\d.]+)\)/g, (_, fn, v) => `${fn}(${f3(v * p.strength)})`).replace(/hue-rotate\((-?[\d.]+)deg\)/g, (_, v) => `hue-rotate(${f3(v * p.strength)}deg)`));
-  if (p.halation + p.bloom > 0) f.push(`brightness(${f3(1 + 0.05 * p.halation + 0.07 * p.bloom)})`);
-  const vig = p.vignette > 0 ? `radial-gradient(ellipse at center, rgba(0,0,0,0) ${Math.round(70 - 30 * p.vignette)}%, rgba(0,0,0,${f3(0.25 + 0.5 * p.vignette)}) 100%)` : '';
+  if (p.halation + p.bloom > 0) f.push(`brightness(${f3(1 + 0.04 * p.halation + 0.06 * p.bloom)}) sepia(${f3(0.06 * p.halation)})`);
+  const vig = p.vignette > 0 ? `radial-gradient(ellipse at center, rgba(0,0,0,0) ${Math.round(70 - 30 * p.vignette)}%, rgba(0,0,0,${f3(0.3 + 0.6 * p.vignette)}) 100%)` : '';
   return { filter: f.join(' '), ...(p.grain > 0 ? { overlay: grainCss(p.grain), grain: true } : {}), ...(vig ? { overlays: [vig] } : {}) };
 }

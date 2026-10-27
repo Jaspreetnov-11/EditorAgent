@@ -3,7 +3,7 @@
 // hands to drawComp, and gfxui.js bakes like any graphic). Works in the browser and in Node (no DOM at import).
 //
 // comp  = { id, name, w, h, dur, bg: null | '#rrggbb', layers: [layer] }  - layers[0] is the TOP layer (as in AE)
-// layer = { id, name, type: 'text' | 'shape' | 'solid' | 'image' | 'video' | 'null', in, out, parent, hidden, solo, locked,
+// layer = { id, name, type: 'text' | 'shape' | 'solid' | 'image' | 'video' | 'map' | 'null', in, out, (map: geomap.js) parent, hidden, solo, locked,
 //           (video: { mediaId, in: source second at the layer's start, speed, w, h } - a clip of the edit brought in)
 //           blend: 'normal' | 'multiply' | 'screen' | 'add' | 'overlay' | 'darken' | 'lighten' | 'difference',
 //           matte: null | 'alpha' | 'alphaInv' | 'luma' | 'lumaInv'   (the layer just above is the matte, AE track matte)
@@ -11,6 +11,8 @@
 // A property is a plain value (number, [x, y], '#rrggbb') or animated: { k: [{ t, v, e: [x1, y1, x2, y2], hold }] }
 // (e = the ease of the segment that starts at that keyframe, a CSS cubic-bezier; [0,0,1,1] linear) and may have
 // wiggle: { freq, amp } (AE's wiggle() expression without code).
+
+import { drawMap, newMap } from './geomap.js';
 
 export const BLENDS = { normal: 'source-over', multiply: 'multiply', screen: 'screen', add: 'lighter', overlay: 'overlay', darken: 'darken', lighten: 'lighten', difference: 'difference' };
 export const EASE = { linear: [0, 0, 1, 1], easy: [0.33, 0, 0.67, 1], easyIn: [0.33, 0, 1, 1], easyOut: [0, 0, 0.67, 1], snappy: [0.2, 0.9, 0.25, 1], overshoot: [0.3, 1.45, 0.45, 1] };
@@ -100,7 +102,7 @@ export function setWiggle(p, t, w) {
 export const tr0 = (w, h) => ({ anchor: [0, 0], position: [w / 2, h / 2], scale: [100, 100], rotation: 0, opacity: 100 });
 export function newComp(name, w = 1920, h = 1080, dur = 5) { return { id: uidM(), name, w, h, dur, bg: null, layers: [] }; }
 export function newLayer(type, comp, extra = {}) {
-  const L = { id: uidM(), name: extra.name || ({ text: 'Text', shape: 'Shape', solid: 'Solid', image: 'Image', video: 'Video', null: 'Null' }[type]), type, in: 0, out: comp.dur,
+  const L = { id: uidM(), name: extra.name || ({ text: 'Text', shape: 'Shape', solid: 'Solid', image: 'Image', video: 'Video', map: 'Map', null: 'Null' }[type]), type, in: 0, out: comp.dur,
     parent: null, hidden: false, solo: false, locked: false, blend: 'normal', matte: null, tr: tr0(comp.w, comp.h), masks: [], effects: [] };
   if (type === 'text') L.text = { text: 'Your text', font: 'Nirmala UI', size: 120, weight: 800, fill: '#ffffff', stroke: '#000000', strokeW: 0, align: 'center', tracking: 0, lineHeight: 1.15, animators: [] };
   if (type === 'shape') L.shape = { kind: 'rect', size: [600, 300], roundness: 24, sides: 5, inner: 0.5, path: [], closed: true, fill: '#ff9933', fillOn: true, stroke: '#ffffff', strokeW: 0, trimStart: 0, trimEnd: 100, trimOffset: 0 };
@@ -108,6 +110,7 @@ export function newLayer(type, comp, extra = {}) {
   if (type === 'image') L.image = { mediaId: extra.mediaId || null, w: extra.w || 0, h: extra.h || 0 };
   if (type === 'video') L.video = { mediaId: extra.mediaId || null, in: extra.srcIn || 0, speed: extra.speed || 1, w: extra.w || comp.w, h: extra.h || comp.h };
   if (type === 'null') L.tr.opacity = 100;
+  if (type === 'map') L.map = newMap(comp.w, comp.h);
   return Object.assign(L, extra.props || {});
 }
 
@@ -120,6 +123,7 @@ function contentBox(L, t, ctx) {
   if (L.type === 'video') { const w = L.video.w || 1920, h = L.video.h || 1080; return [-w / 2, -h / 2, w, h]; }
   if (L.type === 'text' && ctx) { const m = textLayout(ctx, L, t); return [m.x0, m.y0, m.w, m.h]; }
   if (L.type === 'null') return [-50, -50, 100, 100];
+  if (L.type === 'map') { const w = L.map.w || 1920, h = L.map.h || 1080; return [-w / 2, -h / 2, w, h]; }
   return [-100, -50, 200, 100];
 }
 function pathBox(P) {
@@ -426,6 +430,7 @@ function drawLayer(ctx, comp, L, t, opts, offscreen = false) {
     } else if (el) ctx.drawImage(el, -w / 2, -h / 2, w, h);
     else if (opts.placeholder) { ctx.fillStyle = '#ffffff14'; ctx.fillRect(-w / 2, -h / 2, w, h); }
   }
+  else if (L.type === 'map') drawMap(ctx, L, lt, val, opts);
   else if (L.type === 'image') {
     const im = opts.img?.(L.image.mediaId), w = L.image.w || im?.naturalWidth || 400, h = L.image.h || im?.naturalHeight || 300;
     if (im) ctx.drawImage(im, -w / 2, -h / 2, w, h);
@@ -447,6 +452,20 @@ export const videoLayers = (comp, t) => (comp?.layers || []).filter((l) => l.typ
 const K = (pairs, e = EASE.easy) => ({ k: pairs.map(([t, v]) => ({ t, v, e: [...e] })) });
 export const COMP_PRESETS = {
   blank: { name: 'Empty composition', make: (w, h) => newComp('Comp', w, h, 5) },
+  // 🗺 GeoLayer-style: India on a navy ground, the camera flies into Chhattisgarh (it glows and its outline draws on),
+  // then the route Raipur -> Bilaspur -> Jagdalpur travels with the pins popping in
+  map: { name: 'Map: India → Chhattisgarh fly-in + route', make: (w, h) => {
+    const c = newComp('India map', w, h, 8); c.bg = '#06101f';
+    const L = newLayer('map', c, { name: 'India map' }), m = L.map;
+    m.region = 'india'; m.hi = [{ name: 'Chhattisgarh', color: '#ff9933' }];
+    m.center = K([[0.3, [82.7, 22.3]], [2.6, [82.2, 21.3]]]); m.zoom = K([[0.3, 1], [2.6, 3.4]]); m.draw = K([[2.2, 0], [3.6, 100]]);
+    m.pins = [{ name: 'Raipur', lon: 81.63, lat: 21.25 }, { name: 'Bilaspur', lon: 82.14, lat: 22.08 }, { name: 'Jagdalpur', lon: 82.02, lat: 19.08 }];
+    m.pinSize = 9; m.labelSize = 26; m.route = { on: true, color: '#ffd400', width: 4, curve: 0.3, progress: K([[4.2, 0], [6.6, 100]]) };
+    const t = newLayer('text', c, { name: 'Title' });
+    Object.assign(t.text, { text: 'छत्तीसगढ़', size: Math.round(h * 0.09), weight: 800 }); t.tr.position = [w * 0.5, h * 0.12]; t.tr.opacity = K([[3, 0], [3.6, 100]]); t.in = 3;
+    c.layers = [t, L];
+    return c;
+  } },
   title: { name: 'Title reveal (mask wipe + tracking)', make: (w, h) => {
     const c = newComp('Title reveal', w, h, 5);
     const bar = newLayer('shape', c, { name: 'Accent bar' });
@@ -517,7 +536,7 @@ export function ellipsePath(cx, cy, rx, ry) { const k = 0.5523; return [[cx, cy 
 export function layerKeys(L) {
   const out = [];
   const walk = (o, path) => { if (!o || typeof o !== 'object') return; if (isAnim(o)) { out.push({ path, keys: o.k }); return; } for (const [k, v] of Object.entries(o)) if (k !== 'path') walk(v, [...path, k]); };
-  walk({ tr: L.tr, text: L.text, shape: L.shape, solid: L.solid, masks: L.masks, effects: L.effects }, []);
+  walk({ tr: L.tr, text: L.text, shape: L.shape, solid: L.solid, masks: L.masks, effects: L.effects, map: L.map }, []);
   return out;
 }
 export const getIn = (o, path) => path.reduce((a, k) => (a == null ? a : a[k]), o);

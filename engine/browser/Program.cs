@@ -30,6 +30,8 @@ namespace LimelightEditor
         [DataMember(Name = "allowedNets")] public string[] AllowedNets = { "192.168." };
         [DataMember(Name = "diskCacheGB")] public int DiskCacheGB = 20;
         [DataMember(Name = "devTools")] public bool DevTools;
+        // ⛓ which PC runs the editor while the main one is down (engine/standby.mjs writes it on the NAS)
+        [DataMember(Name = "standbyFile")] public string StandbyFile = @"\\192.168.0.99\Team Editing\Limelight Backups\live\standby.json";
 
         public static Settings Load()
         {
@@ -42,18 +44,59 @@ namespace LimelightEditor
         }
     }
 
+    [DataContract]
+    class StandbyInfo
+    {
+        [DataMember(Name = "state")] public string State;
+        [DataMember(Name = "url")] public string Url;
+        [DataMember(Name = "beat")] public double Beat;
+    }
+
+    // ⛓ the editor's line of PCs (PC A, then JASPREET, PC B, any helper - engine/standby.mjs): where it runs right now
+    static class Line
+    {
+        // the standby running the editor (it writes standby.json every 5 s) - null when none, or it stopped answering
+        public static string ActiveStandby(string file)
+        {
+            try
+            {
+                StandbyInfo sb;
+                using (var f = File.OpenRead(file)) sb = (StandbyInfo)new DataContractJsonSerializer(typeof(StandbyInfo)).ReadObject(f);
+                var now = (DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds;
+                return sb != null && sb.State == "active" && !string.IsNullOrEmpty(sb.Url) && now - sb.Beat < 30000 ? sb.Url : null;
+            }
+            catch { return null; }
+        }
+        // does the editor at this address answer at all (3 s)? Any reply counts - the owner's own port has no /team/ping
+        public static bool Answers(string origin)
+        {
+            try
+            {
+                var r = (HttpWebRequest)WebRequest.Create(origin.TrimEnd('/') + "/team/ping");
+                r.Timeout = 3000;
+                using (r.GetResponse()) return true;
+            }
+            catch (WebException e) { return e.Response != null; }
+            catch { return false; }
+        }
+        public static string Origin(string url) => Uri.TryCreate(url, UriKind.Absolute, out var u) && (u.Scheme == "http" || u.Scheme == "https") ? u.GetLeftPart(UriPartial.Authority) : null;
+    }
+
     static class Program
     {
         public static readonly string Version = Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
 
-        // is the editor running on this PC (its own port answers)?
+        // is THE editor running on this PC (its own port answers, and it is a deployed one - "main": the server PC or a
+        // standby)? A coding / test run on port 3000 must not take this window: it goes away and the tabs say "refused"
         static bool EditorHere()
         {
             try
             {
                 var r = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:3000/api/version");
                 r.Timeout = 1500;
-                using (var res = (HttpWebResponse)r.GetResponse()) return res.StatusCode == HttpStatusCode.OK;
+                using (var res = (HttpWebResponse)r.GetResponse())
+                using (var rd = new StreamReader(res.GetResponseStream()))
+                    return res.StatusCode == HttpStatusCode.OK && rd.ReadToEnd().Replace(" ", "").Contains("\"main\":true");
             }
             catch { return false; }
         }
@@ -262,15 +305,52 @@ namespace LimelightEditor
             {
                 e.State = Allowed(e.Uri) ? CoreWebView2PermissionState.Allow : CoreWebView2PermissionState.Deny;
             };
-            // the editor not answering: the next address, else a page that tries again by itself
+            // the editor not answering: the PC of the line running it now (standby.json), else the next address, else a
+            // page that tries again by itself
             wv.NavigationCompleted += (o, e) =>
             {
                 if (e.IsSuccess || e.WebErrorStatus == CoreWebView2WebErrorStatus.OperationCanceled) return;
+                var sb = Line.ActiveStandby(s.StandbyFile);
+                if (sb != null && Line.Origin(sb) != Line.Origin(wv.Source)) { wv.Navigate(sb); return; }
                 if (++urlIndex < s.Urls.Length) { wv.Navigate(s.Urls[urlIndex]); return; }
                 urlIndex = 0;
                 wv.NavigateToString(RetryPage(s.Urls[0]));
             };
             wv.Navigate(startUrl ?? s.Urls[0]);
+            // ⛓ every 10 s: the PC this window shows has stopped answering and another PC of the line runs the editor ->
+            // go there (same page); the main editor is back and the standby has handed back -> back to the main one
+            var watch = new Timer { Interval = 10000 };
+            var checking = false;
+            watch.Tick += async (o, e) =>
+            {
+                if (checking) return;
+                checking = true;
+                try
+                {
+                    var cur = wv.Source ?? "";
+                    var origin = Line.Origin(cur);
+                    var file = s.StandbyFile;
+                    // (the main editor's addresses: not a standby's :3100 link)
+                    var mains = s.Urls.Select(Line.Origin).Where(x => x != null && !x.EndsWith(":3100")).ToArray();
+                    var go = await Task.Run(() =>
+                    {
+                        var sb = Line.ActiveStandby(file);
+                        if (origin == null) return sb; // (the "not answering" page: straight to the standby, if one runs)
+                        if (sb != null && Line.Origin(sb) != origin && !Line.Answers(origin)) return sb;
+                        // on a standby that has handed back (or gone): the main editor, when it answers
+                        if (sb == null && !mains.Contains(origin) && mains.Length > 0 && Line.Answers(mains[0])) return mains[0] + "/";
+                        return null;
+                    });
+                    if (go != null)
+                    {
+                        var hash = cur.Contains("#") ? cur.Substring(cur.IndexOf('#')) : "";
+                        wv.Navigate(go.TrimEnd('/') + "/" + hash);
+                    }
+                }
+                catch { }
+                finally { checking = false; }
+            };
+            watch.Start();
         }
 
         bool Allowed(string uri)
@@ -289,6 +369,6 @@ namespace LimelightEditor
         static string RetryPage(string url) =>
             "<!doctype html><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"10;url=" + WebUtility.HtmlEncode(url) + "\">" +
             "<body style=\"font:16px Segoe UI,sans-serif;background:#111;color:#eee;display:grid;place-items:center;height:100vh;margin:0\">" +
-            "<div><h2>The editor is not answering</h2><p>Trying again every 10 seconds. If the main editor PC is down, the standby PC takes over within about 2 minutes.</p></div>";
+            "<div><h2>The editor is not answering</h2><p>Trying again every 10 seconds. If the main editor PC is down, the next PC in the line (JASPREET, then PC B, then a helper) takes over within about 30 seconds - this window goes there by itself.</p></div>";
     }
 }

@@ -44,7 +44,7 @@ export function applyTemplate(c, t, D, media, { stack = false } = {}) {
   return t.label;
 }
 // the templates on a clip, by name ("Crash zoom in + Film burn memory")
-export const templateNames = (c) => (c?.tpl ? (c.tpl.ids || [c.tpl.id]).map((id) => templateById(id)?.label).filter(Boolean).join(' + ') : '');
+export const templateNames = (c) => (c?.tpl ? (c.tpl.ids || [c.tpl.id]).map((id) => { const [b, at] = String(id).split('@'), l = templateById(b)?.label; return l && at ? `${l} @${at}s` : l; }).filter(Boolean).join(' + ') : ''); // (id@1.20: a camera move from 1.2 s, Labs timeline)
 // take back what a template put on (the clip's own effects and keyframes stay)
 export function clearTemplate(c, D, media) {
   const t = c.tpl;

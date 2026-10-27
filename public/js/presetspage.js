@@ -89,7 +89,7 @@ export function hidePresets() { stop(); }
 
 // a graphic from the timeline (P, or right-click › Edit in Presets): edited here, Update on timeline puts it back
 export function openPresetClip(clip) {
-  if (!clip || clip.type !== 'graphic' || !GFX[clip.gfx?.tpl] || ['comp', 'fusion'].includes(clip.gfx.tpl)) return false;
+  if (!clip || clip.type !== 'graphic' || !GFX[clip.gfx?.tpl] || ['comp', 'fusion', 'vfx'].includes(clip.gfx.tpl)) return false;
   stop(); custom = null; showVideo(false); tpl = clip.gfx.tpl; g = JSON.parse(JSON.stringify(clip.gfx)); dur = clip.dur || GFX[tpl].dur; editId = clip.id; T = Math.min(dur * 0.62, dur);
   if (root && S.page === 'presets') showPresets();
   return true;

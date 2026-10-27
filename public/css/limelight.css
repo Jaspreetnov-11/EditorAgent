@@ -104,7 +104,7 @@ html.ui2[data-look="limelight"] .pool-bar :is(button, .btn) { border-color: tran
 html.ui2[data-look="limelight"] kbd { border-color: var(--hair-2); color: var(--faint); }
 
 /* ---------- monitors: a deep, framed stage and a lit play button ---------- */
-html.ui2[data-look="limelight"] :is(.vw-stage, .sm-stage) { background: radial-gradient(ellipse at center, #0b0b0d 0%, #020202 75%); }
+html.ui2[data-look="limelight"] :is(.vw-stage, .sm-stage) { background: #262626; } /* (grey around the frame, like Premiere - black footage no longer melts into it) */
 html.ui2[data-look="limelight"] :is(.vw-ctrl .play, .sm-play) { background: var(--y-grad) !important; color: #111 !important; border-color: transparent !important; box-shadow: 0 6px 18px -8px rgba(255,194,26,.8) !important; }
 html.ui2[data-look="limelight"] :is(.vw-ctrl, .sm-ctrl) .icon-btn { color: #c9c9cf; }
 html.ui2[data-look="limelight"] :is(#vwTC, .tl-tc, .sm-tc) { color: var(--tc); text-shadow: none; font-weight: 500; letter-spacing: .01em; }
@@ -624,6 +624,7 @@ html.ui2[data-look="limelight"] .ag2-adv .ag-type span small { font-size: 11px; 
 
 /* 📁 Home: inside a folder - "Projects › Soman" (Projects goes back to the folders) */
 #homeCrumb { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-#homeCrumb .home-up { background: none; border: 0; padding: 0; font: inherit; color: var(--muted); cursor: pointer; }
+#homeCrumb button.home-up, html.ui2 #homeCrumb button.home-up { background: none; border: 0; box-shadow: none; padding: 0; height: auto; min-height: 0; border-radius: 0; font: inherit; letter-spacing: inherit; color: var(--muted); cursor: pointer; }
+#homeCrumb button.home-up:hover { background: none; color: var(--text); }
 #homeCrumb .home-up:hover { color: var(--text); }
-#homeCrumb .home-sep { color: var(--faint); font-weight: 400; }
+#homeCrumb .home-sep { color: var(--faint); font-weight: 400; margin: 0 12px; }

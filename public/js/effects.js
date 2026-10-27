@@ -6,6 +6,7 @@
 // ctx = { W, H } output size in pixels (amounts are given for a 1920-wide frame and scaled).
 import { uid } from './model.js';
 import { FILM_PARAMS, filmGraph, filmCss } from './film.js';
+import { VFX_PIC } from './vfxfx.js'; // 💥 the VFX page's picture effects (heat haze, shockwave, glitch, hologram, keys, AI sky / fog / depth)
 
 const n = (v, d) => (Number.isFinite(+v) ? +v : d);
 // 🖥 live looks that CSS alone cannot do are SVG filters, added once to the page (only in the browser; the render uses FFmpeg)
@@ -664,6 +665,7 @@ function withDefaults(d) {
   return o;
 }
 for (const [k, d] of Object.entries(MORE)) VFX[k] = withDefaults(d);
+Object.assign(VFX, VFX_PIC); // (they fill their own defaults: keyframes and AI mattes ride in p)
 export const VFX_CATS = [...new Set(Object.values(VFX).map((x) => x.cat))];
 export const defaultsOf = (type) => Object.fromEntries(Object.entries(VFX[type]?.params || {}).map(([k, d]) => [k, d.def]));
 export const newEffect = (type) => ({ id: uid(), type, on: true, p: defaultsOf(type) });

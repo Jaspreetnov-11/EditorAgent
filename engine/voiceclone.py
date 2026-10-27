@@ -108,6 +108,9 @@ def serve():
         idle[0].start()
 
     rest()
+    # (the editor writes the job path as UTF-8: Windows reads a pipe in the ANSI code page, and a Hindi project name
+    # came through as mojibake - "Invalid argument")
+    sys.stdin.reconfigure(encoding="utf-8")
     for line in sys.stdin:  # (ends when the server is gone)
         if not line.strip():
             continue

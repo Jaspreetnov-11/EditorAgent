@@ -293,12 +293,13 @@ function hitsGraph(c, inL, dur, g) {
 // Keys (Green screen, Luma Key, Color Key) are left to the final pass, where the overlay keeps its transparency.
 // ◯ An effect with a mask (public/js/shapemask.js) works on a copy of the picture, which is then laid back over it
 // through the mask - the effect shows only inside (or, inverted, outside). addMask(file) -> the mask picture's label.
-function vfxGraph(c, inL, g, pre = `vx${segN}`, addMask = null) {
+// 💥 addAux(spec) (segment only): a VFX effect's AI matte / new sky as an input lined up with the shot (vfxfx.js ctx.aux)
+function vfxGraph(c, inL, g, pre = `vx${segN}`, addMask = null, addAux = null) {
   let cur = inL, k = 0;
   for (const e of activeEffects(c)) {
     if (VFX[e.type].key) continue;
     // (Timecode / Clip Name draw text: they get the render's font, a text file, the frame rate and the clip)
-    const r = VFX[e.type].ff(e.p || {}, { W, H, F, clip: c, name: media[c.mediaId]?.name || path.basename(media[c.mediaId]?.path || ''), font: () => font('0'), textfile }), out = `${pre}_${k++}`;
+    const r = VFX[e.type].ff(e.p || {}, { W, H, F, clip: c, name: media[c.mediaId]?.name || path.basename(media[c.mediaId]?.path || ''), font: () => font('0'), textfile, ...(addAux ? { aux: addAux } : {}) }), out = `${pre}_${k++}`;
     if (r === 'null') continue;
     const masked = e.mask?.shape && addMask;
     // ⏱ a time window (Labs: e.from / e.to, seconds into the clip): the effect is made on a copy that shows only then
@@ -418,6 +419,22 @@ function segment(c, label, fixed = null) {
   }
   const inputs = [], g = [], preCmds = [], maskIns = [];
   const addMask = (file) => { const l = `mki${maskIns.length}`; maskIns.push({ file, l }); return l; };
+  // 💥 VFX AI mattes (depth / sky / subject, cache/vfxai or cache/mattes: t0 = the source second they start at) and a new
+  // sky picture, as inputs that cover exactly this shot and are framed like it. Not on ramped / reversed shots (the matte
+  // could not follow them) - the effect is then left out of the AI part.
+  const auxIns = [];
+  const addAux = c.type === 'video' && !rampPts(c) && !c.reverse ? (spec) => {
+    const l = `axi${segN}_${auxIns.length}`;
+    if (spec.cache) {
+      const f = job.segCache && path.resolve(path.dirname(job.segCache), String(spec.cache));
+      if (!f || !/^(vfxai|mattes)[\\/]/.test(String(spec.cache)) || !fs.existsSync(f)) return null;
+      auxIns.push({ l, file: f, ss: Math.max(0, (+c.in || 0) - (+spec.t0 || 0)), speed: c.speed || 1, gray: true });
+    } else if (spec.media) {
+      const am = M(spec.media); if (!am?.path) return null;
+      auxIns.push({ l, file: proxyOf(spec.media) || am.path, still: am.kind === 'image', ss: 0, speed: 1, fill: true });
+    } else return null;
+    return l;
+  } : null;
   let dur, aSrc;
   if (c.type === 'video') {
     const m = M(c.mediaId), full = m.duration || probeDur(m.path), src = proxyOf(c.mediaId) || m.path;
@@ -490,7 +507,7 @@ function segment(c, label, fixed = null) {
   // colour, then the clip's video effects (public/js/effects.js), then Motion - Premiere's order
   const col = colorFilters(c.color, { luts: job.luts || {}, stage: stageLut }), mot = transformFilters(c);
   if (col.length) { g.push(`[${cur}]${col.join(',')}[vc]`); cur = 'vc'; }
-  cur = vfxGraph(c, cur, g, `vx${segN}`, addMask);
+  cur = vfxGraph(c, cur, g, `vx${segN}`, addMask, addAux);
   // ◐ Opacity mask on the main story: outside it is black (overlays get theirs in the final pass, over the shot below)
   if (c.omask?.shape && label.startsWith('V1') && (c.type === 'video' || c.type === 'image')) {
     const mk = addMask(maskPng(c.omask));
@@ -526,6 +543,12 @@ function segment(c, label, fixed = null) {
   g.push(aSrc);
   // the mask pictures come last, so the inputs above keep their numbers
   for (const mi of maskIns) { const idx = inputs.filter((a) => a === '-i').length; inputs.push('-loop', '1', '-framerate', String(F), '-t', String(dur + 0.5), '-i', mi.file); g.push(`[${idx}:v]format=gray,setsar=1[${mi.l}]`); }
+  for (const ax of auxIns) {
+    const idx = inputs.filter((a) => a === '-i').length;
+    if (ax.still) inputs.push('-loop', '1', '-framerate', String(F), '-t', String(dur + 0.5), '-i', ax.file);
+    else inputs.push('-ss', String(ax.ss), '-t', String(dur * ax.speed + 0.5), '-i', ax.file);
+    g.push(`[${idx}:v]setpts=(PTS-STARTPTS)/${ax.speed},fps=${F}[${ax.l}r]`, fit(`${ax.l}r`, `${ax.l}f`, ax.fill ? 'fill' : mode === 'blur' ? 'fit' : mode, ax.fill ? {} : c), `[${ax.l}f]${ax.gray ? 'format=gray' : 'format=yuv420p'}[${ax.l}]`);
+  }
   const out = path.join(wd, `seg${String(segN++).padStart(4, '0')}.mp4`);
   return { file: out, dur, label, hit, pre: preCmds, main: [...inputs, ...fcArgs(g.join(';')), '-map', '[v]', '-map', '[a]', '-t', String(dur)] };
 }
@@ -901,6 +924,12 @@ ovl.filter((x) => x.clip.type === 'graphic').forEach((x, k) => {
     g.push(`[${src}]format=rgba,setpts=PTS-STARTPTS${fi ? `,fade=t=in:st=0:d=${fi}:alpha=1` : ''}${fo ? `,fade=t=out:st=${Math.max(0, len - fo).toFixed(3)}:d=${fo}:alpha=1` : ''}[gf${k}]`);
     src = `gf${k}`;
   }
+  // 🎛 effects on a text / graphic layer: made on its picture, its own transparency kept (taken off and put back on)
+  if (activeEffects(x.clip).some((e) => !VFX[e.type].key)) {
+    g.push(`[${src}]format=rgba,split[gea${k}][geb${k}]`, `[geb${k}]alphaextract[gal${k}]`, `[gea${k}]format=yuv420p[gec${k}]`);
+    const o = vfxGraph(x.clip, `gec${k}`, g, `gv${k}`);
+    g.push(`[${o}]format=rgba[ged${k}]`, `[ged${k}][gal${k}]alphamerge[ge${k}]`); src = `ge${k}`;
+  }
   if (x.clip.omask?.shape) {
     const mk = finalMask(maskPng(movedMask(x.clip.omask, x.clip.transform)), x.end - x.start + 0.5);
     g.push(`[${src}]scale=${W}:${H}:force_original_aspect_ratio=decrease,format=rgba,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black@0,setpts=PTS-STARTPTS,split[gma${k}][gmb${k}]`,
@@ -1098,7 +1127,9 @@ if (OWN) {
   if (gpuFinal) console.log('GPU encoder failed - finishing on the CPU');
   ff([...finalArgs, ...(cpuEnc || finalEnc), '-movflags', '+faststart', outFile]);
 }
-if (!job.keep) fs.rmSync(wd, { recursive: true, force: true });
+// (the video is written by now: a temp file Windows still holds - EPERM on a helper - must not fail the whole render;
+// two 56x8 LED renders were lost that way at "finishing". A leftover folder is only temp.)
+if (!job.keep) try { fs.rmSync(wd, { recursive: true, force: true, maxRetries: 5, retryDelay: 400 }); } catch (e) { console.log(`(temp folder left behind: ${e.code || e.message})`); }
 if (reused) console.log(`Reused ${reused} unchanged shot${reused > 1 ? 's' : ''} from earlier renders`);
 try { trimCache(); } catch {}
 console.log(JSON.stringify({ output: job.output, duration: +(R ? R.out - R.in : D).toFixed(2), width: W, height: H, ...(skipped.length ? { skipped } : {}) }));

@@ -5,6 +5,7 @@
 // 🎬 tpl 'comp' = a Motion page composition (motion.js), copied into the clip: { tpl: 'comp', compId, comp }.
 import { drawComp, compMedia } from './motion.js';
 import { drawFusion } from './fusion.js';
+import { drawVfx, VFX_V } from './vfxlib.js';
 import { cutOut } from './mattecut.js';
 import { PACK, PACK_DRAW } from './gfxpack.js';
 import { hasEdit, setCur, editCtx, editTime, editFade, textSources, drawBg, bgOn, applyLayout, eased, logoEdit, logoPath } from './gfxparams.js';
@@ -43,7 +44,7 @@ export function setFontLoader(fn) { fontLoader = fn; }
 export async function gfxReady(g) {
   if (g?.font && fontLoader) await fontLoader(g.font);
   if (fontLoader) await Promise.all(Object.values(g?.ed?.t || {}).map((e) => e?.font && fontLoader(e.font)));
-  const ids = [g?.logo, g?.ed?.bg?.mode === 'image' && g.ed.bg.img, ...(g?.tpl === 'comp' ? compMedia(g.comp) : [])].filter(Boolean);
+  const ids = [g?.logo, g?.ed?.bg?.mode === 'image' && g.ed.bg.img, ...(g?.tpl === 'comp' ? compMedia(g.comp) : []), g?.tpl === 'vfx' && typeof g.vfx?.p?.mediaId === 'string' && g.vfx.p.mediaId].filter(Boolean);
   await Promise.all(ids.map((id) => { gfxImage(id); const x = IMGS.get(assetUrl(id)); return x && !x.complete ? new Promise((ok) => { x.addEventListener('load', ok, { once: true }); x.addEventListener('error', ok, { once: true }); }) : null; }));
 }
 
@@ -199,6 +200,8 @@ export function drawGraphic(ctx, W, H, g, t, dur, extra = {}) {
   if (g.tpl === 'comp') return g.comp ? drawComp(ctx, W, H, g.comp, t, { img: gfxImage, video: extra.video || gfxVideo, cut: cutOut }) : ctx.clearRect(0, 0, W, H);
   // ✨ a Fusion node graph (fusion.js)
   if (g.tpl === 'fusion') return g.fusion ? drawFusion(ctx, W, H, g.fusion, t, { img: gfxImage, video: extra.video || gfxVideo, cut: cutOut }) : ctx.clearRect(0, 0, W, H);
+  // 💥 a VFX element (vfxlib.js: muzzle flash, explosion, sparks, rain…)
+  if (g.tpl === 'vfx') return g.vfx ? drawVfx(ctx, W, H, g.vfx, t, dur, { img: gfxImage, video: extra.video || gfxVideo }) : ctx.clearRect(0, 0, W, H);
   const th = g.theme === 'brand' ? brandTheme(g.brand) : THEMES[g.theme] || THEMES.mygov;
   FAM = `${g.font ? `"${String(g.font).replace(/"/g, '')}", ` : ''}"Nirmala UI", "Segoe UI", Arial, sans-serif`;
   if (g.font && fontLoader) fontLoader(g.font);
@@ -802,7 +805,7 @@ function textLayoutAt(ctx, W, H, g, s = 1) {
 
 // fingerprint of a graphic as it will be baked (content + frame size + rate + length)
 export function gfxKey(g, W, H, fps, dur) {
-  const s = JSON.stringify([g, W, H, fps, +(+dur).toFixed(3), 2]);
+  const s = JSON.stringify([g, W, H, fps, +(+dur).toFixed(3), g?.tpl === 'vfx' ? `vfx${VFX_V}` : 2]); // (💥 a new VFX drawing version bakes again)
   let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
   return (h >>> 0).toString(16).padStart(8, '0');
 }

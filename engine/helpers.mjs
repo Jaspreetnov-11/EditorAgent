@@ -14,13 +14,20 @@ export function helperScore(sp = {}) {
 // for its slots, by the load of the person working on it and by its recent failures (w.failScore). A first come
 // first served pick used to give a 4K camera file to whichever PC asked first - often the slowest one.
 // polls: [{ w: { id, specs, busy, slots, load, rate, failScore } }], t: { lane, helper, sizes, tag }. Answers an index or -1.
+// t.needs: what the PC must have (['render', 'cv2']) when any PC may take it; a paused PC (its user busy) takes nothing.
+// A PC not measured yet in the lane counts its strength in the measured PCs' units (their rate per point of strength),
+// so a measured fast PC does not lose to an unmeasured slow one only because the two numbers are not alike.
 export function bestPoll(polls, t) {
   const lane = t.lane || 'heavy', mb = (t.sizes || []).reduce((n, x) => n + (+x || 0), 0) / 1e6;
+  const rateOf = (w) => (+w.rate?.[lane] > 0 ? +w.rate[lane] : 0);
+  const known = polls.filter((p) => p.lane === lane && rateOf(p.w));
+  const unit = known.length ? known.reduce((n, p) => n + rateOf(p.w) / helperScore(p.w.specs), 0) / known.length : 1;
   let best = -1, bestCost = Infinity;
   polls.forEach((p, i) => {
     if (p.lane !== lane || (t.helper && p.w.id !== t.helper)) return;
-    const w = p.w, measured = +w.rate?.[lane] > 0 ? +w.rate[lane] : 0;
-    const speed = measured || helperScore(w.specs) * (t.tag === 'proxy' && w.specs?.nvenc ? 3 : 1);
+    if (!t.helper && (p.w.paused || (t.needs || []).some((k) => !p.w.specs?.[k]))) return;
+    const w = p.w, measured = rateOf(w);
+    const speed = measured || helperScore(w.specs) * unit * (t.tag === 'proxy' && w.specs?.nvenc ? 3 : 1);
     const cost = (Math.max(1, mb) / speed) * (1 + (w.busy || 0) / Math.max(1, w.slots || 1)) * (1 + Math.min(100, +w.load || 0) / 100) * (1 + 2 * Math.min(1, +w.failScore || 0));
     if (cost < bestCost) { bestCost = cost; best = i; }
   });

@@ -181,7 +181,40 @@ const disksNow = () => (process.platform !== 'win32' || Date.now() - disksAt < 3
     ok(disks);
   });
 }));
-const liveNow = async () => ({ cpu: load, cores, ramUsed: Math.round((os.totalmem() - os.freemem()) / 1048576), ramTotal: Math.round(os.totalmem() / 1048576), gpus: gpu ? await smiNow() : [], disks: await disksNow() });
+// 🎬 what this helper's own work takes - worker.mjs and all it started (FFmpeg, Python...), not the PC's other programs;
+// every 30 s (the same PowerShell as APP_PS in engine/sysstats.mjs - tests/sysstats.test.mjs keeps them the same)
+const APP_PS = (root) => `$root = ${Math.trunc(root) || 0}; $ErrorActionPreference = 'SilentlyContinue'; $n = [Environment]::ProcessorCount
+$c = Get-Counter -Counter '\\Process(*)\\ID Process', '\\Process(*)\\Creating Process ID', '\\Process(*)\\% Processor Time', '\\Process(*)\\Working Set - Private', '\\GPU Engine(*)\\Utilization Percentage', '\\GPU Process Memory(*)\\Dedicated Usage'
+$P = @{}; $G = @{}; $M = @{}
+foreach ($s in $c.CounterSamples) {
+  $k = $s.Path.Split('\\')[-1]
+  if ($s.Path -match '\\\\gpu engine\\(pid_(\\d+)_.*engtype_([^)]+)\\)') { $key = "$($matches[1])|$($matches[2])"; $G[$key] = [double]$G[$key] + $s.CookedValue; continue }
+  if ($s.Path -match '\\\\gpu process memory\\(pid_(\\d+)_') { $M[[int]$matches[1]] = [double]$M[[int]$matches[1]] + $s.CookedValue; continue }
+  if ($s.Path -notmatch '\\\\process\\(([^)]+)\\)\\\\') { continue }; $i = $matches[1]
+  if (-not $P[$i]) { $P[$i] = @{ name = ($i -replace '#\\d+$', '') } }; $P[$i][$k] = $s.CookedValue
+}
+$kids = @{}; $byId = @{}
+foreach ($x in $P.Values) { $id = [int]$x['id process']; if ($id -le 0) { continue }; $byId[$id] = $x; $pp = [int]$x['creating process id']; if (-not $kids[$pp]) { $kids[$pp] = New-Object System.Collections.ArrayList }; [void]$kids[$pp].Add($id) }
+$seen = @{}; $q = New-Object System.Collections.Queue; $q.Enqueue($root)
+while ($q.Count) { $id = $q.Dequeue(); if ($seen[$id]) { continue }; $seen[$id] = 1; foreach ($k in @($kids[$id])) { if ($k) { $q.Enqueue($k) } } }
+foreach ($k in @($kids[$PID])) { if ($k) { $seen.Remove($k) } }; $seen.Remove($PID) # (not this measuring PowerShell itself)
+$cpu = 0; $ram = 0; $vram = 0; $eng = @{}; $by = @{}
+foreach ($id in $seen.Keys) {
+  $x = $byId[$id]; if (-not $x) { continue }
+  $pc = [double]$x['% processor time'] / $n; $mb = [double]$x['working set - private'] / 1MB
+  $cpu += $pc; $ram += $mb; $vram += [double]$M[$id] / 1MB
+  $nm = $x.name; if (-not $by[$nm]) { $by[$nm] = @{ name = $nm; cpu = 0; ram = 0; n = 0 } }; $by[$nm].cpu += $pc; $by[$nm].ram += $mb; $by[$nm].n++
+}
+foreach ($key in $G.Keys) { $p2, $t = $key.Split('|'); if ($seen[[int]$p2]) { $eng[$t] = [double]$eng[$t] + $G[$key] } }
+$gpu = 0; foreach ($v in $eng.Values) { if ($v -gt $gpu) { $gpu = $v } }
+@{ cpu = [math]::Round($cpu); ram = [math]::Round($ram); gpu = [math]::Round([math]::Min(100, $gpu)); vram = [math]::Round($vram); procs = $seen.Count
+  top = @($by.Values | Sort-Object { $_.ram } -Descending | Select-Object -First 5 | ForEach-Object { @{ name = $_.name; n = $_.n; cpu = [math]::Round($_.cpu); ram = [math]::Round($_.ram) } }) } | ConvertTo-Json -Compress -Depth 4`;
+let app = null, appAt = 0;
+const appNow = () => (process.platform !== 'win32' || Date.now() - appAt < 30e3 ? Promise.resolve(app) : new Promise((ok) => {
+  appAt = Date.now();
+  execFile('powershell.exe', ['-NoProfile', '-Command', APP_PS(process.pid)], { windowsHide: true, timeout: 25000 }, (e, out) => { if (!e) { try { app = { ...JSON.parse(String(out).trim()), disk: String(process.env.LOCALAPPDATA || 'C:').slice(0, 2) }; } catch {} } ok(app); });
+}));
+const liveNow = async () => ({ cpu: load, cores, ramUsed: Math.round((os.totalmem() - os.freemem()) / 1048576), ramTotal: Math.round(os.totalmem() / 1048576), gpus: gpu ? await smiNow() : [], disks: await disksNow(), app: await appNow() });
 
 async function hello() {
   const r = await post('/farm/hello', { id: ID, name: NAME, slots: SLOTS, light: LIGHT, specs: SPECS, load, paused, live: await liveNow().catch(() => null) });

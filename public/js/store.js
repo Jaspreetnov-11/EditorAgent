@@ -29,9 +29,33 @@ const listeners = {};
 export const on = (evt, fn) => { (listeners[evt] ||= []).push(fn); };
 // 🛡 one panel's mistake never stops the others (or the editor): each listener runs on its own; errors are logged once
 const seenErr = new Set();
-export const emit = (evt, data) => (listeners[evt] || []).forEach((fn) => {
-  try { fn(data); } catch (e) { const k = `${evt}:${e?.stack || e}`; if (!seenErr.has(k)) { seenErr.add(k); reportError(`"${evt}" listener`, e); } }
-});
+export const emit = (evt, data) => {
+  (listeners[evt] || []).forEach((fn) => {
+    try { fn(data); } catch (e) { const k = `${evt}:${e?.stack || e}`; if (!seenErr.has(k)) { seenErr.add(k); reportError(`"${evt}" listener`, e); } }
+  });
+  if (KEEP_SCROLL.has(evt)) keepScroll();
+};
+// 📜 a panel drawn again (a tick box, undo / redo, a value typed in) jumped back to its top: every panel scrolled by hand is
+// noted (a selector made of ids / tag.class up the page) and, after such a redraw, its new copy is scrolled back there
+const KEEP_SCROLL = new Set(['change', 'media', 'inspect']), scrolled = new Map(); // selector -> { el, top, left }
+const selOf = (el) => {
+  const p = [];
+  for (let e = el; e && e !== document.body; e = e.parentElement) { if (e.id) { p.unshift(`#${CSS.escape(e.id)}`); return p.join(' > '); } p.unshift(`${e.tagName.toLowerCase()}${e.classList[0] ? `.${CSS.escape(e.classList[0])}` : ''}`); }
+  return `body > ${p.join(' > ')}`;
+};
+if (typeof document !== 'undefined') document.addEventListener('scroll', (e) => { const el = e.target; if (el instanceof Element && el !== document.documentElement) scrolled.set(selOf(el), { el, top: el.scrollTop, left: el.scrollLeft }); }, true);
+function keepScroll() {
+  if (typeof document === 'undefined' || !scrolled.size) return;
+  const put = () => {
+    for (const [k, s] of scrolled) {
+      if (s.el.isConnected && (s.el.scrollTop || !s.top)) continue; // (still there and where it was)
+      let el; try { el = s.el.isConnected ? s.el : document.querySelector(k); } catch { el = null; }
+      if (!el) continue;
+      el.scrollTop = s.top; el.scrollLeft = s.left; s.el = el;
+    }
+  };
+  put(); globalThis.requestAnimationFrame?.(put); // (and once more after panels that draw on the next frame)
+}
 
 // ---- history + 🔴 live editing ----
 // Every change is turned into small ops (public/js/livepatch.js) against `base` - the project as this browser last

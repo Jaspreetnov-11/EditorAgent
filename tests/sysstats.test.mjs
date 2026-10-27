@@ -1,7 +1,8 @@
 // 📊 Mazbooti > Performance (engine/sysstats.mjs): nvidia-smi read right, a helper's numbers made safe, the hour kept
 // small, and everything added up across the PCs.
 import { test, eq as same, assert } from './harness.mjs';
-import { parseSmi, cleanLive, point, addPoint, totals, parseDisks, pcHealth, pcLoad, nasHealth, nasLoad } from '../engine/sysstats.mjs';
+import { parseSmi, cleanLive, point, addPoint, totals, parseDisks, pcHealth, pcLoad, nasHealth, nasLoad, APP_PS, parseApp } from '../engine/sysstats.mjs';
+import fs from 'node:fs';
 
 test('health 0-100 and load: a calm PC, a hot full one, an absent one; the NAS', () => {
   const calm = { live: { cpu: 10, ramUsed: 8000, ramTotal: 32000, gpus: [{ name: 'RTX', util: 40, memUsed: 6000, memTotal: 12000, temp: 50 }], disks: [{ root: 'C:', total: 1000, free: 600 }] } };
@@ -64,4 +65,31 @@ test('totals over the PCs (CPU weighted by cores, offline PCs left out)', () => 
   ]);
   same(t.pcs, 2); same(t.cores, 32); same(t.cpu, 40); same(t.ramUsed, 28000); same(t.vramTotal, 12000); same(t.power, 150); same(t.hottest, 70); same(t.gpus, 1);
   assert(totals([]).hottest === null);
+});
+
+test("the editor's own share: read, kept in range, added up; a helper measures it the same way", () => {
+  const a = parseApp('{"cpu":7,"ram":2048,"gpu":140,"vram":900,"procs":9,"top":[{"name":"ffmpeg","n":2,"cpu":5,"ram":1500},{"name":"node","n":5,"cpu":2,"ram":548}]}');
+  same([a.cpu, a.ram, a.gpu, a.vram, a.procs, a.top[0].name], [7, 2048, 100, 900, 9, 'ffmpeg']);
+  same(parseApp('not json'), null);
+  same(cleanLive({ cpu: 10 }).app, null, 'a helper too old to measure it: none, not zeros');
+  const t = totals([{ cores: 24, live: { cpu: 50, ramUsed: 1, ramTotal: 2, app: { cpu: 10, ram: 1000, gpu: 30, vram: 500, procs: 4 } } },
+    { cores: 8, live: { cpu: 20, ramUsed: 1, ramTotal: 2, app: { cpu: 50, ram: 3000, gpu: 90, vram: 0, procs: 2 } } }, { cores: 8, live: { cpu: 5, ramUsed: 1, ramTotal: 2 } }]);
+  same(t.app, { pcs: 2, cpu: 20, ram: 4000, vram: 500, gpu: 90, procs: 6 });
+  // (engine/worker.mjs imports nothing, so it keeps its own copy - it must be the same PowerShell)
+  const w = fs.readFileSync(new URL('../engine/worker.mjs', import.meta.url), 'utf8');
+  const body = (src, head) => { const i = src.indexOf(head); return src.slice(i + head.length, src.indexOf('`;', i)); };
+  same(body(w, 'const APP_PS = (root) => `'), body(fs.readFileSync(new URL('../engine/sysstats.mjs', import.meta.url), 'utf8'), 'export const APP_PS = (root) => `'));
+  assert(APP_PS(1234).startsWith('$root = 1234;') && APP_PS('x; evil').startsWith('$root = 0;'), 'only a number goes into the PowerShell');
+});
+
+test("health and load from the editor's own use: other drives and programs do not count", () => {
+  const live = { cpu: 90, ramUsed: 31000, ramTotal: 32000, gpus: [{ name: 'RTX', util: 99, memUsed: 11000, memTotal: 12000, temp: 88 }],
+    disks: [{ root: 'C:', total: 1000, free: 400 }, { root: 'D:', total: 1000, free: 20 }], app: { cpu: 12, ram: 4000, gpu: 0, vram: 600, procs: 3, disk: 'C:' } };
+  same(pcHealth({ live }), { score: 100, why: [] }, 'a hot card it does not use, a full D: it does not use, a busy PC - the editor is fine');
+  same(pcLoad(live), 12);
+  const busy = { ...live, app: { ...live.app, gpu: 70, ram: 27000, disk: 'D:' } };
+  const h = pcHealth({ live: busy });
+  same(h.score, 100 - 30 - 25 - 30); assert(h.why.some((w) => w.includes("the editor's drive")), h.why.join());
+  same(pcLoad(busy), 70);
+  same(point({ t: 1, ...busy }).cpu, 12, 'the hour shows the editor too');
 });

@@ -55,45 +55,51 @@ function nasCard(n) {
     ${pts ? `<svg class="perf-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="NAS answer time, last hour"><polyline points="${pts}" class="perf-l-vram"/></svg><div class="sf-cap"><span>1 h</span><span>answer time (lower is better)</span><span>now</span></div>` : ''}</div></div>
   </div>`;
 }
+// 🎬 the Dashboard shows what the EDITOR takes - its own processes on each PC (FFmpeg, AI, workers), not the PCs' other
+// programs; health and load are worked out from the same (engine/sysstats.mjs). A helper too old to measure it shows the
+// PC's numbers, said so.
+function editorMeters(p) {
+  const L = p.live, a = L.app, g = L.gpus || [], vt = g.reduce((n, x) => n + (x.memTotal || 0), 0);
+  if (!a) return `<p class="small warn">Older helper - these are the whole PC's numbers (it updates itself)</p>
+    ${meter('CPU', L.cpu, `${L.cpu}%`)}${meter('RAM', pct(L.ramUsed, L.ramTotal), `${GBm(L.ramUsed)} / ${GBm(L.ramTotal)}`)}`;
+  const d = (L.disks || []).find((x) => !x.net && x.total && x.root.toUpperCase().startsWith(a.disk || '?'));
+  return `${meter('CPU', a.cpu, `${a.cpu}%`)}
+    ${meter('RAM', pct(a.ram, L.ramTotal), `${GBm(a.ram)} / ${GBm(L.ramTotal)}`)}
+    ${g.length ? `${meter('GPU', a.gpu, `${a.gpu}%`)}${meter('VRAM', pct(a.vram, vt), `${GBm(a.vram)} / ${GBm(vt)}`)}
+      ${g.map((x) => meter('Heat', x.temp ?? 0, `${x.temp ?? '-'} °C · ${esc(x.name.replace(/^NVIDIA (GeForce )?/, ''))}`, (x.temp ?? 0) >= 83)).join('')}` : ''}
+    ${d ? meter(`${esc(d.root)}`, pct(d.total - d.free, d.total), `${TB(d.free)} free`, d.free / d.total < 0.1) : ''}
+    ${a.top.some((x) => x.ram >= 50 || x.cpu) ? `<p class="small muted perf-apptop">${a.top.filter((x) => x.ram >= 50 || x.cpu).map((x) => `${esc(x.name)}${x.n > 1 ? ` ×${x.n}` : ''} ${GBm(x.ram)}${x.cpu ? ` · ${x.cpu}%` : ''}`).join(' · ')}</p>` : ''}`;
+}
 function perfPage(d) {
-  const T = d.totals, E = d.editor;
+  const T = d.totals, E = d.editor, A = T.app || { cpu: 0, ram: 0, gpu: 0, vram: 0, procs: 0, pcs: 0 };
   const title = (p) => `<header class="perf-h"><b>${esc(p.label || p.name)}</b><span class="perf-chip ${p.off ? 'off' : ''}">${p.off ? 'Not connected' : p.role === 'helper' ? 'Helper' : 'Server'}</span><small class="muted">${p.label ? esc(p.name) : ''}${p.host && !p.off ? ` · ${esc(p.host)}` : ''}</small>${p.health && !p.off ? hl(p.health, p.load) : ''}</header>`;
   const pcs = d.pcs.map((p) => {
     const L = p.live;
     if (p.off) return `<div class="perf-pc perf-off">${title(p)}<p class="small muted">Run <b>Start Render Worker</b> on it, or restart it.</p></div>`;
     if (!L) return `<div class="perf-pc">${title(p)}<p class="muted small">Waiting for numbers…</p></div>`;
-    const cs = L.cores || [], busy = cs.filter((v) => v >= 50).length, w = p.work;
+    const w = p.work;
     const work = p.role === 'helper'
       ? `<span class="perf-tag">${w.busy}/${w.slots} running</span><span class="perf-tag">${w.done} done</span>${w.failed ? `<span class="perf-tag bad">${w.failed} failed</span>` : ''}${w.paused ? '<span class="perf-tag warn">paused</span>' : ''}`
       : `<span class="perf-tag">${w.jobs} agent jobs</span><span class="perf-tag">${w.renders} rendering</span>${w.waiting ? `<span class="perf-tag">${w.waiting} waiting</span>` : ''}`;
-    return `<div class="perf-pc">${title(p)}
-      <div class="perf-cpu"><span class="perf-big">${L.cpu}%</span><span class="muted small">CPU · <b>${busy}</b> of ${cs.length || p.cores} cores busy</span></div>
-      ${cs.length ? `<div class="perf-cores" style="--n:${Math.min(12, cs.length)}">${cs.map((v, i) => `<i style="--v:${v}%" class="${lvl(v) || (v >= 50 ? 'busy' : '')}" title="Core ${i + 1}: ${v}%"></i>`).join('')}</div>` : ''}
-      ${meter('RAM', pct(L.ramUsed, L.ramTotal), `${GBm(L.ramUsed)} / ${GBm(L.ramTotal)}`)}
-      ${L.gpus.map((g) => `<div class="perf-sub">${esc(g.name.replace(/^NVIDIA GeForce /, ''))}</div>
-        ${meter('GPU', g.util ?? 0, `${g.util ?? '-'}%`)}
-        ${meter('VRAM', pct(g.memUsed, g.memTotal), `${GBm(g.memUsed || 0)} / ${GBm(g.memTotal || 0)}`)}
-        ${meter('Heat', g.temp ?? 0, `${g.temp ?? '-'} °C`, (g.temp ?? 0) >= 83)}
-        ${meter('Power', pct(g.power, g.powerMax), `${g.power ?? '-'} W`)}`).join('')}
-      ${(L.disks || []).length ? `<div class="perf-sub">Storage</div>${L.disks.map((x) => meter(esc(x.root), pct(x.total - x.free, x.total), `${TB(x.free)} free${x.net ? ' · NAS' : ''}`, x.free / x.total < 0.1)).join('')}` : ''}
+    return `<div class="perf-pc">${title(p)}${editorMeters(p)}
+      ${p.health.why.length ? `<p class="small warn">${esc(p.health.why.join(' · '))}</p>` : ''}
       <div class="perf-tags">${work}</div>${perfSpark(p.hist || [])}</div>`;
   }).join('');
   const H = d.health || { score: 100 }, weak = H.weakest;
-  return `<div class="perf-top">${ring(H.score, 84)}<div><small class="muted">HEALTH</small><b class="perf-top-v">${H.score}<span>/100</span></b>
+  return `<p class="small muted perf-note">🎬 Only the editor's own work on each PC - FFmpeg, AI, its workers - not the PCs' other programs. Health and load are worked out from the same.</p>
+    <div class="perf-top">${ring(H.score, 84)}<div><small class="muted">HEALTH</small><b class="perf-top-v">${H.score}<span>/100</span></b>
       <small class="muted">${H.score >= 80 ? 'All good' : `Weakest: ${esc(weak?.label || weak?.name || '')} - ${esc((weak?.health?.why || []).join(' · '))}`}</small></div>
       <div class="perf-top-load"><small class="muted">LOAD</small><b class="perf-top-v">${d.load ?? 0}<span>%</span></b><div class="sf-bar"><i style="width:${d.load ?? 0}%" class="${lvl(d.load ?? 0)}"></i></div><small class="muted">all ${d.pcs.filter((p) => p.live).length} PCs together${d.busiest ? ` · busiest: ${esc(d.busiest.label)} ${d.busiest.load}%` : ''}</small></div></div>
     <div class="perf-kpis">
-      ${kpi('CPU', `${T.cpu}%`, T.cpu, `${T.busyCores} of ${T.cores} cores busy`)}
-      ${kpi('RAM', `${GBm(T.ramUsed)}`, pct(T.ramUsed, T.ramTotal), `of ${GBm(T.ramTotal)}`)}
-      ${kpi('GPU memory', `${GBm(T.vramUsed)}`, pct(T.vramUsed, T.vramTotal), `of ${GBm(T.vramTotal)} · ${T.gpus} cards`)}
-      ${kpi('GPU power', `${T.power ?? '-'} W`, 0, T.hottest != null ? `hottest ${T.hottest} °C` : '')}
-      ${kpi('Storage free', TB(T.diskFree), pct(T.diskTotal - T.diskFree, T.diskTotal), `of ${TB(T.diskTotal)}`)}
+      ${kpi('CPU', `${A.cpu}%`, A.cpu, `of ${T.cores} cores`)}
+      ${kpi('RAM', GBm(A.ram), pct(A.ram, T.ramTotal), `of ${GBm(T.ramTotal)}`)}
+      ${kpi('GPU', `${A.gpu}%`, A.gpu, `busiest of ${T.gpus} cards`)}
+      ${kpi('GPU memory', GBm(A.vram), pct(A.vram, T.vramTotal), `of ${GBm(T.vramTotal)}`)}
       ${T.nasTotal ? kpi('NAS free', TB(T.nasFree), pct(T.nasTotal - T.nasFree, T.nasTotal), `of ${TB(T.nasTotal)}`) : ''}
     </div>
-    <div class="perf-tags perf-line"><span class="perf-tag">${T.pcs} PCs</span><span class="perf-tag">${E.people} editing</span><span class="perf-tag">${E.farmRunning} helper tasks running</span><span class="perf-tag">${E.farmWaiting} waiting</span><span class="perf-tag">editor ${(E.rss / 1024).toFixed(1)} GB</span></div>
+    <div class="perf-tags perf-line"><span class="perf-tag">${T.pcs} PCs</span><span class="perf-tag">${A.procs} editor processes</span><span class="perf-tag">${E.people} editing</span><span class="perf-tag">${E.farmRunning} helper tasks running</span><span class="perf-tag">${E.farmWaiting} waiting</span></div>
     <div class="perf-grid">${d.nas ? nasCard(d.nas) : ''}${pcs}</div>`;
 }
-
 // tab 'perf' (📊 the Dashboard button): its own window, "Performance"; the others: Mazbooti with its tabs
 export async function openSafety(tab = 'health') {
   const perfOnly = tab === 'perf';

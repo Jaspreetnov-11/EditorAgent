@@ -13,9 +13,22 @@ import * as M from './motion.js';
 import * as CV from './compvideo.js';
 import { api, enc, watchJob } from './api.js';
 import { cutOut, matteId } from './mattecut.js';
+import * as GEO from './geomap.js';
 
 const { val, base, animated, EASE } = M;
 let root, compId = null, selIds = new Set(), T = 0, playing = false, raf = 0, tool = 'select', graphOn = false, graphPath = null, selKey = null, pen = null, zoom = 'fit';
+let res = 1, gridOn = true, leftTab = 'proj', lastSel = '', mapNamesMissing = false; // viewer resolution, transparency grid, Project / Effect Controls
+// layer effects (Effect Controls) and where they sit in Effects & Presets
+const FX = { blur: ['Gaussian blur', { amount: 10 }], shadow: ['Drop shadow', { color: '#000000', opacity: 60, distance: 12, angle: 135, softness: 20 }], glow: ['Glow', { radius: 30, intensity: 100 }], fill: ['Fill (colour)', { color: '#ff9933' }], brightness: ['Brightness', { amount: 130 }], saturation: ['Saturation', { amount: 150 }], hue: ['Hue shift', { amount: 90 }] };
+const MO_ZOOMS = [0.1, 0.25, 0.33, 0.5, 0.66, 1, 1.5, 2, 4];
+const FX_CATS = [['Blur & Sharpen', ['blur']], ['Color Correction', ['brightness', 'saturation', 'hue']], ['Generate', ['fill']], ['Perspective', ['shadow']], ['Stylize', ['glow']]];
+// Align panel icons: a bar for the edge / centre line and two boxes lined up on it
+const alignIcon = (k) => {
+  const v = { l: '<path d="M4 3v18"/><rect x="6" y="6" width="12" height="4"/><rect x="6" y="14" width="7" height="4"/>', hc: '<path d="M12 3v18"/><rect x="5" y="6" width="14" height="4"/><rect x="8" y="14" width="8" height="4"/>', r: '<path d="M20 3v18"/><rect x="6" y="6" width="12" height="4"/><rect x="11" y="14" width="7" height="4"/>',
+    t: '<path d="M3 4h18"/><rect x="6" y="6" width="4" height="12"/><rect x="14" y="6" width="4" height="7"/>', vc: '<path d="M3 12h18"/><rect x="6" y="5" width="4" height="14"/><rect x="14" y="8" width="4" height="8"/>', b: '<path d="M3 20h18"/><rect x="6" y="6" width="4" height="12"/><rect x="14" y="11" width="4" height="7"/>',
+    dh: '<path d="M4 4v16M20 4v16"/><rect x="9" y="7" width="6" height="10"/>', dv: '<path d="M4 4h16M4 20h16"/><rect x="7" y="9" width="10" height="6"/>' }[k];
+  return `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6">${v}</svg>`;
+};
 const comps = () => (S.project.comps ||= {});
 const comp = () => S.project && comps()[compId];
 const layer = (id) => comp()?.layers.find((l) => l.id === id);
@@ -46,43 +59,83 @@ function save(label, coalesce) {
 // ---------------- mount ----------------
 export function mountMotion(el) {
   root = el;
-  el.innerHTML = `<div class="mo">
-    <div class="panel mo-proj"><div class="mo-head"><b>Project</b><span class="grow"></span>
-      <button class="small" data-m="new" title="New composition">Comp ▾</button></div>
-      <div class="mo-list" id="moList"></div>
-      <div class="mo-compset" id="moCompSet"></div>
-      <div class="mo-head sub"><b>Presets</b></div>
-      <div class="mo-presets" id="moPresets"></div></div>
-    <div class="panel mo-view">
-      <div class="mo-head mo-tools" role="toolbar" aria-label="Tools">
-        ${[['select', ic('cursor'), 'Selection (V)'], ['text', 'T', 'Text (T)'], ['rect', ic('rect'), 'Rectangle (Q)'], ['ellipse', ic('ellipse'), 'Ellipse'], ['star', ic('star'), 'Star / polygon'], ['pen', ic('pen'), 'Pen - path shape (G): click = point, drag = curve, click the first point or Enter = done'],
-          ['mrect', ic('mask'), 'Rectangle mask on the selected layer'], ['mellipse', ic('maskellipse'), 'Ellipse mask on the selected layer'], ['mpen', ic('edit'), 'Pen mask on the selected layer'], ['track', ic('target'), 'Track motion: select the layer that should follow (e.g. text), then drag a box around the thing in the video to follow']].map(([k, i, t]) => `<button class="mo-tool" data-tool="${k}" title="${t}">${i}</button>`).join('')}
-        <span class="sep"></span>
-        <button class="small" data-m="addLayer" title="New layer">Layer ▾</button>
-        <span class="grow"></span>
-        <select id="moZoom" aria-label="Zoom"><option value="fit">Fit</option><option value="0.25">25%</option><option value="0.5">50%</option><option value="1">100%</option></select>
-        <button class="accent small" data-m="toTimeline" title="Put this comp on the edit's timeline at the playhead (it updates when you change it here)">Add to timeline</button>
-      </div>
-      <div class="mo-stage" id="moStage"><div class="mo-canvas"><canvas id="moCanvas"></canvas><canvas id="moOver"></canvas></div><div class="mo-empty" id="moEmpty">Make a composition: Comp, or pick a preset on the left.</div></div>
-      <div class="mo-trans"><button class="icon-btn" data-m="start" title="Start (Home)">${ic('start')}</button><button class="icon-btn" data-m="prevKey" title="Previous keyframe (J)">${ic('prev')}</button><button class="icon-btn" data-m="play" title="Play / pause (Space)">${ic('play')}</button><button class="icon-btn" data-m="nextKey" title="Next keyframe (K)">${ic('next')}</button><button class="icon-btn" data-m="end" title="End (End)">${ic('end')}</button>
-        <span class="tc" id="moTC">0:00:00</span><span class="muted small" id="moHint"></span></div>
+  // laid out like After Effects: tools across the top; Project / Effect Controls | Composition | Preview, Align,
+  // Effects & Presets; the timeline (one tab per comp) across the bottom
+  el.innerHTML = `<div class="mo mo-ae">
+    <div class="panel mo-toolbar mo-tools" role="toolbar" aria-label="Tools">
+      ${[['select', ic('cursor'), 'Selection (V)'], ['text', 'T', 'Text (T)'], ['rect', ic('rect'), 'Rectangle (Q)'], ['ellipse', ic('ellipse'), 'Ellipse'], ['star', ic('star'), 'Star / polygon'], ['pen', ic('pen'), 'Pen - path shape (G): click = point, drag = curve, click the first point or Enter = done'],
+        ['mrect', ic('mask'), 'Rectangle mask on the selected layer'], ['mellipse', ic('maskellipse'), 'Ellipse mask on the selected layer'], ['mpen', ic('edit'), 'Pen mask on the selected layer'], ['track', ic('target'), 'Track motion: select the layer that should follow (e.g. text), then drag a box around the thing in the video to follow']].map(([k, i, t]) => `<button class="mo-tool" data-tool="${k}" title="${t}">${i}</button>`).join('')}
+      <span class="sep"></span>
+      <button class="small" data-m="new" title="New composition">Composition ▾</button>
+      <button class="small" data-m="addLayer" title="New layer">Layer ▾</button>
+      <span class="muted small mo-hint" id="moHint"></span>
+      <span class="grow"></span>
+      <button class="accent small" data-m="toTimeline" title="Put this comp on the edit's timeline at the playhead (it updates when you change it here)">Add to timeline</button>
     </div>
-    <div class="panel mo-props" id="moProps"></div>
+    <div class="panel mo-left">
+      <div class="mo-tabs" role="tablist"><button class="mo-tab" data-ltab="proj" role="tab">Project</button><button class="mo-tab" data-ltab="fx" role="tab">Effect Controls <span class="muted" id="moFxName"></span></button></div>
+      <div class="mo-proj" id="moProjPane">
+        <div class="mo-pinfo" id="moPInfo"></div>
+        <div class="mo-phdr"><span class="grow">Name</span><span>Duration</span></div>
+        <div class="mo-list" id="moList"></div>
+        <div class="mo-compset" id="moCompSet"></div>
+      </div>
+      <div class="mo-props" id="moProps"></div>
+    </div>
+    <div class="panel mo-view">
+      <div class="mo-tabs"><span class="mo-tab on">Composition <b id="moCompName"></b></span><span class="grow"></span></div>
+      <div class="mo-stage" id="moStage"><div class="mo-canvas"><canvas id="moCanvas"></canvas><canvas id="moOver"></canvas></div><div class="mo-empty" id="moEmpty">Make a composition: Composition ▾, or pick a template in Effects &amp; Presets.</div></div>
+      <div class="mo-vbar">
+        <button class="icon-btn" data-m="zout" title="Zoom out (-) - or the mouse wheel over the picture">${ic('zoomout')}</button>
+        <select id="moZoom" aria-label="Magnification" title="Magnification - the mouse wheel zooms where the mouse is, middle-drag moves around"><option value="fit">Fit</option>${MO_ZOOMS.map((z) => `<option value="${z}">${Math.round(z * 100)}%</option>`).join('')}</select>
+        <button class="icon-btn" data-m="zin" title="Zoom in (+)">${ic('zoomin')}</button>
+        <select id="moRes" aria-label="Resolution" title="Resolution (lower = faster preview)"><option value="1">Full</option><option value="0.5">Half</option><option value="0.33">Third</option><option value="0.25">Quarter</option></select>
+        <button class="icon-btn tog" data-m="grid" title="Transparency grid">${ic('square')}</button>
+        <span class="tc" id="moTC">0:00:00</span>
+      </div>
+    </div>
+    <div class="panel mo-right">
+      <div class="mo-rsec"><div class="mo-rh">Preview</div>
+        <div class="mo-trans"><button class="icon-btn" data-m="start" title="First frame (Home)">${ic('start')}</button><button class="icon-btn" data-m="prevKey" title="Previous keyframe (J)">${ic('prev')}</button><button class="icon-btn" data-m="play" title="Play / pause (Space)">${ic('play')}</button><button class="icon-btn" data-m="nextKey" title="Next keyframe (K)">${ic('next')}</button><button class="icon-btn" data-m="end" title="Last frame (End)">${ic('end')}</button></div>
+        <div class="muted small">Shortcut: Spacebar · loops like AE</div></div>
+      <div class="mo-rsec"><div class="mo-rh">Align</div>
+        <label class="mo-al">Align Layers to: <select id="moAlignTo"><option value="sel">Selection</option><option value="comp">Composition</option></select></label>
+        <div class="mo-albtns">${[['l', 'Left'], ['hc', 'Horizontal centre'], ['r', 'Right'], ['t', 'Top'], ['vc', 'Vertical centre'], ['b', 'Bottom']].map(([k, t]) => `<button class="icon-btn" data-align="${k}" title="Align ${t}">${alignIcon(k)}</button>`).join('')}</div>
+        <div class="muted small">Distribute Layers:</div>
+        <div class="mo-albtns">${[['dh', 'horizontally (centres)'], ['dv', 'vertically (centres)']].map(([k, t]) => `<button class="icon-btn" data-align="${k}" title="Distribute ${t} - 3 or more layers">${alignIcon(k)}</button>`).join('')}</div></div>
+      <div class="mo-rsec grow"><div class="mo-rh">Effects &amp; Presets</div>
+        <input type="search" id="moFxSearch" placeholder="Search effects / presets" aria-label="Search effects and presets">
+        <div class="mo-fxtree" id="moFxTree"></div></div>
+    </div>
     <div class="panel mo-tl">
-      <div class="mo-head"><b id="moTlName">Timeline</b><span class="grow"></span>
+      <div class="mo-tabs mo-tltabs"><div class="mo-ctabs" id="moTlTabs"></div><span class="grow"></span>
         <button class="small tog" data-m="graph" title="Graph Editor: shape the speed of the selected property between keyframes">Graph Editor</button>
-        <span class="muted small">Ease: select a keyframe, then</span>${Object.entries({ linear: 'Linear', easy: 'Easy Ease (F9)', easyIn: 'Ease In', easyOut: 'Ease Out', overshoot: 'Overshoot', hold: 'Hold' }).map(([k, l]) => `<button class="small" data-ease="${k}">${l}</button>`).join('')}
+        <span class="muted small">Ease:</span>${Object.entries({ linear: 'Linear', easy: 'Easy Ease (F9)', easyIn: 'Ease In', easyOut: 'Ease Out', overshoot: 'Overshoot', hold: 'Hold' }).map(([k, l]) => `<button class="small" data-ease="${k}">${l}</button>`).join('')}
       </div>
       <div class="mo-tlbody"><div class="mo-lhead" id="moLHead"></div><div class="mo-lanes" id="moLanes"><canvas id="moTlCanvas"></canvas></div></div>
     </div>
   </div>`;
   el.addEventListener('click', onClick);
-  $('#moZoom', el).onchange = (e) => { zoom = e.target.value; size(); draw(); };
+  $('#moZoom', el).onchange = (e) => setZoom(e.target.value === 'fit' ? 'fit' : +e.target.value);
+  // 🔍 the wheel zooms the viewer where the mouse is (in and out, smaller than Fit too); middle-drag moves around
+  $('#moStage', el).addEventListener('wheel', (e) => { if (!comp() || e.ctrlKey) return; e.preventDefault(); setZoom(VS * (e.deltaY < 0 ? 1.15 : 1 / 1.15), e); }, { passive: false });
+  $('#moStage', el).addEventListener('pointerdown', (e) => {
+    if (e.button !== 1) return;
+    e.preventDefault(); const st = e.currentTarget, x0 = e.clientX, y0 = e.clientY, l0 = st.scrollLeft, t0 = st.scrollTop;
+    const mv = (ev) => { st.scrollLeft = l0 - (ev.clientX - x0); st.scrollTop = t0 - (ev.clientY - y0); };
+    const up = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', up); st.style.cursor = ''; };
+    st.style.cursor = 'grabbing'; addEventListener('pointermove', mv); addEventListener('pointerup', up);
+  });
+  $('#moRes', el).onchange = (e) => { res = +e.target.value || 1; size(); draw(); };
+  $('#moFxSearch', el).oninput = () => renderFxTree();
+  renderFxTree();
   new ResizeObserver(() => { size(); draw(); drawTl(); }).observe($('#moStage', el));
   new ResizeObserver(() => drawTl()).observe($('#moLanes', el));
   wireViewer(); wireTimeline(); wireKeys();
   on('change', () => { if (S.page === 'motion') refresh(); });
   on('media', () => { if (S.page === 'motion') draw(); });
+  // 🗺 a map's outlines / tiles arrived: draw again (and the area names for the highlight list, once)
+  GEO.onGeoLoad(() => { if (S.page !== 'motion' || !root) return; draw(); if (mapNamesMissing && one()?.type === 'map' && GEO.regionNames(one().map.region).length) renderProps(); });
 }
 export function showMotion() {
   if (!comp()) compId = Object.keys(comps())[0] || null;
@@ -96,10 +149,68 @@ function refresh() {
   for (const id of [...selIds]) if (!layer(id)) selIds.delete(id);
   { const b = root.querySelector('[data-m="toTimeline"]'); if (b && comp()) b.textContent = onTimeline(comp().id).length ? 'Update on timeline' : 'Add to timeline'; } // (already there: updated, not added)
   T = clamp(T, 0, comp()?.dur || 0);
-  renderList(); renderProps(); renderLHead(); size(); draw(); drawTl();
+  // a layer newly selected brings Effect Controls forward (like AE after picking a layer); Project stays one click away
+  const sig = [...selIds].join(); if (sig !== lastSel) { if (sig) leftTab = 'fx'; lastSel = sig; }
+  renderList(); renderProps(); renderLHead(); renderTlTabs(); size(); draw(); drawTl();
   $$('[data-tool]', root).forEach((b) => b.classList.toggle('on', b.dataset.tool === tool));
   $('[data-m="graph"]', root).classList.toggle('on', graphOn);
+  $('[data-m="grid"]', root).classList.toggle('on', gridOn);
+  $('.mo-canvas', root).classList.toggle('nogrid', !gridOn);
   $('#moEmpty', root).hidden = !!comp();
+  $$('[data-ltab]', root).forEach((b) => b.classList.toggle('on', b.dataset.ltab === leftTab));
+  $('#moProjPane', root).hidden = leftTab !== 'proj'; $('#moProps', root).hidden = leftTab !== 'fx';
+  $('#moFxName', root).textContent = one() ? one().name : '';
+  $('#moCompName', root).textContent = comp() ? comp().name : '(none)';
+}
+// the timeline's tabs: one per composition, like AE's open comps
+function renderTlTabs() {
+  const el = $('#moTlTabs', root); if (!el) return;
+  el.innerHTML = Object.values(comps()).map((c) => `<button class="mo-ctab${c.id === compId ? ' on' : ''}" data-ctab="${c.id}" title="${esc(c.name)}">${esc(c.name)}</button>`).join('') || '<span class="muted small">Timeline</span>';
+}
+// ---------------- Effects & Presets ----------------
+function renderFxTree() {
+  const el = root && $('#moFxTree', root); if (!el) return;
+  const q = ($('#moFxSearch', root).value || '').trim().toLowerCase(), hit = (s) => !q || s.toLowerCase().includes(q);
+  const cats = [
+    ['* Animation Presets › Text', Object.entries(M.TEXT_ANIMS).filter(([k]) => k !== 'tracking').map(([k, p]) => ['tanim', k, p.name])],
+    ['* Animation Presets › Compositions', Object.entries(M.COMP_PRESETS).filter(([k]) => k !== 'blank').map(([k, p]) => ['preset', k, p.name])],
+    ...FX_CATS.map(([n, ks]) => [n, ks.map((k) => ['fx', k, FX[k][0]])]),
+  ].map(([n, items]) => [n, items.filter((it) => hit(it[2]) || hit(n))]).filter(([, items]) => items.length);
+  el.innerHTML = cats.map(([n, items]) => `<details${q ? ' open' : ''}><summary>${esc(n)}</summary>${items.map(([kind, k, l]) => `<button class="mo-fxi" data-fxp="${kind}:${k}" title="${kind === 'fx' ? 'Click: add to the selected layer(s)' : kind === 'tanim' ? 'Click: apply to the selected text layer at the time indicator' : 'Click: a new composition from this template'}">${esc(l)}</button>`).join('')}</details>`).join('') || '<div class="muted small pad">Nothing matches.</div>';
+}
+function applyFxPreset(v) {
+  const [kind, k] = v.split(':');
+  if (kind === 'preset') return newCompFrom(k);
+  if (kind === 'tanim') { const L = one(); if (L?.type !== 'text') return toast('Select a text layer first', 'err'); const a = M.TEXT_ANIMS[k].make(Math.min(2, comp().dur / 2)); (L.text.animators ||= []).push(a); shiftAnim(a, T); leftTab = 'fx'; return save(`Text animation: ${a.name}`); }
+  const Ls = sel(); if (!Ls.length) return toast('Select a layer first', 'err');
+  for (const L of Ls) (L.effects ||= []).push({ type: k, ...JSON.parse(JSON.stringify(FX[k][1])) });
+  openSecs.add('fx'); leftTab = 'fx'; save(`Add effect: ${FX[k][0]}`);
+}
+// ---------------- Align ----------------
+// layers' on-screen boxes lined up on the selection's (or the comp's) edge / centre; each moves by its own position
+function align(kind) {
+  const c = comp(), Ls = sel().filter((L) => !L.locked); if (!c || !Ls.length) return toast('Select the layers to align', 'err');
+  const g = $('#moOver', root).getContext('2d');
+  const box = (L) => { const q = M.layerQuad(c, L, T, g), xs = q.map((p) => p[0]), ys = q.map((p) => p[1]); return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) }; };
+  const bs = Ls.map(box), toComp = $('#moAlignTo', root).value === 'comp' || Ls.length === 1;
+  const R = toComp ? { x0: 0, x1: c.w, y0: 0, y1: c.h } : { x0: Math.min(...bs.map((b) => b.x0)), x1: Math.max(...bs.map((b) => b.x1)), y0: Math.min(...bs.map((b) => b.y0)), y1: Math.max(...bs.map((b) => b.y1)) };
+  const d = Ls.map(() => [0, 0]);
+  if (kind === 'dh' || kind === 'dv') {
+    if (Ls.length < 3) return toast('Distribute needs 3 or more layers', 'err');
+    const ax = kind === 'dh' ? 0 : 1, mid = (b) => (ax ? (b.y0 + b.y1) / 2 : (b.x0 + b.x1) / 2), order = bs.map((b, i) => i).sort((a, b) => mid(bs[a]) - mid(bs[b]));
+    const lo = mid(bs[order[0]]), hi = mid(bs[order.at(-1)]);
+    order.forEach((i, n) => { d[i][ax] = lo + ((hi - lo) * n) / (order.length - 1) - mid(bs[i]); });
+  } else bs.forEach((b, i) => {
+    if (kind === 'l') d[i][0] = R.x0 - b.x0; if (kind === 'r') d[i][0] = R.x1 - b.x1; if (kind === 'hc') d[i][0] = (R.x0 + R.x1) / 2 - (b.x0 + b.x1) / 2;
+    if (kind === 't') d[i][1] = R.y0 - b.y0; if (kind === 'b') d[i][1] = R.y1 - b.y1; if (kind === 'vc') d[i][1] = (R.y0 + R.y1) / 2 - (b.y0 + b.y1) / 2;
+  });
+  Ls.forEach((L, i) => {
+    let dd = d[i];
+    if (L.parent) { const P = c.layers.find((y) => y.id === L.parent), inv = P && M.invert(M.worldMatrix(c, P, T)); if (inv) { const a = M.apply(inv, [0, 0]), b = M.apply(inv, dd); dd = [b[0] - a[0], b[1] - a[1]]; } }
+    const p0 = base(L.tr.position, T) || [0, 0];
+    L.tr.position = M.setVal(L.tr.position, T, [p0[0] + dd[0], p0[1] + dd[1]].map((v) => Math.round(v * 10) / 10));
+  });
+  save('Align layers');
 }
 
 // ---------------- project panel ----------------
@@ -129,13 +240,8 @@ function renderList() {
     if (i.dataset.cs === 'cam') { if (i.checked) c2.camera = { pos: [0, 0], zoom: 1 }; else delete c2.camera; if (i.checked) { selIds.clear(); toast('Camera on: give layers a Depth (Properties > Layer), then animate the camera (click an empty spot to see it)'); } }
     save('Comp settings');
   }));
-  // presets as two drop-downs: a new comp from a template, and a text animation for the selected text layer
-  if (!$('#moPresets', root).dataset.built) {
-    $('#moPresets', root).innerHTML = `<label class="mo-f"><span>New comp from a template</span><select data-psel="comp"><option value="">Choose a template…</option>${Object.entries(M.COMP_PRESETS).filter(([k]) => k !== 'blank').map(([k, p]) => `<option value="${k}">${esc(p.name)}</option>`).join('')}</select></label>
-      <label class="mo-f"><span>Text animation (selected text layer)</span><select data-psel="text"><option value="">Choose an animation…</option>${Object.entries(M.TEXT_ANIMS).filter(([k]) => k !== 'tracking').map(([k, p]) => `<option value="${k}">${esc(p.name)}</option>`).join('')}</select></label>`;
-    $('#moPresets', root).dataset.built = '1';
-    $$('[data-psel]', root).forEach((s) => (s.onchange = () => { const v = s.value; s.value = ''; if (!v) return; if (s.dataset.psel === 'comp') return newCompFrom(v); const L = one(); if (L?.type !== 'text') return toast('Select a text layer first', 'err'); const a = M.TEXT_ANIMS[v].make(Math.min(2, comp().dur / 2)); (L.text.animators ||= []).push(a); shiftAnim(a, T); save(`Text animation: ${a.name}`); }));
-  }
+  // AE's project info: the picked comp's frame, length and rate over the list
+  $('#moPInfo', root).innerHTML = c ? `<i class="mo-thumb" style="background:${c.bg || '#2a2d34'}"></i><div><b>${esc(c.name)}</b>, used ${onTimeline(c.id).length}×<br>${c.w} x ${c.h} (1.00)<br>Δ ${tc(c.dur)}, ${fps()} fps</div>` : '';
 }
 function frame() { return ASPECTS[S.project.settings.aspect] || [1920, 1080]; }
 function newCompFrom(preset) {
@@ -157,7 +263,7 @@ function addLayer(type, extra = {}) {
 }
 function layerMenu(btn) {
   const imgs = S.media.filter((m) => m.kind === 'image'), vids = S.media.filter((m) => m.kind === 'video' && m.playable !== false);
-  menu(btn, [['text', 'Text'], ['shape', 'Shape'], ['solid', 'Solid'], ['null', 'Null (parent for others)'], ...(vids.length ? [['video', 'Video from Media…']] : []), ...(imgs.length ? [['image', 'Image from Media…']] : [])], (k) => {
+  menu(btn, [['text', 'Text'], ['shape', 'Shape'], ['solid', 'Solid'], ['map', 'Map (GeoLayer)'], ['null', 'Null (parent for others)'], ...(vids.length ? [['video', 'Video from Media…']] : []), ...(imgs.length ? [['image', 'Image from Media…']] : [])], (k) => {
     if (k === 'video') return menu(btn, vids.slice(0, 80).map((m) => [m.id, m.name]), (id) => { const m = S.mediaById[id], c = comp() || null, [w, h] = frame(), k2 = Math.max(w / (m.width || w), h / (m.height || h)); addLayer('video', { mediaId: id, name: m.name, w: Math.round((m.width || w) * k2), h: Math.round((m.height || h) * k2) }); });
     if (k !== 'image') return addLayer(k);
     menu(btn, imgs.slice(0, 60).map((m) => [m.id, m.name]), (id) => { const m = S.mediaById[id], [w, h] = frame(), k2 = Math.min(1, (w * 0.6) / (m.width || 800)); addLayer('image', { mediaId: id, name: m.name, w: Math.round((m.width || 800) * k2), h: Math.round((m.height || 600) * k2) }); });
@@ -176,8 +282,13 @@ function menu(anchor, items, pick) {
 }
 
 function onClick(e) {
-  const b = e.target.closest('[data-m], [data-tool], [data-preset], [data-tanim], [data-ease]'); if (!b) return;
+  const b = e.target.closest('[data-m], [data-tool], [data-preset], [data-tanim], [data-ease], [data-ltab], [data-slink], [data-align], [data-fxp], [data-ctab]'); if (!b) return;
   if (b.dataset.tool) { tool = b.dataset.tool; pen = null; refresh(); hint(); return; }
+  if (b.dataset.ltab) { leftTab = b.dataset.ltab; refresh(); return; }
+  if (b.dataset.slink) { const L = layer(b.dataset.slink); if (L) { L.tr.scaleLink = L.tr.scaleLink === false; save(L.tr.scaleLink ? 'Scale linked' : 'Scale unlinked'); } return; }
+  if (b.dataset.align) return align(b.dataset.align);
+  if (b.dataset.fxp) return applyFxPreset(b.dataset.fxp);
+  if (b.dataset.ctab) { if (b.dataset.ctab !== compId) { compId = b.dataset.ctab; selIds.clear(); T = 0; } refresh(); return; }
   if (b.dataset.preset) return newCompFrom(b.dataset.preset);
   if (b.dataset.tanim) {
     const L = one(); if (L?.type !== 'text') return toast('Select a text layer first', 'err');
@@ -193,6 +304,8 @@ function onClick(e) {
   if (m === 'end') seek(comp()?.dur || 0);
   if (m === 'prevKey' || m === 'nextKey') jumpKey(m === 'nextKey' ? 1 : -1);
   if (m === 'graph') { graphOn = !graphOn; refresh(); }
+  if (m === 'grid') { gridOn = !gridOn; refresh(); }
+  if (m === 'zin' || m === 'zout') stepZoom(m === 'zin' ? 1 : -1);
   if (m === 'toTimeline') toTimeline(e);
 }
 // a text animation added at time T: its keyframes start at T
@@ -220,12 +333,27 @@ function toTimeline(e) {
 
 // ---------------- viewer ----------------
 let VW = 0, VH = 0, VS = 1; // canvas css size and comp->css scale
+const fitK = () => { const st = $('#moStage', root), c = comp(); return st && c ? Math.min((st.clientWidth - 24) / c.w, (st.clientHeight - 24) / c.h) : 1; };
+// z: 'fit' or a scale (1 = 100%); at: the mouse event whose point stays put (else the middle of the view)
+function setZoom(z, at = null) {
+  const st = $('#moStage', root), c = comp(); if (!st || !c) return;
+  if (z !== 'fit') { z = Math.min(8, Math.max(0.02, fitK() * 0.1, z)); if (Math.abs(z / fitK() - 1) < 0.04) z = 'fit'; }
+  const cv = $('.mo-canvas', root), b0 = cv.getBoundingClientRect(), sr = st.getBoundingClientRect();
+  const px = at ? at.clientX : sr.left + sr.width / 2, py = at ? at.clientY : sr.top + sr.height / 2, u = (px - b0.left) / b0.width, v = (py - b0.top) / b0.height;
+  zoom = z; size(); draw();
+  if (st.classList.contains('zoomed')) { const b1 = cv.getBoundingClientRect(); st.scrollLeft += b1.left + u * b1.width - px; st.scrollTop += b1.top + v * b1.height - py; }
+  const sel = $('#moZoom', root); sel.querySelector('[data-cur]')?.remove();
+  if (z !== 'fit' && !MO_ZOOMS.includes(z)) sel.insertAdjacentHTML('beforeend', `<option data-cur value="${z}">${Math.round(z * 100)}%</option>`);
+  sel.value = String(z);
+}
+const stepZoom = (d) => { const k = VS, list = MO_ZOOMS; setZoom(d > 0 ? list.find((z) => z > k * 1.01) ?? k * 1.25 : [...list].reverse().find((z) => z < k * 0.99) ?? k / 1.25); };
 function size() {
   const st = $('#moStage', root), c = comp(); if (!st || !c) return;
-  const k = zoom === 'fit' ? Math.min((st.clientWidth - 24) / c.w, (st.clientHeight - 24) / c.h) : +zoom;
-  VS = Math.max(0.05, k); VW = Math.round(c.w * VS); VH = Math.round(c.h * VS);
-  const dpr = Math.min(2, devicePixelRatio || 1);
-  for (const cv of [$('#moCanvas', root), $('#moOver', root)]) { cv.style.width = `${VW}px`; cv.style.height = `${VH}px`; cv.width = Math.round(VW * dpr); cv.height = Math.round(VH * dpr); }
+  const k = zoom === 'fit' ? fitK() : +zoom;
+  VS = Math.max(0.02, k); VW = Math.round(c.w * VS); VH = Math.round(c.h * VS);
+  st.classList.toggle('zoomed', VW > st.clientWidth - 8 || VH > st.clientHeight - 8); // (scrollbars only when the picture is bigger than the view)
+  const dpr = Math.min(2, devicePixelRatio || 1, 8192 / Math.max(VW, VH)); // (a 400% view of a 4K comp stays a canvas the browser can hold)
+  for (const cv of [$('#moCanvas', root), $('#moOver', root)]) { const r = cv.id === 'moCanvas' ? res : 1; cv.style.width = `${VW}px`; cv.style.height = `${VH}px`; cv.width = Math.round(VW * dpr * r); cv.height = Math.round(VH * dpr * r); } // (Resolution: the picture only; handles stay sharp)
   $('.mo-canvas', root).style.width = `${VW}px`; $('.mo-canvas', root).style.height = `${VH}px`;
 }
 function draw() {
@@ -321,7 +449,12 @@ function wireViewer() {
     if (d.mode === 'penHandle') return drawOver();
     if (d.moved) save({ move: 'Move layer', rot: 'Rotate layer', scale: 'Scale layer' }[d.mode]);
   });
-  ov.addEventListener('dblclick', (e) => { const L = hit(pt(e)); if (L?.type === 'text') { selIds = new Set([L.id]); renderProps(); $('#moProps [data-textarea]', root)?.focus(); } });
+  ov.addEventListener('dblclick', (e) => {
+    const L = hit(pt(e));
+    if (L?.type === 'text') { selIds = new Set([L.id]); renderProps(); $('#moProps [data-textarea]', root)?.focus(); }
+    // 🗺 a double-click on a map lights the state / district / country there up (again: off)
+    if (L?.type === 'map') { const lp = M.apply(M.invert(M.worldMatrix(comp(), L, T)), pt(e)), n = GEO.mapHit(L, T, val, lp[0], lp[1]); if (n) { selIds = new Set([L.id]); mapToggle(L, n); save(`${n} ${L.map.hi.some((x) => x.name === n) ? 'lit up' : 'off'}`); } }
+  });
 }
 function boxDone([x, y, w, h]) {
   drawOver();
@@ -407,7 +540,7 @@ const ROW = (L, path, label, kind, opts = {}) => {
   const v = val(p, T), P = path.join('.');
   const num = (x, i) => `<input type="number" step="${opts.step || 1}" data-pv="${P}" data-i="${i}" value="${+(+x || 0).toFixed(2)}" class="mo-num${on ? ' anim' : ''}">`;
   const input = kind === 'color' ? `<input type="color" data-pv="${P}" value="${v || '#ffffff'}">`
-    : kind === 'xy' ? (v || [0, 0]).map(num).join('') : num(v, -1);
+    : kind === 'xy' ? (opts.link ? linkBtn(L) : '') + (v || [0, 0]).map(num).join('') : num(v, -1);
   return `<div class="mo-row${graphPath === P ? ' gsel' : ''}" data-row="${P}">
     <button class="mo-sw${on ? ' on' : ''}" data-sw="${P}" title="Stopwatch: animate this property">${ic('clock')}</button>
     <span class="mo-lab" data-glab="${P}" title="${on ? 'Click: show in the Graph Editor' : ''}">${label}</span>
@@ -419,7 +552,7 @@ const ROW = (L, path, label, kind, opts = {}) => {
 const SEL = (path, label, options, cur) => `<label class="mo-f"><span>${label}</span><select data-sv="${path}">${options.map(([k, l]) => `<option value="${esc(k)}"${String(k) === String(cur ?? '') ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
 const CHK = (path, label, cur) => `<label class="mo-f chk"><input type="checkbox" data-cv="${path}"${cur ? ' checked' : ''}> ${label}</label>`;
 const sec = (id, title, body, extra = '') => `<details class="mo-sec" data-sec="${id}"${openSecs.has(id) ? ' open' : ''}><summary>${title}${extra}</summary>${body}</details>`;
-const openSecs = new Set(['tr', 'text', 'shape', 'solid', 'image', 'video', 'roto']);
+const openSecs = new Set(['tr', 'text', 'shape', 'solid', 'image', 'video', 'roto', 'map']);
 
 function renderProps() {
   const el = $('#moProps', root), c = comp(), L = one();
@@ -436,7 +569,7 @@ function renderProps() {
     ${SEL('matte', 'Track matte (layer above)', [['', 'None'], ['alpha', 'Alpha matte'], ['alphaInv', 'Alpha inverted'], ['luma', 'Luma matte'], ['lumaInv', 'Luma inverted']], L.matte)}
     <label class="mo-f" title="Parallax: how far away the layer is when the comp has a camera (0 = near, 300 = far)"><span>Depth (parallax)</span><span><input type="number" step="5" min="0" data-depth value="${Number.isFinite(+L.depth) ? L.depth : ''}" placeholder="off" class="mo-num"></span></label>
     <label class="mo-f"><span>In / Out (s)</span><span><input type="number" step="0.04" data-io="in" value="${+(L.in || 0).toFixed(2)}" class="mo-num"><input type="number" step="0.04" data-io="out" value="${+(L.out ?? c.dur).toFixed(2)}" class="mo-num"></span></label></div>`);
-  h += sec('tr', 'Transform', [ROW(L, ['tr', 'anchor'], 'Anchor point', 'xy'), ROW(L, ['tr', 'position'], 'Position', 'xy'), ROW(L, ['tr', 'scale'], 'Scale %', 'xy'), ROW(L, ['tr', 'rotation'], 'Rotation °', 'n'), ROW(L, ['tr', 'opacity'], 'Opacity %', 'n')].join(''));
+  h += sec('tr', 'Transform', [ROW(L, ['tr', 'anchor'], 'Anchor point', 'xy'), ROW(L, ['tr', 'position'], 'Position', 'xy'), ROW(L, ['tr', 'scale'], 'Scale %', 'xy', { link: true }), ROW(L, ['tr', 'rotation'], 'Rotation °', 'n'), ROW(L, ['tr', 'opacity'], 'Opacity %', 'n')].join(''));
   if (L.type === 'text') {
     const t = L.text;
     h += sec('text', 'Text', `<textarea data-textarea rows="2" aria-label="Text">${esc(base(t.text, T))}</textarea>
@@ -464,6 +597,7 @@ function renderProps() {
       <div class="muted small">Trim paths (draw-on: animate End from 0 to 100)</div>
       ${ROW(L, ['shape', 'trimStart'], 'Start %', 'n')}${ROW(L, ['shape', 'trimEnd'], 'End %', 'n')}${ROW(L, ['shape', 'trimOffset'], 'Offset °', 'n')}`);
   }
+  if (L.type === 'map') h += sec('map', 'Map (GeoLayer)', mapHTML(L));
   if (L.type === 'solid') h += sec('solid', 'Solid', ROW(L, ['solid', 'color'], 'Colour', 'color') + ROW(L, ['solid', 'size'], 'Size', 'xy'));
   if (L.type === 'video') h += sec('roto', 'Subject (AI roto)', `<div class="btn-grid"><button class="accent small" data-roto>${L.video.matte?.id ? 'Find again' : 'Cut out subject'}</button><button class="small" data-behind title="Text between the clip and its cut-out subject - in one click">🅣 Text behind subject</button><button class="small" data-parallax title="2.5D: the subject in front, text in the middle, the background behind, and a slow camera move">Parallax (2.5D)</button></div>
     ${L.video.matte?.id ? `<div class="mo-grid">${SEL('video.matte.mode', 'Show', [['cutout', 'Subject only'], ['background', 'Everything but the subject'], ['matte', 'The matte (black & white)']], L.video.matte.mode || 'cutout')}<label class="mo-f"><span>Blur edge px</span><input type="number" class="mo-num" min="0" max="30" step="0.5" data-msoft value="${+L.video.matte.soft || 0}"></label></div>
@@ -481,7 +615,6 @@ function renderProps() {
       <label class="chk small"><input type="checkbox" data-minv="${i}"${m.inverted ? ' checked' : ''}>Inverted</label><span class="grow"></span><button class="icon-btn" data-mdel="${i}" title="Remove mask">✕</button></div>
       ${ROW(L, ['masks', i, 'feather'], 'Feather px', 'n', { wiggle: false })}${ROW(L, ['masks', i, 'opacity'], 'Opacity %', 'n', { wiggle: false })}${ROW(L, ['masks', i, 'expansion'], 'Expansion px', 'n', { wiggle: false })}</div>`).join('')
     + '<div class="muted small">Draw masks with the mask tools on the viewer toolbar.</div>');
-  const FX = { blur: ['Gaussian blur', { amount: 10 }], shadow: ['Drop shadow', { color: '#000000', opacity: 60, distance: 12, angle: 135, softness: 20 }], glow: ['Glow', { radius: 30, intensity: 100 }], fill: ['Fill (colour)', { color: '#ff9933' }], brightness: ['Brightness', { amount: 130 }], saturation: ['Saturation', { amount: 150 }], hue: ['Hue shift', { amount: 90 }] };
   h += sec('fx', `Effects (${(L.effects || []).length})`, (L.effects || []).map((f, i) => `<div class="mo-anim"><div class="mo-anim-h"><label class="chk"><input type="checkbox" data-fxon="${i}"${f.off ? '' : ' checked'}> <b>${FX[f.type]?.[0] || f.type}</b></label><span class="grow"></span><button class="icon-btn" data-fxdel="${i}" title="Remove effect">✕</button></div>
       ${Object.keys(FX[f.type]?.[1] || {}).map((k) => (k === 'color' ? (f.type === 'fill' ? `<label class="mo-f"><span>Colour</span><input type="color" data-fxc="${i}" value="${f.color || '#ffffff'}"></label>` : ROW(L, ['effects', i, k], 'Colour', 'color')) : ROW(L, ['effects', i, k], { amount: 'Amount', opacity: 'Opacity %', distance: 'Distance', angle: 'Angle °', softness: 'Softness', radius: 'Radius', intensity: 'Intensity %' }[k] || k, 'n', { wiggle: false }))).join('')}</div>`).join('')
     + `<div class="mo-grid">${SEL('addfx', 'Add', [['', 'Effect…'], ...Object.entries(FX).map(([k, [l]]) => [k, l])], '')}</div>`);
@@ -499,6 +632,16 @@ function renderPropsValues() {
   $$('#moProps [data-key]', root).forEach((b) => b.classList.toggle('on', M.keyAt(M.getIn(L, pathOf(b.dataset.key)), T) >= 0));
 }
 const pathOf = (P) => P.split('.').map((x) => (/^\d+$/.test(x) ? +x : x));
+// 🔗 Scale's constrain-proportions link (AE's chain, on unless switched off): one value changes both, keeping the ratio
+const scaleLinked = (L, path) => path.join('.') === 'tr.scale' && L.tr.scaleLink !== false;
+const linkBtn = (L) => `<button class="mo-link${L.tr.scaleLink !== false ? ' on' : ''}" data-slink="${L.id}" title="Constrain proportions: ${L.tr.scaleLink !== false ? 'on - width and height scale together' : 'off - width and height apart'}">${ic('link')}</button>`;
+function xyVal(L, path, p, i, v) {
+  const arr = [...(base(p, T) || val(p, T) || [0, 0])];
+  if (!scaleLinked(L, path)) { arr[i] = v; return arr; }
+  const o = arr[i]; return o ? arr.map((x, j) => (j === i ? v : +((x * v) / o).toFixed(2))) : arr.map(() => v);
+}
+// the other number of a linked pair shows its new value at once
+function syncPair(box, attr, i, L, path) { if (!scaleLinked(L, path)) return; const v = base(M.getIn(L, path), T) || []; box.querySelectorAll(`[${attr}="${i.getAttribute(attr)}"]`).forEach((o) => { if (o !== i) o.value = +(+v[+o.dataset.i] || 0).toFixed(2); }); }
 function wireProps(el, L, FX) {
   $$('details.mo-sec', el).forEach((d) => d.addEventListener('toggle', () => (d.open ? openSecs.add(d.dataset.sec) : openSecs.delete(d.dataset.sec))));
   const nm = $('[data-name]', el); if (nm) nm.onchange = (e) => { L.name = e.target.value.trim() || L.name; save('Rename layer'); };
@@ -509,8 +652,8 @@ function wireProps(el, L, FX) {
     const set = () => {
       const p = M.getIn(L, path), cur = val(p, T);
       let v = i.type === 'color' ? i.value : +i.value;
-      if (i.dataset.i >= 0) { const arr = [...(base(p, T) || cur || [0, 0])]; arr[+i.dataset.i] = v; v = arr; }
-      M.setIn(L, path, M.setVal(p, T, v));
+      if (i.dataset.i >= 0) v = xyVal(L, path, p, +i.dataset.i, v);
+      M.setIn(L, path, M.setVal(p, T, v)); syncPair(el, 'data-pv', i, L, path);
     };
     i.oninput = () => { set(); draw(); };
     i.onchange = () => { set(); save('Change property', `pv-${L.id}-${i.dataset.pv}`); };
@@ -537,6 +680,7 @@ function wireProps(el, L, FX) {
     if (k === 'addanim') { if (!v) return; const a = v === 'custom' ? { name: `Animator ${(L.text.animators || []).length + 1}`, props: { opacity: 0 }, range: { by: 'char', shape: 'square', start: 0, end: 100, offset: 0 } } : M.TEXT_ANIMS[v].make(Math.min(2, comp().dur / 2)); if (v !== 'custom') shiftAnim(a, T); (L.text.animators ||= []).push(a); openSecs.add('anim'); return save('Add text animator'); }
     if (k === 'addfx') { if (!v) return; (L.effects ||= []).push({ type: v, ...JSON.parse(JSON.stringify(FX[v][1])) }); openSecs.add('fx'); return save('Add effect'); }
     if (k.endsWith('.addprop')) { if (!v) return; const a = M.getIn(L, pathOf(k.replace(/\.addprop$/, ''))); (a.props ||= {})[v] = { position: [0, 0], scale: 100, rotation: 0, opacity: 0, fill: '#ff9933', blur: 10 }[v]; return save('Animator property'); }
+    if (k === 'map.region' || k === 'map.style') { L.map[k.slice(4)] = v; if (k === 'map.region') { L.map.center = null; L.map.zoom = 1; L.map.hi = []; } return save(k === 'map.region' ? 'Map region' : 'Map style'); }
     const path = pathOf(k), num = ['text.weight'].includes(k);
     M.setIn(L, path, k === 'parent' || k === 'matte' ? (v || null) : num ? +v : v);
     if (k === 'parent' && v) reparent(L, v);
@@ -545,6 +689,7 @@ function wireProps(el, L, FX) {
   $$('[data-cv]', el).forEach((c) => (c.onchange = () => { M.setIn(L, pathOf(c.dataset.cv), c.checked); save('Layer option'); }));
   $$('[data-io]', el).forEach((i) => (i.onchange = () => { L[i.dataset.io] = clamp(+i.value || 0, 0, comp().dur); if (L.out <= L.in) L.out = Math.min(comp().dur, L.in + 0.1); save('Layer in / out'); }));
   $$('[data-iv]', el).forEach((i) => (i.onchange = () => { L.image[i.dataset.iv] = Math.max(1, +i.value || 1); save('Image size'); }));
+  if (L.type === 'map') wireMap(el, L);
   $('[data-roto]', el)?.addEventListener('click', () => findSubject(L));
   $('[data-parallax]', el)?.addEventListener('click', () => parallax(L));
   $('[data-depth]', el)?.addEventListener('change', (e) => { const v = e.target.value.trim(); if (v === '') delete L.depth; else { L.depth = Math.max(0, +v || 0); comp().camera ||= { pos: [0, 0], zoom: 1 }; } save('Layer depth'); });
@@ -561,6 +706,107 @@ function wireProps(el, L, FX) {
   $$('[data-fxdel]', el).forEach((b) => (b.onclick = () => { L.effects.splice(+b.dataset.fxdel, 1); save('Remove effect'); }));
   $$('[data-fxon]', el).forEach((c) => (c.onchange = () => { L.effects[+c.dataset.fxon].off = !c.checked; save('Effect on / off'); }));
   $$('[data-fxc]', el).forEach((c) => (c.onchange = () => { L.effects[+c.dataset.fxc].color = c.value; save('Effect colour'); }));
+}
+// ---------------- 🗺 map layer (GeoLayer) ----------------
+// Made simple: pick the region and the map look with buttons, tick the areas to light up (every state / district /
+// country is in the list, with a search), one-click animations, pins by name; the fine settings wait under Advanced.
+let mapSearch = '';
+const regionMid = (s2) => [+((s2.bbox[0] + s2.bbox[2]) / 2).toFixed(3), +((s2.bbox[1] + s2.bbox[3]) / 2).toFixed(3)];
+function mapHTML(L) {
+  const m = L.map, names = GEO.regionNames(m.region); mapNamesMissing = !names.length;
+  const set = GEO.mapSet(m.region);
+  if (!m.center && set) m.center = regionMid(set); // (the region's middle, so it can be animated from there)
+  const all = m.region === 'world' ? ['India', ...names.filter((n) => n !== 'India')] : names;
+  const on = new Set((m.hi || []).filter((x) => x.name).map((x) => x.name)), q = mapSearch.trim().toLowerCase();
+  const list = all.filter((n) => !q || n.toLowerCase().includes(q));
+  const seg = (attr, cur, opts) => `<div class="mo-seg">${opts.map(([k, l]) => `<button class="${k === cur ? 'on' : ''}" ${attr}="${k}">${l}</button>`).join('')}</div>`;
+  const kind = { india: 'states', chhattisgarh: 'districts', world: 'countries' }[m.region];
+  return `<div class="mo-mapui">
+    <div class="mo-mlab">1 · Map of</div>${seg('data-mreg', m.region, [['india', 'India'], ['chhattisgarh', 'Chhattisgarh'], ['world', 'World']])}
+    <div class="mo-mlab">2 · Look</div>${seg('data-msty', m.style, [['outline', 'Outline'], ['satellite', 'Satellite'], ['street', 'Street'], ['dark', 'Dark']])}
+    <div class="mo-mcols"><label>Land<input type="color" data-mset="fill" value="${typeof m.fill === 'string' ? m.fill : '#13294b'}"></label><label>Borders<input type="color" data-mset="stroke" value="${typeof m.stroke === 'string' ? m.stroke : '#9fc3ff'}"></label><label>Highlight<input type="color" data-mhicol value="${m.hiColor || m.hi?.[0]?.color || '#ff9933'}"></label></div>
+    <div class="mo-mlab">3 · Light up ${kind} <span class="muted">(${on.size} on · or double-click it on the map)</span></div>
+    <div class="mo-mrow"><input type="search" data-msearch placeholder="Search ${kind}…" value="${esc(mapSearch)}"><button class="small" data-mall>All</button><button class="small" data-mnone>None</button></div>
+    <div class="mo-mlist">${list.map((n) => `<label class="${on.has(n) ? 'on' : ''}"><input type="checkbox" data-marea="${esc(n)}"${on.has(n) ? ' checked' : ''}>${esc(n)}</label>`).join('') || `<span class="muted small">${names.length ? 'Nothing matches' : 'Loading the map…'}</span>`}</div>
+    <div class="mo-mlab">4 · Animate (from the time indicator)</div>
+    <div class="mo-mbtns"><button class="small accent" data-mfly title="Camera flies from the whole map into the lit-up areas (2 s)">✈ Fly in</button><button class="small" data-mdraw title="The lit-up areas' outline draws itself on (1.5 s)">✎ Draw outline</button><button class="small" data-mroute title="The route travels through the pins (2.5 s)">➰ Animate route</button><button class="small" data-mfit title="Whole map, no camera move">⤢ Whole map</button></div>
+    <div class="mo-mlab">5 · Pins</div>
+    <datalist id="moPlaces">${Object.keys(GEO.PLACES).map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
+    <div class="mo-mrow"><input list="moPlaces" data-mpnew placeholder="Type a city: Raipur, Bastar… then Enter"><button class="small" data-mpadd>+ Add</button></div>
+    <div class="mo-chips">${(m.pins || []).map((p, i) => `<span class="mo-chip">${esc(p.name || `${p.lon}, ${p.lat}`)}<button data-mpd="${i}" title="Remove" aria-label="Remove ${esc(p.name || 'pin')}">✕</button></span>`).join('') || '<span class="muted small">No pins yet</span>'}</div>
+    ${(m.pins || []).length > 1 ? CHK('map.route.on', 'Join the pins with a route line', m.route?.on) : ''}
+    <details class="mo-madv"><summary>Advanced</summary>
+      <label class="mo-f"><span>Box width / height</span><span><input type="number" class="mo-num" data-mwh="w" value="${m.w}"><input type="number" class="mo-num" data-mwh="h" value="${m.h}"></span></label>
+      ${ROW(L, ['map', 'center'], 'Centre lon / lat', 'xy', { step: 0.01, wiggle: false })}${ROW(L, ['map', 'zoom'], 'Zoom ×', 'n', { step: 0.05, wiggle: false })}
+      ${ROW(L, ['map', 'strokeW'], 'Border width', 'n', { step: 0.5, wiggle: false })}${ROW(L, ['map', 'glow'], 'Glow', 'n', { wiggle: false })}${ROW(L, ['map', 'draw'], 'Outline draw on %', 'n', { wiggle: false })}
+      ${CHK('map.others', 'Show the areas that are not lit up', m.others !== false)}
+      ${(m.hi || []).filter((x) => x.name).map((x) => `<div class="mo-mrow"><span class="grow small">${esc(x.name)}</span><input type="color" data-mhic="${esc(x.name)}" value="${x.color || '#ff9933'}" title="Its own colour"></div>`).join('')}
+      ${(m.pins || []).map((p, i) => `<div class="mo-mrow"><span class="grow small">${esc(p.name || 'Pin')}</span><input type="number" step="0.01" class="mo-num" data-mpll="lon" data-i="${i}" value="${p.lon}" title="Longitude"><input type="number" step="0.01" class="mo-num" data-mpll="lat" data-i="${i}" value="${p.lat}" title="Latitude"></div>`).join('')}
+      <div class="mo-mcols"><label>Pins<input type="color" data-mset="pinColor" value="${m.pinColor || '#ffd400'}"></label><label>Route<input type="color" data-mrset="color" value="${m.route?.color || '#ffd400'}"></label></div>
+      <label class="mo-f"><span>Pin / name size</span><span><input type="number" class="mo-num" data-mset="pinSize" value="${m.pinSize || 14}"><input type="number" class="mo-num" data-mset="labelSize" value="${m.labelSize || 30}"></span></label>
+      ${CHK('map.pinPop', 'Pins pop in one by one', m.pinPop !== false)}${CHK('map.route.dashed', 'Dashed route', m.route?.dashed)}
+      ${ROW(L, ['map', 'route', 'progress'], 'Route progress %', 'n', { wiggle: false })}
+      <label class="mo-f"><span>Route width / curve</span><span><input type="number" class="mo-num" data-mrset="width" value="${m.route?.width ?? 6}"><input type="number" step="0.05" class="mo-num" data-mrset="curve" value="${m.route?.curve ?? 0.25}"></span></label>
+    </details>
+    ${m.style !== 'outline' ? '<small class="muted">Map pictures © Esri - fetched once by the editor and kept; the credit stays in the corner.</small>' : ''}</div>`;
+}
+// an area on / off (the list's tick box, a double-click on the map)
+function mapToggle(L, name, want) {
+  const m = L.map, has = (m.hi ||= []).some((x) => x.name === name);
+  if (want ?? !has) { if (!has) m.hi.push({ name, color: m.hiColor || '#ff9933' }); } else m.hi = m.hi.filter((x) => x.name !== name);
+}
+function wireMap(el, L) {
+  const m = L.map;
+  $$('[data-mreg]', el).forEach((b) => (b.onclick = () => { if (m.region === b.dataset.mreg) return; m.region = b.dataset.mreg; m.center = null; m.zoom = 1; m.hi = []; mapSearch = ''; save('Map region'); }));
+  $$('[data-msty]', el).forEach((b) => (b.onclick = () => { m.style = b.dataset.msty; save('Map look'); }));
+  const srch = $('[data-msearch]', el);
+  srch.oninput = () => { mapSearch = srch.value; renderProps(); const s2 = $('#moProps [data-msearch]', root); s2.focus(); s2.setSelectionRange(s2.value.length, s2.value.length); };
+  $$('[data-marea]', el).forEach((c) => (c.onchange = () => { mapToggle(L, c.dataset.marea, c.checked); save(c.checked ? `Light up ${c.dataset.marea}` : `${c.dataset.marea} off`); }));
+  $('[data-mall]', el).onclick = () => { const q = mapSearch.trim().toLowerCase(), names = GEO.regionNames(m.region).filter((n) => !q || n.toLowerCase().includes(q)); names.forEach((n) => mapToggle(L, n, true)); save('Light up all'); };
+  $('[data-mnone]', el).onclick = () => { m.hi = []; save('Lights off'); };
+  $('[data-mhicol]', el).onchange = (e) => { m.hiColor = e.target.value; (m.hi || []).forEach((x) => (x.color = m.hiColor)); save('Highlight colour'); };
+  $$('[data-mhic]', el).forEach((c) => (c.onchange = () => { const x = m.hi.find((h) => h.name === c.dataset.mhic); if (x) x.color = c.value; save('Area colour'); }));
+  $$('[data-mwh]', el).forEach((i) => (i.onchange = () => { m[i.dataset.mwh] = Math.max(16, +i.value || 16); save('Map size'); }));
+  const addPin = () => {
+    const inp = $('[data-mpnew]', el), name = inp.value.trim(); if (!name) return inp.focus();
+    const at = GEO.PLACES[Object.keys(GEO.PLACES).find((n) => n.toLowerCase() === name.toLowerCase())];
+    const mid = m.center && !animated(m.center) ? m.center : regionMid(GEO.mapSet(m.region) || { bbox: [80, 18, 84, 24] });
+    (m.pins ||= []).push({ name, lon: at ? at[0] : mid[0], lat: at ? at[1] : mid[1] });
+    if (!at) toast(`"${name}" is not in the list - it is put in the middle; set its lon / lat under Advanced`);
+    save('Add pin');
+  };
+  $('[data-mpadd]', el).onclick = addPin;
+  $('[data-mpnew]', el).onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); addPin(); } };
+  $$('[data-mpd]', el).forEach((b) => (b.onclick = () => { m.pins.splice(+b.dataset.mpd, 1); if ((m.pins || []).length < 2 && m.route) m.route.on = false; save('Remove pin'); }));
+  $$('[data-mpll]', el).forEach((i) => (i.onchange = () => { m.pins[+i.dataset.i][i.dataset.mpll] = +i.value || 0; save('Pin place'); }));
+  $$('[data-mset]', el).forEach((i) => (i.onchange = () => { m[i.dataset.mset] = i.type === 'color' ? i.value : +i.value || 0; save('Map look'); }));
+  $$('[data-mrset]', el).forEach((i) => (i.onchange = () => { (m.route ||= {})[i.dataset.mrset] = i.type === 'color' ? i.value : +i.value || 0; save('Route look'); }));
+  $('[data-mfit]', el).onclick = () => { const s2 = GEO.mapSet(m.region); if (!s2) return; m.center = regionMid(s2); m.zoom = 1; save('Map: whole map'); };
+  $('[data-mfly]', el).onclick = () => mapFly(L);
+  const ramp = (path, secs, label) => { const t0 = snapT(T), t1 = snapT(Math.min(comp().dur, T + secs)), e = [...M.EASE.easy]; M.setIn(L, path, { k: [{ t: t0, v: 0, e }, { t: t1, v: 100, e }] }); save(label); toast(`${label}: ${tc(t0)} → ${tc(t1)} - drag its keyframes on the timeline to change it`); };
+  $('[data-mdraw]', el).onclick = () => { if (!(m.hi || []).some((x) => x.name)) return toast('Light up an area first (tick it in the list)', 'err'); ramp(['map', 'draw'], 1.5, 'Outline draws on'); };
+  $('[data-mroute]', el).onclick = () => { if ((m.pins || []).length < 2) return toast('Add two or more pins first', 'err'); (m.route ||= {}).on = true; ramp(['map', 'route', 'progress'], 2.5, 'Route travels'); };
+}
+// ✈ fly in: Centre and Zoom keyframes from the whole map (at the time indicator) to the lit-up areas together (2 s later)
+function mapFly(L) {
+  const m = L.map, s2 = GEO.mapSet(m.region), want = (m.hi || []).filter((x) => x.name).map((x) => x.name);
+  if (!s2) return toast('The map is still loading - try again in a moment', 'err');
+  if (!want.length) return toast('Light up an area first (tick it in the list)', 'err');
+  let bb = [180, 90, -180, -90];
+  const grow = (b) => { bb = [Math.min(bb[0], b[0]), Math.min(bb[1], b[1]), Math.max(bb[2], b[2]), Math.max(bb[3], b[3])]; };
+  for (const n of want) {
+    if (n === 'India' && m.region === 'world') { const ind = GEO.mapSet('india'); if (ind) grow(ind.bbox); continue; }
+    const it = s2.items.find((x) => x.n === n); if (!it) continue;
+    for (const q of it.p) for (let i = 0; i < q.length; i += 2) grow([q[i], q[i + 1], q[i], q[i + 1]]);
+  }
+  if (bb[0] > bb[2]) return toast('Those areas are not on this map', 'err');
+  const merc = (lat) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+  const z = Math.max(1, Math.min((s2.bbox[2] - s2.bbox[0]) / (bb[2] - bb[0] || 1), (merc(s2.bbox[3]) - merc(s2.bbox[1])) / (merc(bb[3]) - merc(bb[1]) || 1)) * 0.85);
+  const c0 = regionMid(s2), c1 = [+((bb[0] + bb[2]) / 2).toFixed(3), +((bb[1] + bb[3]) / 2).toFixed(3)];
+  const t0 = snapT(T), t1 = snapT(Math.min(comp().dur, T + 2)), e = [...M.EASE.easy];
+  m.center = { k: [{ t: t0, v: c0, e }, { t: t1, v: c1, e }] }; m.zoom = { k: [{ t: t0, v: 1, e }, { t: t1, v: +z.toFixed(2), e }] };
+  graphPath = 'map.zoom'; save('Map: fly in');
+  toast(`Flies in to ${want.length > 1 ? `${want.length} areas` : want[0]} from ${tc(t0)} to ${tc(t1)} - drag the keyframes on the timeline to change the timing`);
 }
 // parenting keeps the child where it is on screen (its position becomes relative to the parent)
 function reparent(L, pid) {
@@ -591,6 +837,7 @@ function propsOf(L) { // [{ g: group name, items: [{ path, label, kind }] }]
   }
   if (L.type === 'shape') out.unshift({ g: 'Contents', items: [...(L.shape.kind !== 'path' ? [P(['shape', 'size'], 'Size', 'xy')] : []), ...(L.shape.kind === 'rect' ? [P(['shape', 'roundness'], 'Roundness')] : []), ...(['polygon', 'star'].includes(L.shape.kind) ? [P(['shape', 'sides'], 'Points')] : []),
     P(['shape', 'fill'], 'Fill Color', 'color'), P(['shape', 'stroke'], 'Stroke Color', 'color'), P(['shape', 'strokeW'], 'Stroke Width'), P(['shape', 'trimStart'], 'Trim Start'), P(['shape', 'trimEnd'], 'Trim End'), P(['shape', 'trimOffset'], 'Trim Offset')] });
+  if (L.type === 'map') out.unshift({ g: 'Map', items: [P(['map', 'center'], 'Center (lon, lat)', 'xy'), P(['map', 'zoom'], 'Zoom'), P(['map', 'draw'], 'Outline Draw On'), P(['map', 'glow'], 'Glow'), P(['map', 'strokeW'], 'Border Width'), P(['map', 'route', 'progress'], 'Route Progress')] });
   if (L.type === 'solid') out.unshift({ g: 'Solid', items: [P(['solid', 'color'], 'Color', 'color'), P(['solid', 'size'], 'Size', 'xy')] });
   if ((L.masks || []).length) out.unshift({ g: 'Masks', items: L.masks.flatMap((m, i) => [P(['masks', i, 'feather'], `${m.name} Feather`), P(['masks', i, 'opacity'], `${m.name} Opacity`), P(['masks', i, 'expansion'], `${m.name} Expansion`)]) });
   if ((L.effects || []).length) out.push({ g: 'Effects', items: L.effects.flatMap((f, i) => Object.keys(f).filter((k) => !['type', 'off', 'color'].includes(k)).map((k) => P(['effects', i, k], `${f.type} ${k}`))) });
@@ -623,7 +870,6 @@ const propName = (p) => p.filter((x) => typeof x === 'string').slice(-2).join(' 
 const vnum = (v, P, i) => `<input type="number" class="mo-num tl-num" data-tv="${P}" data-i="${i}" step="${/scale|opacity|size|tracking|width|stroke|trim|range|feather|expansion/i.test(P) ? 1 : 0.5}" value="${+(+v || 0).toFixed(1)}">`;
 function renderLHead() {
   const el = $('#moLHead', root), c = comp();
-  $('#moTlName', root).textContent = c ? `Timeline - ${c.name}` : 'Timeline';
   if (!c) { el.innerHTML = ''; return; }
   const parents = (L) => `<option value="">None</option>${c.layers.filter((x) => x.id !== L.id).map((x) => `<option value="${x.id}"${x.id === L.parent ? ' selected' : ''}>${c.layers.indexOf(x) + 1}. ${esc(x.name)}</option>`).join('')}`;
   const modes = (L) => Object.keys(M.BLENDS).map((k) => `<option value="${k}"${k === (L.blend || 'normal') ? ' selected' : ''}>${k[0].toUpperCase()}${k.slice(1)}</option>`).join('');
@@ -635,7 +881,7 @@ function renderLHead() {
       if (r.group !== undefined) return `<div class="ae-row ae-grp" data-gk="${esc(r.gk)}" data-lid="${L.id}"><span class="ae-tw">${r.open ? '▾' : '›'}</span>${esc(r.group)}</div>`;
       if (r.prop) {
         const P = r.prop.join('.'), p = M.getIn(L, r.prop), on = animated(p), v = val(p, T), k = M.keyAt(p, T) >= 0;
-        const input = r.kind === 'color' ? `<input type="color" class="tl-col" data-tv="${P}" value="${v || '#ffffff'}">` : r.kind === 'xy' ? (v || [0, 0]).map((x, i) => vnum(x, P, i)).join('') : vnum(v, P, -1);
+        const input = r.kind === 'color' ? `<input type="color" class="tl-col" data-tv="${P}" value="${v || '#ffffff'}">` : r.kind === 'xy' ? (P === 'tr.scale' ? linkBtn(L) : '') + (v || [0, 0]).map((x, i) => vnum(x, P, i)).join('') : vnum(v, P, -1);
         return `<div class="ae-row ae-prop${graphPath === P && sel ? ' gsel' : ''}" data-lid="${L.id}" data-gprop="${P}"><button class="mo-sw${on ? ' on' : ''}" data-tsw="${P}" title="Stopwatch">${ic('clock')}</button><span class="ae-pname" title="Click: graph it in the Graph Editor">${esc(r.label)}</span><span class="ae-pv">${input}</span>`
           + (on ? `<span class="ae-nav"><button data-tnav="-1" data-p="${P}" title="Previous keyframe">${ic('prev')}</button><button class="${k ? 'on' : ''}" data-tkey="${P}" title="Add / remove keyframe">${ic('diamond')}</button><button data-tnav="1" data-p="${P}" title="Next keyframe">${ic('next')}</button></span>` : '<span class="ae-nav"></span>') + '</div>';
       }
@@ -678,7 +924,7 @@ function wireLHead(el, c) {
   // property values: type, or drag left / right on a number (AE's hot text)
   $$('[data-tv]', el).forEach((i) => {
     const L = layer(i.closest('[data-lid]').dataset.lid), path = pathOf(i.dataset.tv);
-    const set = () => { const p = M.getIn(L, path); let v = i.type === 'color' ? i.value : +i.value; if (i.dataset.i >= 0) { const arr = [...(base(p, T) || val(p, T) || [0, 0])]; arr[+i.dataset.i] = v; v = arr; } M.setIn(L, path, M.setVal(p, T, v)); };
+    const set = () => { const p = M.getIn(L, path); let v = i.type === 'color' ? i.value : +i.value; if (i.dataset.i >= 0) v = xyVal(L, path, p, +i.dataset.i, v); M.setIn(L, path, M.setVal(p, T, v)); syncPair(i.closest('.ae-row'), 'data-tv', i, L, path); };
     i.oninput = () => { set(); draw(); };
     i.onchange = () => { set(); save('Change property', `tl-${L.id}-${i.dataset.tv}`); };
     if (i.type === 'number') i.addEventListener('pointerdown', (e) => {
@@ -866,6 +1112,9 @@ function wireKeys() {
     // AE: P / S / R / T / A / U show just that property of the selected layers (T = Opacity when layers are selected)
     else if (selIds.size && k.length === 1 && 'psrtau'.includes(k.toLowerCase()) && !e.shiftKey) { const x = k.toLowerCase(); propSolo = propSolo === x ? null : x; renderLHead(); drawTl(); }
     else if (k === 'F9') easeSel('easy');
+    else if (k === '=' || k === '+') stepZoom(1);
+    else if (k === '-' || k === '_') stepZoom(-1);
+    else if (k === '/') setZoom('fit');
     else if (k === 'j' || k === 'J') jumpKey(-1);
     else if (k === 'k' || k === 'K') jumpKey(1);
     else if (k === 'Home') seek(0);
@@ -943,6 +1192,29 @@ export function trackMatteFromClips(ids, findClip) {
   S.sel = new Set([clip.id]);
   commit(`Track Matte Key: ${name}`);
   toast(`"${name}": the picture shows through the ${mode === 'luma' ? 'light parts of the video' : 'shape of the matte'} - double-click it to change it in Motion`);
+  return true;
+}
+
+// ◐ Object mask (AI), Effect Controls > Opacity mask: the clip becomes a Motion comp in its place whose video layer
+// shows only the person / thing the AI finds in every frame (keep 'cutout') or everything but it ('background').
+// Its effects and blend come along; its sound stays on the timeline as it was. Double-click it to refine in Motion.
+export function objectMaskFromClip(clipId, findClip, keep = 'cutout') {
+  const f = findClip(clipId), b = f?.clip, mb = b && S.mediaById[b.mediaId];
+  if (!b || b.type !== 'video' || !mb) return toast('Object mask works on a video clip', 'err');
+  const [w, h] = frame(), start = layoutStart(f) ?? b.start ?? 0, dur = +clipDur(b, S.mediaById).toFixed(3);
+  let name = `${mb.name.replace(/\.[^.]+$/, '')} object`, n = 2; while (Object.values(comps()).some((x) => x.name === name)) name = `${mb.name.replace(/\.[^.]+$/, '')} object ${n++}`;
+  const cp = M.newComp(name, w, h, dur), k = Math.max(w / (mb.width || w), h / (mb.height || h));
+  const L = M.newLayer('video', cp, { mediaId: mb.id, name: mb.name, srcIn: +(b.in || 0), speed: b.speed || 1, w: Math.round((mb.width || w) * k), h: Math.round((mb.height || h) * k) });
+  L.video.matte = { mode: keep, soft: 1 }; // (the matte itself comes from the AI below)
+  cp.layers = [L]; comps()[cp.id] = cp;
+  const clip = { id: uid(), type: 'graphic', dur, gfx: { tpl: 'comp', compId: cp.id, comp: JSON.parse(JSON.stringify(cp)) }, ...(b.effects?.length ? { effects: b.effects } : {}), ...(b.blend ? { blend: b.blend } : {}) };
+  if (f.track !== 'V1') clip.start = +start.toFixed(3);
+  const mate = linkedPartner(S.project, b)?.clip; if (mate) delete mate.link; // (its sound plays on)
+  const list = S.project.tracks[f.track]; list.splice(list.indexOf(b), 1, clip);
+  S.sel = new Set([clip.id]); compId = cp.id; selIds = new Set([L.id]); T = 0;
+  commit(`Object mask: ${mb.name}`);
+  toast(keep === 'cutout' ? 'Finding the person / object in every frame - only it will show' : 'Finding the person / object in every frame - everything but it will show');
+  findSubject(L);
   return true;
 }
 

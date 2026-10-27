@@ -107,7 +107,7 @@ html:not(.ui2) .ui-split { display: none; }
 html.ui2.ui-dragging, html.ui2.ui-dragging * { user-select: none !important; }
 
 /* viewer (program monitor) */
-html.ui2 .vw-stage { background: radial-gradient(ellipse at center, #0f0e0c 0%, #070705 75%); }
+html.ui2 .vw-stage { background: #262626; }
 html.ui2 .vw-frame { box-shadow: 0 0 0 1px #ffffff12, 0 20px 50px -20px #000; }
 html.ui2 .vw-ctrl { background: #151413; border-top: 1px solid #23221f; }
 html.ui2 .vw-ctrl .tc, html.ui2 #vwTC { color: var(--tc); font-size: 13px; letter-spacing: .04em; }
@@ -639,7 +639,7 @@ html.ui2 .mo-num { color: #8fc1ff; }
 .lbt-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 6px; }
 .lw-tl { --lbt-name: 96px; }
 @media (max-width: 1200px) { .lw-grid { grid-template-columns: 200px minmax(0, 1fr); } .lw-insp { grid-column: 1 / -1; max-height: none; } }
-.lab { max-width: 1560px; }
+.lab { max-width: 1320px; gap: 30px; }
 .lab-work .lab-sec-h { flex-wrap: wrap; row-gap: 8px; }
 .lab-work .lab-sec-h > div:first-child { flex: 0 0 auto; min-width: 180px; max-width: 360px; }
 .lab-work .lab-sec-h h2 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -653,6 +653,11 @@ html.ui2 .mo-num { color: #8fc1ff; }
 .lbt-name { position: sticky; left: 0; z-index: 4; background: var(--panel); }
 .lbt-hit { position: absolute; top: 2px; bottom: 2px; border-radius: 5px; background: #ff5a6433; border: 1px solid #ff5a6488; font-size: 10.5px; display: flex; align-items: center; padding: 0 10px 0 6px; white-space: nowrap; overflow: hidden; cursor: grab; z-index: 2; }
 .lbt-hit span { overflow: hidden; text-overflow: ellipsis; }
+.lbt-cams { position: absolute; inset: 2px 4px; display: flex; gap: 4px; align-items: center; overflow-x: auto; scrollbar-width: none; z-index: 3; }
+.lbt-cam { display: inline-flex; align-items: center; gap: 4px; flex: none; height: 22px; padding: 0 8px; font-size: 10.5px; border-radius: 11px; background: var(--panel-2); border: 1px solid var(--line-2); color: #cfcfd6; white-space: nowrap; }
+.lbt-cam svg { width: 12px; height: 12px; }
+.lbt-cam:hover { color: var(--text); border-color: var(--accent-line, #ffc21a66); }
+.lbt-cam.on { background: var(--accent-soft, #ffc21a22); border-color: var(--accent); color: var(--text); }
 .lbt-efx { inset: 2px auto 2px auto; padding: 0 14px; }
 .lbt-efx .lbt-trim { width: 7px; }
 .lw-zoom { display: inline-flex; align-items: center; gap: 6px; margin-left: 14px; font-size: 11px; color: var(--muted); }

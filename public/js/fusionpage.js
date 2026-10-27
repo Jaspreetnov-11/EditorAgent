@@ -33,8 +33,8 @@ export function mountFusion(el) {
   el.innerHTML = `<div class="fu">
     <div class="panel fu-lib"><div class="mo-head"><b>Node graphs</b><span class="grow"></span><button class="small" data-f="new" title="New node graph from a clip in Media">New ▾</button></div>
       <div class="mo-list" id="fuList"></div>
-      <div class="mo-head sub"><b>Styles</b><span class="muted small">replace the graph</span></div><div class="fu-styles" id="fuStyles"></div>
-      <div class="mo-head sub"><b>Nodes</b><span class="muted small">click to add</span></div><div class="fu-nodes" id="fuNodes"></div></div>
+      <div class="mo-head sub"><b>Presets</b><span class="muted small">replace the graph</span></div><div class="fu-styles"><select id="fuPreset" aria-label="Preset"></select><small class="muted">${Object.keys(F.STYLES).length} ready graphs - pick one, then change any node</small></div>
+      <div class="mo-head sub"><b>Nodes</b><span class="muted small">click to add · or right-click the graph</span></div><div class="fu-nodes" id="fuNodes"></div></div>
     <div class="panel fu-view">
       <div class="mo-head"><div class="segbtns"><button data-view="out">Output (1)</button><button data-view="sel">Selected node (2)</button></div><span class="grow"></span>
         <button class="accent small" data-f="toTimeline" title="Put this node graph on the edit's timeline at the playhead">Add to timeline</button></div>
@@ -42,7 +42,7 @@ export function mountFusion(el) {
       <div class="mo-trans"><button class="icon-btn" data-f="start">${ic('start')}</button><button class="icon-btn" data-f="play"></button><input type="range" id="fuPos" min="0" max="1" step="0.001" value="0" aria-label="Time"><span class="tc" id="fuTC">0:00:00</span></div>
     </div>
     <div class="panel fu-insp" id="fuInsp"></div>
-    <div class="panel fu-graph"><div class="mo-head"><b>Nodes</b><span class="muted small">drag output → input to connect · click a connected input to cut · Delete removes · drag empty space to pan · wheel zooms · double-click empty = fit</span></div>
+    <div class="panel fu-graph"><div class="mo-head"><b>Nodes</b><select id="fuAddNode" class="fu-addsel" aria-label="Add a node" title="Add a node (after the selected one)"></select><span class="muted small">drag output → input to connect · click a connected input to cut · Delete removes · drag empty space to pan · wheel zooms · double-click empty = fit</span></div>
       <div class="fu-gwrap" id="fuGWrap"><canvas id="fuGraph"></canvas></div></div>
   </div>`;
   el.addEventListener('click', onClick);
@@ -74,7 +74,15 @@ function renderLib() {
     r.ondblclick = () => { const f = fusions()[r.dataset.fid], n = prompt('Name', f.name)?.trim(); if (n) { f.name = n; save('Rename fusion'); } };
   });
   $$('[data-fdel]', root).forEach((b) => (b.onclick = () => { const f = fusions()[b.dataset.fdel]; if (!confirm(`Delete the node graph "${f.name}"? Clips of it already on the timeline stay as they are.`)) return; delete fusions()[f.id]; commit('Delete fusion'); }));
-  $('#fuStyles', root).innerHTML = Object.entries(F.STYLES).map(([k, s]) => `<button class="mo-preset" data-style="${k}">${esc(s.name)}</button>`).join('');
+  // 🎛 presets and nodes as drop-downs, by group
+  const ps = $('#fuPreset', root);
+  if (!ps.options.length) {
+    ps.innerHTML = `<option value="">Choose a preset…</option>${F.STYLE_CATS.map((c) => `<optgroup label="${esc(c)}">${Object.entries(F.STYLES).filter(([, x]) => (x.cat || 'Basic') === c).map(([k, x]) => `<option value="${k}">${esc(x.name)}</option>`).join('')}</optgroup>`).join('')}`;
+    ps.onchange = () => { const k = ps.value; ps.value = ''; if (k) applyStyle(k); };
+    const an = $('#fuAddNode', root);
+    an.innerHTML = `<option value="">+ Node…</option>${F.GROUPS.map((g) => `<optgroup label="${esc(g)}">${Object.entries(F.NODES).filter(([k, d]) => d.group === g && k !== 'mediaOut').map(([k, d]) => `<option value="${k}">${esc(d.label)}</option>`).join('')}</optgroup>`).join('')}`;
+    an.onchange = () => { const k = an.value; an.value = ''; if (k) addNode(k); };
+  }
   $('#fuNodes', root).innerHTML = F.GROUPS.map((g) => `<div class="fu-grp">${g}</div>` + Object.entries(F.NODES).filter(([k, d]) => d.group === g && k !== 'mediaOut').map(([k, d]) => `<button class="fu-nb" data-add="${k}" style="--nc:${d.color}">${esc(d.label)}</button>`).join('')).join('');
 }
 function newFrom(mediaId, srcIn = 0, speed = 1, dur = 5, name, style = 'plain') {
@@ -86,20 +94,27 @@ function newFrom(mediaId, srcIn = 0, speed = 1, dur = 5, name, style = 'plain') 
 function onClick(e) {
   const b = e.target.closest('[data-f], [data-style], [data-add], [data-view]'); if (!b) return;
   if (b.dataset.view) { view = b.dataset.view; refresh(); return; }
-  if (b.dataset.style) {
+  if (b.dataset.style) return applyStyle(b.dataset.style);
+  if (b.dataset.add) return addNode(b.dataset.add);
+  onAction(b, e);
+}
+// a preset replaces the graph around the clip's MediaIn
+function applyStyle(k) {
+  const f = fu(); if (!f) return toast('Make or open a node graph first', 'err');
+  const src = f.nodes.find((n) => n.type === 'mediaIn') || F.newNode('mediaIn', 40, 160);
+  const keep = { ...src, in: {}, x: 40, y: 160 }, g = F.STYLES[k].make(keep);
+  f.nodes = g.nodes; f.out = g.out; selId = null;
+  save(`Nodes preset: ${F.STYLES[k].name}`);
+  setTimeout(() => { fitGraph(true); drawGraph(); });
+  // ✂ a preset with the AI subject finds it right away (one click)
+  const sb = f.nodes.find((x) => x.type === 'subject' && !x.p.matte);
+  if (sb) findSubject(sb);
+}
+// a node by hand: at a graph point (right-click), else in the middle - after the selected node, wired in between
+function addNode(type, at = null) {
+  {
     const f = fu(); if (!f) return toast('Make or open a node graph first', 'err');
-    const src = f.nodes.find((n) => n.type === 'mediaIn') || F.newNode('mediaIn', 40, 160);
-    const keep = { ...src, in: {}, x: 40, y: 160 }, g = F.STYLES[b.dataset.style].make(keep);
-    f.nodes = g.nodes; f.out = g.out; selId = null;
-    save(`Nodes style: ${F.STYLES[b.dataset.style].name}`);
-    // ✂ the text-behind style finds the subject right away (one click)
-    const sb = f.nodes.find((x) => x.type === 'subject' && !x.p.matte);
-    if (sb) findSubject(sb);
-    return;
-  }
-  if (b.dataset.add) {
-    const f = fu(); if (!f) return toast('Make or open a node graph first', 'err');
-    const wr = $('#fuGWrap', root), n = F.newNode(b.dataset.add, wr.clientWidth / 2 - pan[0] - 60 + Math.random() * 40, wr.clientHeight / 2 - pan[1] - 20 + Math.random() * 40);
+    const wr = $('#fuGWrap', root), n = F.newNode(type, at ? at[0] : (wr.clientWidth / 2 - pan[0]) / gz - 60 + Math.random() * 40, at ? at[1] : (wr.clientHeight / 2 - pan[1]) / gz - 20 + Math.random() * 40);
     // dropped after the selected node: wired in between it and what it fed
     const s = node(selId);
     if (s && F.NODES[n.type].ins.length && s.type !== 'mediaOut') {
@@ -110,6 +125,8 @@ function onClick(e) {
     clearSpot(f, n); f.nodes.push(n); selId = n.id;
     return save(`Add ${F.NODES[n.type].label}`);
   }
+}
+function onAction(b, e) {
   const a = b.dataset.f;
   if (a === 'play') playing ? stop() : play();
   if (a === 'start') seek(0);
@@ -347,6 +364,12 @@ function wireGraph() {
     pan = [x - (x - pan[0]) * k, y - (y - pan[1]) * k]; gz *= k; drawGraph();
   }, { passive: false });
   cv.addEventListener('dblclick', (e) => { if (!hitNode(...pt(e))) { fitGraph(true); drawGraph(); } });
+  // right-click the graph: add any node right there (by group)
+  cv.addEventListener('contextmenu', (e) => {
+    if (!fu() || S.readOnly) return; e.preventDefault();
+    const [x, y] = pt(e), at = [(x - pan[0]) / gz - 60, (y - pan[1]) / gz - 20], a = { getBoundingClientRect: () => ({ left: e.clientX, right: e.clientX, top: e.clientY, bottom: e.clientY }) };
+    pick(a, F.GROUPS.map((g) => [`g:${g}`, `${g} ›`]), (gk) => pick(a, Object.entries(F.NODES).filter(([k, d]) => d.group === gk.slice(2) && k !== 'mediaOut').map(([k, d]) => [k, d.label]), (k) => addNode(k, at)));
+  });
   cv.addEventListener('pointermove', (e) => {
     const [x, y] = pt(e);
     if (wire) { wire.x = x; wire.y = y; drawGraph(); return; }

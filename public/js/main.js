@@ -43,6 +43,7 @@ import { loadFootage } from './smart.js';
 import { mountText, showText, hideText } from './textedit.js';
 import { mountMotion, showMotion, hideMotion, openCompClip } from './motionpage.js';
 import { mountFusion, showFusion, hideFusion, openFusionClip } from './fusionpage.js';
+import { mountVfx, showVfx, hideVfx, openVfxClip } from './vfxpage.js'; // 💥 VFX: presets, manual keyframes, AI
 import { mountPresets, showPresets, hidePresets, openPresetClip } from './presetspage.js';
 import { mountMenuBar, openLogo, openBackups } from './menubar.js';
 import { openTemplates } from './titlesui.js';
@@ -54,6 +55,7 @@ import './presence.js'; // 📊 session time (Team & users > Sessions)
 import { mountPhone, phoneOpened } from './phone.js'; // 📱 phone / tablet layouts (a touch screen only)
 import { tabClaim } from './tabclient.js'; // 🗂 this editor as one of the window's project tabs (tabs.js)
 import './touch.js'; // 👆 touch: drag on the timeline, pinch, long-press
+import { toggleHelp } from './helpbot.js'; // ❓ Help chat (F1)
 
 applyLook(); // 🖥 Studio (Premiere-style) look unless this browser chose Classic (⚙ in the header)
 window.addEventListener('focus', () => { if (S.proj) syncClipboard(); });
@@ -64,7 +66,7 @@ const app = $('#app');
 app.innerHTML = '<div id="home"></div><div id="editor" hidden></div>';
 const homeEl = $('#home'), editorEl = $('#editor');
 // (Labs took Audio's place in the page bar - the Audio page opens from Window > Audio)
-const PAGES = [['media', 'Media'], ['edit', 'Edit'], ['motion', 'Motion'], ['fusion', 'Nodes'], ['color', 'Color'], ['ai', 'Labs'], ['presets', 'Presets'], ['deliver', 'Deliver']];
+const PAGES = [['media', 'Media'], ['edit', 'Edit'], ['motion', 'Motion'], ['fusion', 'Nodes'], ['vfx', 'VFX'], ['color', 'Color'], ['ai', 'Labs'], ['presets', 'Presets'], ['deliver', 'Deliver']];
 
 // 🧰 Tools tab (before Media): what used to crowd the top bar, as big labelled tiles in a few groups. Every tile keeps
 // its data-a, so the click handler below, the menus (runMenu 'a:') and whoAmI (Team / Mazbooti) find it as before.
@@ -128,6 +130,7 @@ function shell() {
     <section class="page" data-page="text" id="textPage" hidden></section>
     <section class="page" data-page="motion" id="motionPage" hidden></section>
     <section class="page" data-page="fusion" id="fusionPage" hidden></section>
+    <section class="page" data-page="vfx" id="vfxPage" hidden></section>
     <section class="page" data-page="color" id="colorPage" hidden></section>
     <section class="page" data-page="audio" id="audioPage" hidden></section>
     <section class="page" data-page="ai" id="aiPage" hidden></section>
@@ -140,7 +143,7 @@ function shell() {
   // the top bar is gone: its buttons went to the 🧰 Tools tab, and the project's name, sequence, save state, jobs, who is
   // signed in, Reload and ⇪ Export sit in the menu bar's one line (same ids, so the code filling them is unchanged)
   editorEl.querySelector('.menubar').insertAdjacentHTML('beforeend', `<span class="mb-proj"><span class="pname" id="pName"></span><button class="seqbtn" data-a="seq" title="Sequences: several timelines in this project (film, teaser, reel…), nesting, versions"><span id="seqName"></span> ▾</button><span class="save" id="saveState"></span></span>
-    <span class="mb-sp"></span><span class="jobchip" id="jobChip" hidden></span><button class="jobchip qchip" id="queueChip" data-a="deliver" title="Render queue - open Export" hidden></button><span class="people" id="peopleChip" hidden></span><span class="me" id="meChip" hidden></span><button class="mb-reload" data-a="refresh" title="Reload: save, then load the editor again (newest version, panels fresh)">${icon('refresh')}Reload</button><button class="mb-reload mb-review" data-a="review" title="Review: send a finished render to the client as a link (no sign-in, phone or computer) - they comment at moments of the video and approve; their comments come back here">${icon('review')}Review<span class="mb-badge" id="reviewBadge" hidden></span></button><button class="primary mb-export" data-a="deliver" title="Export: render the video, XML for Premiere / Resolve, publish">${icon('export')}Export</button>`);
+    <span class="mb-sp"></span><button class="mb-help" data-a="help" title="Bhaiya: editor ke baare mein kuch bhi poochho (F1)" aria-label="Bhaiya - help">?</button><span class="jobchip" id="jobChip" hidden></span><button class="jobchip qchip" id="queueChip" data-a="deliver" title="Render queue - open Export" hidden></button><span class="people" id="peopleChip" hidden></span><span class="me" id="meChip" hidden></span><button class="mb-reload" data-a="refresh" title="Reload: save, then load the editor again (newest version, panels fresh)">${icon('refresh')}Reload</button><button class="mb-reload mb-review" data-a="review" title="Review: send a finished render to the client as a link (no sign-in, phone or computer) - they comment at moments of the video and approve; their comments come back here">${icon('review')}Review<span class="mb-badge" id="reviewBadge" hidden></span></button><button class="primary mb-export" data-a="deliver" title="Export: render the video, XML for Premiere / Resolve, publish">${icon('export')}Export</button>`);
   mountWorkspaces(editorEl.querySelector('.edit-grid')); // 🪟 workspaces: Premiere / Resolve / Limelight / your own layouts
   mountSourceMonitor($('#srcMon')); mountDock(editorEl.querySelector('.edit-grid')); mountMonDock(editorEl.querySelector('.edit-grid')); // 🎬 Premiere's two monitors (Studio look)
   editorEl.addEventListener('click', (e) => {
@@ -154,6 +157,7 @@ function shell() {
     if (a === 'report') showReport();
     if (a === 'reedit') openReedit(setBusy);
     if (a === 'assistant') toggleAssistant();
+    if (a === 'help') toggleHelp();
     if (a === 'brand') openBrandKit(setBusy);
     if (a === 'deliver') showPage('deliver');
     if (a === 'review') openReviewHub(); // 💬 client review links: send a render, read and answer the comments
@@ -165,7 +169,7 @@ function shell() {
     if (a === 'zones') openZones();
     if (a === 'mediamgr') openMediaMgr();
     if (a === 'safety') import('./safety.js').then((x) => x.openSafety('health'));
-    if (a === 'dash') import('./safety.js').then((x) => x.openSafety('perf')); // 📊 the owner's dashboard
+    if (a === 'dash') import('./safety.js').then((x) => x.openSafety('perf')); // 📊 the Dashboard (everyone)
     if (a === 'team') openTeam();
     if (a === 'chat') openChat();
     if (a === 'starthere') openStartHere();
@@ -189,6 +193,7 @@ function shell() {
   safely('Text page', () => mountText($('#textPage')));
   safely('Motion page', () => mountMotion($('#motionPage'))); // 🎬 After Effects-style compositions
   safely('Fusion page', () => mountFusion($('#fusionPage'))); // ✨ Resolve Fusion-style node effects
+  safely('VFX page', () => mountVfx($('#vfxPage'))); // 💥 muzzle flashes to sky replacement (vfxpage.js)
   safely('Color page', () => mountColor($('#colorPage')));
   safely('Audio page', () => mountAudio($('#audioPage')));
   safely('AI page', () => mountAI($('#aiPage')));
@@ -233,14 +238,13 @@ async function whoAmI() {
   try { S.me = await api('GET', '/api/me'); } catch { S.me = { role: 'owner', local: true }; }
   const chip = $('#meChip'); if (!chip) return;
   chip.hidden = !!S.me.local;
-  // (a real Logout button - it was a small ⎋ sign after the name that people could not tell was a button)
-  chip.innerHTML = S.me.local ? '' : `<span class="me-name" title="Signed in as ${esc(S.me.name)} (${esc(S.me.role)})">${esc(S.me.name)} · ${esc(S.me.role)}</span>`
-    + `<a class="me-out" href="/team/logout" title="Sign out of the editor on this PC"><svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Logout</a>`;
+  // (who is signed in - Logout is on the Projects page, outside the projects)
+  chip.innerHTML = S.me.local ? '' : `<span class="me-name" title="Signed in as ${esc(S.me.name)} (${esc(S.me.role)}) - Logout is on the Projects page">${esc(S.me.name)} · ${esc(S.me.role)}</span>`;
   $('[data-a="team"]').hidden = !(S.me.local && S.me.role === 'owner');
   // 🩺 Mazbooti: the owner on the editing computer (a dot when something needs a look)
   const sf = $('[data-a="safety"]');
   // (also the owner signed in from another PC - the server now runs on its own PC, the owner works elsewhere)
-  { const db = $('[data-a="dash"]'); if (db) db.hidden = S.me.role !== 'owner'; } // 📊
+  { const db = $('[data-a="dash"]'); if (db) db.hidden = false; } // 📊 (everyone sees the Dashboard)
   if (sf && S.me.role === 'owner' && sf.hidden) { sf.hidden = false; import('./safety.js').then((x) => x.watchSafety(sf)); }
   // 🖥 this is a standby PC's editor (the main one is down): say so, once per page
   if (S.me.standby && !$('#sbBanner')) $('.menubar').after(h(`<div id="sbBanner" class="ro-banner sb" role="status">Standby editor on ${esc(S.me.standby)} - the main editor is down. Work as usual: everything saved here goes back to it when it is up again.</div>`));
@@ -330,6 +334,7 @@ on('openClip', (id) => {
   const f = findClip(id), c = f?.clip, m = c?.mediaId && S.mediaById[c.mediaId];
   if (c?.type === 'graphic' && c.gfx?.tpl === 'comp') return openComp(c); // 🎬 a Motion comp: open it on the Motion page
   if (c?.type === 'graphic' && c.gfx?.tpl === 'fusion') return openFusion(c); // ✨ a Fusion: open it on the Fusion page
+  if (c?.type === 'graphic' && c.gfx?.tpl === 'vfx') return openVfxClip(c); // 💥 a VFX element: open it on the VFX page
   if (c?.labsId) return openLabsClip(c); // 🧪 a Labs clip (yellow): open it on the Labs page
   if (c?.type === 'graphic' && c.gfx?.tpl === 'text') { // T a Type tool text: type in it on the monitor (the playhead goes onto it)
     const x = layout()[f.track]?.find((p) => p.clip.id === id);
@@ -360,6 +365,7 @@ export function showPage(p) {
   $$('[data-page]').forEach((s) => (s.hidden = s.dataset.page !== p));
   $$('[data-page-btn]').forEach((b) => b.setAttribute('aria-current', String(b.dataset.pageBtn === p)));
   // (🛡 each page on its own: one that fails to show is logged, the page bar keeps working)
+  if (p !== 'vfx') safely('VFX page', hideVfx); // (💥 gives the Program monitor and the timeline back first)
   safely('Deliver page', () => (p === 'deliver' ? showDeliver() : hideDeliver()));
   safely('Color page', () => (p === 'color' ? showColor() : hideColor()));
   safely('Audio page', () => (p === 'audio' ? showAudio() : hideAudio()));
@@ -368,6 +374,7 @@ export function showPage(p) {
   safely('Text page', () => (p === 'text' ? showText() : hideText()));
   safely('Motion page', () => (p === 'motion' ? showMotion() : hideMotion()));
   safely('Fusion page', () => (p === 'fusion' ? showFusion() : hideFusion()));
+  if (p === 'vfx') safely('VFX page', showVfx);
   if (p !== 'edit' && p !== 'audio') pause();
   emit('change', {});
   try { localStorage.setItem('ve-page', p); } catch {}

@@ -88,7 +88,7 @@ export function compTrack(project, start, dur, media = {}, over = 'V1') {
 // layers (their effects reach everything below), V3 Motion comps / Fusions, V4 text (titles, lower thirds, kinetic text).
 // B-roll stays under its adjustment layer. A clip that would cover another one at that time goes one track up (a new
 // track on top when needed) - nothing is ever hidden under something else. Returns how many clips changed track.
-const layerOf = (c) => (c.type === 'adjust' ? 'fx' : c.type === 'graphic' && ['comp', 'fusion'].includes(c.gfx?.tpl) ? 'comp' : c.type === 'title' || c.type === 'graphic' ? 'text' : 'broll');
+const layerOf = (c) => (c.type === 'adjust' ? 'fx' : c.type === 'graphic' && ['comp', 'fusion', 'vfx'].includes(c.gfx?.tpl) ? 'comp' : c.type === 'title' || c.type === 'graphic' ? 'text' : 'broll');
 export function arrangeLayers(project, media = {}) {
   const over = Object.keys(project.tracks).filter((id) => trackKind(id) === 'video' && id !== 'V1');
   const all = over.flatMap((id) => project.tracks[id].map((c) => ({ c, was: id })));

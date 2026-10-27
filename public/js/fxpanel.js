@@ -96,7 +96,7 @@ export function applyFx(fx, clipId, side = null) {
   if (fx.kind === 'ramp') { const D0 = clipDur(c, S.mediaById); if (!setRamp(c, fx.type, S.mediaById)) return null; keepLength(S.project, c, D0, S.mediaById); return `${RAMPS[fx.type].label}`; }
   if (fx.kind === 'cutfx') { if (!visual || c.type === 'title') return null; c.cutFx = { type: fx.type, dur: CUTFX[fx.type].dur }; return CUTFX[fx.type].label; }
   if (fx.kind === 'vfx') {
-    if (!visual) return null;
+    if (!visual && c.type !== 'adjust' && c.type !== 'graphic') return null; // (adjustment layers and text / graphics take effects too)
     if (VFX[fx.type].v2only && f.track !== 'V2') return 'Green screen works on a V2 overlay (it shows the shot below)';
     (c.effects ||= []).push(newEffect(fx.type));
     return VFX[fx.type].label;

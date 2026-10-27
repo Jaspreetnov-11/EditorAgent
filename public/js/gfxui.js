@@ -8,12 +8,15 @@ import { ASPECTS, uid, clipDur, trackList, addTrack, parseTime, fmt, BLEND_MODES
 import { $, $$, esc, toast, modal, fieldsHTML, bindFields } from './ui.js';
 import { GFX, gfxFields, newGraphic, drawGraphic, gfxKey, setGfxAssets, setGfxVideo, gfxReady, setFontLoader, brandOf, PINS, pinOk, rtimeOk, rtimeOf } from './graphics.js';
 import { compVideos } from './motion.js';
+import { onGeoLoad, geoPending, geoIdle } from './geomap.js';
 import { fusionVideos } from './fusion.js';
+import { vfxVideos, KINDS as VFX_KINDS } from './vfxlib.js';
 import * as CV from './compvideo.js';
 import { fontField, pickFont, ensureFont } from './fontpick.js';
 
 // logos inside graphics come from the media pool (full-size image); a frame is drawn again when one has loaded
 setGfxAssets((id) => S.mediaById[id]?.urls?.play || null, () => emit('live'));
+onGeoLoad(() => emit('live')); // (🗺 a map's outlines / tiles arrived: the monitor draws again)
 // 🎬 video layers of comps in the Edit viewer: the nearest frame, redrawn when the exact one arrives
 setGfxVideo((id, t, rate) => (S.progPlaying ? CV.follow('view', id, t, rate) : CV.frame('view', id, t, () => emit('live'))));
 // a new graphic: in the brand kit's colours, font and logo when the project has a brand kit
@@ -146,6 +149,10 @@ export function gfxInspector(c) {
   // T Type tool text: Premiere's Text panel layout
   if (g.tpl === 'text') return `<div class="isec"><div class="fgrid tx-panel">${textPanel(g)}</div>
   <div class="fgrid">${fieldsHTML([{ k: 'start', label: 'Starts at', type: 'time', fmt, ph: '0:00.0' }, { k: 'dur', label: 'Length', type: 'num', min: 1, step: 0.5, unit: 'sec' }, { k: 'blend', label: 'Blend Mode (with the tracks below)', type: 'select', options: BLEND_MODES }], c)}</div></div>`;
+  // 💥 a VFX element: edited on the VFX page
+  if (g.tpl === 'vfx') return `<div class="isec"><p><b>${esc(VFX_KINDS[g.vfx?.kind]?.label || 'VFX')}</b> <span class="muted small">- VFX element</span></p>
+    <button class="accent" data-open-vfx>Open in VFX</button><div class="fgrid">${fieldsHTML([{ k: 'start', label: 'Starts at', type: 'time', fmt, ph: '0:00.0' }, { k: 'dur', label: 'Length', type: 'num', min: 0.2, step: 0.1, unit: 'sec' }, { k: 'blend', label: 'Blend Mode (with the tracks below)', type: 'select', options: BLEND_MODES }], c)}</div>
+    <small class="hint">Its look, keyframes and AI tracking are on the VFX page.</small></div>`;
   // 🎬 a Motion comp: edited on the Motion page
   if (g.tpl === 'comp' || g.tpl === 'fusion') return `<div class="isec"><p><b>${g.tpl === 'fusion' ? `${esc(g.fusion?.name || 'Nodes')}</b> <span class="muted small">- ${g.fusion?.nodes?.length || 0} nodes</span>` : `${esc(g.comp?.name || 'Composition')}</b> <span class="muted small">- ${g.comp?.layers?.length || 0} layers</span>`}</p>
     <button class="accent" data-open-comp>${g.tpl === 'fusion' ? 'Open in Nodes' : 'Open in Motion'}</button><div class="fgrid">${fieldsHTML([{ k: 'start', label: 'Starts at', type: 'time', fmt, ph: '0:00.0' }], c)}</div>
@@ -174,6 +181,11 @@ function bindTextPanel(box, id, render) {
 export function bindGfxInspector(root, id, render) {
   const box = root.querySelector('.isec');
   if (findClip(id)?.clip.gfx?.tpl === 'text') bindTextPanel(box, id, render);
+  if (findClip(id)?.clip.gfx?.tpl === 'vfx') {
+    box.querySelector('[data-open-vfx]').onclick = () => emit('openVfx', findClip(id).clip);
+    bindFields(box.querySelector('.fgrid'), () => findClip(id)?.clip, { parse: { start: parseTime }, live: () => emit('live'), commit: () => commit('VFX timing') });
+    return;
+  }
   if (['comp', 'fusion'].includes(findClip(id)?.clip.gfx?.tpl)) {
     box.querySelector('[data-open-comp]').onclick = () => emit(findClip(id).clip.gfx.tpl === 'fusion' ? 'openFusion' : 'openComp', findClip(id).clip);
     bindFields(box.querySelector('.fgrid'), () => findClip(id)?.clip, { parse: { start: parseTime }, live: () => emit('live'), commit: () => commit('Comp timing') });
@@ -220,13 +232,16 @@ async function bakeNow(c, key, onProgress, forRender = false, [W, H] = frameSize
   await gfxReady(c.gfx); // the logo must be in every frame
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const ctx = cv.getContext('2d');
-  const vids = c.gfx.tpl === 'comp' ? (t) => compVideos(c.gfx.comp, t) : c.gfx.tpl === 'fusion' ? (t) => fusionVideos(c.gfx.fusion, t) : () => [];
+  const vids = c.gfx.tpl === 'comp' ? (t) => compVideos(c.gfx.comp, t) : c.gfx.tpl === 'fusion' ? (t) => fusionVideos(c.gfx.fusion, t)
+    : c.gfx.tpl === 'vfx' ? (t) => vfxVideos(c.gfx.vfx, t).filter((v) => S.mediaById[v.id]?.kind === 'video') : () => [];
   for (let i = 0; i < n; i++) {
     // 🎬 every video layer of a comp shows exactly this frame before it is drawn
     // (the edit is playing: the bake waits, so playback stays smooth)
     while (S.progPlaying && !forRender) await new Promise((ok) => setTimeout(ok, 400));
     for (const v of vids(i / fps)) await CV.exact('bake', v.id, v.t);
     drawGraphic(ctx, W, H, c.gfx, i / fps, dur, { video: (id) => CV.get('bake', id) });
+    // 🗺 a map's outlines / tiles still on their way: wait for them and draw the frame again (never a frame without them)
+    for (let k = 0; k < 3 && geoPending(); k++) { await Promise.race([geoIdle(), new Promise((ok) => setTimeout(ok, 20000))]); drawGraphic(ctx, W, H, c.gfx, i / fps, dur, { video: (id) => CV.get('bake', id) }); }
     const blob = await new Promise((ok) => cv.toBlob(ok, 'image/png'));
     const r = await fetch(`/api/gfx/frame?p=${enc(S.proj)}&key=${key}&i=${i}`, { method: 'POST', body: blob });
     if (!r.ok) throw new Error('Could not send the graphic to the editor');

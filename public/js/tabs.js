@@ -54,6 +54,8 @@ button.tb-x, button.tb-new, button.tb-w { border: 0; background: transparent; co
 .tb-frames { position: fixed; top: ${H}px; left: 0; right: 0; bottom: 0; }
 .tb-frames iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #050505; }
 .tb-frames iframe.off { visibility: hidden; pointer-events: none; }
+.tb-down { position: absolute; inset: 0; display: grid; place-items: center; background: #050505; color: #a1a1a8; font: 14px/1.5 "Segoe UI", "Nirmala UI", sans-serif; text-align: center; z-index: 1; }
+.tb-down b { display: block; color: #f7f7f8; font-size: 16px; margin-bottom: 4px; }
 /* 🖥 installed from Chrome / Edge (Install on this PC): the strip goes up into the window's own title bar too
    (manifest display_override: window-controls-overlay) - one line, Windows' buttons stay at the right */
 @media (display-mode: window-controls-overlay) {
@@ -120,9 +122,38 @@ function frameOf(t) {
   f.allowFullscreen = true;
   f.src = `/?tab=${t.id}${passQuery()}${t.proj ? `#/p/${enc(t.proj)}` : '#/'}`;
   frames.append(f);
+  f.addEventListener('load', () => loaded(t));
   return (t.frame = f);
 }
 const call = (t, fn, ...a) => { try { return t.frame?.contentWindow?.veTab?.[fn]?.(...a); } catch { return undefined; } };
+// 🔌 a tab whose editor did not load (the editor PC restarting, the network): instead of the browser's "refused to
+// connect", it says so and tries again by itself; in Limelight Editor.exe after a few tries the whole window reloads, so
+// the app moves on to the next address it knows (PC A by name, by address, the standby)
+const down = document.createElement('div'); down.className = 'tb-down'; down.hidden = true;
+down.innerHTML = '<div><b>The editor is not answering</b>Trying again by itself - your work is saved on the server.</div>';
+frames.append(down);
+function loaded(t) { const f = t.frame; setTimeout(() => { if (t.frame === f && f.isConnected) check(t); }, 2500); }
+async function check(t, n = 0) {
+  // the editor started in it (tabclient.js) = fine; another page of this site (the sign-in page) = the whole window goes
+  // there; still loading while the server answers = look again soon; the browser's error page / no answer = not answering
+  const f = t.frame; if (!f?.isConnected) return;
+  let same = false, editor = false, app = false, url = '';
+  try { const w = f.contentWindow; same = w.location.origin === location.origin; editor = !!w.veTab; app = !!w.document.getElementById('app'); url = w.location.href; } catch {}
+  if (editor) { t.down = false; t.tries = 0; showDown(); return; }
+  if (same && !app && url && !url.startsWith('about:')) { location.href = url; return; }
+  const up = await fetch('/api/version', { cache: 'no-store' }).then((r) => r.ok || r.status === 401).catch(() => false);
+  if (t.frame !== f) return;
+  if (up && same && !t.down && n < 20) { setTimeout(() => check(t, n + 1), 1500); return; } // (a big project still opening)
+  t.down = true; showDown();
+  if (up) { // (load it again - loaded() looks again; waiting longer each time it still does not load: 3 s, 6 s … 30 s)
+    t.tries = (t.tries || 0) + 1;
+    setTimeout(() => { if (t.frame !== f) return; const u = new URL(f.src); u.searchParams.set('retry', Date.now().toString(36)); f.src = u.href; }, Math.min(30000, 1500 * 2 ** t.tries));
+    return;
+  }
+  if (n >= 2 && wv) { location.reload(); return; } // (Limelight Editor.exe: the next address it knows)
+  setTimeout(() => check(t, n + 1), 4000);
+}
+const showDown = () => { down.hidden = !byId(active)?.down; };
 function activate(id) {
   const t = byId(id); if (!t) return;
   if (active !== id) {
@@ -132,6 +163,7 @@ function activate(id) {
   }
   const f = frameOf(t);
   f.classList.remove('off');
+  showDown();
   call(t, 'setVisible', true);
   draw();
   try { f.contentWindow.focus(); } catch {}

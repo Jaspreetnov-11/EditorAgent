@@ -32,7 +32,7 @@ function applySoundType(c, k) {
 import { FILM_LOOKS, lookLut, LETTERBOX, STABILIZE, applyCinematic, removeCinematic, stabilizeAll } from './looks.js';
 import { $, $$, esc, fieldsHTML, bindFields, toast, modal, getPath, setPath } from './ui.js';
 import { mountRamp } from './rampui.js';
-import { MASK_SHAPES, newMask } from './shapemask.js';
+import { MASK_SHAPES, newMask, maskName, unmovedMask } from './shapemask.js';
 import { gyroHTML, bindGyro } from './gyroui.js';
 import { kgTwirl, kgRow, mountKeyGraphs } from './kfgraph.js';
 import { inSel, pickKeys, moveKeys, settleKeys, deleteKeys } from './kfsel.js';
@@ -109,9 +109,10 @@ function renderClip(id) {
     return;
   }
   if (c.type === 'graphic') {
-    root.innerHTML = `<div class="ec-title">Effect Controls</div><div class="ihead"><span class="trk">${track}</span><b>Motion graphic</b><span class="muted">${fmtTC(L?.start || 0, S.project.settings.fps)} · ${fmt((L?.end || 0) - (L?.start || 0))}</span></div><div class="ibody">${gfxInspector(c)}${sec('omask', `Opacity mask${c.omask?.shape ? ' <span class="tag">on</span>' : ''}`, maskHTML(c.omask, 'clip', id) + '<small class="hint">Only the inside of the shape shows - the shots below show around it (Color Matte: a coloured shape, a vignette, a frame).</small>')}<div class="iactions"><button data-a="dup">Duplicate</button><button class="danger" data-a="del">Delete</button></div></div>`;
+    root.innerHTML = `<div class="ec-title">Effect Controls</div><div class="ihead"><span class="trk">${track}</span><b>Motion graphic</b><span class="muted">${fmtTC(L?.start || 0, S.project.settings.fps)} · ${fmt((L?.end || 0) - (L?.start || 0))}</span></div><div class="ibody">${gfxInspector(c)}${sec('vfx', `Video effects${c.effects?.length ? ` <span class="muted">${c.effects.length}</span>` : ''}`, effectsHTML(c, track))}${sec('omask', `Opacity mask${c.omask?.shape ? ' <span class="tag">on</span>' : ''}`, maskHTML(c.omask, 'clip', id) + '<small class="hint">Only the inside of the shape shows - the shots below show around it (Color Matte: a coloured shape, a vignette, a frame).</small>')}<div class="iactions"><button data-a="dup">Duplicate</button><button class="danger" data-a="del">Delete</button></div></div>`;
     bindGfxInspector(root, id, render);
     bindMasks(id); // (◐ Opacity mask on a graphic)
+    bindEffects(id); // (🎛 effects on text / graphics, like any layer)
     root.onclick = (e) => { const a = e.target.closest('[data-a]')?.dataset.a; if (a === 'del') emit('deleteSelected'); if (a === 'dup') emit('duplicateSelected'); };
     return;
   }
@@ -132,7 +133,8 @@ function renderClip(id) {
   if (isImg) clipDefs.push({ k: 'kenburns', label: 'Ken Burns', type: 'select', options: [['', 'Project default'], ['in', 'Zoom in'], ['out', 'Zoom out'], [false, 'Static']] });
   if (isVid) html += `<details class="isec" data-sec="ramp"${openSections.has('ramp') || c.ramp ? ' open' : ''}><summary>${sumHTML('ramp', 'Speed ramp', c.ramp ? ' <span class="tag">on</span>' : '')}</summary><div class="ramp-ed" data-ramp-ed></div></details>`;
   // (the 'Clip' section was removed on request - speed ramp stays in its own section above)
-  void clipDefs;
+  // 🎚 an adjustment layer: its length and Strength (they were made here but never shown)
+  if (isAdj) html += sec('adj', 'Adjustment layer', fieldsHTML(clipDefs, obj));
 
   if (!isAud && !isAdj && !(isTitle && track !== 'V1')) {
     // 🎬 like Premiere's Effect Controls: one line per property - ⏱ animate on / off, its name, its value (drag it left /
@@ -427,14 +429,27 @@ function bindEffects(id) {
 // ---------------- ◯ masks (public/js/shapemask.js) ----------------
 // scope: an effect id (the effect shows only inside), or 'clip' (the clip's Opacity mask)
 function maskHTML(m, scope, clipId) {
-  if (!m?.shape) return `<div class="efx-mask" data-mscope="${scope}"><div class="mk-row"><b>Mask</b>${MASK_SHAPES.map(([k, l]) => `<button class="small" data-madd="${k}" title="Limit ${scope === 'clip' ? 'the clip' : 'this effect'} to a ${k === 'rect' ? 'rectangle' : 'ellipse'} - drag it on the monitor">${l}</button>`).join('')}</div></div>`;
+  // ◯ ▭ ✒ ▤ the shapes, and ✂ Object (AI) for a clip's own Opacity mask: the person / thing found in every frame
+  const TIP = { ellipse: 'an ellipse', rect: 'a rectangle', pen: 'a shape you draw point by point on the monitor', gradient: 'a soft fade (drag its two ends on the monitor)' };
+  const vid = scope === 'clip' && findClip(clipId)?.clip.type === 'video';
+  if (!m?.shape) return `<div class="efx-mask" data-mscope="${scope}"><div class="mk-row mk-add"><b>Mask</b>${MASK_SHAPES.map(([k, l]) => `<button class="small" data-madd="${k}" title="Limit ${scope === 'clip' ? 'the clip' : 'this effect'} to ${TIP[k]}">${l}</button>`).join('')}${vid ? '<button class="small accent" data-mobj title="AI finds the person / animal / vehicle in every frame - only it shows (or everything but it). The clip becomes a Motion comp; its sound stays.">Object (AI)</button>' : ''}</div></div>`;
   const editing = S.maskEdit?.clipId === clipId && (S.maskEdit.effId || 'clip') === scope;
   const rng = (k, label, min, max, step, unit = '', mul = 1) => `<label class="fld"><span>${label} <b data-mv="${k}">${Math.round((m[k] ?? 0) * mul)}${unit}</b></span><input type="range" data-mp="${k}" data-mul="${mul}" min="${min}" max="${max}" step="${step}" value="${(m[k] ?? 0) * mul}"></label>`;
-  return `<div class="efx-mask" data-mscope="${scope}"><div class="mk-row"><b>${m.shape === 'rect' ? 'Rectangle' : 'Ellipse'} mask</b><span class="grow"></span>
+  return `<div class="efx-mask" data-mscope="${scope}"><div class="mk-row"><b>${maskName(m)} mask</b><span class="grow"></span>${m.shape === 'pen' ? '<button class="small" data-mredraw title="Draw the shape again on the monitor">Redraw</button>' : ''}
       <button class="small${editing ? ' on' : ''}" data-medit title="Show the mask on the monitor to move / size it">${editing ? 'Editing on monitor' : 'Edit on monitor'}</button><button class="icon-btn small" data-mdel title="Remove the mask">✕</button></div>
     <div class="fgrid"><label class="fld"><span>Shape</span><select data-mp="shape">${MASK_SHAPES.map(([k, l]) => `<option value="${k}"${k === m.shape ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
-      ${rng('feather', 'Feather', 0, 300, 1, ' px')}${rng('expand', 'Expansion', -200, 200, 1, ' px')}${rng('opacity', 'Mask opacity', 0, 100, 1, '%', 100)}
+      ${m.shape !== 'gradient' ? rng('feather', 'Feather', 0, 300, 1, ' px') + rng('expand', 'Expansion', -200, 200, 1, ' px') : ''}${rng('opacity', 'Mask opacity', 0, 100, 1, '%', 100)}
       <label class="chk"><input type="checkbox" data-mp="invert"${m.invert ? ' checked' : ''}> Inverted (the outside instead)</label></div></div>`;
+}
+// a choice of a few: resolves its key, or null
+function modalPick(title, opts) {
+  return new Promise((done) => {
+    const body = document.createElement('div'); body.className = 'pick-list';
+    body.innerHTML = opts.map(([k, l]) => `<button class="wide" data-pk="${esc(k)}">${esc(l)}</button>`).join('');
+    let picked = null;
+    const dlg = modal(title, body, { width: 380, onClose: () => done(picked) });
+    body.addEventListener('click', (e) => { const b = e.target.closest('[data-pk]'); if (!b) return; picked = b.dataset.pk; dlg.close(); });
+  });
 }
 function bindMasks(id) {
   const get = (el) => {
@@ -442,8 +457,31 @@ function bindMasks(id) {
     const e = sc === 'clip' ? null : c.effects?.find((x) => x.id === sc);
     return { c, sc, e, m: sc === 'clip' ? c.omask : e?.mask, set: (v) => { if (sc === 'clip') { if (v) c.omask = v; else delete c.omask; } else if (e) { if (v) e.mask = v; else delete e.mask; } } };
   };
+  // ✒ draw a pen mask on the monitor: points on the frame -> the picture's own (Motion taken back)
+  const drawPen = async (b) => {
+    const g = get(b); if (!g.c || S.page !== 'edit') return;
+    const pts = await import('./player.js').then((x) => x.pickPath());
+    if (!pts) return;
+    const c = findClip(id)?.clip; if (!c) return;
+    const x = Object.values(layout()).flat().find((q) => q.clip.id === id), rel = x ? Math.max(0, S.playhead - x.start) : 0;
+    const tf = { zoom: propAt(c, 'transform.zoom', rel), x: propAt(c, 'transform.x', rel), y: propAt(c, 'transform.y', rel) };
+    const e = g.sc === 'clip' ? null : c.effects?.find((q) => q.id === g.sc), cur = g.sc === 'clip' ? c.omask : e?.mask;
+    const base = cur?.shape ? cur : newMask('pen'), nm = { ...base, shape: 'pen', pts: unmovedMask({ ...base, pts }, tf).pts };
+    if (g.sc === 'clip') c.omask = nm; else if (e) e.mask = nm;
+    S.maskEdit = { clipId: id, effId: g.sc === 'clip' ? null : g.sc };
+    doCommit('Pen mask'); render(); emit('maskEdit');
+    toast('Pen mask made - drag its dots on the monitor (Esc when done)');
+  };
+  root.querySelectorAll('[data-mredraw]').forEach((b) => b.addEventListener('click', () => drawPen(b)));
+  root.querySelectorAll('[data-mobj]').forEach((b) => b.addEventListener('click', async () => {
+    const keep = await modalPick('Object mask (AI)', [['cutout', 'Show only the person / object'], ['background', 'Show everything except it']]);
+    if (!keep) return;
+    const mp = await import('./motionpage.js');
+    mp.objectMaskFromClip(id, findClip, keep);
+  }));
   root.querySelectorAll('[data-madd]').forEach((b) => b.addEventListener('click', () => {
     const g = get(b); if (!g.c) return;
+    if (b.dataset.madd === 'pen') return drawPen(b);
     g.set(newMask(b.dataset.madd));
     S.maskEdit = { clipId: id, effId: g.sc === 'clip' ? null : g.sc };
     openSections.add(g.sc === 'clip' ? 'omask' : 'vfx');
@@ -470,7 +508,13 @@ function bindMasks(id) {
       const lab = inp.closest('.fld')?.querySelector(`[data-mv="${k}"]`); if (lab) lab.textContent = `${Math.round(+inp.value)}${k === 'opacity' ? '%' : ' px'}`;
       emit('live'); // (the viewer redraws the mask)
     });
-    inp.addEventListener('change', () => { const g = get(inp); if (!g.m) return; g.set({ ...g.m, [k]: read() }); doCommit(`Mask ${k}`, `${id}:mask:${k}`); if (k === 'shape') emit('maskEdit'); });
+    inp.addEventListener('change', () => {
+      const g = get(inp); if (!g.m) return;
+      // (a new shape brings its own fields: pen points, gradient ends)
+      if (k === 'shape') { const d = newMask(read()); g.set({ ...d, ...g.m, shape: d.shape, pts: g.m.pts || d.pts, ...(d.shape === 'gradient' && g.m.x0 === undefined ? { x0: d.x0, y0: d.y0, x1: d.x1, y1: d.y1, feather: 0 } : {}) }); }
+      else g.set({ ...g.m, [k]: read() });
+      doCommit(`Mask ${k}`, `${id}:mask:${k}`); if (k === 'shape') { render(); emit('maskEdit'); }
+    });
   });
 }
 
