@@ -46,14 +46,15 @@ const URL_HERE = `http://${LAN}:3100/`;
 // start - /MIR - and so deleted a copy kept in it; then the whole mirror, ~36 GB, came from the NAS again on every PC of
 // the line after every release, and the NAS crawled for everyone. A copy still in the old place is moved, not copied.)
 const OLD_LOCAL = path.join(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'), 'StandbyLive');
-const LOCAL = opt('local', path.join(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..'), 'StandbyLive'));
-if (!opt('local') && fs.existsSync(OLD_LOCAL) && !fs.existsSync(LOCAL)) { try { fs.renameSync(OLD_LOCAL, LOCAL); } catch {} }
+// (--local off: no copy on this PC - the NAS mirror is the only one; a PC short of disk, e.g. JASPREET's C:)
+const LOCAL = opt('local') === 'off' ? null : opt('local', path.join(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..'), 'StandbyLive'));
+if (LOCAL && !opt('local') &&fs.existsSync(OLD_LOCAL) && !fs.existsSync(LOCAL)) { try { fs.renameSync(OLD_LOCAL, LOCAL); } catch {} }
 // 🧬 the same-voice Python (VoiceVerse): <LimelightStandby>/aivoice/venv (or --aivoice), next to the editor's folder for
 // the same reason as StandbyLive - an install (or a link to one) kept inside it would go at the next release
 const AIVOICE = opt('aivoice', path.join(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..'), 'aivoice'));
 const voiceEnv = () => (fs.existsSync(path.join(AIVOICE, 'venv')) ? { VEDIT_AIVOICE: AIVOICE } : {});
-const mirrorOk = (d) => { try { return fs.statSync(path.join(d, 'mirror.json')).isFile(); } catch { return false; } };
-// 🚚 --release: the NAS folder this PC's code is copied from (Start Standby Editor.bat); a newer release.json there = new code
+const mirrorOk = (d) => { if (!d) return false; try { return fs.statSync(path.join(d, 'mirror.json')).isFile(); } catch { return false; } };
+// 🚚 --release: the folder on this PC that deploy.ps1 sends releases to (standby.bat copies the code from it); a newer release.json there = new code
 const RELEASE = opt('release');
 const releaseId = (d) => readJsonFile(path.join(d, 'release.json'), null)?.id || null;
 let dataDir = LIVE; //(where the standby editor runs from: the NAS mirror, or this PC's copy when the NAS is down)
@@ -108,7 +109,7 @@ async function handBack(why) {
   clearInterval(beat); beat = null;
   const until = Date.now(), from = since; since = 0;
   if (child) { const pid = child.pid; child = null; if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true }); else process.kill(pid); }
-  if (dataDir === LOCAL) {
+  if (LOCAL && dataDir === LOCAL) {
     // (run from this PC's copy: its projects go back onto the NAS mirror first - waiting for the NAS if it is still down)
     while (!mirrorOk(LIVE)) { log(`waiting for the NAS (${LIVE}) to hand the edits back…`); await sleep(EVERY); }
     const r = await mirrorDir(path.join(LOCAL, 'Projects'), path.join(LIVE, 'Projects'));
@@ -122,18 +123,18 @@ async function handBack(why) {
 process.on('SIGINT', async () => { await handBack('Stopping'); process.exit(0); });
 process.on('SIGTERM', async () => { await handBack('Stopping'); process.exit(0); });
 
-log(`🖥 Standby for ${MAIN} - mirror ${LIVE} (a copy kept in ${LOCAL}). Rank ${RANK} in the line: takes over after ${Math.round(AFTER / 1000)} s without an answer (if no one before it did). Keep this window open.`);
+log(`🖥 Standby for ${MAIN} - mirror ${LIVE} (${LOCAL ? `a copy kept in ${LOCAL}` : 'no copy on this PC'}). Rank ${RANK} in the line: takes over after ${Math.round(AFTER / 1000)} s without an answer (if no one before it did). Keep this window open.`);
 let downSince = 0, upSince = 0, copiedAt = 0; // (this PC's copy of the mirror: every 15 s, not every check)
 // 🚚 a new release on the NAS (tools/server/deploy.ps1): stop while only watching, so the launcher copies it and starts again
 const takeRelease = () => {
   if (since || !RELEASE) return;
   const id = releaseId(RELEASE);
-  if (id && id !== releaseId(ROOT) && !fs.existsSync(path.join(RELEASE, 'deploying.lock'))) { log(`new editor code on the NAS (${id}) - restarting to take it`); process.exit(0); }
+  if (id && id !== releaseId(ROOT) && !fs.existsSync(path.join(RELEASE, 'deploying.lock'))) { log(`new editor code (${id}) - restarting to take it`); process.exit(0); }
 };
 for (;;) {
   takeRelease(); // (first: copying the mirror below can take a while)
   const up = await mainUp();
-  if (!since && mirrorOk(LIVE) && Date.now() - copiedAt >= 15000 && (copiedAt = Date.now())) await mirrorDir(LIVE, LOCAL).catch((e) => log(`⚠ could not copy the mirror to ${LOCAL}: ${e.message}`)); // (💾 kept in step)
+  if (LOCAL && !since && mirrorOk(LIVE) &&Date.now() - copiedAt >= 15000 && (copiedAt = Date.now())) await mirrorDir(LIVE, LOCAL).catch((e) => log(`⚠ could not copy the mirror to ${LOCAL}: ${e.message}`)); // (💾 kept in step)
   if (!since) {
     if (up) { if (downSince) log('main editor answers again'); downSince = 0; }
     else { if (!downSince) { downSince = Date.now(); log('⚠ the main editor does not answer…'); } if (Date.now() - downSince >= AFTER) { if ((await takeOver()) === false) downSince = Date.now(); } } // ('busy': kept - the next takes over as soon as the running one stops answering)

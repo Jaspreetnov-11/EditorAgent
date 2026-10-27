@@ -81,10 +81,11 @@ function Set-Startup([bool]$on) {
   } elseif (Test-Path $STARTUP) { Remove-Item -Force $STARTUP }
 }
 
-# ---- new code from the NAS (tools/server/deploy.ps1 on the coding PC puts a release there) ----
+# ---- new code (tools/server/deploy.ps1 on the coding PC sends a release straight to this PC over SSH) ----
 # Only on the server PC: a copy that came from a release has release.json; the coding PC's own folder never does.
 # Brought in by itself once no agent job or render is running (projects saved first), or at once from the menu.
-$RELEASE = if ($env:LIMELIGHT_RELEASE) { $env:LIMELIGHT_RELEASE } else { 'Z:\Limelight Standby\editor' }
+# 🔒 The release waits in a folder on this PC (D:\Limelight Release\editor next to the editor) - never on the NAS.
+$RELEASE = if ($env:LIMELIGHT_RELEASE) { $env:LIMELIGHT_RELEASE } else { Join-Path (Split-Path -Parent $ROOT) 'Limelight Release\editor' }
 $script:deployed = Test-Path (Join-Path $ROOT 'release.json')
 $script:failedRel = $null
 $script:nextRelCheck = Get-Date
@@ -131,7 +132,7 @@ $mRestart = $menu.Items.Add('Restart server')
 $mLog = $menu.Items.Add('Show log')
 $mFolder = $menu.Items.Add('Open editor folder')
 # (only on the server PC - a deployed copy has release.json; the coding PC never gets this item)
-if ($script:deployed) { $mUpdate = $menu.Items.Add('Update from NAS (new code)') }
+if ($script:deployed) { $mUpdate = $menu.Items.Add('Update now (new code)') }
 $menu.Items.Add('-') | Out-Null
 $mStartup = New-Object System.Windows.Forms.ToolStripMenuItem 'Start with Windows'
 $mStartup.Checked = Test-Path $STARTUP
@@ -147,7 +148,7 @@ $mFolder.add_Click({ Start-Process explorer.exe $ROOT })
 if ($mUpdate) {
   $mUpdate.add_Click({
     $id = Get-NewRelease
-    if (-not $id) { [System.Windows.Forms.MessageBox]::Show("Nothing new on the NAS - this editor already runs release $(Get-ReleaseId $ROOT).", 'Limelight Editor') | Out-Null; return }
+    if (-not $id) { [System.Windows.Forms.MessageBox]::Show("No new release - this editor already runs release $(Get-ReleaseId $ROOT).", 'Limelight Editor') | Out-Null; return }
     if (-not (Confirm-Stop 'Update and restart')) { return }
     Update-Code $id
   })
@@ -185,7 +186,7 @@ $timer.add_Tick({
     Start-Server
   }
   if ($script:proc -and -not $script:proc.HasExited) { $icon.Text = 'Limelight Editor - running (localhost:3000)' }
-  # new code on the NAS: looked for every 15 s, brought in only while nothing is running
+  # new code in the release folder: looked for every 15 s, brought in only while nothing is running
   if ($script:deployed -and (Get-Date) -ge $script:nextRelCheck) {
     $script:nextRelCheck = (Get-Date).AddSeconds(15) # (a release reaches the server within ~15 s of "Deploy to server")
     $id = Get-NewRelease
