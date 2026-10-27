@@ -4,7 +4,7 @@
 //   ff(p, ctx)  -> a filter chain (string), or { graph(inLabel, outLabel) } for effects that need several streams
 //   css(p)      -> { filter, transform, clip } for live preview (null / missing = shown in Accurate preview only)
 // ctx = { W, H } output size in pixels (amounts are given for a 1920-wide frame and scaled).
-import { uid } from './model.js';
+import { uid, evalKeys } from './model.js';
 import { FILM_PARAMS, filmGraph, filmCss } from './film.js';
 import { VFX_PIC } from './vfxfx.js'; // 💥 the VFX page's picture effects (heat haze, shockwave, glitch, hologram, keys, AI sky / fog / depth)
 
@@ -700,12 +700,39 @@ export function stabOf(c) {
 // (an effect with a mask is left out here - the viewer lays it over just the masked part, maskedEffectsCss)
 // rel: seconds into the clip - an effect with a time window (e.from / e.to, Labs) shows only inside it
 export const inWindow = (e, rel) => rel === undefined || ((e.from === undefined || rel >= e.from) && (e.to === undefined || rel <= e.to));
+
+// ⏱ Keyframes on effect settings (Premiere's stopwatch on every effect number): c.keys['fx.<effect id>.<setting>'] =
+// [{ t, v, ease / ip… }] - the same keys and curves as Motion (model.js evalKeys), t = seconds into the clip.
+// Only number settings (sliders) can be animated; colours and choices stay as they are.
+export const fxKeyPath = (e, k) => `fx.${e.id}.${k}`;
+export const fxKeyable = (type, k) => { const p = VFX[type]?.params?.[k]; return !!p && p.type !== 'color' && p.type !== 'select' && p.min !== undefined; };
+export const fxHasKeys = (c, e) => Object.keys(VFX[e.type]?.params || {}).some((k) => c?.keys?.[fxKeyPath(e, k)]?.length);
+// an effect's settings at rel (seconds into the clip): its own values, animated ones read from their keys
+export function fxParamsAt(c, e, rel) {
+  if (rel === undefined || rel === null || !c?.keys) return e.p || {};
+  let p = null;
+  for (const k of Object.keys(VFX[e.type]?.params || {})) {
+    const keys = c.keys[fxKeyPath(e, k)];
+    if (keys?.length) (p ||= { ...(e.p || {}) })[k] = evalKeys(keys, rel);
+  }
+  return p || e.p || {};
+}
+// the times an animated effect changes value inside [0, dur]: one piece per step, pieces with the same values joined -
+// the render makes each piece with its own settings (engine/render2.mjs vfxGraph). [{ t0, t1, p }]
+export function fxPieces(c, e, dur, step) {
+  const out = [];
+  for (let t0 = 0; t0 < dur - 1e-6; t0 += step) {
+    const t1 = Math.min(dur, t0 + step), p = fxParamsAt(c, e, (t0 + t1) / 2), last = out[out.length - 1];
+    if (last && JSON.stringify(last.p) === JSON.stringify(p)) last.t1 = t1; else out.push({ t0, t1, p });
+  }
+  return out;
+}
 export function effectsCss(c, k = 0.3, rel) {
   const f = [], t = [], ov = [];
   let clip = '', grain = false;
   for (const e of activeEffects(c)) {
     if (e.mask?.shape || !inWindow(e, rel)) continue;
-    const r = VFX[e.type].css?.(e.p || {}, k);
+    const r = VFX[e.type].css?.(fxParamsAt(c, e, rel), k);
     if (!r) continue;
     if (r.filter) f.push(r.filter);
     if (r.transform) t.push(r.transform);
@@ -717,4 +744,4 @@ export function effectsCss(c, k = 0.3, rel) {
   return { filter: f.join(' '), transform: t.join(' '), clip, overlay: ov.join(', '), grain };
 }
 // ◯ the masked effects that have a live look: [{ id, filter, mask }]
-export const maskedEffectsCss = (c, k = 0.3) => activeEffects(c).filter((e) => e.mask?.shape).map((e) => ({ id: e.id, filter: VFX[e.type].css?.(e.p || {}, k)?.filter || '', mask: e.mask })).filter((x) => x.filter);
+export const maskedEffectsCss = (c, k = 0.3, rel) => activeEffects(c).filter((e) => e.mask?.shape).map((e) => ({ id: e.id, filter: VFX[e.type].css?.(fxParamsAt(c, e, rel), k)?.filter || '', mask: e.mask })).filter((x) => x.filter);

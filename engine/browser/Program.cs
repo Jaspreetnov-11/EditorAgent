@@ -15,6 +15,7 @@ using System.Reflection;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Json;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
@@ -283,21 +284,34 @@ namespace LimelightEditor
             // a new page: the normal title bar again unless it draws its own (asked before it finished loading - no flicker)
             wv.NavigationStarting += (o, e) => { customAsked = false; };
             wv.NavigationCompleted += (o, e) => { if (!customAsked) SetCustom(false); };
-            wv.Settings.AreDevToolsEnabled = s.DevTools;
+            // 🔒 the editor's code stays out of reach in this window: no DevTools (whatever LimelightEditor.json says), no
+            // browser right-click menu (the editor's own menus still work), no browser keys - F12, Ctrl+U view source,
+            // Ctrl+S save page, Ctrl+P, F5 (the editor has its own Refresh); typing, copy and paste are not browser keys
+            wv.Settings.AreDevToolsEnabled = false;
+            wv.Settings.AreDefaultContextMenusEnabled = false;
             wv.Settings.IsStatusBarEnabled = false;
             wv.Settings.IsZoomControlEnabled = false; // (Ctrl+wheel is the timeline's)
-            wv.Settings.AreBrowserAcceleratorKeysEnabled = true;
+            wv.Settings.AreBrowserAcceleratorKeysEnabled = false;
+            // a page or code file "downloaded" from the editor (Save as) is refused; renders, subtitles and the rest still save
+            wv.DownloadStarting += (o, e) =>
+            {
+                var u = e.DownloadOperation.Uri ?? "";
+                var mime = e.DownloadOperation.MimeType ?? "";
+                if (Allowed(u) && (Regex.IsMatch(u, @"\.(js|mjs|css|html?)(\?|#|$)", RegexOptions.IgnoreCase) || Regex.IsMatch(mime, "javascript|text/html|text/css"))) e.Cancel = true;
+            };
             wv.DocumentTitleChanged += (o, e) => Text = string.IsNullOrEmpty(wv.DocumentTitle) ? "Limelight Editor" : wv.DocumentTitle;
 
             // only the editor in here; anything else opens in the PC's own browser
             wv.NavigationStarting += (o, e) =>
             {
+                if (e.Uri.StartsWith("view-source:", StringComparison.OrdinalIgnoreCase)) { e.Cancel = true; return; } // (🔒 never shown, here or outside)
                 if (e.Uri.StartsWith("data:") || e.Uri.StartsWith("about:")) return;
                 if (!Allowed(e.Uri)) { e.Cancel = true; OpenOutside(e.Uri); }
             };
             wv.NewWindowRequested += (o, e) =>
             {
                 e.Handled = true;
+                if (e.Uri.StartsWith("view-source:", StringComparison.OrdinalIgnoreCase)) return;
                 if (Allowed(e.Uri)) wv.Navigate(e.Uri); else OpenOutside(e.Uri);
             };
             // the microphone (voice-over), camera and clipboard: for the editor only

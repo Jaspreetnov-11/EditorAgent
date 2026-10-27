@@ -7,7 +7,7 @@ agent / Claude that edits through `engine/edtool.mjs`.
 - Start: `Start Video Editor.bat` (Windows). Needs Node.js, FFmpeg and Python (Whisper, CLIP, Demucs) - see the chats.
 - Office link: https://editor.limelightcorp.in (team editing, port 443/80/3100).
 - `engine/` render engine, agent, tools · `public/` the editor UI · `tests/` auto-tests (`node tests/run.mjs --server`).
-- `Chats/` the full history of how it was built: chats 01-06 (merged), 07, 08, 09, 10 and "10 - Phase 20".
+- `Chats/` the full history of how it was built, in one file: "Video editor agent - all chats (01-10).md".
 
 Not in this repository (kept on the editing computer): projects and footage, `config.json` (logins, keys), `ssl/`,
 models, FFmpeg tools, `node_modules` (`npm install` brings them back).

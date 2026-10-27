@@ -3,11 +3,11 @@ import { attrsHTML, bindAttrs } from './clipattrs.js';
 import { ic } from './lineicons.js';
 import { guarded } from './errlog.js';
 import { S, on, emit, commit, findClip, layout, duration, saveNow } from './store.js';
-import { ASPECTS, shapeLabel, TRANSITIONS, clipDur, fmt, parseTime, fmtTC, KEYABLE, propAt, hasKeys, RAMPS, EASES, BLEND_MODES, setTransition, keepLength } from './model.js';
+import { ASPECTS, shapeLabel, TRANSITIONS, clipDur, fmt, parseTime, fmtTC, KEYABLE, propAt, hasKeys, RAMPS, EASES, BLEND_MODES, setTransition, keepLength, evalKeys } from './model.js';
 import { api, enc } from './api.js';
 import { openTemplates } from './titlesui.js';
 import { CUTFX } from './fx.js';
-import { VFX, VFX_CATS, newEffect, defaultsOf } from './effects.js';
+import { VFX, VFX_CATS, newEffect, defaultsOf, fxKeyPath, fxKeyable, fxParamsAt } from './effects.js';
 import { anglesFor, switchAngle } from './multicam.js';
 import { openDub } from './voiceover.js';
 import { openReplace } from './replace.js';
@@ -373,13 +373,18 @@ function bindAEffects(id) {
 }
 
 function effectsHTML(c, track) {
+  const rel = relTime(c.id);
   const list = (c.effects || []).map((e, i) => {
     const def = VFX[e.type]; if (!def) return '';
+    const now = fxParamsAt(c, e, rel ?? undefined);
     const params = Object.entries(def.params).map(([k, p]) => {
-      const v = e.p?.[k] ?? p.def;
+      const v = now[k] ?? p.def;
       if (p.type === 'color') return `<label class="fld"><span>${esc(p.label)}</span><input type="color" list="brandSw" data-ep="${k}" value="${esc(v)}"></label>`;
       if (p.type === 'select') return `<label class="fld"><span>${esc(p.label)}</span><select data-ep="${k}">${p.options.map(([o, l]) => `<option value="${esc(o)}"${o === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
-      return `<label class="fld"><span>${esc(p.label)} <b data-ev="${k}">${v}${p.unit || ''}</b></span><input type="range" data-ep="${k}" min="${p.min}" max="${p.max}" step="${p.step}" value="${v}"></label>`;
+      // ⏱ every number setting can be animated: ◆ adds / removes a keyframe at the playhead, ‹ › jump between them
+      const keyed = !!c.keys?.[fxKeyPath(e, k)]?.length, kc = fxKeyable(e.type, k) ? `<span class="kfc" data-efkpath="${fxKeyPath(e, k)}">
+        <button class="kfb" data-efkprev="${k}" title="Previous keyframe">${ic('prev')}</button><button class="kfd${keyed ? ' has' : ''}" data-efkf="${k}" title="Animate: add / remove a keyframe at the playhead">${ic('diamond')}</button><button class="kfb" data-efknext="${k}" title="Next keyframe">${ic('next')}</button></span>` : '';
+      return `<label class="fld"><span>${esc(p.label)} <b data-ev="${k}">${+(+v).toFixed(3)}${p.unit || ''}</b>${kc}</span><input type="range" data-ep="${k}" min="${p.min}" max="${p.max}" step="${p.step}" value="${v}"></label>`;
     }).join('');
     const canMask = !def.stab && !def.key && !def.post && !def.blend;
     const warn = def.v2only && track !== 'V2' ? '<small class="hint warn">Works on V2 overlays only (it shows the shot below).</small>' : def.stab ? '<small class="hint">Analysed and stabilised when rendering (Accurate preview / export) - the render takes longer for this shot. Perspective / Subspace Warp work like Position, Scale, Rotation here.</small>' : !def.css ? '<small class="hint">Seen in Accurate preview and renders.</small>' : '';
@@ -400,13 +405,44 @@ function bindEffects(id) {
   root.querySelectorAll('[data-ep]').forEach((inp) => {
     const k = inp.dataset.ep;
     inp.addEventListener('input', () => {
-      const { e } = get(inp); if (!e) return;
-      e.p = { ...(e.p || {}), [k]: inp.type === 'color' || inp.tagName === 'SELECT' ? inp.value : +inp.value };
+      const { c, e } = get(inp); if (!e) return;
+      const keys = c.keys?.[fxKeyPath(e, k)];
+      if (keys?.length) {
+        // ⏱ animated: the slider sets the keyframe at the playhead (a new one when there is none there)
+        const rel = relTime(id);
+        if (rel === null) { toast('Move the playhead over this clip to set a keyframe'); return; }
+        const j = keyAt(keys, rel);
+        if (j >= 0) keys[j].v = +inp.value; else { keys.push({ t: +rel.toFixed(3), v: +inp.value }); keys.sort((a, b) => a.t - b.t); }
+      } else e.p = { ...(e.p || {}), [k]: inp.type === 'color' || inp.tagName === 'SELECT' ? inp.value : +inp.value };
       const lab = inp.closest('[data-efx]').querySelector(`[data-ev="${k}"]`); if (lab) lab.textContent = `${inp.value}${VFX[e.type].params[k].unit || ''}`;
       emit('live');
     });
     inp.addEventListener('change', () => doCommit(`Effect ${k}`, `${id}:fx:${k}`));
   });
+  // ⏱ effect keyframes: ◆ at the playhead (on / off), ‹ › to the previous / next one
+  root.querySelectorAll('[data-efkf],[data-efkprev],[data-efknext]').forEach((b) => b.addEventListener('click', (ev) => {
+    ev.preventDefault(); ev.stopPropagation();
+    const { c, e } = get(b); if (!e) return;
+    const k = b.dataset.efkf || b.dataset.efkprev || b.dataset.efknext, path = fxKeyPath(e, k), rel = relTime(id);
+    const f = findClip(id), x = layout()[f.track].find((p) => p.clip.id === id);
+    if (!b.dataset.efkf) {
+      const keys = c.keys?.[path] || [];
+      const to = b.dataset.efkprev ? [...keys].reverse().find((q) => q.t < (rel ?? Infinity) - 1e-3) : keys.find((q) => q.t > (rel ?? -Infinity) + 1e-3);
+      if (to) emit('seek', x.start + to.t);
+      return;
+    }
+    if (rel === null) return toast('Move the playhead over this clip first');
+    c.keys ||= {};
+    const keys = (c.keys[path] ||= []), j = keyAt(keys, rel);
+    if (j >= 0) keys.splice(j, 1);
+    else { keys.push({ t: +rel.toFixed(3), v: +(fxParamsAt(c, e, rel)[k] ?? VFX[e.type].params[k].def) }); keys.sort((a, b) => a.t - b.t); }
+    if (!keys.length) {
+      // the last keyframe gone: the setting keeps the value it had there, not animated any more
+      delete c.keys[path]; if (j >= 0) e.p = { ...(e.p || {}), [k]: +b.closest('.fld').querySelector('[data-ep]').value };
+    }
+    if (!Object.keys(c.keys).length) delete c.keys;
+    doCommit(j >= 0 ? 'Remove effect keyframe' : 'Add effect keyframe'); render();
+  }));
   root.querySelector('[data-savelook]')?.addEventListener('click', () => saveFxPreset(id));
   root.querySelector('[data-addfx]')?.addEventListener('change', (ev) => {
     const t = ev.target.value; if (!t) return;
@@ -419,6 +455,10 @@ function bindEffects(id) {
     if (a === 'toggle') e.on = e.on === false;
     if (a === 'reset') e.p = defaultsOf(e.type);
     if (a === 'del') c.effects.splice(i, 1);
+    if ((a === 'reset' || a === 'del') && c.keys) { // (⏱ its keyframes go with it)
+      for (const k of Object.keys(VFX[e.type].params || {})) delete c.keys[fxKeyPath(e, k)];
+      if (!Object.keys(c.keys).length) delete c.keys;
+    }
     if (a === 'up' && i > 0) [c.effects[i - 1], c.effects[i]] = [c.effects[i], c.effects[i - 1]];
     if (a === 'down' && i < c.effects.length - 1) [c.effects[i + 1], c.effects[i]] = [c.effects[i], c.effects[i + 1]];
     if (!c.effects.length) delete c.effects;
@@ -858,6 +898,20 @@ export function updateKeyUI() {
   const id = [...S.sel][0], c = findClip(id)?.clip;
   if (!c) return;
   const rel = relTime(id);
+  // ⏱ animated effect settings: the ◆ lit on a keyframe, the slider and number at the playhead's value
+  root.querySelectorAll('[data-efkpath]').forEach((el) => {
+    const keys = c.keys?.[el.dataset.efkpath] || [], d = el.querySelector('[data-efkf]');
+    d.classList.toggle('has', keys.length > 0);
+    d.classList.toggle('on', rel !== null && keyAt(keys, rel) >= 0);
+    d.disabled = rel === null;
+    el.querySelector('[data-efkprev]').disabled = !keys.some((k) => rel !== null && k.t < rel - 1e-3);
+    el.querySelector('[data-efknext]').disabled = !keys.some((k) => rel === null || k.t > rel + 1e-3);
+    if (!keys.length || rel === null) return;
+    const v = evalKeys(keys, rel), fld = el.closest('.fld'), r = fld?.querySelector('[data-ep]'), lab = fld?.querySelector('[data-ev]');
+    const e = c.effects?.find((x) => x.id === el.closest('[data-efx]')?.dataset.efx);
+    if (r && document.activeElement !== r) r.value = v;
+    if (lab && e) lab.textContent = `${+(+v).toFixed(3)}${VFX[e.type]?.params[r?.dataset.ep]?.unit || ''}`;
+  });
   root.querySelectorAll('[data-kpath]').forEach((el) => {
     const path = el.dataset.kpath, keys = c.keys?.[path] || [];
     const d = el.querySelector('[data-kf]');

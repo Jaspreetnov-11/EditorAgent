@@ -19,7 +19,7 @@ import { fxFilters } from '../public/js/audiofx.js';
 import { aeffectFilters, fadeCurve } from '../public/js/audioeffects.js';
 import { colorFilters, stager } from './color.mjs';
 import { cutFxDur, wordWindows, isKinetic, hitsOf, CUTFX, xfadeOf } from '../public/js/fx.js';
-import { VFX, activeEffects, stabOf, blendOf, postEffects, pyEffects } from '../public/js/effects.js';
+import { VFX, activeEffects, stabOf, blendOf, postEffects, pyEffects, fxHasKeys, fxPieces, fxParamsAt } from '../public/js/effects.js';
 import { buildAss, capTracks } from '../public/js/captions.js';
 import { maskTrack } from '../public/js/tracking.js';
 import { gfxKey } from '../public/js/graphics.js';
@@ -299,15 +299,29 @@ function vfxGraph(c, inL, g, pre = `vx${segN}`, addMask = null, addAux = null) {
   for (const e of activeEffects(c)) {
     if (VFX[e.type].key) continue;
     // (Timecode / Clip Name draw text: they get the render's font, a text file, the frame rate and the clip)
-    const r = VFX[e.type].ff(e.p || {}, { W, H, F, clip: c, name: media[c.mediaId]?.name || path.basename(media[c.mediaId]?.path || ''), font: () => font('0'), textfile, ...(addAux ? { aux: addAux } : {}) }), out = `${pre}_${k++}`;
-    if (r === 'null') continue;
+    const ctx = { W, H, F, clip: c, name: media[c.mediaId]?.name || path.basename(media[c.mediaId]?.path || ''), font: () => font('0'), textfile, ...(addAux ? { aux: addAux } : {}) };
+    // ⏱ animated settings (effects.js fxPieces): on the shot's own segment (addAux - its time starts at the clip's start)
+    // the shot is cut into pieces, each made with its settings at that moment and joined again; elsewhere (adjustment
+    // layers, text / graphics) and with an AI matte the settings at the clip's start are used
+    const pieces = addAux && fxHasKeys(c, e) && !e.p?.ai && !e.p?.subj && !e.p?.skyMedia ? fxPieces(c, e, clipDur(c), Math.max(2 / F, clipDur(c) / 120)) : null;
+    const r = VFX[e.type].ff(pieces ? pieces[0].p : fxParamsAt(c, e, fxHasKeys(c, e) ? 0 : undefined), ctx), out = `${pre}_${k++}`;
+    if (r === 'null' && !(pieces?.length > 1)) continue;
     const masked = e.mask?.shape && addMask;
     // ⏱ a time window (Labs: e.from / e.to, seconds into the clip): the effect is made on a copy that shows only then
     const timed = !masked && (e.from !== undefined || e.to !== undefined);
     const src = masked ? `${out}s` : timed ? `${out}tb` : cur, dst = masked ? `${out}f` : timed ? `${out}tx` : out;
     if (masked) g.push(`[${cur}]split[${out}a][${out}s]`);
     if (timed) g.push(`[${cur}]split[${out}ta][${out}tb]`);
-    g.push(typeof r === 'string' ? `[${src}]${r}[${dst}]` : r.graph(src, dst));
+    if (pieces?.length > 1) {
+      // each frame lands in exactly one piece (trim: start in, end out; the last one runs to the end of the shot)
+      g.push(`[${src}]split=${pieces.length}${pieces.map((_, i) => `[${out}i${i}]`).join('')}`);
+      pieces.forEach((pc, i) => {
+        const rp = VFX[e.type].ff(pc.p, ctx), a = `${out}t${i}`, b = `${out}o${i}`;
+        g.push(`[${out}i${i}]trim=start=${pc.t0.toFixed(4)}${i < pieces.length - 1 ? `:end=${pc.t1.toFixed(4)}` : ''},setpts=PTS-STARTPTS[${a}]`);
+        g.push(rp === 'null' ? `[${a}]null[${b}]` : typeof rp === 'string' ? `[${a}]${rp}[${b}]` : rp.graph(a, b));
+      });
+      g.push(`${pieces.map((_, i) => `[${out}o${i}]`).join('')}concat=n=${pieces.length}:v=1:a=0[${dst}]`);
+    } else g.push(typeof r === 'string' ? `[${src}]${r}[${dst}]` : r.graph(src, dst));
     if (timed) g.push(`[${out}ta][${out}tx]overlay=eof_action=pass:enable='between(t,${(+e.from || 0).toFixed(3)},${(+(e.to ?? 1e6)).toFixed(3)})'[${out}]`);
     if (masked) {
       const mk = addMask(maskPng(e.mask));

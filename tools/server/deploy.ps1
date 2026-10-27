@@ -39,6 +39,11 @@ try {
     robocopy (Join-Path $ROOT $d) (Join-Path $Release $d) /MIR /XD __pycache__ @rc | Out-Null
     if ($LASTEXITCODE -ge 8) { throw "copy of $d failed (robocopy $LASTEXITCODE)" }
   }
+  # 🔒 browsers get a scrambled copy of the editor's code (public\.dist\js - server.mjs serves it; the readable public\js
+  # stays for the server's own imports). The scrambler lives only on this PC (tools\scramble, npm install there once).
+  Write-Host 'Scrambling the browser code...'
+  & node (Join-Path $ROOT 'tools\scramble\scramble.mjs') (Join-Path $ROOT 'public\js') (Join-Path $Release 'public\.dist\js')
+  if ($LASTEXITCODE -ne 0) { throw 'scrambling the browser code failed (tools\scramble: run "npm install" there)' }
   # (LUTs: added and updated, never deleted - the server may have LUTs of its own)
   robocopy (Join-Path $ROOT 'LUTs') (Join-Path $Release 'LUTs') /E @rc | Out-Null
   if ($LASTEXITCODE -ge 8) { throw "copy of LUTs failed (robocopy $LASTEXITCODE)" }

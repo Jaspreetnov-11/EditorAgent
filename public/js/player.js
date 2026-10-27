@@ -894,7 +894,7 @@ function pixFx(el, c, after = el, rel) {
         if (q < in2) d[i + 3] = 0; else d[i + 3] = Math.round(d[i + 3] * ((Math.sqrt(q) / 441.7 - sim) / bl));
       }
       g.putImageData(im, 0, 0);
-    } else if (e.type !== 'mirror') VFX[e.type].pix(g, W, H, e.p || {}, { cv, rel, fps: S.project.settings.fps || 30, c, name: S.mediaById[c.mediaId]?.name });
+    } else if (e.type !== 'mirror') VFX[e.type].pix(g, W, H, fxParamsAt(c, e, rel), { cv, rel, fps: S.project.settings.fps || 30, c, name: S.mediaById[c.mediaId]?.name });
   }
   return showPix(cv, src, el);
 }
@@ -1005,7 +1005,7 @@ function setMask(el, m) {
 // effects with a mask on the V1 shot: the effect's look over just that part of the picture (exact in Accurate preview)
 function drawFxMasks(x, t) {
   const el = els.lyFxm, c = x?.clip;
-  const list = c && !c.disabled && (c.type === 'video' || c.type === 'image') ? maskedEffectsCss(c, (frame?.clientWidth || 640) / ((ASPECTS[S.project.settings.aspect] || [1920])[0])) : [];
+  const list = c && !c.disabled && (c.type === 'video' || c.type === 'image') ? maskedEffectsCss(c, (frame?.clientWidth || 640) / ((ASPECTS[S.project.settings.aspect] || [1920])[0]), t - x.start) : [];
   el.hidden = !list.length;
   if (!list.length) { el.innerHTML = ''; return; }
   const tf = look(c, t - x.start).transform;
@@ -1235,7 +1235,7 @@ function drawOverlays(t, isPlay) {
       const c = x.clip, rel = t - x.start;
       if (c.type === 'adjust') {
         // colour (rough) + effects of the adjustment layer go onto everything below it
-        const col = c.color || {}, ef = effectsCss(c, (frame?.clientWidth || 640) / ((ASPECTS[S.project.settings.aspect] || [1920])[0]));
+        const col = c.color || {}, ef = effectsCss(c, (frame?.clientWidth || 640) / ((ASPECTS[S.project.settings.aspect] || [1920])[0]), rel);
         const f = [ef.filter, (col.contrast ?? 1) !== 1 ? `contrast(${col.contrast})` : '', (col.saturation ?? 1) !== 1 ? `saturate(${col.saturation})` : '', col.exposure ? `brightness(${Math.pow(2, col.exposure).toFixed(3)})` : ''].filter(Boolean).join(' ');
         if (f) below.forEach((e) => (e.style.filter = `${e.style.filter || ''} ${f}`.trim()));
         if (ef.overlay) adjLay.push(...cssLayers(ef.overlay).map((x) => [x, false]));
@@ -1253,7 +1253,7 @@ function drawOverlays(t, isPlay) {
         el.style.opacity = String(fadeK(c, rel, x.end - x.start));
         el.style.mixBlendMode = c.blend ? CSS_BLEND[c.blend] || c.blend : ''; // (🎭 text / shapes / templates blend as well)
         setMask(el, c.omask); // (◐ Opacity mask on a graphic - a Color Matte as a shape)
-        el.style.filter = c.effects?.length ? effectsCss(c, (frame?.clientWidth || 640) / FW).filter || '' : ''; // (🎛 its effects)
+        el.style.filter = c.effects?.length ? effectsCss(c, (frame?.clientWidth || 640) / FW, rel).filter || '' : ''; // (🎛 its effects)
         live.add(c.id); order.push(el); el.hidden = false; el.style.pointerEvents = 'none';
         continue;
       }

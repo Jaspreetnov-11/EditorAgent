@@ -28,6 +28,9 @@
 !/tools/access/
 !/tools/kit/
 !/tools/nascare/
+!/tools/scramble/
+/tools/scramble/node_modules/
+/public/.dist/
 /tools/access/*.msi
 *.zip
 *.log

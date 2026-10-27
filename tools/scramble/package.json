@@ -1,0 +1,9 @@
+{
+  "name": "limelight-scramble",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "esbuild": "^0.24.2",
+    "javascript-obfuscator": "^4.1.1"
+  }
+}
