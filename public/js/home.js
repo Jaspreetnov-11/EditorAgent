@@ -52,9 +52,9 @@ export async function renderHome(el, openProject) {
     <div class="hm-main">
       <header class="hm-top home-head">
         <nav class="hm-tabs" id="hmTabs"><button data-pf="recent">Home</button><button data-pf="folders">Folders</button><button data-pf="shared">Shared</button></nav>
-        <label class="hm-search">${ic('search')}<input type="search" id="homeQ" placeholder="Search projects, folders or #tag" aria-label="Search projects" autocomplete="off"><kbd>Ctrl K</kbd></label>
         <div class="hm-acts home-actions"><button class="small" data-a="dash" hidden title="Dashboard: every PC of the editor right now - CPU, RAM, GPU, video memory, heat, power, storage">${ic('chart')} Dashboard</button><button class="small" data-a="team" hidden title="Admin: people who can sign in from other computers - names, passwords, roles (Owner / Editor / Viewer), shared folders, render farm">${ic('team')} Team</button><button class="small" data-a="sessions" hidden title="Who worked in the editor, when and for how long - the last 30 days">${ic('clock')} Sessions</button><button class="small" data-a="deleted" hidden title="Recycle Bin: deleted projects - restore or delete for good">${icon('trash')} Bin</button><button class="small icon-only home-refresh" data-a="refresh" title="Refresh: load the editor again (newest version) - always here" aria-label="Refresh">${icon('refresh')}</button><span class="home-me" id="homeMe" hidden></span></div>
       </header>
+      <div class="hm-find"><label class="hm-search">${ic('search')}<input type="search" id="homeQ" placeholder="Search projects, folders or #tag" aria-label="Search projects" autocomplete="off"><kbd>Ctrl K</kbd></label></div>
       <div class="hm-bar">
         <div class="hm-title"><h2 id="homeCrumb">Projects</h2><span class="hm-count" id="hmCount"></span><span id="projRoot" hidden></span></div>
         <div class="chips hm-tags" id="homeTags"></div>

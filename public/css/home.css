@@ -17,7 +17,7 @@
 #home .hm-nrow .hm-n { font-family: var(--mono, monospace); font-size: 11px; color: var(--faint, #5f5f66); font-variant-numeric: tabular-nums; }
 #home .hm-nrow.on, #home .hm-nrow.on:hover { background: var(--accent-soft, #ffc21a1a); color: var(--accent, #ffc21a); }
 #home .hm-nrow.on .hm-n { color: var(--accent, #ffc21a); }
-#home .hm-nrow .pf-who { flex-basis: 100%; padding: 0 0 6px 25px; margin-top: -4px; font-size: 10.5px; }
+#home .hm-nrow .pf-who { order: 10; flex-basis: 100%; padding: 0 0 6px 25px; margin-top: -4px; font-size: 10.5px; }
 #home .hm-nmore { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 5px; opacity: 0; color: var(--muted, #999); }
 #home .hm-nmore svg { width: 13px; height: 13px; }
 #home .hm-nrow:hover .hm-nmore, #home .hm-nrow:focus-visible .hm-nmore { opacity: 1; }
@@ -37,17 +37,18 @@ body.pf-dragging #home .hm-nrow[data-drop] { box-shadow: 0 0 0 1px var(--accent-
 
 /* ---------- top: Home / Folders / Shared, the search, Dashboard / Team / Bin ---------- */
 #home .hm-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-#home .hm-top.home-head { display: grid; grid-template-columns: 1fr minmax(260px, 560px) 1fr; align-items: center; gap: 20px; margin: 0; padding: 18px 28px; border-bottom: 1px solid var(--line, #1c1c1f); flex-wrap: nowrap; }
+#home .hm-top.home-head { display: flex; justify-content: space-between; align-items: center; gap: 20px; margin: 0; padding: 18px 28px; border-bottom: 1px solid var(--line, #1c1c1f); flex-wrap: nowrap; }
 #home .hm-tabs { display: flex; gap: 4px; }
 #home .hm-tabs[hidden] { display: none; }
 #home .hm-tabs button { position: relative; height: 32px; padding: 0 12px; border: 0; border-radius: 8px; background: transparent; color: var(--muted, #9b9ba1); font-size: 13.5px; font-weight: 500; box-shadow: none; }
 #home .hm-tabs button:hover:not(:disabled) { color: var(--text, #fff); background: var(--panel-2, #17171a); border: 0; }
 #home .hm-tabs button.on, #home .hm-tabs button.on:hover { color: var(--text, #fff); font-weight: 700; background: transparent; }
 #home .hm-tabs button.on::after { content: ""; position: absolute; left: 50%; bottom: -2px; height: 2px; margin-left: -9px; width: 18px; border-radius: 2px; background: var(--accent, #ffc21a); }
-#home .hm-search { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 14px; border-radius: 12px; background: var(--panel, #0e0e10); box-shadow: 0 0 0 1px var(--line-2, #2a2a2e) inset; color: var(--muted, #999); cursor: text; transition: box-shadow .15s; }
+#home .hm-find { display: flex; justify-content: center; padding: 26px 28px 4px; }
+#home .hm-search { display: flex; align-items: center; gap: 12px; width: min(720px, 100%); height: 54px; padding: 0 18px; border-radius: 14px; background: var(--panel, #0e0e10); box-shadow: 0 0 0 1px var(--line-2, #2a2a2e) inset; color: var(--muted, #999); cursor: text; transition: box-shadow .15s; }
 #home .hm-search:focus-within { box-shadow: 0 0 0 1px var(--accent-line, #ffc21a80) inset, 0 0 0 4px rgba(255,194,26,.07); }
-#home .hm-search svg { width: 16px; height: 16px; flex: none; }
-#home .hm-search input { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; box-shadow: none; outline: none; color: var(--text, #fff); font-size: 14px; padding: 0; }
+#home .hm-search svg { width: 19px; height: 19px; flex: none; }
+#home .hm-search input { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; box-shadow: none; outline: none; color: var(--text, #fff); font-size: 16px; padding: 0; }
 #home .hm-search input::-webkit-search-cancel-button { filter: grayscale(1); }
 #home .hm-search kbd { font-family: var(--mono, monospace); font-size: 10.5px; color: var(--faint, #666); border: 1px solid var(--line-2, #2a2a2e); border-radius: 5px; padding: 1px 6px; white-space: nowrap; }
 #home .hm-acts.home-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; flex-wrap: nowrap; }
@@ -146,7 +147,6 @@ body.pf-dragging #home .hm-nrow[data-drop] { box-shadow: 0 0 0 1px var(--accent-
 
 /* ---------- smaller windows ---------- */
 @media (max-width: 1360px) {
-  #home .hm-top.home-head { grid-template-columns: auto minmax(200px, 1fr) auto; gap: 14px; }
   #home .hm-acts [data-a="sessions"] { display: none !important; }
 }
 @media (max-width: 1180px) {
@@ -172,9 +172,10 @@ html.phone #home .hm-nrow { width: auto; flex: none; flex-wrap: nowrap; min-heig
 html.phone #home .hm-nrow .hm-nlabel { flex: none; }
 html.phone #home :is(.hm-nsec, .hm-nnew, .hm-nmore, .pf-who) { display: none; }
 html.phone #home .hm-main { overflow: auto; -webkit-overflow-scrolling: touch; }
-html.phone #home .hm-top.home-head { grid-template-columns: minmax(0, 1fr) auto; padding: 10px 14px; gap: 10px; flex-direction: row; }
+html.phone #home .hm-top.home-head { padding: 8px 14px 0; gap: 10px; flex-direction: row; border-bottom: 0; }
+html.phone #home .hm-find { padding: 8px 14px 0; }
 html.phone #home .hm-tabs { display: none; }
-html.phone #home .hm-search { height: 44px; }
+html.phone #home .hm-search { height: 48px; }
 html.phone #home .hm-search kbd { display: none; }
 html.phone #home .hm-acts.home-actions { justify-content: flex-end; }
 html.phone #home .hm-bar { padding: 14px 14px 10px; gap: 10px; }

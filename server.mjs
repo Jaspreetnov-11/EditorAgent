@@ -2927,7 +2927,7 @@ function startTeam() {
     const usr = s && (teamCfg().users || []).find((x) => x.name === s.name);
     if (!s || !usr) {
       if (/^\/(api|pm|pf|lg)\//.test(u.pathname)) return send(res, 401, { error: 'Sign in again' });
-      if (/^\/(css|js|img)\//.test(u.pathname)) return serveFile(req, res, path.join(ROOT, 'public', path.normalize(decodeURIComponent(u.pathname)))); // (img: the logo on the sign-in page)
+      if (/^\/img\//.test(u.pathname)) return serveFile(req, res, path.join(ROOT, 'public', path.normalize(decodeURIComponent(u.pathname)))); // (img: the logo on the sign-in page - 🔒 the editor's code and styles only after sign-in)
       if (/^\/(manifest\.webmanifest|sw\.js)$/.test(u.pathname)) return serveFile(req, res, path.join(ROOT, 'public', u.pathname.slice(1))); // (🖥 install as a Desktop app, from the sign-in page)
       return serveFile(req, res, path.join(ROOT, 'public', 'team', 'login.html'));
     }
@@ -7082,6 +7082,10 @@ async function handle(req, res, who) {
     if (req.method === 'GET' && m) return serveFile(req, res, P(needProject(decodeURIComponent(m[1])), ...(m[2] === 'thumbnails' || m[2] === 'frames' ? ['output', m[2]] : [m[2]]), path.basename(decodeURIComponent(m[3]))));
     if (req.method === 'GET') {
       const f = path.join(ROOT, 'public', u.pathname === '/' ? 'index.html' : path.normalize(decodeURIComponent(u.pathname)));
+      // 🔒 a release carries a scrambled copy of the browser code (public/.dist/js, made by tools/scramble at deploy) -
+      // browsers get that one; the readable public/js stays for the server's own imports
+      const dist = u.pathname.startsWith('/js/') && path.join(ROOT, 'public', '.dist', path.normalize(decodeURIComponent(u.pathname)));
+      if (dist && dist.startsWith(path.join(ROOT, 'public', '.dist', 'js')) && fs.existsSync(dist)) return serveFile(req, res, dist);
       if (f.startsWith(path.join(ROOT, 'public'))) return serveFile(req, res, f);
     }
     send(res, 404, { error: 'not found' });

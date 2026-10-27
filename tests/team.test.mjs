@@ -59,6 +59,20 @@ test('team: a wrong password is refused, the right one signs in (name in any cas
   same(me.status, 200); same(me.body.name, 'Ravi'); same(me.body.local, false);
 });
 
+test('team: the editor\'s code and styles only after sign-in, never kept by the browser', async () => {
+  if (!ON) return 'skip';
+  for (const u of ['/js/main.js', '/js/timeline.js', '/css/app.css']) {
+    const r = await fetch(T + u, { redirect: 'manual' }), t = await r.text();
+    assert(!/^\s*(import|export|const|let|function|\/\/|:root|\*|\.)/.test(t) && /<form|password/i.test(t), `${u} not handed out before sign-in`);
+  }
+  const logo = await fetch(T + '/img/limelight-logo-white.png');
+  same(logo.status, 200); // (the sign-in page's own logo still shows)
+  const ok = (await login('Ravi', 'ravi-pass-1')).cookie;
+  const js = await fetch(T + '/js/main.js', { headers: { Cookie: ok } });
+  same(js.status, 200); assert(/javascript/.test(js.headers.get('content-type')), 'code once signed in');
+  same(js.headers.get('cache-control'), 'no-store');
+});
+
 test('team: an editor may edit but not run the team; a viewer only watches', async () => {
   if (!ON) return 'skip';
   const ed = (await login('Ravi', 'ravi-pass-1')).cookie, vw = (await login('Client', 'client-pass-1')).cookie;
