@@ -100,18 +100,29 @@ function perfPage(d) {
     <div class="perf-tags perf-line"><span class="perf-tag">${T.pcs} PCs</span><span class="perf-tag">${A.procs} editor processes</span><span class="perf-tag">${E.people} editing</span><span class="perf-tag">${E.farmRunning} helper tasks running</span><span class="perf-tag">${E.farmWaiting} waiting</span></div>
     <div class="perf-grid">${d.nas ? nasCard(d.nas) : ''}${pcs}</div>`;
 }
+// 💥 Crashes: the last 7 days of errors in everyone's editor and in the server, grouped, most frequent first
+function crashPage(d) {
+  const max = Math.max(1, ...d.perDay, ...d.restarts), wd = (i) => new Date(Date.now() - (d.days - 1 - i) * 864e5).toLocaleDateString('en-IN', { weekday: 'short' });
+  const bars = d.perDay.map((n, i) => `<div class="cr-day"><i style="height:${Math.round((n / max) * 60)}px" title="${n} errors"></i><i class="cr-rs" style="height:${Math.round((d.restarts[i] / max) * 60)}px" title="${d.restarts[i]} restarts"></i><small>${wd(i)}</small></div>`).join('');
+  const rows = d.groups.map((g) => `<tr><td><b>${g.count}</b></td><td><span class="cr-k ${g.kind}">${g.kind === 'editor' ? 'Editor' : 'Server'}</span> ${esc(g.where)}<br><span class="cr-msg" title="${esc(g.stack || g.msg)}">${esc(g.msg)}</span></td>
+    <td>${esc(g.who.join(', ') || '-')}</td><td>${ago(g.first)}</td><td>${ago(g.last)}</td></tr>`).join('');
+  return `<div class="sf-cards"><div><b>${d.total}</b><small>errors in ${d.days} days</small></div><div><b>${d.groups.length}</b><small>different ones</small></div><div><b>${d.restarts.reduce((a, b) => a + b, 0)}</b><small>restarts (editor / workers)</small></div></div>
+    <div class="cr-bars">${bars}</div><p class="muted small">Bars: errors per day (the thin bar: restarts). Hover a message for its first lines.</p>
+    ${rows ? `<table class="cr-table"><tr><th>Times</th><th>Error</th><th>Who</th><th>First</th><th>Last</th></tr>${rows}</table>` : '<p class="sf-ok">No errors in the last 7 days.</p>'}`;
+}
 // tab 'perf' (📊 the Dashboard button): its own window, "Performance"; the others: Mazbooti with its tabs
 export async function openSafety(tab = 'health') {
   const perfOnly = tab === 'perf';
   const dlg = modal(perfOnly ? 'Performance' : 'Mazbooti', `<div class="mm-tabs" role="tablist"${perfOnly ? ' hidden' : ''}>
-      <button class="chip" data-tab="health" role="tab">Health</button><button class="chip" data-tab="backup" role="tab">Backup</button><button class="chip" data-tab="standby" role="tab">Standby PC</button>
+      <button class="chip" data-tab="health" role="tab">Health</button><button class="chip" data-tab="backup" role="tab">Backup</button><button class="chip" data-tab="standby" role="tab">Standby PC</button><button class="chip" data-tab="crash" role="tab">Crashes</button>
     </div><div class="sf-body" data-sf>Loading…</div>`, { width: perfOnly ? 1240 : 820, onClose: () => clearTimeout(timer) });
   const box = $('[data-sf]', dlg.el);
-  let cur = tab, data = null, timer = null, nightsList = null, perfData = null;
+  let cur = tab, data = null, timer = null, nightsList = null, perfData = null, crashData = null;
   const load = async () => {
     clearTimeout(timer);
     try {
       if (cur === 'perf') perfData = await api('GET', '/api/team/perf');
+      else if (cur === 'crash') crashData = await api('GET', '/api/safety/crashes');
       else data = await api('GET', '/api/safety');
       show();
     } catch (e) { box.textContent = e.message; }
@@ -120,11 +131,12 @@ export async function openSafety(tab = 'health') {
   const show = () => {
     dlg.el.querySelectorAll('[data-tab]').forEach((b) => { b.classList.toggle('on', b.dataset.tab === cur); b.setAttribute('aria-selected', b.dataset.tab === cur); });
     if (cur === 'perf') { box.innerHTML = perfData ? perfPage(perfData) : 'Loading…'; return; }
+    if (cur === 'crash') { box.innerHTML = crashData ? crashPage(crashData) : 'Loading…'; return; }
     if (!data) return;
     const keep = box.querySelector('input:focus, select:focus'); if (keep && cur !== 'health') return; // (not while typing a folder)
     box.innerHTML = ({ health, backup, standby })[cur](data);
   };
-  dlg.el.querySelectorAll('[data-tab]').forEach((b) => (b.onclick = () => { cur = b.dataset.tab; show(); if (cur === 'perf' || !data) load(); if (cur === 'backup' && !nightsList) loadNights(); }));
+  dlg.el.querySelectorAll('[data-tab]').forEach((b) => (b.onclick = () => { cur = b.dataset.tab; show(); if (cur === 'perf' || cur === 'crash' || !data) load(); if (cur === 'backup' && !nightsList) loadNights(); }));
   const loadNights = async () => { try { nightsList = await api('GET', '/api/safety/nights'); } catch { nightsList = []; } if (cur === 'backup') show(); };
 
   const warnHTML = (d) => (d.warn.length ? `<ul class="sf-warn">${d.warn.map((w) => `<li class="${w.level}">${esc(w.text)}</li>`).join('')}</ul>` : '<p class="sf-ok">All good</p>');

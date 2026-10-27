@@ -1,20 +1,25 @@
 # deploy.ps1 - run on the CODING PC (JASPREET): makes the new release of this editor's code and sends it straight to the
 # PCs that run it, over SSH (JASPREET's key - tools/access) - never through the NAS:
+#   PC B (standby)         %LOCALAPPDATA%\LimelightStandby\release\editor   FIRST: the new release is tried there (started
+#                          as a throwaway editor - it must start, serve its pages and code, make a project); only if it
+#                          passes does PC A get it. The standby takes it while it only watches.
 #   PC A (editor server)   D:\Limelight Release\editor           its tray brings it in once no agent job or render runs
-#   PC B (standby)         %LOCALAPPDATA%\LimelightStandby\release\editor   the standby takes it while it only watches
 #   this PC's standby      the same folder here, when this PC runs one
+# The auto-tests (tests/run.mjs) run before every release; a failing test stops it.
 # Projects, config.json, ssl and logs are never touched - only code. Helper PCs take the code from the server, as before.
-#   Deploy to server.bat            syntax check, then release
-#   Deploy to server.bat -Tests     run the auto-tests first (stops if one fails)
-#   Deploy to server.bat -NoWait    do not wait to see it arrive on PC A / PC B
-param([switch]$Tests, [switch]$NoWait, [string]$Stage = (Join-Path $env:LOCALAPPDATA 'LimelightRelease\editor'))
+#   Deploy to server.bat              syntax check, auto-tests, standby trial, then release
+#   Deploy to server.bat -SkipTests   leave out the auto-tests (an urgent fix only)
+#   Deploy to server.bat -Force       send to PC A even when the standby PC cannot be reached
+#   Deploy to server.bat -NoWait      do not wait to see it arrive on PC A / PC B
+param([switch]$SkipTests, [switch]$Force, [switch]$NoWait, [switch]$Tests, [string]$Stage = (Join-Path $env:LOCALAPPDATA 'LimelightRelease\editor'))
 $ErrorActionPreference = 'Stop'
 $ROOT = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Set-Location $ROOT
 # where each PC keeps its release (expanded on that PC)
+# (in this order: the standby PC tries the release first)
 $TARGETS = [ordered]@{
+  'PC B  standby'       = @{ host = 'limelight-b'; dest = '$env:LOCALAPPDATA\LimelightStandby\release'; running = '$env:LOCALAPPDATA\LimelightStandby\editor\release.json'; smoke = $true }
   'PC A  editor server' = @{ host = 'limelight-a'; dest = 'D:\Limelight Release'; running = 'D:\Video Editor Agent\release.json' }
-  'PC B  standby'       = @{ host = 'limelight-b'; dest = '$env:LOCALAPPDATA\LimelightStandby\release'; running = '$env:LOCALAPPDATA\LimelightStandby\editor\release.json' }
 }
 
 if (Test-Path (Join-Path $ROOT 'release.json')) { Write-Host "This folder is a deployed copy (it has release.json) - deploy from the coding PC." -ForegroundColor Red; exit 1 }
@@ -27,7 +32,7 @@ foreach ($f in @(Get-Item server.mjs) + @(Get-ChildItem engine -Filter *.mjs) + 
   if ($LASTEXITCODE -ne 0) { $bad += $f.Name }
 }
 if ($bad.Count) { Write-Host "Syntax errors in: $($bad -join ', ') - nothing was released." -ForegroundColor Red; exit 1 }
-if ($Tests) {
+if (-not $SkipTests) {
   Write-Host 'Running the auto-tests...'
   & node tests/run.mjs
   if ($LASTEXITCODE -ne 0) { Write-Host 'A test failed - nothing was released.' -ForegroundColor Red; exit 1 }
@@ -78,10 +83,15 @@ foreach ($k in $TARGETS.Keys) {
   & scp -O -q -o BatchMode=yes -o ConnectTimeout=8 $pack "$($t.host):limelight-release.tgz" 2>$null
   $ok = $LASTEXITCODE -eq 0
   if ($ok) { & scp -O -q -o BatchMode=yes $recv "$($t.host):receive-release.ps1" 2>$null; $ok = $LASTEXITCODE -eq 0 }
-  $out = if ($ok) { & ssh -o BatchMode=yes $t.host "powershell -NoProfile -ExecutionPolicy Bypass -File receive-release.ps1 -Archive `"`$HOME\limelight-release.tgz`" -Dest `"$($t.dest)`"" 2>&1 | Where-Object { "$_".Trim() } | Select-Object -Last 1 } else { 'SSH does not answer' } # (PC A's SSH is PowerShell: blank lines after the answer)
+  $sm = if ($t.smoke) { ' -Smoke' } else { '' }
+  $out = if ($ok) { & ssh -o BatchMode=yes $t.host "powershell -NoProfile -ExecutionPolicy Bypass -File receive-release.ps1 -Archive `"`$HOME\limelight-release.tgz`" -Dest `"$($t.dest)`"$sm" 2>&1 | Where-Object { "$_".Trim() } | Select-Object -Last 1 } else { 'SSH does not answer' } # (PC A's SSH is PowerShell: blank lines after the answer)
   $ErrorActionPreference = 'Stop'
   if ("$out" -match "^OK $($rel.id)") { $sent[$k] = $true; Write-Host "  [OK] $k has release $($rel.id)" -ForegroundColor Green }
-  else { Write-Host "  [!!] $k : $out (if SSH stopped answering: run tools\access\allow-jaspreet.ps1 on that PC as administrator)" -ForegroundColor Red }
+  else {
+    Write-Host "  [!!] $k : $out (if SSH stopped answering: run tools\access\allow-jaspreet.ps1 on that PC as administrator)" -ForegroundColor Red
+    # the standby PC is the trial: a release that failed there (or could not be tried) never reaches PC A
+    if ($t.smoke -and ("$out" -match '^FAILED' -or -not $Force)) { Write-Host 'Release stopped: it did not pass on the standby PC, so PC A keeps its code.' -ForegroundColor Red; Remove-Item -Force $pack -ErrorAction SilentlyContinue; exit 1 }
+  }
 }
 # this PC's own standby (JASPREET runs one): the same release folder here
 $mine = Join-Path $env:LOCALAPPDATA 'LimelightStandby'

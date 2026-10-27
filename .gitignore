@@ -30,6 +30,8 @@
 !/tools/nascare/
 !/tools/scramble/
 !/tools/bench/
+!/tools/githooks/
+!/tools/soak/
 /tools/bench/kit/
 /tools/scramble/node_modules/
 /public/.dist/

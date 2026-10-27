@@ -1725,7 +1725,7 @@ function prepareRender(name, b, o = {}) {
     || Date.now() - (outReserved.get(`${name}/${f}`) || 0) < 6 * 3600e3;
   const fname = (v) => (ext ? `${base}_v${v}.${ext}` : `${base}_v${v} frames`);
   if (!preview) { let v = 1; while (taken(fname(v))) v++; out = fname(v); outReserved.set(`${name}/${out}`, Date.now()); }
-  const media = Object.fromEntries([...used].map((id) => [id, { path: byId[id].path, duration: byId[id].duration, hasAudio: byId[id].hasAudio, kind: byId[id].kind, width: byId[id].width, height: byId[id].height, rotation: byId[id].rotation, size: byId[id].size, mtime: byId[id].mtime, subOf: byId[id].subOf, ...(byId[id].alpha ? { alpha: true } : {}) }])); // (🎞 alpha: drawn with its transparency)
+  const media = Object.fromEntries([...used].map((id) => [id, { path: byId[id].path, duration: byId[id].duration, hasAudio: byId[id].hasAudio, kind: byId[id].kind, width: byId[id].width, height: byId[id].height, rotation: byId[id].rotation, size: byId[id].size, mtime: byId[id].mtime, subOf: byId[id].subOf, ...(byId[id].alpha ? { alpha: true } : {}), ...(byId[id].hdr ? { hdr: byId[id].hdr } : {}) }])); // (🎞 alpha: drawn with its transparency; 🌈 hdr: tone-mapped / kept HDR)
   const jobFile = o.jobFile || P(name, 'cache', preview && !b.section ? 'render-job-preview.json' : `render-job-${safeName(out)}.json`);
   fs.mkdirSync(path.dirname(jobFile), { recursive: true });
   const range = b.section ? { in: Math.max(0, +b.section.a), out: +b.section.b } : b.whole ? null : rangeOf(pj, totalDuration(pj, byId));
@@ -2246,6 +2246,39 @@ if (!process.env.VEDIT_NO_RESUME) {
   // looked at asynchronously, so this stays light on the NAS)
   setInterval(() => mirrorTick().catch((e) => logCrash('live mirror', e)), 30e3).unref?.();
   setInterval(() => standbyTick().catch((e) => logCrash('standby', e)), 30000).unref?.();
+}
+// 💥 the crash dashboard (Mazbooti > Crashes): the last 7 days of errors from everyone's editor (logs/client-errors.log)
+// and from the server (server-errors.log), the same error grouped (numbers taken out), most frequent first - with who,
+// where, first / last seen and a count per day - plus how often the editor or a worker had to start again.
+function tailText(f, max = 4 * 1024 * 1024) {
+  try { const fd = fs.openSync(f, 'r'), size = fs.fstatSync(fd).size, n = Math.min(size, max), buf = Buffer.alloc(n); fs.readSync(fd, buf, 0, n, size - n); fs.closeSync(fd); return buf.toString('utf8'); } catch { return ''; }
+}
+function crashView(days = 7) {
+  const since = Date.now() - days * 864e5, day0 = new Date(); day0.setHours(0, 0, 0, 0);
+  const dayOf = (t) => Math.max(0, days - 1 - Math.floor((day0.getTime() + 864e5 - 1 - t) / 864e5));
+  const groups = new Map(), perDay = Array(days).fill(0), restarts = Array(days).fill(0);
+  const norm = (m) => String(m || '').replace(/\d+(\.\d+)?/g, '#').replace(/(["'])[^"']*\1/g, '"…"').slice(0, 160);
+  const add = (kind, t, msg, where, who, page, stack) => {
+    if (!(t >= since)) return;
+    const key = `${kind}|${where}|${norm(msg)}`, g = groups.get(key) || { kind, where, msg: String(msg).slice(0, 300), count: 0, who: new Set(), pages: new Set(), first: t, last: t, days: Array(days).fill(0), stack: '' };
+    g.count++; if (who) g.who.add(who); if (page) g.pages.add(page); g.first = Math.min(g.first, t); g.last = Math.max(g.last, t); g.days[dayOf(t)]++;
+    if (stack && !g.stack) g.stack = String(stack).split('\n').slice(0, 4).join('\n');
+    groups.set(key, g); perDay[dayOf(t)]++;
+  };
+  const cl = path.join(DATA, 'logs', 'client-errors.log');
+  for (const f of [`${cl}.old`, cl]) for (const l of tailText(f).split('\n')) {
+    if (!l.trim()) continue; let e; try { e = JSON.parse(l); } catch { continue; }
+    add('editor', Date.parse(e.at), e.msg, e.where || 'editor', e.who, e.page || e.project, e.stack);
+  }
+  for (const l of tailText(ERRLOG).split('\n')) {
+    const m = /^\[(\d{4}-\d\d-\d\dT[\d:.]+Z)\] ([^:]+): (.*)$/.exec(l); if (!m) continue;
+    const t = Date.parse(m[1]); if (!(t >= since)) continue;
+    if (/starting it again|stopped \(code/.test(m[3])) { restarts[dayOf(t)]++; continue; }
+    add('server', t, m[3], m[2], '', '', '');
+  }
+  const list = [...groups.values()].sort((a, b) => b.count - a.count || b.last - a.last).slice(0, 60)
+    .map((g) => ({ ...g, who: [...g.who].slice(0, 6), pages: [...g.pages].slice(0, 4) }));
+  return { days, total: perDay.reduce((a, b) => a + b, 0), perDay, restarts, groups: list };
 }
 // the server-errors.log of the last 24 h: how many, and the latest few
 function recentErrors() {
@@ -3920,6 +3953,7 @@ const routes = {
   // busy: work that a restart would cut off (an agent edit, Claude, a render) - a newer copy starting then leaves this one running
   // 🛟 Mazbooti (owner only): health, the nightly backup, restores and the standby PC
   'GET /api/safety': () => healthView(),
+  'GET /api/safety/crashes': () => crashView(7), // (💥 Mazbooti > Crashes - owner only, like the rest of /api/safety)
   'GET /api/team/perf': () => perfView(), // (📊 everyone signed in may look - see allowed())
   'POST /api/safety': async (req) => {
     const b = await readJson(req), patch = {};

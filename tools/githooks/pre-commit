@@ -1,0 +1,16 @@
+#!/bin/sh
+# pre-commit - 🧪 the fast auto-tests (node tests/run.mjs) before every commit that changes code; a failing test stops the
+# commit. Set up once per clone: git config core.hooksPath tools/githooks (done on JASPREET). Skip only in an
+# emergency: git commit --no-verify.
+if git diff --cached --name-only --diff-filter=ACMR | grep -qE '\.(m?js|cjs)$'; then
+  echo "Running the auto-tests before this commit..."
+  node tests/run.mjs > .git/last-test-run.txt 2>&1
+  code=$?
+  tail -n 1 .git/last-test-run.txt
+  if [ $code -ne 0 ]; then
+    grep -E "^  ✗" -A 3 .git/last-test-run.txt | head -n 40
+    echo "A test failed - the commit was stopped (full output: .git/last-test-run.txt)."
+    exit 1
+  fi
+fi
+exit 0

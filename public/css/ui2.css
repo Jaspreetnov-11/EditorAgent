@@ -780,3 +780,15 @@ html.ui2 .sm-loop.on { color: var(--accent); }
 .menubar .mb-review { position: relative; }
 .menubar .mb-badge { min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px; background: var(--accent, #f5c400); color: #111; font-size: 10px; font-weight: 700; line-height: 15px; text-align: center; }
 .crv-top { margin-bottom: 10px; gap: 10px; align-items: center; }
+
+/* 💥 Mazbooti > Crashes (safety.js crashPage) */
+.cr-bars { display: flex; gap: 10px; align-items: flex-end; height: 86px; margin: 12px 0 4px; }
+.cr-day { display: flex; flex-direction: column; align-items: center; gap: 2px; justify-content: flex-end; height: 100%; }
+.cr-day i { width: 22px; min-height: 2px; background: #e5484d; border-radius: 3px 3px 0 0; }
+.cr-day i.cr-rs { width: 8px; background: #e8b923; }
+.cr-day small { color: var(--muted, #8b93a3); font-size: 11px; }
+.cr-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.cr-table th, .cr-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #ffffff14; vertical-align: top; }
+.cr-msg { color: var(--muted, #a3abba); word-break: break-word; }
+.cr-k { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: #e5484d33; color: #ff8a8d; }
+.cr-k.server { background: #e8b92333; color: #f1cf63; }
