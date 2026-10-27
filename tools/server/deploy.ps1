@@ -46,7 +46,7 @@ try {
   $rc = @('/R:1', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS', '/NP', '/MT:8')
   # (tools\bench: the speed test, run on the server straight from the release - "Run speed test.bat")
   foreach ($d in 'public', 'engine', 'node_modules', 'tools\farm', 'tools\bench') {
-    robocopy (Join-Path $ROOT $d) (Join-Path $Stage $d) /MIR /XD __pycache__ @rc | Out-Null
+    robocopy (Join-Path $ROOT $d) (Join-Path $Stage $d) /MIR /XD __pycache__ (Join-Path $ROOT 'tools\bench\kit') (Join-Path $ROOT 'tools\bench\results') @rc | Out-Null # (not the speed test's media)
     if ($LASTEXITCODE -ge 8) { throw "copy of $d failed (robocopy $LASTEXITCODE)" }
   }
   # 🔒 browsers get a scrambled copy of the editor's code (public\.dist\js - server.mjs serves it; the readable public\js
@@ -84,7 +84,7 @@ foreach ($k in $TARGETS.Keys) {
   $ok = $LASTEXITCODE -eq 0
   if ($ok) { & scp -O -q -o BatchMode=yes $recv "$($t.host):receive-release.ps1" 2>$null; $ok = $LASTEXITCODE -eq 0 }
   $sm = if ($t.smoke) { ' -Smoke' } else { '' }
-  $out = if ($ok) { & ssh -o BatchMode=yes $t.host "powershell -NoProfile -ExecutionPolicy Bypass -File receive-release.ps1 -Archive `"`$HOME\limelight-release.tgz`" -Dest `"$($t.dest)`"$sm" 2>&1 | Where-Object { "$_".Trim() } | Select-Object -Last 1 } else { 'SSH does not answer' } # (PC A's SSH is PowerShell: blank lines after the answer)
+  $out = if ($ok) { & ssh -o BatchMode=yes $t.host "powershell -NoProfile -ExecutionPolicy Bypass -File receive-release.ps1 -Archive \`"`$HOME\limelight-release.tgz\`" -Dest \`"$($t.dest)\`"$sm" 2>&1 | Where-Object { "$_".Trim() } | Select-Object -Last 1 } else { 'SSH does not answer' } # (\" : Windows PowerShell drops bare quotes inside a native command's argument; PC A's SSH is PowerShell: blank lines after the answer)
   $ErrorActionPreference = 'Stop'
   if ("$out" -match "^OK $($rel.id)") { $sent[$k] = $true; Write-Host "  [OK] $k has release $($rel.id)" -ForegroundColor Green }
   else {
