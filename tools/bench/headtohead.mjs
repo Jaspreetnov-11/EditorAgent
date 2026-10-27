@@ -32,7 +32,7 @@ if (!fs.existsSync(k4)) {
 const hd = [];
 for (let i = 1; i <= 6; i++) {
   const f = path.join(KIT, `B00${i}_1080p_10s.mp4`); hd.push(f);
-  if (!fs.existsSync(f)) ff(['-f', 'lavfi', '-i', `${['testsrc2', 'smptehdbars', 'mandelbrot', 'testsrc', 'rgbtestsrc', 'cellauto'][i - 1]}=s=1920x1080:r=25:d=10`, '-f', 'lavfi', '-i', `sine=f=${200 + i * 60}:d=10`, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', f]);
+  if (!fs.existsSync(f)) ff(['-f', 'lavfi', '-i', `${['testsrc2', 'smptehdbars', 'testsrc', 'rgbtestsrc', 'yuvtestsrc', 'pal100bars'][i - 1]}=s=1920x1080:r=25:d=10`, '-f', 'lavfi', '-i', `sine=f=${200 + i * 60}:d=10`, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', f]);
 }
 
 // 2. a throwaway editor (own ports, own data folder)
