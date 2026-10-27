@@ -1,0 +1,31 @@
+{
+  "at": "2026-10-27T23:45:26.282Z",
+  "pc": "NAYA-B · AMD Ryzen 9 9900X 12-Core Processor · 31 GB RAM",
+  "results": [
+    {
+      "task": "Import a 20 s 4K HEVC 10-bit clip until it plays smoothly",
+      "seconds": 10.1,
+      "note": ""
+    },
+    {
+      "task": "Import six 10 s 1080p clips until all are ready",
+      "seconds": 4.5,
+      "note": ""
+    },
+    {
+      "task": "Export 60 s 1080p H.264, six plain cuts",
+      "seconds": 9.7,
+      "note": ""
+    },
+    {
+      "task": "Export 60 s 1080p with grade, blur, film look and dissolves on every shot",
+      "seconds": 36.2,
+      "note": ""
+    },
+    {
+      "task": "Render a 10 s section with a render-only effect for exact playback",
+      "seconds": 21.7,
+      "note": ""
+    }
+  ]
+}
