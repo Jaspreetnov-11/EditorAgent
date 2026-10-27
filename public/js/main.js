@@ -219,6 +219,8 @@ function runMenu(r) {
   if (r === 'customtpl') return openCustomTemplates();
   if (r === 'title') return addTitle();
   if (r === 'accurate') return emit('accuratePreview');
+  // 🟥🟩 render bar: red sections rendered by themselves while the editor is idle (renderbar.js)
+  if (r === 'bgrender') return import('./renderbar.js').then((x) => { x.setBg(!x.bgOn()); toast(x.bgOn() ? 'Background render on: red sections of the render bar are rendered while you are idle, then play exactly' : 'Background render off'); });
   if (r === 'fx' || r === 'cc') { edit(); return selectTab(r); }
   if (r === 'ec') { edit(); return editorEl.querySelector('.ui-dock [data-dock="ec"]')?.click(); }
   if (r === 'gyro') { edit(); if (S.sel.size !== 1) return toast('Select one video clip first'); return emit('inspect', 'gyro'); }
@@ -360,7 +362,8 @@ on('openProject', async (name) => { await saveNow(true); openProject(name); });
 function doUndo() { const l = undo(); toast(l ? `Undo: ${l}` : 'Nothing to undo'); }
 function doRedo() { const l = redo(); toast(l ? `Redo: ${l}` : 'Nothing to redo'); }
 
-export function showPage(p) {
+// remember: false when the page is not the editor's own pick (a project with no media yet opens on Media)
+export function showPage(p, { remember = true } = {}) {
   S.page = p;
   $$('[data-page]').forEach((s) => (s.hidden = s.dataset.page !== p));
   $$('[data-page-btn]').forEach((b) => b.setAttribute('aria-current', String(b.dataset.pageBtn === p)));
@@ -377,7 +380,8 @@ export function showPage(p) {
   if (p === 'vfx') safely('VFX page', showVfx);
   if (p !== 'edit' && p !== 'audio') pause();
   emit('change', {});
-  try { localStorage.setItem('ve-page', p); } catch {}
+  // 📄 the page comes back after a reload - each project its own (the project tabs share this browser's storage)
+  if (remember) try { localStorage.setItem('ve-page', p); if (S.proj) localStorage.setItem(`ve-page:${S.proj}`, p); } catch {}
 }
 
 async function loadLuts() { try { S.luts = await api('GET', `/api/luts?p=${enc(S.proj)}`); } catch { S.luts = []; } emit('select'); }
@@ -416,9 +420,9 @@ async function openProject(name) {
     safely('My sequence', restoreMySeq); // 🎞 the sequence this browser had open (only here - nobody else's timeline changes)
     safely('Clipboard', syncClipboard); // 📋 what was copied in another tab / browser / link
     await Promise.all([safely('Media', refreshMedia), safely('LUTs', loadLuts), safely('Footage search', loadFootage), api('GET', '/api/health').then((hh) => (S.health = hh)).catch(() => {})]);
-    let pg = 'edit'; try { pg = localStorage.getItem('ve-page') || 'edit'; } catch {}
+    let pg = 'edit'; try { pg = localStorage.getItem(`ve-page:${name}`) || localStorage.getItem('ve-page') || 'edit'; } catch {}
     if (!PAGES.some(([k]) => k === pg)) pg = 'edit'; // (a page no longer in the bar, e.g. the old Text page)
-    safely('Page', () => showPage(S.media.length ? (pg === 'deliver' ? 'edit' : pg) : 'media'));
+    safely('Page', () => (S.media.length ? showPage(pg === 'deliver' ? 'edit' : pg) : showPage('media', { remember: false })));
     safely('Viewer', () => setMode('program')); // also refreshes the viewer title when switching projects
     safely('Phone', phoneOpened);
     // everyone with edit rights edits together (🔴 live); only viewers watch

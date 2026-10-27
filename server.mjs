@@ -44,6 +44,7 @@ import { ensureSfx, listSfx, SFX_KINDS } from './engine/sfx.mjs';
 import { gyroflowExe, findLog, gyroSamples, stabilise, LOG_EXT as GF_LOG } from './engine/gyroflow.mjs';
 import { runNightly, mirrorLive, restoreProject, nights as backupNights, standbyState, liveDir, dayOf, safeDir } from './engine/safety.mjs';
 import { pickHelper, toTaskArgs, gpuProxyArgs, bestPoll, noteRate, helperScore } from './engine/helpers.mjs';
+import { hdrOf, toSdr } from './engine/hdr.mjs';
 import { inNight, nightSource, recentProjects } from './engine/nightshift.mjs';
 import { projectOwner, canSee, requestProject } from './engine/access.mjs';
 import { lineIndex, fairOrder } from './engine/priority.mjs';
@@ -55,7 +56,7 @@ import * as GL from './engine/gfxlib.mjs';
 import { startHealth, noteRequest, healthSeries } from './engine/health.mjs';
 import { createStyles } from './engine/styles.mjs';
 import { liveStats, cleanLive, addPoint, totals as perfTotals, pcHealth, pcLoad, nasHealth, nasLoad } from './engine/sysstats.mjs';
-import { ReviewStore, Limiter, findLink, sameSecret, pwOk, pwCookie, cleanText, cleanName, cleanDraw, renderPath, expired, latest, clientView, ownerView, readLimited, newId, hashPw as rvHashPw, MAX_COMMENTS } from './engine/clientreview.mjs';
+import { ReviewStore, Limiter, findLink, sameSecret, pwOk, pwCookie, cleanText, cleanName, cleanDraw, renderPath, expired, latest, clientView, ownerView, readLimited, newId, hashPw as rvHashPw, MAX_COMMENTS, jobState, cleanRating } from './engine/clientreview.mjs';
 
 // more file workers for Node (default 4): slow NAS reads of scans / probes took all four and the Program monitor's
 // video waited behind them (~0.1 MB/s for a 70 Mbps clip - a black monitor). Set here, before the first file read
@@ -1135,6 +1136,7 @@ function whyUnreadable(file, stderr = '') {
   const e = String(stderr).toLowerCase();
   if (size === 0) return 'The file is empty (0 bytes) - copy it again from the card or drive';
   if (size >= 0 && size < 2048) return 'The file is too small to be a video / photo / sound - it may not have finished copying';
+  if (NOT_MEDIA[path.extname(file).toLowerCase()]) return `This is ${NOT_MEDIA[path.extname(file).toLowerCase()]}`; // (🎞 BRAW, R3D… opened one by one)
   if (/moov atom not found|invalid data found|end of file|truncat/.test(e)) return 'The file is damaged or not fully copied (often a recording that stopped early) - copy it again, or repair it';
   if (/permission denied|access is denied/.test(e)) return 'The editor is not allowed to open this file (Windows permissions / the NAS share)';
   if (/no such file/.test(e)) return 'The file is not there any more';
@@ -1142,7 +1144,9 @@ function whyUnreadable(file, stderr = '') {
   return `This file cannot be read${stderr ? ` (${String(stderr).trim().split(/\r?\n/).pop().slice(0, 120)})` : ''} - try exporting it again as MP4`;
 }
 // camera RAW / project files a folder may hold: listed when a folder is imported, so they are not silently missing
-const NOT_MEDIA = { '.braw': 'Blackmagic RAW - export as ProRes / MP4 from DaVinci Resolve', '.r3d': 'RED RAW - export as ProRes / MP4 from REDCINE-X or Resolve',
+// (🎞 ProRes RAW is not here: FFmpeg 8+ decodes it, so it comes in like any camera file, with a preview copy. BRAW needs
+// Blackmagic's own RAW SDK, which FFmpeg does not have.)
+const NOT_MEDIA = { '.braw': 'Blackmagic RAW - FFmpeg cannot decode it (it needs the Blackmagic RAW SDK): export ProRes / MP4 from DaVinci Resolve or Blackmagic RAW Player', '.r3d': 'RED RAW - export as ProRes / MP4 from REDCINE-X or Resolve',
   '.ari': 'ARRI RAW - export as ProRes from Resolve', '.crm': 'Canon Cinema RAW - export as MP4 / ProRes', '.mxf.part': 'an unfinished copy',
   '.cr2': 'a camera RAW photo - save it as JPG', '.cr3': 'a camera RAW photo - save it as JPG', '.nef': 'a camera RAW photo - save it as JPG', '.arw': 'a camera RAW photo - save it as JPG', '.dng': 'a RAW photo - save it as JPG',
   '.ai': 'an Illustrator file - save it as PNG', '.prproj': 'a Premiere project - open it in Premiere, or export an XML (File › Open here)',
@@ -1213,6 +1217,7 @@ async function ffprobe(file, proj = null) {
     duration: +(+j.format.duration || +v?.duration || +a?.duration || 0).toFixed(3),
     width: v?.width, height: v?.height, fps: fd ? +(fn / fd).toFixed(3) : 0, rotation: rot,
     vcodec: v?.codec_name, pixfmt: v?.pix_fmt, profile: v?.profile, acodec: a?.codec_name, hasAudio: !!a, hasVideo: !!v,
+    hdr: hdrOf(v) || undefined, // 🌈 'pq' (HDR10) / 'hlg' from the colour tags (engine/hdr.mjs)
     format: j.format.format_name, bitrate: +j.format.bit_rate || 0,
   };
 }
@@ -1220,6 +1225,7 @@ async function ffprobe(file, proj = null) {
 // Browsers play only 8-bit 4:2:0 H.264/VP9/AV1 in MP4/WebM; camera files (MXF, 10-bit, 4:2:2, HEVC, ProRes) need a proxy.
 function needsProxy(m) {
   if (m.kind !== 'video') return false;
+  if (m.hdr) return true; // (🌈 HDR: the copy is tone-mapped, so the monitor shows it as it should look)
   const ext = path.extname(m.path).toLowerCase();
   const okContainer = ['.mp4', '.m4v', '.mov', '.webm'].includes(ext);
   const okCodec = ['h264', 'vp9', 'av1', 'vp8'].includes(m.vcodec);
@@ -1237,13 +1243,16 @@ async function processQuick(proj, id) {
   if (!info) { m.status = 'error'; m.error = whyUnreadable(m.path, ffprobe.lastErr); return; }
   Object.assign(m, info);
   if (m.kind !== 'image') m.kind = info.hasVideo ? 'video' : info.hasAudio ? 'audio' : m.kind; // trust contents over extension
+  // 🎞 camera RAW FFmpeg decodes itself (ProRes RAW, Cintel RAW): debayered as shot - the preview copy and the render read it
+  if (['prores_raw', 'cri'].includes(info.vcodec)) m.raw = info.vcodec; else delete m.raw;
+  if (!info.hdr) delete m.hdr;
   const C = (d, f) => P(proj, 'cache', d, f);
   if (m.kind === 'video' || m.kind === 'image') {
     const seek = m.kind === 'video' ? ['-ss', String(Math.min(1, m.duration / 2))] : [];
-    await runMedia(proj, 'ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...seek, '-i', m.path, '-frames:v', '1', '-vf', 'scale=320:-2', '-update', '1', C('thumbs', `${id}.jpg`)], { inputs: [m.path], outs: [C('thumbs', `${id}.jpg`)] });
+    await runMedia(proj, 'ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...seek, '-i', m.path, '-frames:v', '1', '-vf', `${m.hdr ? `${toSdr(m.hdr)},` : ''}scale=320:-2`, '-update', '1', C('thumbs', `${id}.jpg`)], { inputs: [m.path], outs: [C('thumbs', `${id}.jpg`)] });
     m.thumb = fs.existsSync(C('thumbs', `${id}.jpg`));
   }
-  if (m.kind === 'video' && m.duration > 0) await makeStrip(m.path, m.duration, C('strips', `${id}.jpg`), proj).then((ok) => (m.strip = ok));
+  if (m.kind === 'video' && m.duration > 0) await makeStrip(m.path, m.duration, C('strips', `${id}.jpg`), proj, m.hdr).then((ok) => (m.strip = ok));
   const proxy = needsProxy(m) && !m.alphaPlay; // (🎞 a template plays from its own preview copy with transparency)
   // Waveforms need the whole audio track; for big camera files read it from the small proxy later instead.
   if (m.hasAudio && !proxy) m.wave = await makeWave(m.path, C('waves', `${id}.png`), proj);
@@ -1253,11 +1262,11 @@ async function processQuick(proj, id) {
 
 // Filmstrip: 12 evenly spaced frames side by side (timeline clip background).
 // Each frame is a fast seek (-ss before -i), so a long 4K intra-frame MXF is not decoded end to end.
-async function makeStrip(file, dur, out, proj = null) {
+async function makeStrip(file, dur, out, proj = null, hdr = null) {
   const ins = [], g = [];
   for (let i = 0; i < 12; i++) {
     ins.push('-ss', ((dur * (i + 0.5)) / 12).toFixed(3), '-i', file);
-    g.push(`[${i}:v:0]trim=end_frame=1,scale=-2:90,setsar=1[f${i}]`);
+    g.push(`[${i}:v:0]trim=end_frame=1,${hdr ? `${toSdr(hdr)},` : ''}scale=-2:90,setsar=1[f${i}]`);
   }
   g.push(`${Array.from({ length: 12 }, (_, i) => `[f${i}]`).join('')}hstack=inputs=12[s]`);
   await runMedia(proj, 'ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...ins, '-filter_complex', g.join(';'), '-map', '[s]', '-frames:v', '1', '-update', '1', '-q:v', '5', out], { inputs: [file], outs: [out] });
@@ -1362,7 +1371,7 @@ async function processProxy(proj, id) {
   const out = P(proj, 'cache', 'proxies', `${id}.mp4`), tmp = `${out}.part.mp4`;
   // (🖥 on the project's helper PC when there is one - it may wait a while for it: a preview copy is long work)
   const r = await runMedia(proj, 'ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-i', m.path, '-map', '0:v:0', '-map', '0:a:0?',
-    '-vf', lite ? 'scale=-2:540,format=yuv420p' : `scale=-2:'min(ih,${PROXY_H})',format=yuv420p`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', lite ? '26' : '18', '-g', '12', '-c:a', 'aac', '-b:a', lite ? '128k' : '192k', '-ac', '2',
+    '-vf', `${m.hdr ? `${toSdr(m.hdr)},` : ''}${lite ? 'scale=-2:540,format=yuv420p' : `scale=-2:'min(ih,${PROXY_H})',format=yuv420p`}`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', lite ? '26' : '18', '-g', '12', '-c:a', 'aac', '-b:a', lite ? '128k' : '192k', '-ac', '2',
     '-movflags', '+faststart', '-progress', 'pipe:1', '-nostats', tmp],
   { inputs: [m.path], outs: [tmp], lane: 'heavy', tag: 'proxy', waitSec: 300, limitSec: Math.max(600, Math.round((m.duration || 60) * 15)), onLine: (l) => { const k = /^out_time_ms=(\d+)/.exec(l); if (k && m.duration && !lite) m.proxyPct = Math.min(99, Math.round((+k[1] / 1e6 / m.duration) * 100)); } });
   if (lite) {
@@ -1702,12 +1711,14 @@ function prepareRender(name, b, o = {}) {
   const exp = exp0 || Object.keys(qy).length ? { ...(exp0 || {}),
     ...(+qy.res ? { res: +qy.res } : {}), ...(+qy.fps ? { fpsOut: +qy.fps } : {}), ...(qy.codec ? { codec: qy.codec } : {}),
     ...(+qy.crf ? { crf: +qy.crf } : {}), ...(+qy.abr ? { abr: +qy.abr } : {}), ...(qy.gpu === 'off' ? { gpu: false } : qy.gpu && healthCache?.nvenc ? { gpu: true } : {}),
-    ...(qy.burnTC ? { burnTC: true } : {}), ...(qy.burnName ? { burnName: true } : {}) } : null; // (⏱ burn-in for review copies)
+    ...(qy.burnTC ? { burnTC: true } : {}), ...(qy.burnName ? { burnName: true } : {}), // (⏱ burn-in for review copies)
+    ...(['sdr', 'hlg', 'pq'].includes(qy.hdr) ? { hdr: qy.hdr } : {}) } : null; // (🌈 Deliver › Dynamic range)
   const base = safeName(b.filename || pj.name || name) + (pr && b.tag !== false ? `_${pr.tag}` : '') + (b.tag !== false && exp?.res ? { 2160: '_4K', 1440: '_2K', 1080: '_1080p', 720: '_720p', 480: '_480p' }[exp.res] || '' : '');
   const cod = exp?.codec || pr?.codec;
   // (🎞 DNxHR / ProRes .mov · 🎧 WAV / MP3 sound only · GIF · 🖼 PNG frames into a folder named like a file, no extension)
   const ext = { prores: 'mov', dnxhr: 'mov', wav: 'wav', mp3: 'mp3', gif: 'gif', png: '' }[cod] ?? 'mp4';
-  let out = '_preview.mp4';
+  // (🟩 a section of the render bar: its own hidden file, _sec_<key>.mp4 - player.js plays it where the bar is green)
+  let out = b.section ? `_secp_${safeName(String(b.section.key)).slice(0, 40)}.mp4` : '_preview.mp4'; // (renamed to _sec_ when done)
   // names already promised to renders still waiting in the queue count as taken
   // (and names just given to a render started a moment ago - two renders at once used to write into the same file)
   const taken = (f) => fs.existsSync(P(name, 'renders', f)) || rq.items.some((x) => x.project === name && x.out === f && ['waiting', 'rendering'].includes(x.state))
@@ -1715,9 +1726,9 @@ function prepareRender(name, b, o = {}) {
   const fname = (v) => (ext ? `${base}_v${v}.${ext}` : `${base}_v${v} frames`);
   if (!preview) { let v = 1; while (taken(fname(v))) v++; out = fname(v); outReserved.set(`${name}/${out}`, Date.now()); }
   const media = Object.fromEntries([...used].map((id) => [id, { path: byId[id].path, duration: byId[id].duration, hasAudio: byId[id].hasAudio, kind: byId[id].kind, width: byId[id].width, height: byId[id].height, rotation: byId[id].rotation, size: byId[id].size, mtime: byId[id].mtime, subOf: byId[id].subOf, ...(byId[id].alpha ? { alpha: true } : {}) }])); // (🎞 alpha: drawn with its transparency)
-  const jobFile = o.jobFile || P(name, 'cache', preview ? 'render-job-preview.json' : `render-job-${safeName(out)}.json`);
+  const jobFile = o.jobFile || P(name, 'cache', preview && !b.section ? 'render-job-preview.json' : `render-job-${safeName(out)}.json`);
   fs.mkdirSync(path.dirname(jobFile), { recursive: true });
-  const range = b.whole ? null : rangeOf(pj, totalDuration(pj, byId));
+  const range = b.section ? { in: Math.max(0, +b.section.a), out: +b.section.b } : b.whole ? null : rangeOf(pj, totalDuration(pj, byId));
   // segCache: shots that did not change since an earlier render are reused from cache/segments (engine/render2.mjs)
   writeJSON(jobFile, { project: pj, media, output: P(name, 'renders', out), preview, range, fastPreview: preview && !!b.fast, luts: lutMap(name), export: exp, segCache: P(name, 'cache', 'segments'), gfxDir: P(name, 'cache', 'graphics'),
     farm: !preview && farmCfg().on ? { url: APP_URL } : null,
@@ -2341,7 +2352,7 @@ function startShare() {
       if (req.method === 'GET' && (sub === '/' || sub === '/index.html')) return serveFile(req, res, path.join(ROOT, 'public', 'review', 'index.html'));
       if (req.method === 'GET' && sub === '/api/projects') {
         return send(res, 200, allProjects().map((n) => ({
-          name: n, renders: listDir(P(n, 'renders'), (f) => /\.mp4$/i.test(f) && f !== '_preview.mp4').slice(0, 30) })).filter((p) => p.renders.length)
+          name: n, renders: listDir(P(n, 'renders'), (f) => /\.mp4$/i.test(f) && !f.startsWith('_')).slice(0, 30) })).filter((p) => p.renders.length)
           .sort((a, b) => b.renders[0].mtime - a.renders[0].mtime));
       }
       let mm = /^\/v\/([^/]+)\/([^/]+)$/.exec(sub);
@@ -2441,6 +2452,15 @@ async function clientReview(req, res, u) {
       const c = { id: newId(), v: v.n, t: 0, text: `${ok ? '✅ Approved' : '✏️ Changes requested'}${text ? `: ${text}` : ''}`, by, at: Date.now(), parent: null, draw: null };
       l.comments.push(c); reviews.save();
       reviewToProject(l, v, `${c.text} (Version ${v.n})`, by, 0, c.id);
+      return out(200, clientView(l));
+    }
+    if (post && sub === '/api/rate') { // ⭐ how the job went - once the newest version is approved (they may change it)
+      if (!rvLimit.hit(`r:${l.id}:${ip}`, 6, 10 * 60e3)) return out(429, { error: 'Too many tries - wait a few minutes' });
+      const b = await body(4096), r = cleanRating(b), by = cleanName(b.by) || l.client || 'Client';
+      if (!r) return out(400, { error: 'Pick 1 to 5 stars' });
+      if (latest(l).status !== 'approved') return out(409, { error: 'Approve the video first' });
+      l.rating = { ...r, by, at: Date.now() }; reviews.save();
+      rvNews.push({ at: Date.now(), project: l.project, title: l.title, link: l.id, by, note: `⭐ ${r.stars}/5${r.text ? `: ${r.text.slice(0, 120)}` : ''}` }); rvNews.splice(0, rvNews.length - 100);
       return out(200, clientView(l));
     }
     out(404, { error: 'not found' });
@@ -4735,8 +4755,35 @@ const routes = {
   },
 
   // renders
-  'GET /api/renders': (req, res, u) => listDir(P(needProject(q(u, 'p')), 'renders'), (n) => (/\.(mp4|mov|wav|mp3|gif)$/i.test(n) || / frames$/.test(n)) && n !== '_preview.mp4')
+  'GET /api/renders': (req, res, u) => listDir(P(needProject(q(u, 'p')), 'renders'), (n) => (/\.(mp4|mov|wav|mp3|gif)$/i.test(n) || / frames$/.test(n)) && !n.startsWith('_'))
     .map((r) => ({ ...r, url: `/pf/${encodeURIComponent(q(u, 'p'))}/renders/${encodeURIComponent(r.name)}` })),
+  // 🟥🟨🟩 the render bar, like Premiere: a section [a, b] of the timeline rendered on its own (preview quality) into
+  // renders/_sec_<key>.mp4 - the key says which clips it was made from (public/js/renderbar.js), so a change elsewhere
+  // keeps it. Unchanged shots come from cache/segments, so a section re-renders fast. The newest 60 are kept.
+  'GET /api/render/sections': (req, res, u) => {
+    const dir = P(needProject(q(u, 'p')), 'renders');
+    let names = []; try { names = fs.readdirSync(dir).filter((f) => /^_sec_[a-z0-9]+\.mp4$/.test(f)); } catch {}
+    return names.map((f) => f.slice(5, -4));
+  },
+  'POST /api/render/section': async (req, res, u) => {
+    const name = needProject(q(u, 'p')), b = await readJson(req);
+    const a = +b.a, z = +b.b, key = String(b.key || '');
+    if (!(z > a && a >= 0) || !/^[a-z0-9]{6,40}$/.test(key)) throw err(400, 'Bad section');
+    const dir = P(name, 'renders');
+    try {
+      const old = fs.readdirSync(dir).filter((f) => /^_secp?_/.test(f)).map((f) => ({ f, t: fs.statSync(path.join(dir, f)).mtimeMs })).sort((x, y) => y.t - x.t);
+      for (const x of old.slice(59)) fs.rmSync(path.join(dir, x.f), { force: true });
+    } catch {}
+    const { jobFile, out, duration } = prepareRender(name, { preview: true, fast: b.fast !== false, seq: b.seq, section: { a, b: z, key } });
+    return startJob('preview', process.execPath, [path.join(ROOT, 'engine', 'render2.mjs'), jobFile],
+      () => {
+        fs.rmSync(jobFile, { force: true });
+        const done = `_sec_${key}.mp4`; // (only a finished section gets its real name - GET /api/render/sections lists those)
+        fs.renameSync(path.join(dir, out), path.join(dir, done));
+        return { output: done, url: `/pf/${encodeURIComponent(name)}/renders/${done}`, key, a, b: z };
+      },
+      { project: name, helper: { proj: name, tool: 'render', label: out, duration } });
+  },
   'POST /api/render': async (req, res, u) => {
     const name = needProject(q(u, 'p'));
     const b = await readJson(req);
@@ -5082,7 +5129,7 @@ const routes = {
   'POST /api/thumb/frames': async (req, res, u) => {
     const name = needProject(q(u, 'p')), b = await readJson(req);
     let items = [];
-    const renders = listDir(P(name, 'renders'), (n) => /\.mp4$/i.test(n) && n !== '_preview.mp4');
+    const renders = listDir(P(name, 'renders'), (n) => /\.mp4$/i.test(n) && !n.startsWith('_'));
     const rname = b.render || renders[0]?.name;
     if (rname && fs.existsSync(P(name, 'renders', path.basename(rname)))) {
       const f = P(name, 'renders', path.basename(rname)), d = +(await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', f])).stdout || 0;
@@ -5739,6 +5786,19 @@ const routes = {
     if (b.days !== undefined) l.expires = +b.days > 0 ? Date.now() + Math.min(365, +b.days) * 864e5 : null;
     reviews.save();
     return ownerView(l, reviewUrl(l));
+  },
+  // 🔁 the team ticks a client's change as fixed (body { link, id, done }); the next version on the link shows it as fixed
+  'POST /api/clientreview/done': async (req, res, u) => {
+    const name = needProject(q(u, 'proj')), b = await readJson(req), l = reviews.byId(b.link);
+    if (!l || l.project !== name) throw err(404, 'That review link is gone');
+    reviews.setDone(l, b.id, !!b.done, req.who?.name === 'Owner' ? 'Limelight' : req.who?.name);
+    return ownerView(l, reviewUrl(l));
+  },
+  // every job's place in the client loop (Home): { [project]: { state, v, open, client, stars, at } } - only projects they may open
+  'GET /api/clientreview/jobs': (req) => {
+    const by = {};
+    for (const l of reviews.links) (by[l.project] ||= []).push(l);
+    return Object.fromEntries(Object.entries(by).filter(([p]) => mayOpen(req.who, p)).map(([p, ls]) => [p, jobState(ls)]).filter(([, j]) => j.state !== 'none'));
   },
   // what clients said since a moment (every project) - the editor shows a toast
   'GET /api/clientreview/news': (req, res, u) => rvNews.filter((x) => x.at > (+q(u, 'since') || 0)),

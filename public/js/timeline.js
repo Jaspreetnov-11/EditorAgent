@@ -12,6 +12,7 @@ import { labsFromClip } from './labsedit.js';
 import { seqList, seqHash } from './model.js';
 import { VFX } from './effects.js';
 import { AFX } from './audioeffects.js';
+import { clipLoad, greenParts } from './renderbar.js';
 import { sharedSeqId } from './store.js';
 import { openAudioGain, soundClips } from './audiogain.js';
 import { copyClips, pasteClips, clipboard } from './clipboard.js';
@@ -499,27 +500,30 @@ function drawAuto() {
   // (the width renderNow just set, read from its style: offsetWidth made the browser lay out the whole timeline here,
   // before it was done changing it - 235 ms of a 345 ms zoom on a 799-clip project)
   const cv = $('#tlCanvas', root), ts = S.project.trackState || {}, W = parseFloat(cv.style.width) || cv.offsetWidth;
-  box.innerHTML = Object.entries(ts).filter(([id, st]) => st?.volKeys?.length && S.project.tracks[id]).map(([id, st]) => {
-    const h = rowH(id), top = rowTop(id), y = (v) => (h - 6) * (1 - v / AUTO_MAX) + 3, k = st.volKeys;
+  const pan = bandProp === 'pan', KK = pan ? 'panKeys' : 'volKeys'; // (🎧 pan: -1 left at the top … 1 right at the bottom)
+  const kOf = (id, st) => (pan && trackKind(id) !== 'audio' ? null : st?.[KK]);
+  box.innerHTML = Object.entries(ts).filter(([id, st]) => kOf(id, st)?.length && S.project.tracks[id]).map(([id, st]) => {
+    const h = rowH(id), top = rowTop(id), y = (v) => (pan ? (h - 6) * ((v + 1) / 2) + 3 : (h - 6) * (1 - v / AUTO_MAX) + 3), k = st[KK];
     const pts = [[0, y(k[0].v)], ...k.map((p) => [p.t * S.zoom, y(p.v)]), [W, y(k[k.length - 1].v)]];
-    return `<svg class="ta-svg" data-ta="${id}" style="top:${top}px;height:${h}px;width:${W}px" viewBox="0 0 ${W} ${h}">
+    return `<svg class="ta-svg${pan ? ' pan' : ''}" data-ta="${id}" style="top:${top}px;height:${h}px;width:${W}px" viewBox="0 0 ${W} ${h}">
       <polyline points="${pts.map((p) => p.map((n) => n.toFixed(1)).join(',')).join(' ')}"/>
-      ${k.map((p, i) => `<circle data-tai="${i}" cx="${(p.t * S.zoom).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="4.5"><title>${Math.round(p.v * 100)}% at ${fmtTC(p.t, S.project.settings.fps)}</title></circle>`).join('')}</svg>`;
+      ${k.map((p, i) => `<circle data-tai="${i}" cx="${(p.t * S.zoom).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="4.5"><title>${pan ? bandSay('pan', p.v) : `${Math.round(p.v * 100)}%`} at ${fmtTC(p.t, S.project.settings.fps)}</title></circle>`).join('')}</svg>`;
   }).join('');
   box.querySelectorAll('circle[data-tai]').forEach((c) => {
     const id = c.closest('[data-ta]').dataset.ta, i = +c.dataset.tai;
-    c.ondblclick = (e) => { e.stopPropagation(); const st = S.project.trackState[id]; st.volKeys.splice(i, 1); if (!st.volKeys.length) delete st.volKeys; commit('Remove track volume keyframe'); };
+    c.ondblclick = (e) => { e.stopPropagation(); const st = S.project.trackState[id]; st[KK].splice(i, 1); if (!st[KK].length) delete st[KK]; commit(`Remove track ${pan ? 'pan' : 'volume'} keyframe`); };
     c.onpointerdown = (e) => {
       e.preventDefault(); e.stopPropagation();
-      const st = S.project.trackState[id], k = st.volKeys, h = rowH(id), r = c.ownerSVGElement.getBoundingClientRect();
+      const st = S.project.trackState[id], k = st[KK], h = rowH(id), r = c.ownerSVGElement.getBoundingClientRect();
       const lo = i > 0 ? k[i - 1].t + 0.01 : 0, hi = i < k.length - 1 ? k[i + 1].t - 0.01 : Infinity;
       const move = (ev) => {
         k[i].t = +clamp(timeAt(ev.clientX), lo, hi).toFixed(3);
-        k[i].v = +clamp((1 - (ev.clientY - r.top - 3) / (h - 6)) * AUTO_MAX, 0, AUTO_MAX).toFixed(3);
-        drawAuto(); toast(`${id} ${Math.round(k[i].v * 100)}%`); emit('mix');
+        const u = clamp((ev.clientY - r.top - 3) / (h - 6), 0, 1);
+        k[i].v = +(pan ? u * 2 - 1 : (1 - u) * AUTO_MAX).toFixed(3);
+        drawAuto(); toast(`${id} ${pan ? bandSay('pan', k[i].v) : `${Math.round(k[i].v * 100)}%`}`); emit('mix');
       };
       window.addEventListener('pointermove', move);
-      window.addEventListener('pointerup', () => { window.removeEventListener('pointermove', move); commit('Track volume keyframe'); }, { once: true });
+      window.addEventListener('pointerup', () => { window.removeEventListener('pointermove', move); commit(`Track ${pan ? 'pan' : 'volume'} keyframe`); }, { once: true });
     };
   });
 }
@@ -644,7 +648,7 @@ function drawHeads(TR, ts) {
         ${t.kind === 'video' ? `<button class="tbtn${st.hide ? ' on' : ''}" data-tst="hide" title="Hide track">${st.hide ? ICON.eyeOff : ICON.eye}</button>` : ''}
         <button class="tbtn${st.mute ? ' on' : ''}" data-tst="mute" title="${t.kind === 'video' ? 'Mute clip sound' : 'Mute track'}">M</button>
         ${t.kind === 'audio' ? `<button class="tbtn solo${st.solo ? ' on' : ''}" data-tst="solo" title="Solo Track: hear only the soloed tracks">S</button><button class="tbtn rec" data-rec="${t.id}" title="Voice-over record: 3-2-1, then the edit plays and your voice goes onto ${t.name} from the playhead (click again or Esc to stop)">${ic('mic')}</button>` : ''}
-        ${t.kind === 'audio' || t.id === 'V1' ? `<button class="tbtn tkey${st.volKeys?.length ? ' on' : ''}" data-tkey="${t.id}" title="Track volume keyframe at the playhead (${st.volKeys?.length || 0} now) - drag the dots on the track's yellow line, double-click one to remove it">${ic('diamond')}</button>` : ''}
+        ${t.kind === 'audio' || t.id === 'V1' ? `<button class="tbtn tkey${(bandProp === 'pan' && t.kind === 'audio' ? st.panKeys : st.volKeys)?.length ? ' on' : ''}" data-tkey="${t.id}" title="Track ${bandProp === 'pan' && t.kind === 'audio' ? 'pan' : 'volume'} keyframe at the playhead - drag the dots on the track's line, double-click one to remove it (Volume / Pan: right-click the track name)">${ic('diamond')}</button>` : ''}
       </div>
       ${label ? `<span class="th-label">${esc(label)}</span>` : ''}
       <div class="th-resize" data-rowh="${t.id}" title="Drag to make ${t.name} taller / shorter (double-click: normal)"></div>
@@ -659,10 +663,10 @@ function drawHeads(TR, ts) {
   }));
   // 🎚 track volume keyframe at the playhead: the value the line has there (1 = the fader as it is)
   $$('[data-tkey]', headsEl).forEach((b) => (b.onclick = () => {
-    const id = b.dataset.tkey, st = (ts[id] ||= {}), k = (st.volKeys ||= []), t = +S.playhead.toFixed(3);
-    const v = k.length ? +evalKeys(k, t).toFixed(3) : 1, i = k.findIndex((x) => Math.abs(x.t - t) < 0.02);
+    const id = b.dataset.tkey, pan = bandProp === 'pan' && trackKind(id) === 'audio', st = (ts[id] ||= {}), k = (st[pan ? 'panKeys' : 'volKeys'] ||= []), t = +S.playhead.toFixed(3);
+    const v = k.length ? +evalKeys(k, t).toFixed(3) : pan ? +st.pan || 0 : 1, i = k.findIndex((x) => Math.abs(x.t - t) < 0.02);
     if (i >= 0) k[i].v = v; else { k.push({ t, v }); k.sort((p, q) => p.t - q.t); }
-    commit('Track volume keyframe'); toast(`${id} volume keyframe at ${fmtTC(t, S.project.settings.fps)} - drag its dot up / down on the track`);
+    commit(`Track ${pan ? 'pan' : 'volume'} keyframe`); toast(`${id} ${pan ? 'pan' : 'volume'} keyframe at ${fmtTC(t, S.project.settings.fps)} - drag its dot up / down on the track`);
   }));
   $$('[data-rec]', headsEl).forEach((b) => (b.onclick = () => import('./vorecord.js').then((m) => m.toggleRecord(b.dataset.rec))));
   $$('[data-tg]', headsEl).forEach((b) => (b.onclick = (e) => { e.stopPropagation(); setTarget(trackKind(b.dataset.tg) === 'video' ? 'v' : 'a', b.dataset.tg); }));
@@ -803,24 +807,19 @@ function cutOf(x) {
 }
 // 🟥🟨🟩 the render bar: red where a clip has work only a render shows exactly (stabilise, AI enhance / fill, smooth slow
 // motion, render-only effects, audio clean-up), yellow where effects are shown live as an approximation, green where the
-// last Accurate preview rendered this sequence as it is now. Worked out once per change.
+// last Accurate preview rendered this sequence as it is now, or a section was rendered (renderbar.js - in the background,
+// like Premiere). Worked out once per change.
 let rbCache = null;
 on('change', () => { rbCache = null; });
+on('renderbar', () => { rbCache = null; drawRuler(); });
 const RB = { red: '#e5484d', yellow: '#e8b923', green: '#36c27e' };
-function clipLoad(c) {
-  if (c.gap) return null;
-  const red = c.stabilize || c.enhance || c.smooth || c.filled || c.afx || (c.effects || []).some((e) => e.on !== false && (!VFX[e.type]?.css || VFX[e.type]?.stab))
-    || (c.aeffects || []).some((e) => e.on !== false && !AFX[e.type]?.live && !AFX[e.type]?.meter);
-  if (red) return 'red';
-  return c.effects?.length || c.aeffects?.length || (c.color && Object.keys(c.color).length) || c.masks?.length || c.cutFx?.type || c.transitionIn || c.ramp || c.type === 'graphic' ? 'yellow' : null;
-}
 function renderBar() {
   if (rbCache) return rbCache;
   const out = [];
   for (const [tr, list] of Object.entries(layout())) for (const x of list) { const k = clipLoad(x.clip); if (k && !(trackKind(tr) === 'audio' && k === 'yellow')) out.push([x.start, x.end, k]); }
   // red over yellow where they overlap: yellow first, red after
   out.sort((p, q) => (p[2] === q[2] ? 0 : p[2] === 'yellow' ? -1 : 1));
-  const done = S.rendered && S.rendered.hash === seqHash(S.project) ? [[S.rendered.a, S.rendered.b, 'green']] : [];
+  const done = [...(S.rendered && S.rendered.hash === seqHash(S.project) ? [[S.rendered.a, S.rendered.b, 'green']] : []), ...greenParts().map(([a, b]) => [a, b, 'green'])];
   rbCache = [...out, ...done].map(([a, b, k]) => [a, b, RB[k]]);
   return rbCache;
 }
@@ -1448,26 +1447,35 @@ function rateStretch(c, o, m, dt, pts) {
   toast(`${fmt(clipDur(c, S.mediaById))} · speed ${Math.round((c.speed || 1) * 100)}%`);
   return L;
 }
-// ✒ Pen: a keyframe on the clip's opacity (picture) / volume (sound) line where it was clicked - the higher on the clip,
-// the more (top = 100% opacity / 200% volume, bottom = 0)
+// 🎧 which line sound clips and audio tracks show: 'volume' or 'pan' (the tracks' menu: Show keyframes - Volume / Pan),
+// like Premiere's clip / track keyframe menu. Remembered in this browser.
+let bandProp = (() => { try { return localStorage.getItem('ve-band') === 'pan' ? 'pan' : 'volume'; } catch { return 'volume'; } })();
+export const audioBand = () => bandProp;
+function setAudioBand(p) { bandProp = p; try { localStorage.setItem('ve-band', p); } catch {} render(); toast(`Sound keyframes: ${p === 'pan' ? 'Pan (top = left, bottom = right)' : 'Volume'}`); }
+// a clip line: the property, its lowest and highest value (top of the clip = hi)
+const bandOf = (track) => (KIND[track] !== 'audio' ? { prop: 'opacity', lo: 0, hi: 1 } : bandProp === 'pan' ? { prop: 'pan', lo: -1, hi: 1 } : { prop: 'volume', lo: 0, hi: 2 });
+const bandSay = (prop, v) => (prop === 'pan' ? (Math.abs(v) < 0.005 ? 'Pan centre' : `Pan ${Math.round(Math.abs(v) * 100)} ${v < 0 ? 'left' : 'right'}`) : `${prop === 'volume' ? 'Volume' : 'Opacity'} ${Math.round(v * 100)}%`);
+// ✒ Pen: a keyframe on the clip's opacity (picture) / volume or pan (sound) line where it was clicked - the higher on
+// the clip, the more (top = 100% opacity / 200% volume / all left, bottom = 0 / all right)
 function penKey(id, track, e, el) {
   const f = findClip(id), c = f?.clip, x = layout()[track]?.find((p) => p.clip.id === id); if (!c || !x) return;
-  const prop = KIND[track] === 'audio' ? 'volume' : 'opacity', top = KIND[track] === 'audio' ? 2 : 1;
+  const { prop, lo, hi } = bandOf(track), pan = prop === 'pan';
   const r = el.getBoundingClientRect(), y = clamp((e.clientY - (r.top + 15)) / Math.max(1, r.height - 15), 0, 1);
-  const t = +clamp(timeAt(e.clientX) - x.start, 0, x.end - x.start).toFixed(3), v = +((1 - y) * top).toFixed(3);
+  const t = +clamp(timeAt(e.clientX) - x.start, 0, x.end - x.start).toFixed(3), v = +(pan ? lo + y * (hi - lo) : hi - y * (hi - lo)).toFixed(3);
   const keys = ((c.keys ||= {})[prop] ||= []);
   const i = keys.findIndex((k) => Math.abs(k.t - t) < 0.05);
   if (i >= 0) keys[i].v = v; else { keys.push({ t, v }); keys.sort((a, b) => a.t - b.t); }
   S.sel = new Set([id]); commit(`Pen: ${prop} keyframe`);
-  toast(`${prop === 'volume' ? 'Volume' : 'Opacity'} ${Math.round(v * 100)}% at ${fmt(t)}`);
+  toast(`${bandSay(prop, v)} at ${fmt(t)}`);
 }
 // the opacity / volume line drawn on a clip (with the Pen, or once it has keyframes), like Premiere's rubber band
 function bandHTML(c, track, D) {
-  const prop = KIND[track] === 'audio' ? 'volume' : 'opacity', top = KIND[track] === 'audio' ? 2 : 1, keys = c.keys?.[prop] || [];
+  const { prop, lo, hi } = bandOf(track), keys = c.keys?.[prop] || [];
   if (S.tool !== 'pen' && !keys.length) return '';
-  const y = (v) => (1 - Math.min(top, Math.max(0, v)) / top) * 100;
+  // (pan: left at the top, as in Premiere's panner line)
+  const y = (v) => (prop === 'pan' ? (Math.min(hi, Math.max(lo, v)) - lo) / (hi - lo) : 1 - (Math.min(hi, Math.max(lo, v)) - lo) / (hi - lo)) * 100;
   const pts = Array.from({ length: 33 }, (_, k) => { const t = (D * k) / 32; return `${((k / 32) * 100).toFixed(2)},${y(propAt(c, prop, t)).toFixed(2)}`; }).join(' ');
-  return `<svg class="band" viewBox="0 0 100 100" preserveAspectRatio="none"><polyline points="${pts}" vector-effect="non-scaling-stroke"/></svg>${keys.map((k) => `<i class="band-k" style="left:${((k.t / Math.max(0.01, D)) * 100).toFixed(2)}%;top:calc(15px + (100% - 15px) * ${(y(k.v) / 100).toFixed(3)})"></i>`).join('')}`;
+  return `<svg class="band${prop === 'pan' ? ' pan' : ''}" viewBox="0 0 100 100" preserveAspectRatio="none"><polyline points="${pts}" vector-effect="non-scaling-stroke"/></svg>${keys.map((k) => `<i class="band-k" style="left:${((k.t / Math.max(0.01, D)) * 100).toFixed(2)}%;top:calc(15px + (100% - 15px) * ${(y(k.v) / 100).toFixed(3)})"></i>`).join('')}`;
 }
 
 // the other selected clips a trim takes along: one of each linked pair (not the dragged clip's own other half - that one
@@ -2082,7 +2090,9 @@ function onDrop(e) {
 const CORE = new Set(['V1', 'V2', 'A1', 'A2', 'A3']);
 function trackMenu(e, id) {
   e.preventDefault();
-  const n = S.project.tracks[id]?.length || 0, items = [['rename', 'Rename…'], ['addv', '+ Video track'], ['adda', '+ Audio track'], ...(S.project.trackState[id]?.volKeys?.length ? [['clrkeys', `Clear volume keyframes (${S.project.trackState[id].volKeys.length})`]] : []), ...(CORE.has(id) ? [] : ['-', ['del', `Delete ${id}${n ? ` (${n} clips)` : ''}`]])];
+  const n = S.project.tracks[id]?.length || 0, items = [['rename', 'Rename…'], ['addv', '+ Video track'], ['adda', '+ Audio track'], ...(S.project.trackState[id]?.volKeys?.length ? [['clrkeys', `Clear volume keyframes (${S.project.trackState[id].volKeys.length})`]] : []),
+    ...(S.project.trackState[id]?.panKeys?.length ? [['clrpan', `Clear pan keyframes (${S.project.trackState[id].panKeys.length})`]] : []),
+    '-', ['band:volume', `${bandProp === 'volume' ? '✓ ' : ''}Show sound keyframes: Volume`], ['band:pan', `${bandProp === 'pan' ? '✓ ' : ''}Show sound keyframes: Pan`], ...(CORE.has(id) ? [] : ['-', ['del', `Delete ${id}${n ? ` (${n} clips)` : ''}`]])];
   const menu = h(`<div class="ctx" role="menu">${items.map((it) => (it === '-' ? '<hr>' : `<button role="menuitem" data-c="${it[0]}">${it[1]}</button>`)).join('')}</div>`);
   document.body.append(menu);
   menu.style.left = `${e.clientX}px`; menu.style.top = `${Math.min(e.clientY, innerHeight - menu.getBoundingClientRect().height - 8)}px`;
@@ -2094,6 +2104,8 @@ function trackMenu(e, id) {
     close();
     if (a === 'rename') { const nm = prompt(`Name for ${id}`, S.project.trackState[id]?.name || ''); if (nm !== null) { S.project.trackState[id] = { ...S.project.trackState[id], name: nm.trim() || undefined }; commit('Rename track'); } }
     if (a === 'clrkeys') { delete S.project.trackState[id].volKeys; commit('Clear track volume keyframes'); }
+    if (a === 'clrpan') { delete S.project.trackState[id].panKeys; commit('Clear track pan keyframes'); }
+    if (a.startsWith('band:')) setAudioBand(a.slice(5));
     if (a === 'addv' || a === 'adda') { const nid = addTrack(S.project, a === 'addv' ? 'video' : 'audio'); commit(`Add track ${nid}`); }
     if (a === 'del') {
       if (n && !confirm(`Delete ${id} and its ${n} clips?\n\nCtrl+Z brings it back.`)) return;

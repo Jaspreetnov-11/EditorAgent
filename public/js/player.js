@@ -6,7 +6,7 @@ import { reportError } from './errlog.js';
 import * as SM from './sourcemon.js';
 import { useContext as audioOut } from './audioout.js';
 import { S, on, emit, layout, duration, commit } from './store.js';
-import { ASPECTS, fmtTC, fmtTime, fmt, clipDur, propAt, sourceAt, speedAt, rampPts, setAnimated, overlayTracks, audioTracks, evalKeys, BLEND_CSS, seqHash, trackAudible as audibleIn } from './model.js';
+import { ASPECTS, fmtTC, fmtTime, fmt, clipDur, propAt, sourceAt, speedAt, rampPts, setAnimated, overlayTracks, audioTracks, evalKeys, BLEND_CSS, seqHash, trackAudible as audibleIn, trackPanAt } from './model.js';
 import { stabState, stabBanner } from './stabprev.js';
 
 // 🎞 Full quality, like Premiere: a camera file the browser can decode itself - HEVC / H.265 (DJI drones, Sony, phones;
@@ -50,7 +50,8 @@ import { fxPreview, wordWindows, isKinetic, trLive, polyCss } from './fx.js';
 import { drawGraphic, textLayout, pinOn } from './graphics.js';
 import { addTextAt, addShapeAt } from './gfxui.js';
 import { effectsCss, maskedEffectsCss, grainCss, VFX, inWindow, blendOf } from './effects.js';
-import { maskAlpha, movedMask, unmovedMask, maskKey } from './shapemask.js';
+import { renderedAt } from './renderbar.js';
+import { maskAlpha, movedMask, unmovedMask, maskKey, maskAt, untrackMask, penPathD, outH, inH } from './shapemask.js';
 import { captionAt, capTracks, capStack } from './captions.js';
 import { monitorDrag } from './toolgroups.js';
 import { monitorRulers } from './monruler.js';
@@ -542,7 +543,7 @@ function holdFrame(v) {
     v.addEventListener('seeked', () => v.removeAttribute('poster'), { once: true });
   } catch { v.removeAttribute('poster'); }
 }
-function syncVideo(v, m, c, start, t, play, vol, track = 'V1') {
+function syncVideo(v, m, c, start, t, play, vol, track = 'V1', pan = 0) {
   // 🎥 a stabilised shot plays its stabilised copy once the server has made it (stabprev.js); until then the file
   const st = stabState(c, m), stab = st?.status === 'ready' ? st : null, banner = stabBanner(st);
   if (banner && mode === 'program') { els.vwStab.hidden = false; els.vwStab.textContent = banner; }
@@ -561,7 +562,7 @@ function syncVideo(v, m, c, start, t, play, vol, track = 'V1') {
   // browser find a frame again and stutters; slow motion and ramps used to jump many times a second (DaVinci doesn't).
   // Only a real gap (over half a second, or the shot just came on) is a jump.
   const drift = target - v.currentTime;
-  setVol(v, rampPts(c) || c.reverse ? 0 : vol, track, c); // ramped shots are silent, like the render (and reversed ones here)
+  setVol(v, rampPts(c) || c.reverse ? 0 : vol, track, c, pan); // ramped shots are silent, like the render (and reversed ones here)
   if (v.readyState >= 1) {
     if (c.reverse) { if (!v.paused) v.pause(); if (Math.abs(v.currentTime - target) > 0.03) v.currentTime = target; return; }
     if (play) {
@@ -1009,7 +1010,7 @@ function drawFxMasks(x, t) {
   el.hidden = !list.length;
   if (!list.length) { el.innerHTML = ''; return; }
   const tf = look(c, t - x.start).transform;
-  el.innerHTML = list.map((e) => { const u = maskUrl(e.mask); return `<i style="transform:${tf};backdrop-filter:${e.filter};-webkit-backdrop-filter:${e.filter};mask-image:${u};-webkit-mask-image:${u};mask-size:100% 100%;-webkit-mask-size:100% 100%"></i>`; }).join('');
+  el.innerHTML = list.map((e) => { const u = maskUrl(maskAt(e.mask, t - x.start)); return `<i style="transform:${tf};backdrop-filter:${e.filter};-webkit-backdrop-filter:${e.filter};mask-image:${u};-webkit-mask-image:${u};mask-size:100% 100%;-webkit-mask-size:100% 100%"></i>`; }).join('');
 }
 // ✎ editing a mask on the monitor: S.maskEdit = { clipId, effId } (effId null: the clip's Opacity mask). The shape is
 // drawn where it is seen (after Motion); drag inside to move it, the handles to size it.
@@ -1021,7 +1022,8 @@ function maskTarget() {
     if (!m?.shape) return null;
     const rel = clamp(S.playhead - x.start, 0, x.end - x.start);
     const tf = { zoom: propAt(c, 'transform.zoom', rel), x: propAt(c, 'transform.x', rel), y: propAt(c, 'transform.y', rel) };
-    return { c, m, tf, set: (nm) => { if (me.effId) c.effects.find((e) => e.id === me.effId).mask = nm; else c.omask = nm; } };
+    // (🎯 a tracked mask: shown and edited where it is now; set() takes the edit back to the drawn shape)
+    return { c, m: maskAt(m, rel), tf, rel, set: (nm) => { const b = untrackMask(nm, rel); if (me.effId) c.effects.find((e) => e.id === me.effId).mask = b; else c.omask = b; } };
   }
   return null;
 }
@@ -1037,18 +1039,22 @@ function drawMaskUI() {
   if (el.dataset.kind !== kind) { el.innerHTML = ''; el.dataset.kind = kind; }
   if (kind !== 'box') {
     if (!el.firstChild) {
-      el.innerHTML = `<svg class="mk-svg" viewBox="0 0 1 1" preserveAspectRatio="none"><polygon data-mk="pmove"/><line/></svg><div class="mk-pts"></div><span class="mk-tip">${kind === 'pen' ? 'Drag the dots · drag inside to move · double-click the edge = new point · right-click a dot = remove · Esc to finish' : 'Drag the ends: fully seen → gone · Esc to finish'}</span>`;
+      el.innerHTML = `<svg class="mk-svg" viewBox="0 0 1 1" preserveAspectRatio="none"><path class="mk-path" data-mk="pmove"/><g class="mk-hl"></g><line/></svg><div class="mk-pts"></div><span class="mk-tip">${kind === 'pen' ? 'Drag the dots · drag a round handle to bend (Alt: one side only) · Alt+click a dot = curve / corner · drag inside to move · double-click the edge = new point · right-click a dot = remove · Esc to finish' : 'Drag the ends: fully seen → gone · Esc to finish'}</span>`;
       el.addEventListener('pointerdown', maskDrag);
       el.addEventListener('dblclick', maskAddPoint);
       el.addEventListener('contextmenu', maskDelPoint);
     }
-    const poly = el.querySelector('polygon'), line = el.querySelector('line'), box = el.querySelector('.mk-pts');
+    const poly = el.querySelector('.mk-path'), line = el.querySelector('line'), box = el.querySelector('.mk-pts'), hl = el.querySelector('.mk-hl');
     if (kind === 'pen') {
       const P = v.pts || [];
-      poly.setAttribute('points', P.map(([x, y]) => `${x},${y}`).join(' ')); line.setAttribute('x1', 0); line.setAttribute('x2', 0); line.setAttribute('y1', 0); line.setAttribute('y2', 0);
-      box.innerHTML = P.map(([x, y], i) => `<b class="mk-h mk-p" data-mk="p${i}" style="left:${pc(x)};top:${pc(y)}"></b>`).join('');
+      // ✒ the curved outline, a dot per point and, on a curved point, its two Bezier handles (round) on thin lines
+      poly.setAttribute('d', penPathD(P)); line.setAttribute('x1', 0); line.setAttribute('x2', 0); line.setAttribute('y1', 0); line.setAttribute('y2', 0);
+      const hs = P.flatMap((p, i) => { const o = outH(p), n = inH(p); return o ? [['o', i, p[0] + o[0], p[1] + o[1]], ['n', i, p[0] + n[0], p[1] + n[1]]] : []; });
+      hl.innerHTML = hs.map(([, i, x, y]) => `<line class="mk-hline" x1="${P[i][0]}" y1="${P[i][1]}" x2="${x}" y2="${y}"/>`).join('');
+      box.innerHTML = P.map(([x, y], i) => `<b class="mk-h mk-p${outH(P[i]) ? ' smooth' : ''}" data-mk="p${i}" style="left:${pc(x)};top:${pc(y)}"></b>`).join('')
+        + hs.map(([k, i, x, y]) => `<b class="mk-h mk-bh" data-mk="${k}${i}" style="left:${pc(x)};top:${pc(y)}"></b>`).join('');
     } else {
-      poly.setAttribute('points', '');
+      poly.setAttribute('d', ''); hl.innerHTML = '';
       line.setAttribute('x1', v.x0); line.setAttribute('y1', v.y0); line.setAttribute('x2', v.x1); line.setAttribute('y2', v.y1);
       box.innerHTML = `<b class="mk-h mk-g0" data-mk="g0" style="left:${pc(v.x0)};top:${pc(v.y0)}" title="Fully seen"></b><b class="mk-h mk-g1" data-mk="g1" style="left:${pc(v.x1)};top:${pc(v.y1)}" title="Gone"></b>`;
     }
@@ -1067,16 +1073,29 @@ function drawMaskUI() {
 function maskDrag(e) {
   const kind = e.target.closest('[data-mk]')?.dataset.mk, mt = maskTarget();
   if (!kind || !mt) return;
+  // ✒ Alt+click a pen point: a corner becomes a smooth curve point (handles along its neighbours), a curve point a corner
+  if (e.altKey && /^p\d+$/.test(kind) && mt.m.shape === 'pen') {
+    e.preventDefault(); e.stopPropagation();
+    const i = +kind.slice(1), P = mt.m.pts, p = P[i], a = P[(i + P.length - 1) % P.length], b = P[(i + 1) % P.length];
+    const np = p.length >= 4 ? [p[0], p[1]] : [p[0], p[1], +((b[0] - a[0]) / 6).toFixed(4), +((b[1] - a[1]) / 6).toFixed(4)];
+    mt.set({ ...mt.m, pts: P.map((q, j) => (j === i ? np : q)) }); commit(np.length > 2 ? 'Mask point: curve' : 'Mask point: corner'); drawProgram(S.playhead, false); return;
+  }
   e.preventDefault(); e.stopPropagation(); pause();
   const r = frame.getBoundingClientRect(), v0 = movedMask(mt.m, mt.tf);
   let moved = false;
   const mv = (ev) => {
     const dx = (ev.clientX - e.clientX) / r.width, dy = (ev.clientY - e.clientY) / r.height;
-    if (kind === 'pmove' || /^p\d+$/.test(kind) || kind === 'g0' || kind === 'g1') { // (pen points / gradient ends)
+    if (kind === 'pmove' || /^[pon]\d+$/.test(kind) || kind === 'g0' || kind === 'g1') { // (pen points / handles / gradient ends)
       const cur = maskTarget(); if (!cur) return;
       const nv = { ...v0 };
-      if (kind === 'pmove') nv.pts = v0.pts.map(([x, y]) => [x + dx, y + dy]);
-      else if (kind[0] === 'p') { const i = +kind.slice(1); nv.pts = v0.pts.map((p, j) => (j === i ? [p[0] + dx, p[1] + dy] : p)); }
+      if (kind === 'pmove') nv.pts = v0.pts.map(([x, y, ...h]) => [x + dx, y + dy, ...h]);
+      else if (kind[0] === 'p') { const i = +kind.slice(1); nv.pts = v0.pts.map((p, j) => (j === i ? [p[0] + dx, p[1] + dy, ...p.slice(2)] : p)); }
+      else if (kind[0] === 'o' || kind[0] === 'n') { // ✒ a handle: both sides together (smooth), or with Alt just this one
+        const i = +kind.slice(1), p = v0.pts[i], o = outH(p), n = inH(p), side = kind[0] === 'o' ? o : n, h = [side[0] + dx, side[1] + dy];
+        const apart = ev.altKey || p.length >= 6;
+        const no = kind[0] === 'o' ? h : apart ? o : [-h[0], -h[1]], nn = kind[0] === 'n' ? h : apart ? n : [-h[0], -h[1]];
+        nv.pts = v0.pts.map((q, j) => (j !== i ? q : apart ? [p[0], p[1], no[0], no[1], nn[0], nn[1]] : [p[0], p[1], no[0], no[1]]));
+      }
       else if (kind === 'g0') { nv.x0 = v0.x0 + dx; nv.y0 = v0.y0 + dy; } else { nv.x1 = v0.x1 + dx; nv.y1 = v0.y1 + dy; }
       const back = unmovedMask(nv, cur.tf);
       cur.set({ ...cur.m, ...(back.pts ? { pts: back.pts } : {}), ...(cur.m.shape === 'gradient' ? { x0: back.x0, y0: back.y0, x1: back.x1, y1: back.y1 } : {}) });
@@ -1113,24 +1132,40 @@ function maskDelPoint(e) {
   e.preventDefault(); if (mt.m.pts.length <= 3) return toast('A shape needs 3 points at least');
   mt.set({ ...mt.m, pts: mt.m.pts.filter((_, i) => i !== +k.slice(1)) }); commit('Remove mask point'); drawProgram(S.playhead, false);
 }
-// ✒ draw a pen mask: click point by point on the monitor; click the first point, double-click or Enter closes it.
-// Resolves the points as fractions of the frame, or null (Esc / fewer than 3)
-export function pickPath(hint = 'Click point by point around the shape · click the first point, double-click or Enter to close · Backspace undoes · Esc cancels') {
+// ✒ draw a pen mask, Premiere's Pen: click = a corner point, click and drag = a smooth curve point (the drag pulls out
+// its handles); click the first point, double-click or Enter closes it. Resolves the points as fractions of the frame
+// ([x, y] or [x, y, ox, oy] - see shapemask.js), or null (Esc / fewer than 3, or 2 with curves)
+export function pickPath(hint = 'Click = corner · click and drag = curve · click the first point, double-click or Enter to close · Backspace undoes · Esc cancels') {
   return new Promise((done) => {
     pause();
     const ov = document.createElement('div'); ov.className = 'lyr boxpick quadpick';
-    ov.innerHTML = `<span>${esc(hint)}</span><svg viewBox="0 0 1 1" preserveAspectRatio="none"><polygon fill="rgba(255,194,26,.18)" stroke="#ffc21a" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
+    ov.innerHTML = `<span>${esc(hint)}</span><svg viewBox="0 0 1 1" preserveAspectRatio="none"><path fill="rgba(255,194,26,.18)" stroke="#ffc21a" stroke-width="2" vector-effect="non-scaling-stroke"/><g stroke="#ffc21a" stroke-width="1" vector-effect="non-scaling-stroke"></g></svg>`;
     frame.append(ov);
-    const pts = [], poly = ov.querySelector('polygon');
-    const draw = () => { ov.querySelectorAll('i').forEach((d) => d.remove()); for (const [x, y] of pts) { const d = document.createElement('i'); d.style.left = `${x * 100}%`; d.style.top = `${y * 100}%`; ov.append(d); } poly.setAttribute('points', pts.map((p) => p.join(',')).join(' ')); };
-    const finish = (ok) => { ov.remove(); window.removeEventListener('keydown', key, true); done(ok && pts.length >= 3 ? pts.map(([x, y]) => [+x.toFixed(4), +y.toFixed(4)]) : null); };
+    const pts = [], poly = ov.querySelector('path'), hg = ov.querySelector('g');
+    const draw = () => {
+      ov.querySelectorAll('i').forEach((d) => d.remove());
+      for (const p of pts) { const d = document.createElement('i'); d.style.left = `${p[0] * 100}%`; d.style.top = `${p[1] * 100}%`; ov.append(d); }
+      poly.setAttribute('d', pts.length > 1 ? penPathD(pts) : '');
+      hg.innerHTML = pts.filter((p) => p.length >= 4).map((p) => `<line x1="${p[0] - p[2]}" y1="${p[1] - p[3]}" x2="${p[0] + p[2]}" y2="${p[1] + p[3]}" vector-effect="non-scaling-stroke"/>`).join('');
+    };
+    const r4 = (n) => +(+n).toFixed(4);
+    const enough = () => pts.length >= 3 || (pts.length === 2 && pts.some((p) => p.length >= 4));
+    const finish = (ok) => { ov.remove(); window.removeEventListener('keydown', key, true); done(ok && enough() ? pts.map((p) => p.map(r4)) : null); };
     const key = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); } if (e.key === 'Enter') { e.preventDefault(); finish(true); } if (e.key === 'Backspace') { e.preventDefault(); pts.pop(); draw(); } };
     window.addEventListener('keydown', key, true);
     ov.addEventListener('pointerdown', (e) => {
       e.preventDefault(); e.stopPropagation();
       const r = frame.getBoundingClientRect(), p = [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height];
-      if (pts.length >= 3 && Math.hypot((p[0] - pts[0][0]) * r.width, (p[1] - pts[0][1]) * r.height) < 12) return finish(true);
+      if (enough() && Math.hypot((p[0] - pts[0][0]) * r.width, (p[1] - pts[0][1]) * r.height) < 12) return finish(true);
       pts.push(p); draw();
+      // (dragging before letting go: the point's handles, along the drag)
+      const i = pts.length - 1;
+      const mv = (ev) => {
+        const hx = (ev.clientX - e.clientX) / r.width, hy = (ev.clientY - e.clientY) / r.height;
+        pts[i] = Math.hypot(hx * r.width, hy * r.height) < 4 ? [p[0], p[1]] : [p[0], p[1], hx, hy]; draw();
+      };
+      const up = () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); };
+      window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
     });
     ov.addEventListener('dblclick', (e) => { e.preventDefault(); pts.pop(); finish(true); }); // (the double-click's 2nd click added a point)
   });
@@ -1252,7 +1287,7 @@ function drawOverlays(t, isPlay) {
         else drawGraphic(ctx, FW, FH, c.gfx || {}, rel, x.end - x.start);
         el.style.opacity = String(fadeK(c, rel, x.end - x.start));
         el.style.mixBlendMode = c.blend ? CSS_BLEND[c.blend] || c.blend : ''; // (🎭 text / shapes / templates blend as well)
-        setMask(el, c.omask); // (◐ Opacity mask on a graphic - a Color Matte as a shape)
+        setMask(el, maskAt(c.omask, rel)); // (◐ Opacity mask on a graphic - a Color Matte as a shape)
         el.style.filter = c.effects?.length ? effectsCss(c, (frame?.clientWidth || 640) / FW, rel).filter || '' : ''; // (🎛 its effects)
         live.add(c.id); order.push(el); el.hidden = false; el.style.pointerEvents = 'none';
         continue;
@@ -1268,7 +1303,7 @@ function drawOverlays(t, isPlay) {
       if (c.type === 'title') { textStyle(el, c, null, t, x.start, x.end, true); continue; }
       const lk = look(c, rel);
       fitStyle(el, c, rel);
-      el.style.opacity = propAt(c, 'opacity', rel) * fadeK(c, rel, x.end - x.start) * (bfx?.mode === 'crossfade' ? bfx.amount : 1); el.style.transform = lk.transform; el.style.filter = lk.filter; el.style.clipPath = lk.clip || ''; setMask(el, c.omask);
+      el.style.opacity = propAt(c, 'opacity', rel) * fadeK(c, rel, x.end - x.start) * (bfx?.mode === 'crossfade' ? bfx.amount : 1); el.style.transform = lk.transform; el.style.filter = lk.filter; el.style.clipPath = lk.clip || ''; setMask(el, maskAt(c.omask, rel));
       // ▱ stuck onto a tracked surface: the whole picture is bent onto the surface's four corners (as the render does)
       const pq = c.pin?.keys?.length && (c.type === 'image' || c.type === 'video') ? pinAt(c.pin.keys, rel) : null;
       if (pq) { const fw = el.clientWidth || frame.clientWidth, fh = el.clientHeight || frame.clientHeight; el.style.objectFit = 'fill'; el.style.transformOrigin = '0 0'; el.style.clipPath = ''; el.style.transform = quadMatrix(fw, fh, pq.map((v, j) => v * (j % 2 ? fh : fw))); }
@@ -1296,8 +1331,10 @@ function drawProgram(t, isPlay) {
 let renderedOk = false;
 on('change', () => { const R = S.rendered; renderedOk = !!(R?.url && S.project && R.hash === seqHash(S.project)); });
 function drawRendered(t, isPlay) {
-  const v = els.lyRend, R = S.rendered; if (!v) return;
-  if (!(renderedOk && mode === 'program' && t >= R.a && t < R.b - 0.02)) { if (!v.hidden) { v.hidden = true; v.pause(); } return; }
+  const v = els.lyRend; if (!v) return;
+  // (🟩 the whole-sequence Accurate preview, else a section rendered in the background - renderbar.js)
+  const R = renderedOk && t >= S.rendered.a && t < S.rendered.b - 0.02 ? S.rendered : mode === 'program' ? renderedAt(t) : null;
+  if (!(R && mode === 'program')) { if (!v.hidden) { v.hidden = true; v.pause(); } return; }
   if (v.dataset.src !== R.url) { v.src = R.url; v.dataset.src = R.url; }
   v.hidden = false;
   const want = t - R.a;
@@ -1341,7 +1378,7 @@ function drawProgramNow(t, isPlay) {
       const kb = c.kenburns ?? (S.project.settings.kenburns ? 'in' : false), p = clamp((t - x.start) / (x.end - x.start), 0, 1);
       const z = kb ? (kb === 'out' ? 1.15 - 0.15 * p : 1 + 0.15 * p) : 1;
       fitStyle(img, kb ? { ...c, fit: 'fill' } : c, t - x.start);
-      img.style.transform = `${lk.transform} scale(${z})`; img.style.filter = lk.filter; img.style.opacity = opacity; img.style.clipPath = lk.clip || ''; img._fxFilter = lk.fxFilter; setMask(img, c.omask);
+      img.style.transform = `${lk.transform} scale(${z})`; img.style.filter = lk.filter; img.style.opacity = opacity; img.style.clipPath = lk.clip || ''; img._fxFilter = lk.fxFilter; setMask(img, maskAt(c.omask, t - x.start));
       gradeLayer(img, c, opacity);
       pixFx(img, c, els.lyGrade.hidden ? img : els.lyGrade, t - x.start);
       return img;
@@ -1350,14 +1387,14 @@ function drawProgramNow(t, isPlay) {
     const v = slotFor(x); used.add(v);
     v.hidden = false; v.style.opacity = opacity;
     const fm = fitStyle(v, c, t - x.start);
-    v.style.transform = lk.transform; v.style.filter = lk.filter; v.style.clipPath = lk.clip || ''; v._fxFilter = lk.fxFilter; setMask(v, c.omask);
+    v.style.transform = lk.transform; v.style.filter = lk.filter; v.style.clipPath = lk.clip || ''; v._fxFilter = lk.fxFilter; setMask(v, maskAt(c.omask, t - x.start));
     if (fm === 'blur' && m.urls.thumb && !blurSet) { els.lyBlur.hidden = false; els.lyBlur.style.backgroundImage = `url('${m.urls.thumb}')`; blurSet = true; }
     const pa = partnerOf(c);
     if (pa && !pa.a.disabled) {
       carried.add(pa.a.id);
       const rel = t - x.start, fi = pa.a.fadeIn || 0, fo = pa.a.fadeOut || 0, fade = Math.min(fi ? clamp(rel / fi, 0, 1) : 1, fo ? clamp((x.end - t) / fo, 0, 1) : 1);
-      syncVideo(v, m, c, x.start, t, isPlay, pa.a.mute || !trackAudible(pa.id) ? 0 : propAt(pa.a, 'volume', rel) * fade, pa.id);
-    } else syncVideo(v, m, c, x.start, t, isPlay, v1vol(c, t - x.start));
+      syncVideo(v, m, c, x.start, t, isPlay, pa.a.mute || !trackAudible(pa.id) ? 0 : propAt(pa.a, 'volume', rel) * fade, pa.id, propAt(pa.a, 'pan', rel));
+    } else syncVideo(v, m, c, x.start, t, isPlay, v1vol(c, t - x.start), 'V1', propAt(c, 'pan', t - x.start));
     gradeLayer(v, c, opacity);
     pixFx(v, c, els.lyGrade.hidden ? v : els.lyGrade, t - x.start);
     return v;
@@ -1432,7 +1469,7 @@ function drawProgramNow(t, isPlay) {
       const fi = c.fadeIn || 0, fo = c.fadeOut || 0, rel = t - x.start, rem = x.end - t;
       // (🎚 Constant Gain / Constant Power / Exponential Fade: the fade's shape)
       const fade = Math.min(fi ? fadeShape(rel / fi, c.fadeInCurve) : 1, fo ? fadeShape(rem / fo, c.fadeOutCurve) : 1);
-      setVol(a, propAt(c, 'volume', rel) * fade, id, c);
+      setVol(a, propAt(c, 'volume', rel) * fade, id, c, propAt(c, 'pan', rel));
       a.playbackRate = clamp(sp, 0.25, 4);
       if (a.readyState >= 1) {
         // (a clip's own linked sound keeps lip sync tighter)
@@ -1462,27 +1499,29 @@ function ensureAudio() {
   const up = actx.createGain(); up.channelCount = 2; up.channelCountMode = 'explicit'; up.channelInterpretation = 'speakers'; // (a mono mix shows on both)
   masterAn.connect(up); up.connect(split); masterLR.forEach((an, i) => { an.fftSize = 2048; split.connect(an, i); });
   for (const id of ['V1', 'V2', 'A1', 'A2', 'A3']) {
-    const fx = buildFxNodes(actx), fader = actx.createGain(), an = actx.createAnalyser();
-    an.fftSize = 2048; fx.output.connect(fader); fader.connect(an); an.connect(master);
-    chains[id] = { fx, fader, an };
+    chains[id] = newChain();
   }
   route(els.lyA, 'V1'); route(els.lyB, 'V1'); route(els.lyOv, 'V2');
   for (const a of audioPool.values()) route(a, a.dataset.track);
   applyMix();
   return actx;
 }
+// one track's chain: its clean-up / effects -> fader -> 🎧 panner -> meter -> master
+function newChain() {
+  const fx = buildFxNodes(actx), fader = actx.createGain(), pan = actx.createStereoPanner(), an = actx.createAnalyser();
+  an.fftSize = 2048; fx.output.connect(fader); fader.connect(pan); pan.connect(an); an.connect(master);
+  return { fx, fader, pan, an };
+}
 function chainOf(id) {
   if (!chains[id] && actx) {
-    const fx = buildFxNodes(actx), fader = actx.createGain(), an = actx.createAnalyser();
-    an.fftSize = 2048; fx.output.connect(fader); fader.connect(an); an.connect(master);
-    chains[id] = { fx, fader, an };
+    chains[id] = newChain();
   }
   return chains[id];
 }
 function route(el, track) {
   if (!actx || !track || !chainOf(track)) return;
-  if (!el._src) { el._src = actx.createMediaElementSource(el); el._g = actx.createGain(); el._src.connect(el._g); }
-  if (el._track !== track) { try { el._g.disconnect(); } catch {} el._g.connect(chains[track].fx.input); el._track = track; }
+  if (!el._src) { el._src = actx.createMediaElementSource(el); el._g = actx.createGain(); el._p = actx.createStereoPanner(); el._src.connect(el._g); el._g.connect(el._p); }
+  if (el._track !== track) { try { el._p.disconnect(); } catch {} el._p.connect(chains[track].fx.input); el._track = track; }
   el.volume = 1;
 }
 const trackAudible = (id) => audibleIn(S.project.trackState, id); // (🎚 Mute / Solo: model.js)
@@ -1497,8 +1536,8 @@ function clipAudio(el, c) {
   el._fx = sig ? buildClipAudioChain(actx, c.aeffects) : null;
   if (el._fx) { el._src.connect(el._fx.input); el._fx.output.connect(el._g); } else el._src.connect(el._g);
 }
-function setVol(el, vol, track, c = null) {
-  if (actx) { route(el, track); clipAudio(el, c); el.muted = false; el._g.gain.setTargetAtTime(Math.max(0, vol), actx.currentTime, 0.015); return; }
+function setVol(el, vol, track, c = null, pan = 0) {
+  if (actx) { route(el, track); clipAudio(el, c); el.muted = false; el._g.gain.setTargetAtTime(Math.max(0, vol), actx.currentTime, 0.015); el._p.pan.setTargetAtTime(Math.min(1, Math.max(-1, +pan || 0)), actx.currentTime, 0.015); return; }
   const v = vol * (trackAudible(track) ? S.project.trackState?.[track]?.volume ?? 1 : 0);
   el.volume = clamp(v, 0, 1); el.muted = v <= 0;
 }
@@ -1506,13 +1545,17 @@ function setVol(el, vol, track, c = null) {
 const trackGain = (st, t) => (st.volume ?? 1) * (st.volKeys?.length ? evalKeys(st.volKeys, t) : 1);
 function autoMix(t) {
   if (!actx || !S.project) return;
-  for (const [id, st] of Object.entries(S.project.trackState || {})) if (st?.volKeys?.length && chains[id] && trackAudible(id)) chains[id].fader.gain.setTargetAtTime(trackGain(st, t), actx.currentTime, 0.01);
+  for (const [id, st] of Object.entries(S.project.trackState || {})) {
+    if (st?.volKeys?.length && chains[id] && trackAudible(id)) chains[id].fader.gain.setTargetAtTime(trackGain(st, t), actx.currentTime, 0.01);
+    if (st?.panKeys?.length && chains[id]) chains[id].pan.pan.setTargetAtTime(trackPanAt(st, t), actx.currentTime, 0.01);
+  }
 }
 export function applyMix() {
   if (!actx || !S.project) return;
   for (const id of Object.keys(chains)) {
     const st = S.project.trackState?.[id] || {};
     chains[id].fader.gain.setTargetAtTime(trackAudible(id) ? trackGain(st, S.playhead) : 0, actx.currentTime, 0.02);
+    chains[id].pan.pan.setTargetAtTime(trackPanAt(st, S.playhead), actx.currentTime, 0.02);
     const sig = JSON.stringify(st.fx || {});
     if (fxSig[id] !== sig) { chains[id].fx.set(st.fx || {}); fxSig[id] = sig; }
     // 🎛 the track's effect slots (trackState.aeffects) between its clean-up and its fader - rebuilt when they change

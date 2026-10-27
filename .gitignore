@@ -29,6 +29,8 @@
 !/tools/kit/
 !/tools/nascare/
 !/tools/scramble/
+!/tools/bench/
+/tools/bench/kit/
 /tools/scramble/node_modules/
 /public/.dist/
 /tools/access/*.msi
