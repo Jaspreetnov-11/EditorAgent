@@ -27,7 +27,7 @@ export async function openAiUndo() {
   if (!S.proj) return;
   let list = [];
   try { list = await api('GET', `/api/aiundo?p=${enc(S.proj)}`); } catch (e) { return toast(e.message, 'err'); }
-  const dlg = modal('AI Undo - restore an earlier edit', `<p class="muted small">A copy of the timeline is kept before every Agent edit, Re-edit and Claude change. Click "Restore" on one - the timeline goes back to how it was before that change (the current edit is kept in the list too).</p>
+  const dlg = modal('AI Undo - restore an earlier edit', `<p class="muted small">A copy of the timeline is kept before every Agent edit, Re-edit and Limelight AI change. Click "Restore" on one - the timeline goes back to how it was before that change (the current edit is kept in the list too).</p>
     <div class="dv-list">${list.map((x) => `<div class="dv-item"><span class="grow">${/^↶ undo: /.test(x.label) ? `<b>Edit before an undo</b> <span class="muted small">(undid: ${esc(x.label.slice(8))})</span>` : `Before <b>${esc(x.label)}</b>`}<br><span class="muted small">${esc(ago(x.at))} · ${x.clips} clips</span></span><button class="small" data-undo="${esc(x.id)}" data-label="${esc(x.label)}">Restore</button></div>`).join('') || '<div class="muted pad">No AI edits yet - nothing here.</div>'}</div>
     <div class="dv-actions"><button data-close>Close</button></div>`, { width: 620 });
   dlg.el.addEventListener('click', (e) => {

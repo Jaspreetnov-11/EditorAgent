@@ -169,7 +169,7 @@ async function people(body) {
   const sel = new Set();
   const draw = () => {
     body.innerHTML = !d.at ? `<p>No faces looked for yet.</p><p class="muted small">${d.ready ? 'Run the Scan tab once (Look again) - it finds the people and reads the text on the footage.' : 'Needs OpenCV and the two face models in Models/ on the editor computer.'}</p>`
-      : `<p class="muted small">${d.people.length} people found. Name the ones that matter (e.g. <b>CM Sahab</b>, with other names like <i>Vishnu Deo Sai, मुख्यमंत्री</i>) - Find, the Agent ("CM sahab ne kaha" in the VO gets a shot of the CM) and the Assistant's Claude then know them, in every project. Tick two that are one person and Join them.</p>
+      : `<p class="muted small">${d.people.length} people found. Name the ones that matter (e.g. <b>CM Sahab</b>, with other names like <i>Vishnu Deo Sai, मुख्यमंत्री</i>) - Find, the Agent ("CM sahab ne kaha" in the VO gets a shot of the CM) and the Assistant's Limelight AI then know them, in every project. Tick two that are one person and Join them.</p>
       <div class="dv-actions"><button class="small" data-join disabled>Join ticked</button></div>
       <div class="sm-list">${d.people.map((p) => { const ids = Object.keys(p.media); return `<div class="sm-hit sm-person" data-k="${esc(p.key)}">
         <input type="checkbox" data-tick aria-label="Tick ${esc(p.label)}"${sel.has(p.key) ? ' checked' : ''}>
@@ -209,9 +209,9 @@ async function quotes(body) {
   let d = { quotes: [] };
   try { d = await api('GET', `/api/quotes?p=${enc(S.proj)}`); } catch {}
   const draw = () => {
-    body.innerHTML = `<p class="muted small">Claude reads the transcripts (Text page, or Batch › Transcript) and picks the lines worth using: complete thoughts, 5-30 seconds, strong or informative.</p>
+    body.innerHTML = `<p class="muted small">Limelight AI reads the transcripts (Text page, or Batch › Transcript) and picks the lines worth using: complete thoughts, 5-30 seconds, strong or informative.</p>
       <div class="row-in"><input data-brief placeholder="What the edit is about (optional) - e.g. a 90 second film on Atal Utkrisht Shiksha Yojana" aria-label="What the edit is about"><button class="primary" data-go>${d.quotes.length ? 'Pick again' : 'Find the best quotes'}</button></div>
-      <div class="muted small" data-st>${d.at ? `${d.quotes.length} quotes · ${d.by === 'claude' ? 'picked by Claude' : 'picked by a simple rule (Claude was not available)'} · ${new Date(d.at).toLocaleString()}` : ''}</div>
+      <div class="muted small" data-st>${d.at ? `${d.quotes.length} quotes · ${d.by === 'claude' ? 'picked by Limelight AI' : 'picked by a simple rule (Limelight AI was not available)'} · ${new Date(d.at).toLocaleString()}` : ''}</div>
       <div class="sm-list">${d.quotes.map((x, i) => { const m = S.mediaById[x.mediaId]; return m ? `<div class="sm-hit" data-i="${i}" title="Open at ${fmt(x.start)}">${thumb(m)}
         <div class="grow"><div>“${esc(x.text)}”</div><div class="muted small">${esc(m.name)} · ${fmt(x.start)}-${fmt(x.end)} (${(x.end - x.start).toFixed(1)}s)${x.why ? ` · ${esc(x.why)}` : ''}</div></div>
         <button class="small" data-add="${i}" title="Put this quote at the end of V1">+ Timeline</button></div>` : ''; }).join('')}</div>`;

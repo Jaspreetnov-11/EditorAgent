@@ -6,7 +6,7 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { test, assert, eq } from './harness.mjs';
 import { newToken, tokenShape, sameSecret, findLink, hashPw, pwOk, pwCookie, renderName, renderPath, cleanText, cleanName, cleanDraw,
-  Limiter, readLimited, ReviewStore, clientView, ownerView, expired } from '../engine/clientreview.mjs';
+  Limiter, readLimited, ReviewStore, clientView, ownerView, expired, jobState, openChanges, cleanRating } from '../engine/clientreview.mjs';
 
 test('tokens are long and random, and only a whole, exact token finds its link', () => {
   const a = newToken(), b = newToken();
@@ -81,5 +81,32 @@ test('store: links, versions, expiry; the client sees no project, path, token or
     for (const bad of ['Secret Project', 'Cut A.mp4', l.token, l.pw.hash, l.pw.salt, 'render']) assert(!seen.includes(bad), `client sees ${bad}`);
     const own = ownerView(l, 'u'); assert(!('pw' in own) && !('token' in own) && own.hasPw, 'owner view');
     assert(!expired(l) && expired({ ...l, expires: Date.now() - 1 }) && expired({ ...l, off: true }), 'expired');
+  } finally { fs.rmSync(d, { recursive: true, force: true }); }
+});
+
+test('feedback loop: ticked changes go out as fixed in the next version; job state; rating', () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'vedit-crv-'));
+  try {
+    const st = new ReviewStore(path.join(d, 'client-reviews.json'));
+    const l = st.create({ project: 'Job', render: 'Cut A.mp4', client: 'MY Bharat' });
+    eq(jobState([l]).state, 'waiting'); eq(jobState([]).state, 'none');
+    const add = (text, extra = {}) => { const c = { id: `c${l.comments.length}`, v: 1, t: 3, text, by: 'Client', at: Date.now(), parent: null, ...extra }; l.comments.push(c); return c; };
+    const a = add('Logo bigger'), b = add('Music softer'); add('ok', { parent: a.id }); add('noted', { team: true }); add('✏️ Changes requested: see notes');
+    eq(openChanges(l).map((c) => c.id), [a.id, b.id], 'only the asks count');
+    l.versions[0].status = 'changes';
+    eq(jobState([l]), { state: 'changes', v: 1, open: 2, link: l.id, client: 'MY Bharat', stars: 0, at: l.versions[0].at });
+    st.setDone(l, a.id, true, 'Asha');
+    let threw = false; try { st.setDone(l, 'c3', true, 'x'); } catch (e) { threw = e.code === 404; }
+    assert(threw, 'a team note is not a change');
+    eq(st.addVersion(l, 'Cut B.mp4').n, 2);
+    eq(a.fixedIn, 2); eq(b.fixedIn, undefined);
+    eq(clientView(l).comments.find((c) => c.id === a.id).fixedIn, 2);
+    assert(!JSON.stringify(clientView(l)).includes('Asha'), 'the client does not see who ticked it');
+    st.setDone(l, a.id, false); eq(a.done.by, 'Asha', 'a change sent as fixed stays fixed');
+    eq(jobState([l]).state, 'waiting', 'v2 with the client: the old open one was on v1');
+    l.versions[1].status = 'approved'; l.rating = { ...cleanRating({ stars: 4.4, text: ' great ' }), by: 'C', at: 1 };
+    eq(jobState([l]).state, 'approved'); eq(jobState([l]).stars, 4); eq(clientView(l).rating, { stars: 4, text: 'great', at: 1 });
+    for (const bad of [0, 6, 'x', null, -1]) eq(cleanRating({ stars: bad }), null, String(bad));
+    eq(jobState([{ ...l, off: true }]).state, 'none', 'a turned-off link is out of the loop');
   } finally { fs.rmSync(d, { recursive: true, force: true }); }
 });

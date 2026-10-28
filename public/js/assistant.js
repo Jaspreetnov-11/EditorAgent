@@ -33,14 +33,14 @@ export function mountAssistant(busyFn) {
   setBusy = busyFn;
   root = h(`<aside class="as" hidden aria-label="Assistant">
     <div class="as-head"><b>Assistant</b>
-      <span class="as-modes" role="tablist"><button class="chip" data-mode="claude" title="Claude: looks at your footage, hears the song, plans and edits the timeline itself (slower, smartest)">Claude</button><button class="chip" data-mode="quick" title="Quick commands: instant, offline, fixed phrases">Quick</button></span>
-      <span class="grow"></span><select class="as-chats small" data-chats hidden title="Earlier chats with Claude in this project"></select><button class="link small" data-newchat title="Start a new conversation with Claude for this project">New chat</button><button class="icon-btn" data-x aria-label="Close">✕</button></div>
+      <span class="as-modes" role="tablist"><button class="chip" data-mode="claude" title="Limelight AI: looks at your footage, hears the song, plans and edits the timeline itself (slower, smartest)">Limelight AI</button><button class="chip" data-mode="quick" title="Quick commands: instant, offline, fixed phrases">Quick</button></span>
+      <span class="grow"></span><select class="as-chats small" data-chats hidden title="Earlier chats with Limelight AI in this project"></select><button class="link small" data-newchat title="Start a new conversation with Limelight AI for this project">New chat</button><button class="icon-btn" data-x aria-label="Close">✕</button></div>
     <div class="as-cl muted small" data-clinfo hidden></div>
     <div class="as-quick">${QUICK.map(([l, c]) => `<button class="chip" data-cmd="${esc(c)}">${l}</button>`).join('')}</div>
     <div class="as-log" aria-live="polite"></div>
     <div class="as-refs" hidden></div>
     <div class="as-ideas" hidden><div class="as-ideas-top"><b>Ideas - click one to put it in the box</b><span class="grow"></span><button type="button" class="link small" data-guide>Tips & what each option does</button></div><div data-ideas></div></div>
-    <form class="as-in"><button type="button" class="icon-btn as-idea" data-ideasbtn aria-expanded="false" title="Ideas: example prompts in Hinglish and English, and tips for a good brief">${icon('idea')}</button><label class="icon-btn as-att" title="Attach a reference video or photo - Claude takes it apart and makes the same edit with your footage">${ic('attach')}<input type="file" hidden accept="video/*,image/*,.mxf,.mts"></label><textarea rows="2" placeholder="e.g. music dheema karo aur color thoda warm kar do"></textarea><button class="primary" type="submit">Send</button></form>
+    <form class="as-in"><button type="button" class="icon-btn as-idea" data-ideasbtn aria-expanded="false" title="Ideas: example prompts in Hinglish and English, and tips for a good brief">${icon('idea')}</button><label class="icon-btn as-att" title="Attach a reference video or photo - Limelight AI takes it apart and makes the same edit with your footage">${ic('attach')}<input type="file" hidden accept="video/*,image/*,.mxf,.mts"></label><textarea rows="2" placeholder="e.g. music dheema karo aur color thoda warm kar do"></textarea><button class="primary" type="submit">Send</button></form>
   </aside>`);
   document.body.append(root);
   const ta = $('textarea', root);
@@ -50,7 +50,7 @@ export function mountAssistant(busyFn) {
   $('.as-att input', root).addEventListener('change', async (e) => {
     const files = [...e.target.files]; e.target.value = '';
     if (!files.length || !S.proj) return;
-    if (cl.mode !== 'claude') { setMode('claude'); toast('References work with Claude - switched to Claude'); }
+    if (cl.mode !== 'claude') { setMode('claude'); toast('References work with Limelight AI - switched to Limelight AI'); }
     for (const file of files) {
       const r = { name: file.name, pct: 0 }; refs.push(r); drawRefs();
       try { Object.assign(r, await upload(`/api/claude/ref?p=${enc(S.proj)}&name=${enc(file.name)}`, file, (p) => { r.pct = Math.round(p * 100); drawRefs(); }), { ready: true }); }
@@ -80,7 +80,7 @@ export function toggleAssistant(show = root.hidden) {
   if (show) {
     if (S.proj && chatsFor !== S.proj) loadChats(); // (before the greeting, so a kept chat is not replaced by it)
     if (cl.mode === 'claude') checkClaude();
-    if (!log.length && cl.mode === 'claude') say('Claude is here. Describe the edit you want in your own words - e.g.:\n• "make a 60 sec reel of this song from the chorus, with lyrics"\n• "change the third shot, use a happy face"\n• "the opening is slow, tighten the first 10 sec"\nClaude looks at the footage, plans and edits the timeline - the changes show up here live.');
+    if (!log.length && cl.mode === 'claude') say('Limelight AI is here. Describe the edit you want in your own words - e.g.:\n• "make a 60 sec reel of this song from the chorus, with lyrics"\n• "change the third shot, use a happy face"\n• "the opening is slow, tighten the first 10 sec"\nClaude looks at the footage, plans and edits the timeline - the changes show up here live.');
     else if (!log.length) say(`Hello! I can change this edit. Type things like:\n${EXAMPLES.slice(0, 6).map((x) => `• ${x}`).join('\n')}\n\nType "help" to see all commands.`);
     $('textarea', root).focus();
   }
@@ -167,18 +167,18 @@ function setMode(m, save = true) {
 async function checkClaude(force = false) {
   const info = $('[data-clinfo]', root);
   if (!force && cl.status?.available) { info.hidden = true; return cl.status; }
-  info.hidden = false; info.textContent = 'Connecting to Claude…';
+  info.hidden = false; info.textContent = 'Connecting to Limelight AI…';
   try { cl.status = await api('GET', `/api/claude/status${force ? '?force=1' : ''}`); } catch (e) { cl.status = { available: false, reason: e.message }; }
   if (cl.status.available) { info.hidden = true; return cl.status; }
   const login = /auth|login|oauth|expired/i.test(cl.status.reason || '');
   info.innerHTML = login
-    ? `Claude needs a one-time login. Run this in a terminal and type <b>/login</b>:<br><span class="mono">"${esc(cl.status.exe || 'claude')}"</span><br>Then <button class="link small" data-clrecheck>check again</button>. Until then, Quick commands work.`
-    : `Claude is not available right now: ${esc(cl.status.reason || '')} <button class="link small" data-clrecheck>Check again</button>`;
+    ? `Limelight AI needs a one-time login. Run this in a terminal and type <b>/login</b>:<br><span class="mono">"${esc(cl.status.exe || 'claude')}"</span><br>Then <button class="link small" data-clrecheck>check again</button>. Until then, Quick commands work.`
+    : `Limelight AI is not available right now: ${esc(cl.status.reason || '')} <button class="link small" data-clrecheck>Check again</button>`;
   return cl.status;
 }
 async function newChat() {
   if (!S.proj) return;
-  if (cl.job) return say('Claude is still on the previous task - let it finish or press Stop.');
+  if (cl.job) return say('Limelight AI is still on the previous task - let it finish or press Stop.');
   await api('POST', `/api/claude/new?p=${enc(S.proj)}${S.seqMap ? `&seq=${enc(S.seqMap.mine)}` : ''}`).catch(() => {});
   chatId = null; log.length = 0; say(`New chat started. The earlier ones are kept in Chats (last ${CHATS_KEPT}). What shall we make?`);
 }
@@ -187,7 +187,7 @@ const refs = [];
 function drawRefs() {
   const el = $('.as-refs', root); if (!el) return;
   el.hidden = !refs.length;
-  el.innerHTML = refs.map((r, i) => `<span class="chip as-ref">${esc(r.name)}${r.ready ? '' : ` <span class="muted">${r.pct}%</span>`} <button class="link" data-unref="${i}" aria-label="Remove ${esc(r.name)}">✕</button></span>`).join('') + (refs.length ? '<span class="muted small">Claude will copy this edit with your footage</span>' : '');
+  el.innerHTML = refs.map((r, i) => `<span class="chip as-ref">${esc(r.name)}${r.ready ? '' : ` <span class="muted">${r.pct}%</span>`} <button class="link" data-unref="${i}" aria-label="Remove ${esc(r.name)}">✕</button></span>`).join('') + (refs.length ? '<span class="muted small">Limelight AI will copy this edit with your footage</span>' : '');
 }
 // what Claude is told about the attached references (it takes them apart with edtool ref, then rebuilds the edit)
 const refNote = (list) => `
@@ -199,16 +199,16 @@ export async function askClaude(text, { show = true, display = null } = {}) {
   setMode('claude');
   text = String(text || '').trim();
   if (!text || !S.proj) return;
-  if (cl.job) return say('Claude is still on the previous task - let it finish or press Stop.');
+  if (cl.job) return say('Limelight AI is still on the previous task - let it finish or press Stop.');
   log.push({ who: 'me', text: display || text }); draw();
   let st = await checkClaude();
   if (!st?.available) st = await checkClaude(true); // (a remembered failure can be a passing network blip: ask again before giving up)
-  if (!st?.available) return say(`Claude cannot run right now${st?.reason ? `: ${st.reason}` : ' (see above for why)'}. Direct commands still work in Quick mode.`, 'err');
+  if (!st?.available) return say(`Limelight AI cannot run right now${st?.reason ? `: ${st.reason}` : ' (see above for why)'}. Direct commands still work in Quick mode.`, 'err');
   // 🎞 Claude works on the sequence this browser has open (the team's main one, or the one opened just for you)
   let job;
   try { job = await api('POST', `/api/claude/chat?p=${enc(S.proj)}`, { message: text, seq: S.seqMap?.mine }); } catch (e) { return say(e.message, 'err'); }
   cl.job = job.id; draw();
-  setBusy?.(true, 'Claude working…');
+  setBusy?.(true, 'Limelight AI working…');
   let from = 0, lastText = '', changed = false, steps = 0;
   cl.prog = { pct: 2, label: 'Reading your message', t0: Date.now() }; draw();
   try {
@@ -226,10 +226,10 @@ export async function askClaude(text, { show = true, display = null } = {}) {
           setBusy?.(true, `${cl.prog.pct}% · ${cl.prog.label}`); draw();
         }
         else if (e.k === 'done' && e.text) lastText = e.text;
-        else if (e.k === 'error') say(`Claude stopped: ${e.text}`, 'err');
+        else if (e.k === 'error') say(`Limelight AI stopped: ${e.text}`, 'err');
       }
       if (r.status !== 'running') {
-        if (r.status === 'error' && !r.events.some((e) => e.k === 'error') && r.error) say(`Claude stopped: ${r.error}`, 'err');
+        if (r.status === 'error' && !r.events.some((e) => e.k === 'error') && r.error) say(`Limelight AI stopped: ${r.error}`, 'err');
         else if (lastText.trim()) say(lastText.trim()); // ✅ the answer
         break;
       }
@@ -239,7 +239,7 @@ export async function askClaude(text, { show = true, display = null } = {}) {
   finally {
     cl.job = null; cl.prog = null; draw(); setBusy?.(false);
     // Claude changed the timeline: one click takes it back (the server kept the edit from before this message)
-    if (changed) import('./aiundo.js').then((m) => m.offerAiUndo("Claude's change")).catch(() => {});
+    if (changed) import('./aiundo.js').then((m) => m.offerAiUndo("Limelight AI's change")).catch(() => {});
   }
 }
 
@@ -250,7 +250,7 @@ async function send(text) {
   if (!text && !ready.length) return;
   if (!S.project) return toast('Open a project first', 'err');
   if (ready.length) { // 📎 a message with references goes to Claude
-    if (cl.job) return say('Claude is still on the previous task - let it finish or press Stop.');
+    if (cl.job) return say('Limelight AI is still on the previous task - let it finish or press Stop.');
     const msg = text || 'Is reference jaisa same-to-same edit bana do, meri footage se.';
     refs.length = 0; drawRefs();
     return askClaude(msg + refNote(ready), { show: false, display: `${msg}

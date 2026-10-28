@@ -32,7 +32,7 @@ function applySoundType(c, k) {
 import { FILM_LOOKS, lookLut, LETTERBOX, STABILIZE, applyCinematic, removeCinematic, stabilizeAll } from './looks.js';
 import { $, $$, esc, fieldsHTML, bindFields, toast, modal, getPath, setPath } from './ui.js';
 import { mountRamp } from './rampui.js';
-import { MASK_SHAPES, newMask, maskName, unmovedMask } from './shapemask.js';
+import { MASK_SHAPES, newMask, maskName, unmovedMask, maskAt, untrackMask } from './shapemask.js';
 import { gyroHTML, bindGyro } from './gyroui.js';
 import { kgTwirl, kgRow, mountKeyGraphs } from './kfgraph.js';
 import { inSel, pickKeys, moveKeys, settleKeys, deleteKeys } from './kfsel.js';
@@ -56,7 +56,7 @@ export function mountInspector(el) {
 }
 
 // 🧭 each section of Effect Controls: an icon and a line on what it is for, so the list reads at a glance
-const SEC_INFO = { transform: ['transform', 'Position, scale, rotation, opacity, blend'], ramp: ['ramp', 'Fast and slow inside the shot'], cutfx: ['bolt', 'A punch, flash or shake on the cut into it'],
+const SEC_INFO = { transform: ['transform', 'Position, scale, rotation, opacity, blend'], ramp: ['ramp', 'Fast and slow inside the shot'], attrs: ['film', 'Stabilize, lens, retime and scaling'], cutfx: ['bolt', 'A punch, flash or shake on the cut into it'],
   vfx: ['adjust', 'Blur, glow, keying, looks and more'], omask: ['mask', 'Show only a shape of the shot'], text: ['edit', 'The words and their look'], audio: ['speaker', 'Volume, fades and clean-up'],
   aeffects: ['wave', 'EQ, reverb, compressor and more'], trk: ['target', 'Make text or a graphic follow something'], gyro: ['shake', 'Smooth shaky footage with gyro data'], ai: ['sparkle', 'Remove or add things with AI'] };
 const sumHTML = (key, title, extra = '') => { const i = SEC_INFO[key]; return i ? `<span class="is-ic">${ic(i[0])}</span><span class="is-t"><span>${title}${extra}</span><small>${i[1]}</small></span>` : `${title}${extra}`; };
@@ -179,7 +179,7 @@ function renderClip(id) {
   }
 
   if (isAud) { // (a video's sound: its linked audio clip, the Audio page and the timeline's volume line)
-    const adefs = [{ k: 'volume', label: 'Volume', type: 'range', min: 0, max: 2, step: 0.01, def: track === 'V2' ? 0 : 1 }, { k: 'mute', label: 'Mute this clip', type: 'check' }];
+    const adefs = [{ k: 'mute', label: 'Mute this clip', type: 'check' }]; // (Volume and Pan: the keyframe rows above it)
     if (isAud) adefs.push({ k: 'fadeIn', label: 'Fade in', type: 'num', min: 0, step: 0.25, unit: 'sec' }, { k: 'fadeOut', label: 'Fade out', type: 'num', min: 0, step: 0.25, unit: 'sec' });
     // 🎚 the fades' shape (Premiere's Crossfade transitions)
     if (isAud && (c.fadeIn || c.fadeOut)) adefs.push({ k: 'fadeInCurve', label: 'Fade in shape', type: 'select', options: ATRANS.map(([k, l]) => [k, l]) }, { k: 'fadeOutCurve', label: 'Fade out shape', type: 'select', options: ATRANS.map(([k, l]) => [k, l]) });
@@ -190,7 +190,7 @@ function renderClip(id) {
       <button class="small" data-a="dub" title="Speak this clip's lines again with an AI voice: translated to English, re-voiced, or your own lines">Dub / re-voice</button></div><small class="hint">Clean-up is heard in Accurate preview and renders.</small>`;
     // 🔊 Essential Sound: what this sound is - the clean-up / level / ducking that suits it goes on with one click
     const ess = `<div class="iactions es-row"><span class="es-l" title="Essential Sound, like Premiere: tag the clip and its settings follow">Audio type</span><div class="segbtns">${ESSENTIAL.map(([k, l, tip]) => `<button data-es="${k}" aria-pressed="${c.soundType === k}" title="${tip}">${l}</button>`).join('')}</div></div>`;
-    html += sec('audio', 'Audio', ess + fieldsHTML(adefs, obj) + clean + (track === 'A2' ? '<button class="accent wide" data-a="best">Use the best part of this music</button>' : ''));
+    html += sec('audio', 'Audio', ess + motionHTML(c, (L?.end || 0) - (L?.start || 0), false, null, true) + fieldsHTML(adefs, obj) + clean + (track === 'A2' ? '<button class="accent wide" data-a="best">Use the best part of this music</button>' : ''));
     if (!isVid || m?.hasAudio) html += sec('aeffects', `Audio effects${c.aeffects?.length ? ` <span class="muted">${c.aeffects.length}</span>` : ''}`, aeffectsHTML(c));
   }
 
@@ -479,7 +479,9 @@ function maskHTML(m, scope, clipId) {
       <button class="small${editing ? ' on' : ''}" data-medit title="Show the mask on the monitor to move / size it">${editing ? 'Editing on monitor' : 'Edit on monitor'}</button><button class="icon-btn small" data-mdel title="Remove the mask">✕</button></div>
     <div class="fgrid"><label class="fld"><span>Shape</span><select data-mp="shape">${MASK_SHAPES.map(([k, l]) => `<option value="${k}"${k === m.shape ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
       ${m.shape !== 'gradient' ? rng('feather', 'Feather', 0, 300, 1, ' px') + rng('expand', 'Expansion', -200, 200, 1, ' px') : ''}${rng('opacity', 'Mask opacity', 0, 100, 1, '%', 100)}
-      <label class="chk"><input type="checkbox" data-mp="invert"${m.invert ? ' checked' : ''}> Inverted (the outside instead)</label></div></div>`;
+      <label class="chk"><input type="checkbox" data-mp="invert"${m.invert ? ' checked' : ''}> Inverted (the outside instead)</label></div>
+    ${findClip(clipId)?.clip.type === 'video' ? `<div class="mk-row mk-trk">${ic('roto')}<span class="grow">${m.track?.keys?.length ? `Follows the subject ${fmt(m.track.keys[0].t)} → ${fmt(m.track.keys[m.track.keys.length - 1].t)}` : 'Mask tracking: the shape follows the subject'}</span>
+      <label class="chk small" title="Also grow / shrink with the subject (it comes closer / goes away). Off: the mask only moves"><input type="checkbox" data-mtscale${m.track?.scale ? ' checked' : ''}> Size</label><button class="small accent" data-mtrack title="Follow the subject from the playhead to the end of the shot (the mask moves and grows / shrinks with it)">${m.track?.keys?.length ? 'Track again ▶' : 'Track ▶'}</button>${m.track?.keys?.length ? '<button class="small" data-muntrack title="Stop following: the mask stays where it is at the playhead">Clear track</button>' : ''}</div>` : ''}</div>`;
 }
 // a choice of a few: resolves its key, or null
 function modalPick(title, opts) {
@@ -506,13 +508,30 @@ function bindMasks(id) {
     const x = Object.values(layout()).flat().find((q) => q.clip.id === id), rel = x ? Math.max(0, S.playhead - x.start) : 0;
     const tf = { zoom: propAt(c, 'transform.zoom', rel), x: propAt(c, 'transform.x', rel), y: propAt(c, 'transform.y', rel) };
     const e = g.sc === 'clip' ? null : c.effects?.find((q) => q.id === g.sc), cur = g.sc === 'clip' ? c.omask : e?.mask;
-    const base = cur?.shape ? cur : newMask('pen'), nm = { ...base, shape: 'pen', pts: unmovedMask({ ...base, pts }, tf).pts };
+    const base = cur?.shape ? cur : newMask('pen'), nm = untrackMask({ ...maskAt(base, rel), shape: 'pen', pts: unmovedMask({ ...base, pts }, tf).pts }, rel);
     if (g.sc === 'clip') c.omask = nm; else if (e) e.mask = nm;
     S.maskEdit = { clipId: id, effId: g.sc === 'clip' ? null : g.sc };
     doCommit('Pen mask'); render(); emit('maskEdit');
     toast('Pen mask made - drag its dots on the monitor (Esc when done)');
   };
   root.querySelectorAll('[data-mredraw]').forEach((b) => b.addEventListener('click', () => drawPen(b)));
+  // 🎯 mask tracking (masktrack.js): from the playhead to the end of the shot
+  root.querySelectorAll('[data-mtrack]').forEach((b) => b.addEventListener('click', async () => {
+    const g = get(b); if (!g.m) return;
+    b.disabled = true;
+    try {
+      const scale = !!b.closest('.mk-trk')?.querySelector('[data-mtscale]')?.checked;
+      const nm = await (await import('./masktrack.js')).trackMask(id, g.m, (t) => { b.textContent = t.length > 22 ? 'Tracking…' : t; }, { scale });
+      if (!nm) return;
+      get(b).set(nm); doCommit('Track mask'); render(); emit('maskEdit');
+      toast('The mask follows the subject now - press Space to watch (Edit on monitor to fix a frame)');
+    } catch (err) { toast(err.message, 'err'); } finally { b.disabled = false; render(); }
+  }));
+  root.querySelectorAll('[data-muntrack]').forEach((b) => b.addEventListener('click', () => {
+    const g = get(b); if (!g.m) return;
+    const x = Object.values(layout()).flat().find((q) => q.clip.id === id), nm = { ...maskAt(g.m, x ? Math.max(0, S.playhead - x.start) : 0) };
+    delete nm.track; g.set(nm); doCommit('Clear mask track'); render(); emit('maskEdit');
+  }));
   root.querySelectorAll('[data-mobj]').forEach((b) => b.addEventListener('click', async () => {
     const keep = await modalPick('Object mask (AI)', [['cutout', 'Show only the person / object'], ['background', 'Show everything except it']]);
     if (!keep) return;
@@ -568,7 +587,9 @@ const MOTION = [
   { p: 'opacity', label: 'Opacity', min: 0, max: 1, step: 0.01, k: 100, unit: '%' },
   { p: 'cropX', label: 'Reframe X', min: 0, max: 1, step: 0.01, k: 100, unit: '%' },
   { p: 'cropY', label: 'Reframe Y', min: 0, max: 1, step: 0.01, k: 100, unit: '%' },
-  { p: 'volume', label: 'Volume', min: 0, max: 2, step: 0.01, k: 100, unit: '%', vid: true },
+  { p: 'volume', label: 'Volume', min: 0, max: 2, step: 0.01, k: 100, unit: '%', vid: true, aud: true },
+  // 🎧 Panner: -100 = all left, +100 = all right
+  { p: 'pan', label: 'Pan (L / R)', min: -1, max: 1, step: 0.01, k: 100, unit: '', vid: true, aud: true },
 ];
 // Premiere's numbers: Position in sequence pixels (centre = W/2, H/2), Scale in % of the source's own pixels (a 4K shot
 // fitted into a 1080p frame reads 50) - the same values the XML export hands Premiere. Stored: x/y % offset, zoom x fit.
@@ -602,9 +623,10 @@ function blendHTML(c, track) {
   return `<div class="pm-row pm-blend"><span></span><span class="pm-n">Blend Mode</span>
     <select data-blend${v1 ? ' title="Blends with the tracks below it - a main-story (V1) clip has only black below, so for a visible blend move it up a track (Alt+↑) over another clip"' : ' title="How this clip mixes with the tracks below it. Darken / Multiply… make it darker, Lighten / Screen / Add lighter, Overlay / Soft Light add contrast. Exact in Accurate preview and the render."'}>${BLEND_MODES.map(([k, l]) => `<option value="${k}"${(c.blend || '') === k ? ' selected' : ''}>${l}</option>`).join('')}</select></div>`;
 }
-function motionHTML(c, D, isVid, blendTrack) {
+// (aud: an audio clip's rows only - its Volume and Pan, keyframed the same way)
+function motionHTML(c, D, isVid, blendTrack, aud = false) {
   const rel = relTime(c.id), ks = kSel.id === c.id ? kSel.list : [];
-  return `<div class="pm" data-kl data-d="${D}">${MOTION.filter((r) => !r.vid || isVid).map((r) => {
+  return `<div class="pm" data-kl data-d="${D}">${MOTION.filter((r) => (aud ? r.aud : !r.vid || isVid)).map((r) => {
     const keys = c.keys?.[r.p] || [];
     return `<div class="pm-row" data-kp="${r.p}" data-kpath="${r.p}">
       <button class="pm-sw${keys.length ? ' on' : ''}" data-sw="${r.p}" title="${keys.length ? 'Animated - click to stop animating (removes its keyframes)' : 'Animate: a keyframe at the playhead, then change the value elsewhere'}">${ic('clock')}</button>
@@ -789,6 +811,7 @@ function cleanup(c) {
     if (!Object.keys(k).length) delete c.color;
   }
   for (const k of ['speed', 'volume']) if (c[k] === 1 && !(k === 'volume' && c.type === 'video')) delete c[k];
+  if (c.pan === 0) delete c.pan;
 }
 
 // ---------------- project ----------------

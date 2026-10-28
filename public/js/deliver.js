@@ -62,6 +62,7 @@ export function mountDeliver(el) {
         <label class="fld"><span>Codec</span><select id="qCodec"><option value="">Platform default</option><option value="h264">H.264 (plays everywhere)</option><option value="hevc">H.265 / HEVC (half the size)</option><option value="prores">ProRes 422 HQ (editing master)</option><option value="dnxhr">DNxHR HQ .mov (Avid / broadcast)</option><option value="gif">GIF (720 wide, no sound)</option><option value="png">PNG frames (a picture per frame, in a folder)</option><option value="wav">WAV - sound only (24-bit)</option><option value="mp3">MP3 - sound only (320k)</option></select></label>
         <label class="fld"><span>Quality</span><select id="qCrf"><option value="">Platform default</option><option value="14">Best (big file)</option><option value="17">Very high</option><option value="19">High</option><option value="22">Standard</option><option value="26">Small</option></select></label>
         <label class="fld"><span>Audio</span><select id="qAbr"><option value="">Platform default</option><option value="320">320 kbps</option><option value="256">256 kbps</option><option value="192">192 kbps</option><option value="128">128 kbps</option></select></label>
+        <label class="fld" title="HDR: a 10-bit H.265 file in Rec. 2100 for HDR screens (phones, YouTube HDR, HDR TVs). HDR footage keeps its bright highlights; SDR shots, titles and graphics are placed at normal brightness. HLG also looks right on ordinary screens; HDR10 (PQ) is for HDR-only delivery. ProRes / DNxHR stay SDR."><span>Dynamic range</span><select id="qHdr"><option value="">Same as the sequence</option><option value="sdr">SDR (Rec. 709)</option><option value="hlg">HDR - HLG</option><option value="pq">HDR10 - PQ</option></select></label>
         <label class="chk" id="qGpuL"><input type="checkbox" id="qGpu"> Use the NVIDIA GPU (faster 4K)</label>
         <label class="chk" title="For client review copies: the sequence timecode at the bottom of the picture"><input type="checkbox" id="qBurnTC"> Burn in timecode</label>
         <label class="chk" title="The sequence's name at the top left of the picture"><input type="checkbox" id="qBurnName"> Burn in sequence name</label>
@@ -120,7 +121,7 @@ export function mountDeliver(el) {
   };
   ['dvCW', 'dvCH'].forEach((k) => ($(`#${k}`, el).oninput = syncSpec));
   $('#dvSeq', el).onchange = () => { const x = seqList(S.project).find((q) => (q.open ? '' : q.id) === $('#dvSeq', root).value); if (x) setFrame(x.data.settings?.aspect || frame()); syncSpec(); };
-  ['qRes', 'qFps', 'qCodec', 'qCrf', 'qAbr', 'qGpu'].forEach((k) => ($(`#${k}`, el).onchange = syncSpec));
+  ['qRes', 'qFps', 'qCodec', 'qHdr', 'qCrf', 'qAbr', 'qGpu'].forEach((k) => ($(`#${k}`, el).onchange = syncSpec));
   $('#qGpu', el).addEventListener('change', (e) => { e.target.dataset.touched = '1'; });
   $('#dvFit', el).onchange = syncSpec;
   $('#dvRender', el).onclick = () => enqueue([current()]);
@@ -232,7 +233,7 @@ function applyPreset() {
   commit('Export preset');
 }
 const quality = () => {
-  const q = { res: $('#qRes', root).value, fps: $('#qFps', root).value, codec: $('#qCodec', root).value, crf: $('#qCrf', root).value, abr: $('#qAbr', root).value, gpu: $('#qGpu', root).checked ? true : $('#qGpu', root).disabled ? '' : 'off' };
+  const q = { res: $('#qRes', root).value, fps: $('#qFps', root).value, codec: $('#qCodec', root).value, hdr: $('#qHdr', root)?.value, crf: $('#qCrf', root).value, abr: $('#qAbr', root).value, gpu: $('#qGpu', root).checked ? true : $('#qGpu', root).disabled ? '' : 'off' };
   // ⏱ burn-in for review copies
   if ($('#qBurnTC', root)?.checked) q.burnTC = true;
   if ($('#qBurnName', root)?.checked) q.burnName = true;
@@ -256,7 +257,8 @@ function specOf(job) {
   const p = presetById(job.preset), s = S.project.settings, q = job.quality || {};
   const [fw, fh] = ASPECTS[job.aspect], k = +q.res ? +q.res / Math.min(fw, fh) : Math.min(1, p.short / Math.min(fw, fh));
   const cd = q.codec || p.codec || 'h264', crf = +q.crf || p.crf;
-  const codec = cd === 'prores' ? 'ProRes 422 HQ .mov' : `${cd === 'hevc' ? 'H.265' : 'H.264'} .mp4 · quality ${crf}${p.maxrate ? ` · max ${p.maxrate / 1000} Mbit/s` : ''}${p.sizeMB ? ` · under ${p.sizeMB} MB` : ''}${q.gpu === true ? ' · GPU' : ''}`;
+  const hdr = ['prores', 'dnxhr'].includes(cd) || q.hdr === 'sdr' ? null : q.hdr || s.colorSpace; // (🌈 an HDR file is 10-bit H.265)
+  const codec = cd === 'prores' ? 'ProRes 422 HQ .mov' : hdr ? `${hdr === 'pq' ? 'HDR10 (PQ)' : 'HDR HLG'} · H.265 10-bit .mp4 · quality ${crf}` : `${cd === 'hevc' ? 'H.265' : 'H.264'} .mp4 · quality ${crf}${p.maxrate ? ` · max ${p.maxrate / 1000} Mbit/s` : ''}${p.sizeMB ? ` · under ${p.sizeMB} MB` : ''}${q.gpu === true ? ' · GPU' : ''}`;
   return { w: Math.round((fw * k) / 2) * 2, h: Math.round((fh * k) / 2) * 2, fps: +q.fps || Math.min(p.fps, s.fps), codec, reframe: job.aspect !== s.aspect };
 }
 function syncSpec() {

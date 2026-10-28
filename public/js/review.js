@@ -184,6 +184,11 @@ const DEC_RE = /^(✅|✏\uFE0F?)\s*/u, DRAW_RE = /\s*✏\uFE0F?$/u;
 const notePlain = (s) => String(s ?? '').replace(DEC_RE, '').replace(DRAW_RE, '');
 const noteHTML = (s) => { const t = String(s ?? ''); return `${esc(notePlain(t))}${DRAW_RE.test(t) ? ' (drawing)' : ''}`; };
 const STW = { waiting: 'Waiting', changes: 'Changes requested', approved: 'Approved' };
+// 🔁 the change list (engine/clientreview.mjs isChange): the client's own comments, not replies or the decision line;
+// ticked = fixed here, fixedIn = sent to the client as fixed in that version
+const isChange = (c) => !c.parent && !c.team && !/^(✅|✏️ Changes requested)/u.test(c.text);
+const openOf = (l) => l.comments.filter((c) => isChange(c) && !c.done).length;
+const stars = (n) => '★'.repeat(n) + '☆'.repeat(5 - n);
 let crvLinks = [], crvDoor = true, newsTimer = null, newsSince = Date.now();
 const crvGet = () => api('GET', `/api/clientreview?proj=${enc(S.proj)}`).then((r) => { crvLinks = r.links; crvDoor = r.door; reviewBadge(); return r; });
 // 💬 the menu bar's Review button: how many client comments came since this project's reviews were last opened here
@@ -210,7 +215,7 @@ async function drawReviews() {
   try { await crvGet(); } catch { return; }
   const live = crvLinks.filter((l) => !l.expired);
   box.hidden = !live.length;
-  box.innerHTML = live.slice(0, 4).map((l) => `<div class="crv-row"><span class="grow" title="${esc(l.title)}">${esc(l.client || l.title)}</span>${verChips(l)}
+  box.innerHTML = live.slice(0, 4).map((l) => `<div class="crv-row"><span class="grow" title="${esc(l.title)}">${esc(l.client || l.title)}</span>${openOf(l) ? `<span class="crv-open" title="Client changes not ticked as fixed yet">${openOf(l)} to do</span>` : ''}${verChips(l)}
       <button class="icon-btn small" data-crcopy="${esc(l.url)}" title="Copy the client's link" aria-label="Copy link">${ic('copy')}</button></div>`).join('')
     + `<button class="link small" data-a="reviews">All client reviews${live.length > 4 ? ` (${live.length})` : ''} · comments · replies</button>`;
 }
@@ -223,7 +228,7 @@ function watchClientNews() {
       const got = await api('GET', `/api/clientreview/news?since=${newsSince}`);
       if (got.length) {
         newsSince = Math.max(...got.map((x) => x.at));
-        const last = got[got.length - 1], dec = got.find((x) => /^(✅|✏️ Changes)/.test(x.note));
+        const last = got[got.length - 1], dec = got.find((x) => /^(✅|✏️ Changes|⭐)/u.test(x.note));
         toast(dec ? `${dec.by}: ${notePlain(dec.note)}${dec.project !== S.proj ? ` - ${dec.project}` : ''}` : `${got.length > 1 ? `${got.length} comments` : 'A comment'} from ${last.by} on "${last.title}"${last.project !== S.proj ? ` (${last.project})` : ''}: ${notePlain(last.note)}`);
         if (got.some((x) => x.project === S.proj)) drawReviews();
       }
@@ -239,17 +244,22 @@ export async function openSendReview(render) {
   const vids = list.filter((r) => /\.(mp4|m4v|webm)$/i.test(r.name));
   if (!vids.length) return toast('Render the video first (Export) - then send it for review', 'err');
   const live = crvLinks.filter((l) => !l.off);
+  // (the link the client asked for changes on comes first: this render is most likely its next version)
+  const back = live.find((l) => l.versions[l.versions.length - 1].status === 'changes' || l.comments.some((c) => isChange(c) && c.done && !c.fixedIn));
+  const fixNote = (l) => { if (!l) return ''; const fixed = l.comments.filter((c) => isChange(c) && c.done && !c.fixedIn).length, open = openOf(l);
+    return `${fixed ? `${fixed} change${fixed > 1 ? 's' : ''} ticked as fixed - the client sees them as fixed in Version ${l.versions.length + 1}.` : 'No change is ticked as fixed yet (Review → tick each one you did).'}${open ? ` <b>${open} still open.</b>` : ''}`; };
   const dlg = modal('Send for review', `<p class="muted">The client gets a link to this one video - they watch it anywhere (phone or computer, no sign-in), comment at moments and press <b>Approve</b> or <b>Request changes</b>. Their comments land here as notes.</p>
     ${crvDoor ? '' : '<p class="warn small">Team editing is off, so the link only opens on this computer. Turn on Team (with the office domain) so clients can open it from outside.</p>'}
     <label class="fld"><span>Video</span><select data-cr-render>${vids.map((r) => `<option${r.name === render ? ' selected' : ''}>${esc(r.name)}</option>`).join('')}</select></label>
-    ${live.length ? `<label class="fld"><span>Send as</span><select data-cr-link><option value="">A new link</option>${live.map((l) => `<option value="${esc(l.id)}">Version ${l.versions.length + 1} on "${esc(l.client || l.title)}" (the same link)</option>`).join('')}</select></label>` : ''}
-    <div data-cr-new><label class="fld"><span>Client name</span><input data-cr-client placeholder="Optional, e.g. MY Bharat team" maxlength="60"></label>
+    ${live.length ? `<label class="fld"><span>Send as</span><select data-cr-link><option value="">A new link</option>${live.map((l) => `<option value="${esc(l.id)}"${l === back ? ' selected' : ''}>Version ${l.versions.length + 1} on "${esc(l.client || l.title)}" (the same link)</option>`).join('')}</select></label>
+    <p class="small muted" data-cr-fix>${fixNote(back)}</p>` : ''}
+    <div data-cr-new${back ? ' hidden' : ''}><label class="fld"><span>Client name</span><input data-cr-client placeholder="Optional, e.g. MY Bharat team" maxlength="60"></label>
     <label class="fld"><span>Password</span><input data-cr-pw type="text" autocomplete="off" placeholder="Optional - the client types it once"></label>
     <label class="fld"><span>Link works for</span><select data-cr-days><option value="0">Until you turn it off</option><option value="7">7 days</option><option value="30" selected>30 days</option><option value="90">90 days</option></select></label></div>
     <div data-cr-done></div>
     <div class="dv-actions"><button data-close>Cancel</button><button class="primary" data-cr-make>Make link</button></div>`, { width: 560 });
   const linkSel = $('[data-cr-link]', dlg.el);
-  if (linkSel) linkSel.onchange = () => { $('[data-cr-new]', dlg.el).hidden = !!linkSel.value; };
+  if (linkSel) linkSel.onchange = () => { $('[data-cr-new]', dlg.el).hidden = !!linkSel.value; $('[data-cr-fix]', dlg.el).innerHTML = fixNote(live.find((l) => l.id === linkSel.value)); };
   $('[data-cr-make]', dlg.el).onclick = async (e) => {
     const b = e.target; b.disabled = true;
     try {
@@ -273,12 +283,14 @@ export async function openReviews() {
     await crvGet();
     $('[data-crl]', dlg.el).innerHTML = crvLinks.map((l) => {
       const tops = l.comments.filter((c) => !c.parent).sort((a, b) => b.v - a.v || a.t - b.t);
+      const asks = tops.filter(isChange), done = asks.filter((c) => c.done).length;
       return `<div class="crv-card${l.expired ? ' off' : ''}">
-        <div class="nt-row"><b class="grow">${esc(l.client || l.title)}</b>${verChips(l)}</div>
+        <div class="nt-row"><b class="grow">${esc(l.client || l.title)}</b>${asks.length ? `<span class="crv-open${done === asks.length ? ' all' : ''}" title="Client changes ticked as fixed">${done} of ${asks.length} fixed</span>` : ''}${verChips(l)}</div>
+        ${l.rating ? `<div class="crv-rate" title="The client's rating after approving">${stars(l.rating.stars)} <span class="muted small">${esc(l.rating.by || '')}${l.rating.text ? ` - "${esc(l.rating.text)}"` : ''}</span></div>` : ''}
         <div class="muted small">${esc(l.title)} · made ${new Date(l.created).toLocaleDateString()}${l.by ? ` by ${esc(l.by)}` : ''}${l.hasPw ? ' · password' : ''}${l.off ? ' · turned off' : l.expired ? ' · expired' : l.expires ? ` · works until ${new Date(l.expires).toLocaleDateString()}` : ''}</div>
         <div class="nt-row"><span class="mono small grow crv-url">${esc(l.url)}</span><button class="small" data-crcopy="${esc(l.url)}">Copy link</button>
           <button class="small" data-croff="${esc(l.id)}" data-v="${l.off ? 0 : 1}">${l.off ? 'Turn on' : 'Turn off'}</button><button class="icon-btn small" data-crdel="${esc(l.id)}" title="Delete this link and its comments" aria-label="Delete link">${ic('trash')}</button></div>
-        ${tops.map((c) => `<div class="nt-item"><button class="link mono" data-seek="${+c.t || 0}" title="Go there on the timeline">${fmtTC(c.t, fps).replace(/^00:/, '')}</button>
+        ${tops.map((c) => `<div class="nt-item${c.done ? ' crv-done' : ''}">${isChange(c) ? `<label class="crv-tick" title="${c.fixedIn ? `Sent to the client as fixed in Version ${c.fixedIn}` : 'Tick when it is fixed - the next version tells the client'}"><input type="checkbox" data-crdone="${esc(c.id)}" data-link="${esc(l.id)}"${c.done ? ' checked' : ''}${c.fixedIn ? ' disabled' : ''}>${c.fixedIn ? `V${c.fixedIn}` : 'Fixed'}</label>` : ''}<button class="link mono" data-seek="${+c.t || 0}" title="Go there on the timeline">${fmtTC(c.t, fps).replace(/^00:/, '')}</button>
           <div class="grow">${noteHTML(c.text)}${c.draw ? ' (drawing)' : ''}<div class="muted small">${esc(c.by)} · Version ${c.v} · ${new Date(c.at).toLocaleString()}</div>
           ${l.comments.filter((r) => r.parent === c.id).map((r) => `<div class="crv-reply">${esc(r.text)} <span class="muted small">${esc(r.by)}${r.team ? ' (team)' : ''}</span></div>`).join('')}
           <div class="row-in"><input data-crr="${esc(c.id)}" data-link="${esc(l.id)}" placeholder="Reply to the client… (Enter)" aria-label="Reply"></div></div></div>`).join('') || '<div class="muted small pad">No comments yet.</div>'}
@@ -293,6 +305,10 @@ export async function openReviews() {
     if (t.dataset.croff) edit({ link: t.dataset.croff, off: t.dataset.v === '1' });
     if (t.dataset.crdel && confirm('Delete this review link? The client can no longer open it, and its comments here go too (the notes on the timeline stay).')) edit({ link: t.dataset.crdel, remove: true });
     if (t.dataset.seek) emit('seek', +t.dataset.seek);
+  });
+  dlg.el.addEventListener('change', (e) => {
+    const t = e.target.closest('[data-crdone]'); if (!t) return;
+    api('POST', `/api/clientreview/done?proj=${enc(S.proj)}`, { link: t.dataset.link, id: t.dataset.crdone, done: t.checked }).then(() => { draw(); drawReviews(); }).catch((err) => { t.checked = !t.checked; toast(err.message, 'err'); });
   });
   dlg.el.addEventListener('keydown', async (e) => {
     const i = e.target.closest('[data-crr]'); if (!i || e.key !== 'Enter' || !i.value.trim()) return;

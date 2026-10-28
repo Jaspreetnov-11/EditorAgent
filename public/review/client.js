@@ -58,12 +58,36 @@ function draw() {
     inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
     return el('li', {},
       el('div', {}, el('button', { class: 'link tc', type: 'button', title: 'Go there', onclick: () => seek(c) }, tc(c.t)), ' ', el('span', { class: 'txt' }, String(c.text ?? '').replace(/^(✅|✏️) /u, '')), c.draw ? ' (drawing)' : null),
-      el('div', { class: `who${c.team ? ' team' : ''}` }, `${c.by}${c.team ? ' (Limelight)' : ''} · ${when(c.at)}`),
+      el('div', { class: `who${c.team ? ' team' : ''}` }, `${c.by}${c.team ? ' (Limelight)' : ''} · ${when(c.at)}`, c.fixedIn ? el('span', { class: 'fix' }, ` · ✓ Fixed in Version ${c.fixedIn}`) : null),
       replies.length ? el('ul', {}, ...replies.map((r) => el('li', {}, el('span', { class: 'txt' }, r.text), el('div', { class: `who${r.team ? ' team' : ''}` }, `${r.by}${r.team ? ' (Limelight)' : ''} · ${when(r.at)}`)))) : null,
       el('div', { class: 'reply' }, inp, el('button', { class: 'ghost', type: 'button', onclick: send }, 'Reply')));
   }));
+  // 🔁 what the team fixed for this version (asked on an earlier one)
+  const fixed = info.comments.filter((c) => c.fixedIn === v.n).sort((a, b) => a.v - b.v || a.t - b.t);
+  $('fixed').hidden = !fixed.length;
+  $('fixedH').textContent = `What changed in Version ${v.n} (${fixed.length} fixed)`;
+  $('fixedList').replaceChildren(...fixed.map((c) => el('li', {}, el('span', { class: 'ok-mark' }, '✓ '), el('span', { class: 'txt' }, c.text), el('div', { class: 'who' }, `${c.by} asked on Version ${c.v} at ${tc(c.t)}`))));
+  drawRate();
   marks();
 }
+// ⭐ once the newest version is approved: how the job went (they can change it later)
+let rateStars = 0;
+function drawRate() {
+  const last = info.versions[info.versions.length - 1], r = info.rating;
+  $('rate').hidden = last.status !== 'approved' || cur !== info.versions.length - 1;
+  if (!rateStars && r) { rateStars = r.stars; $('rtext').value = r.text || ''; }
+  $('stars').replaceChildren(...[1, 2, 3, 4, 5].map((n) => el('button', { type: 'button', class: `star${n <= rateStars ? ' on' : ''}`, role: 'radio', 'aria-checked': String(n === rateStars), 'aria-label': `${n} star${n > 1 ? 's' : ''}`, onclick: () => { rateStars = n; drawRate(); } }, '★')));
+  $('rdone').textContent = r ? `Thank you - you gave ${r.stars} of 5 (${when(r.at)}).` : '';
+  $('rsend').textContent = r ? 'Update feedback' : 'Send feedback';
+}
+async function rate() {
+  const by = $('name').value.trim();
+  if (!rateStars) { $('rdone').textContent = 'Pick the stars first'; return; }
+  $('rsend').disabled = true;
+  try { info = await call('POST', '/api/rate', { stars: rateStars, text: $('rtext').value.trim(), by }); draw(); $('rdone').textContent = 'Thank you - the team sees your feedback ✓'; }
+  catch (e) { $('rdone').textContent = e.message; } finally { $('rsend').disabled = false; }
+}
+$('rsend').onclick = rate;
 function marks() {
   const d = vid.duration;
   $('bar').querySelectorAll('i').forEach((x) => x.remove());

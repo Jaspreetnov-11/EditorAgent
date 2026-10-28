@@ -68,6 +68,14 @@ function renderMixer() {
     f.addEventListener('input', () => { st(id).volume = +f.value; f.closest('.strip').querySelector('.fdb').textContent = `${fmtDb(dbOf(+f.value))} dB`; emit('mix'); });
     f.addEventListener('change', () => commit(`${id} volume`, `${id}:vol`));
   });
+  // 🎧 the track's pan (trackState.pan; its keyframes are drawn on the timeline: Show sound keyframes - Pan)
+  $('[data-pan]', root).forEach((p) => {
+    const id = p.dataset.pan, out = p.closest('.strip').querySelector('.pan-v');
+    const set = (v) => { if (Math.abs(v) < 0.02) delete st(id).pan; else st(id).pan = +v.toFixed(2); out.textContent = panSay(v); emit('mix'); };
+    p.addEventListener('input', () => set(+p.value));
+    p.addEventListener('change', () => commit(`${id} pan`, `${id}:pan`));
+    p.addEventListener('dblclick', () => { p.value = 0; set(0); commit(`${id} pan`); });
+  });
   $$('[data-duck]', root).forEach((inp) => {
     inp.addEventListener('input', () => { st('A2')[inp.dataset.duck] = +inp.value; showVal(inp); });
     inp.addEventListener('change', () => commit('Ducking', `duck:${inp.dataset.duck}`));
@@ -127,6 +135,7 @@ function renderClipMixer() {
   });
 }
 
+const panSay = (v) => (Math.abs(v) < 0.02 ? 'C' : `${v < 0 ? 'L' : 'R'}${Math.round(Math.abs(v) * 100)}`);
 function strip(s, used) {
   const x = st(s.id), fx = { ...FX_DEFAULT, ...(x.fx || {}) }, vol = x.volume ?? 1;
   const slider = (k, label, min, max, step, unit, note = '') => `<label class="fxr"><span>${label}${note ? ` <i>${note}</i>` : ''}</span>
@@ -157,6 +166,7 @@ function strip(s, used) {
       <input type="range" class="fader" data-fader="${s.id}" min="0" max="2" step="0.01" value="${vol}" aria-label="${s.name} volume">
     </div>
     <div class="fdb">${fmtDb(dbOf(vol))} dB</div>
+    <label class="panrow" title="Pan: left / right (double-click = centre)${x.panKeys?.length ? ' - this track has pan keyframes on the timeline, they win while playing' : ''}"><span>Pan</span><input type="range" class="panner" data-pan="${s.id}" min="-1" max="1" step="0.01" value="${+x.pan || 0}" aria-label="${s.name} pan"><b class="pan-v">${panSay(+x.pan || 0)}</b></label>
     <div class="ms"><button class="tbtn${x.mute ? ' on' : ''}" data-au="mute" title="Mute">M</button><button class="tbtn solo${x.solo ? ' on' : ''}" data-au="solo" title="Solo (listen to this track only)">S</button></div>
   </div>`;
 }

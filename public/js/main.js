@@ -86,7 +86,7 @@ const TOOLS = [
   ['Help', [['starthere', 'start', 'Automation', 'Your first edit in 4 steps', 'Automation: bring footage, pick what to make (ready-made jobs), let the Agent edit, export'],
     ['promptguide', 'idea', 'Prompt guide', 'What to type to the AI', 'Example prompts in Hinglish and English, tips for a good brief, what each Agent option does']]],
   ['History', [['undo', 'undo', 'Undo', 'Ctrl+Z', 'Undo (Ctrl+Z)'], ['redo', 'redo', 'Redo', 'Ctrl+Shift+Z', 'Redo (Ctrl+Shift+Z)'],
-    ['aiundo', 'aiundo', 'AI Undo', 'Before an Agent / Claude edit', 'Bring back the edit as it was before an Agent edit, Re-edit or Claude change (works after a refresh too)'],
+    ['aiundo', 'aiundo', 'AI Undo', 'Before an Agent / Limelight AI edit', 'Bring back the edit as it was before an Agent edit, Re-edit or Limelight AI change (works after a refresh too)'],
     ['versions', 'versions', 'Versions', 'Go back, or save with a name', 'Versions: go back to an earlier edit, or save this one with a name']]],
   ['Project', [['brand', 'brand', 'Brand packs', 'Client logo, colours, intro / outro', 'Brand packs - one per client: logo, colours, font, captions, lower thirds, intro / outro - and project templates'],
     ['mediamgr', 'media', 'Media manager', 'Relink, pack, clean up', 'Media manager: relink offline files, pack the project, clean up disk'],

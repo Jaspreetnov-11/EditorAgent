@@ -23,7 +23,7 @@ export async function openQC(file, onSeek) {
   body.className = 'qc';
   body.innerHTML = `<p class="muted small">${file ? `<b>${esc(file)}</b>` : 'The edit as it is now (a quick preview is made first)'} - black frames, a stuck picture, flashing, broadcast-safe colours, loudness and peaks for the channel${file ? '' : ', the shape and length'}.</p>
     <div class="fgrid"><label class="fld"><span>Going to</span><select name="target">${CHANNELS.map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}</select></label>
-    <label class="chk"><input type="checkbox" name="spell" checked> Check the spelling of the titles (Claude)</label></div>
+    <label class="chk"><input type="checkbox" name="spell" checked> Check the spelling of the titles (Limelight AI)</label></div>
     <div class="dv-actions"><button class="primary" data-go>Run QC</button></div>
     <div class="job" data-job hidden><div class="job-top"><span data-st>Starting…</span><span data-pc></span></div><div class="bar"><div data-bar></div></div></div>
     <div data-out></div>`;

@@ -16,9 +16,9 @@ export async function openActivity() {
   const people = [...new Set(list.map((x) => x.name))];
   const dlg = modal('Activity - who changed what', `
     <div class="row-in"><label class="fld"><span>Who</span><select data-who><option value="">Everyone</option>${people.map((p) => `<option>${esc(p)}</option>`).join('')}</select></label>
-      <span class="grow"></span><button class="link small" data-ai>Undo AI edits (Agent / Claude)…</button></div>
+      <span class="grow"></span><button class="link small" data-ai>Undo AI edits (Agent / Limelight AI)…</button></div>
     <div class="dv-list act-list" data-list></div>
-    <p class="muted small">"Undo just this" reverts that one change - everyone else's work stays as it is. Big changes (a whole Agent / Claude edit) are undone with AI Undo.</p>
+    <p class="muted small">"Undo just this" reverts that one change - everyone else's work stays as it is. Big changes (a whole Agent / Limelight AI edit) are undone with AI Undo.</p>
     <div class="dv-actions"><button data-close>Close</button></div>`, { width: 680 });
   const draw = () => {
     const who = dlg.el.querySelector('[data-who]').value;

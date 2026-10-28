@@ -175,7 +175,7 @@ ${titles.map((t, i) => `[${i}] ${String(t.text).replace(/\s+/g, ' ').slice(0, 30
 export function addSpelling(report, titles, answer) {
   let j = null;
   try { j = JSON.parse(String(answer).slice(String(answer).indexOf('{'), String(answer).lastIndexOf('}') + 1)); } catch {}
-  if (!j) report.items.push({ level: 'warn', kind: 'spell', text: 'Spelling could not be checked (Claude did not answer)' });
+  if (!j) report.items.push({ level: 'warn', kind: 'spell', text: 'Spelling could not be checked (Limelight AI did not answer)' });
   else if (!j.mistakes?.length) report.items.push({ level: 'ok', kind: 'spell', text: `Spelling of ${titles.length} title${titles.length > 1 ? 's' : ''} looks right` });
   else for (const m of j.mistakes) {
     const t = titles[m.i];

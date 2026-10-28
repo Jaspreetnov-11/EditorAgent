@@ -158,6 +158,7 @@ video.lyr, img.lyr { object-fit: contain; transform-origin: center; }
 .clip .band { position: absolute; left: 0; right: 0; top: 15px; bottom: 0; width: 100%; height: calc(100% - 15px); pointer-events: none; z-index: 1; }
 .clip .band polyline { fill: none; stroke: #ffe066; stroke-width: 1.5; }
 .clip .band-k { position: absolute; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; background: #ffe066; transform: rotate(45deg); pointer-events: none; z-index: 2; }
+.clip .band.pan polyline { stroke: #7fd4ff; stroke-dasharray: 3 2; } /* 🎧 the pan line (left at the top) */
 /* tools' cursors on the clips (like Premiere) */
 .timeline[data-tool="pen"] .clip { cursor: crosshair; }
 .timeline[data-tool="rolling"] .trim { cursor: col-resize; }
@@ -420,6 +421,7 @@ textarea.srt { min-height: 220px; font-family: Consolas, "Nirmala UI", monospace
 .strip.master .fadersec { flex: 1; }
 .fader { writing-mode: vertical-lr; direction: rtl; width: 28px; height: 150px; }
 .fdb { text-align: center; font-family: Consolas, monospace; font-size: 11px; color: var(--muted); }
+.panrow { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--muted); margin: 2px 0; } .panrow .panner { flex: 1; min-width: 0; accent-color: var(--accent); } .panrow .pan-v { width: 26px; text-align: right; font-family: Consolas, monospace; font-weight: 400; }
 .ms { display: flex; gap: 6px; justify-content: center; }
 .ms .tbtn { padding: 3px 12px; font-size: 12px; }
 .ms .solo.on { background: #e8c547; border-color: #e8c547; color: #1b1206; }
@@ -1580,14 +1582,14 @@ html.ui2 .tl-row .clip.lab .clip-lbl, .tl-row .clip.lab .clip-lbl { background: 
 .tl-row .clip.clocked { background-image: repeating-linear-gradient(135deg, transparent 0 7px, rgba(0,0,0,.28) 7px 9px); }
 .tl-row .clip.clocked .trim { pointer-events: none; }
 .pagebar { position: relative; }
-.pagebar .pb-zoom { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; gap: 8px; }
+.pagebar .pb-zoom { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; gap: 8px; }
 .pagebar .pb-zoom[hidden] { display: none; }
 .pagebar .pb-zoom button { padding: 2px 10px; border: 1px solid var(--line-2); border-radius: 4px; background: var(--panel-2); color: var(--text); font-weight: 500; letter-spacing: 0; }
 .pagebar .pb-zoom .zoom { display: flex; align-items: center; gap: 4px; color: var(--muted); }
 .pagebar .pb-zoom input[type=range] { width: 130px; }
-@media (max-width: 1100px) { .pagebar .pb-zoom input[type=range] { width: 70px; } .pagebar .pb-zoom { left: 6px; gap: 4px; } }
+@media (max-width: 1100px) { .pagebar .pb-zoom input[type=range] { width: 70px; } .pagebar .pb-zoom { right: 6px; gap: 4px; } }
 /* 🏠 the logo at the right end of the page bar (the top bar had no room for it); the page buttons stay centred */
-.pagebar .pb-brand { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); display: inline-flex; align-items: center; gap: 8px; height: auto;
+.pagebar .pb-brand { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); display: inline-flex; align-items: center; gap: 8px; height: auto;
   padding: 3px 8px; border: 1px solid transparent; border-radius: 6px; color: var(--text); }
 .pagebar .pb-brand:hover { background: #d4a24c12; border-color: #d4a24c33; }
 .pagebar .pb-brand .logo-mark { width: 22px; height: 22px; }
@@ -1596,6 +1598,7 @@ html.ui2 .tl-row .clip.lab .clip-lbl, .tl-row .clip.lab .clip-lbl { background: 
 /* 🎚 track volume keyframes */
 .tl-auto { position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 6; pointer-events: none; }
 .tl-auto .ta-svg { position: absolute; left: 0; overflow: visible; pointer-events: none; }
+.tl-auto .ta-svg.pan polyline { stroke: #7fd4ff; stroke-dasharray: 4 3; } .tl-auto .ta-svg.pan circle { fill: #7fd4ff; }
 .tl-auto polyline { fill: none; stroke: #ffd24d; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .tl-auto circle { fill: #ffd24d; stroke: #111; stroke-width: 1; pointer-events: auto; cursor: grab; }
 .th-btns .tbtn.tkey { font-size: 10px; }
@@ -1638,6 +1641,11 @@ html.ui2 .tl-row .clip.lab .clip-lbl, .tl-row .clip.lab .clip-lbl { background: 
 .crv-card .nt-item { background: var(--panel); }
 .crv-url { overflow-wrap: anywhere; user-select: all; }
 .crv-reply { margin-top: 3px; font-size: 12px; }
+.crv-open { flex: none; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 99px; background: rgba(255,194,26,.12); color: var(--accent); }
+.crv-open.all { background: rgba(54,194,126,.14); color: var(--green); }
+.crv-tick { flex: none; display: flex; align-items: center; gap: 3px; font-size: 11px; color: var(--muted); cursor: pointer; }
+.crv-done > .grow { opacity: .6; }
+.crv-rate { color: var(--accent); font-size: 15px; letter-spacing: 1px; }
 
 /* 🧪 QC report */
 .qc-sum { margin: 10px 0 6px; padding: 8px 10px; border-radius: 6px; font-weight: 600; background: var(--panel-2); }
@@ -1982,6 +1990,16 @@ html.ui2 .viewer .vw-row { display: none; }
   transition: border-color .2s, transform .2s, box-shadow .2s; }
 .lab-feat.big { grid-column: span 2; min-height: 210px; }
 .lab-feat.mid { grid-column: span 2; min-height: 150px; }
+.lab-feat.full { grid-column: 1 / -1; } .lab-feat.full .lab-feat-top .lab-pill + .lab-pill { margin-left: 6px; }
+/* ✨ Vibe window: the camera moves down the left, the Labs timeline beside them */
+.vibe { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 12px; height: 100%; min-height: 0; }
+.vibe-moves { display: flex; flex-direction: column; gap: 8px; min-height: 0; padding-right: 12px; border-right: 1px solid var(--line); }
+.vibe-mh { display: flex; align-items: center; justify-content: space-between; }
+.vibe-moves .lab-note { margin: 0; font-size: 11px; }
+.vibe-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.vibe-list .lab-tile { width: 100%; padding: 8px 10px; gap: 10px; min-height: 0; }
+.vibe-list .lab-tile small { font-size: 10.5px; }
+.vibe-main { min-width: 0; min-height: 0; overflow: auto; }
 .lab-feat:hover { border-color: color-mix(in srgb, var(--accent) 60%, transparent); transform: translateY(-2px); box-shadow: 0 18px 40px -18px color-mix(in srgb, var(--accent) 35%, transparent); }
 .lab-feat:active { transform: none; }
 .lab-feat { align-items: stretch !important; justify-content: space-between !important; }

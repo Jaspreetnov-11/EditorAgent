@@ -14,7 +14,7 @@ import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
-import { ASPECTS, clipDur, placed, totalDuration, keysExpr, rampPts, sourceAt, overlayTracks, audioTracks, syncLinked, blendFF, trackAudible } from '../public/js/model.js';
+import { ASPECTS, clipDur, placed, totalDuration, keysExpr, rampPts, sourceAt, overlayTracks, audioTracks, syncLinked, blendFF, trackAudible, panGains } from '../public/js/model.js';
 import { fxFilters } from '../public/js/audiofx.js';
 import { aeffectFilters, fadeCurve } from '../public/js/audioeffects.js';
 import { colorFilters, stager } from './color.mjs';
@@ -24,6 +24,7 @@ import { buildAss, capTracks } from '../public/js/captions.js';
 import { maskTrack } from '../public/js/tracking.js';
 import { gfxKey } from '../public/js/graphics.js';
 import { maskAlpha, movedMask, maskKey } from '../public/js/shapemask.js';
+import { sourceIn, sdrToHlg, sdrToHlgAlpha, hlgOut } from './hdr.mjs';
 
 const job = JSON.parse(fs.readFileSync(process.argv[2], 'utf8').replace(/^\uFEFF/, ''));
 const { project, media } = job;
@@ -55,6 +56,16 @@ const FF7 = path.join(HERE, '..', 'tools', 'ffmpeg-7.1.1-essentials_build', 'bin
 const NV = job.preview || EX.gpu === false || job.gpu === false ? null : [fs.existsSync(FF7) ? FF7 : null, 'ffmpeg'].filter(Boolean).find((b) =>
   spawnSync(b, ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=s=256x256:d=0.2', '-c:v', 'h264_nvenc', '-f', 'null', '-'], { windowsHide: true }).status === 0) || null;
 // shot pieces stay on the CPU: they are small, and on the GPU they measured slower (the decode is the slow part)
+// 🌈 HDR export (Sequence Settings › Working colour space HLG / PQ, engine/hdr.mjs): the picture is built in HLG - HDR
+// footage goes in as HLG, SDR shots / titles / graphics are lifted into it - and the file is HLG or PQ, 10-bit.
+// Otherwise (every SDR export and preview) HDR footage is tone-mapped to Rec. 709 as it comes in.
+// (Deliver › Dynamic range: EX.hdr 'sdr' / 'hlg' / 'pq' wins over the sequence; ProRes / DNxHR masters stay SDR)
+const HDR_WANT = EX.hdr === 'sdr' ? null : EX.hdr || S.colorSpace;
+const HDR_OUT = !job.preview && !OWN0() && !['prores', 'dnxhr'].includes(EX.codec) && ['hlg', 'pq'].includes(HDR_WANT) ? HDR_WANT : null;
+// a video source's colour steps as it comes in ('' for SDR footage, and for a preview copy - already tone-mapped)
+const srcColor = (m, file) => (m?.hdr && file === m.path ? sourceIn(m.hdr, HDR_OUT) : '');
+// an SDR overlay (title, graphic, logo, picture) on its way onto an HDR export's picture: lifted into HLG
+const hdrOv = (gr, label, hdrSrc = false) => { if (!HDR_OUT || hdrSrc) return label; gr.push(...sdrToHlgAlpha(label, `${label}h`)); return `${label}h`; };
 const SEG_ENC = job.preview ? (FAST ? ENC(26, 'ultrafast') : ENC(20, 'veryfast')) : ENC(16, 'veryfast');
 // shots rendered side by side (each FFmpeg already uses several cores; camera files come from a slow drive)
 const PAR = Math.max(1, +job.parallel || (FAST ? 4 : 3)); // (a 1080p preview reads the camera files too)
@@ -239,6 +250,16 @@ const clipFx = (c) => { const f = [...fxFilters(c.afx), ...aeffectFilters(c.aeff
 const getP = (o, p) => p.split('.').reduce((a, k) => a?.[k], o);
 // Clip volume: static value, or the keyframed curve evaluated per audio frame (t = time since the clip started).
 const volumeFilter = (c, dflt = 1) => (c.keys?.volume?.length ? `volume='${keysExpr(c.keys.volume, 't')}':eval=frame` : `volume=${c.volume ?? dflt}`);
+// 🎧 Pan (-1 left … 1 right) as a balance, like model.js panGains: the far side turns down. Static: one pan filter;
+// keyframed (keys.pan on the clip, or a track's panKeys on the timeline's clock): the gains per sample. '' = centred.
+// Starts with ',' so it goes straight after the filter before it.
+function panFilter(keys, value) {
+  if (keys?.length) { const P = `clip(${keysExpr(keys, 't')},-1,1)`; return `,aformat=sample_fmts=fltp:channel_layouts=stereo,aeval=exprs='val(0)*min(1,1-(${P}))|val(1)*min(1,1+(${P}))':channel_layout=stereo`; }
+  const [l, r] = panGains(value);
+  return l === 1 && r === 1 ? '' : `,aformat=sample_fmts=fltp:channel_layouts=stereo,pan=stereo|c0=${l.toFixed(4)}*c0|c1=${r.toFixed(4)}*c1`;
+}
+const clipPan = (c) => panFilter(c.keys?.pan, c.pan);
+const trackPan = (st) => panFilter(st?.panKeys, st?.pan);
 
 // Cut effect (public/js/fx.js) on the first moments of a clip; t = seconds since the clip started. Returns the out label.
 // Effects that only exist for a moment are built from timeline-enabled filters or from a trimmed copy overlaid on top.
@@ -324,7 +345,7 @@ function vfxGraph(c, inL, g, pre = `vx${segN}`, addMask = null, addAux = null) {
     } else g.push(typeof r === 'string' ? `[${src}]${r}[${dst}]` : r.graph(src, dst));
     if (timed) g.push(`[${out}ta][${out}tx]overlay=eof_action=pass:enable='between(t,${(+e.from || 0).toFixed(3)},${(+(e.to ?? 1e6)).toFixed(3)})'[${out}]`);
     if (masked) {
-      const mk = addMask(maskPng(e.mask));
+      const mk = maskLabel(e.mask, addMask, g);
       g.push(`[${dst}]format=yuva420p[${out}g]`, `[${out}g][${mk}]alphamerge[${out}h]`, `[${out}a][${out}h]overlay=format=auto,format=yuv420p[${out}]`);
     }
     cur = out;
@@ -345,6 +366,22 @@ function postGraph(c, inL, g, pre, dur, hasAlpha) {
   let cur = `${pre}0`;
   postEffects(c).forEach((e, j) => { const o = `${pre}${j + 1}`; g.push(VFX[e.type].post(e.p || {}, { W, H })(cur, o)); cur = o; });
   return cur;
+}
+// 🎯 a mask as a label of the graph: its grey picture - or, tracked (m.track, shapemask.js maskAt), that picture moved and
+// scaled every frame the way the subject moved: a perspective warp of the drawn shape, the same steps the monitor shows
+// (in/F = seconds into the clip, as the mask picture starts with the clip). add(file) -> the picture's label;
+// tf: the clip's Motion, for masks laid on where Motion has put the picture (overlays) - the track runs before it.
+function maskLabel(m, add, g, tf = null) {
+  if (!m.track?.keys?.length) return add(maskPng(tf ? movedMask(m, tf) : m));
+  const base = { ...m, invert: false, opacity: 1 }; delete base.track;
+  const L = add(maskPng(tf ? movedMask(base, tf) : base)), z = +tf?.zoom || 1, X = (+tf?.x || 0) / 100, Y = (+tf?.y || 0) / 100;
+  const { ax = 0.5, ay = 0.5, keys } = m.track, T = `(in/${F})`;
+  // where corner (u, v) of the picture lands at tracked step k: Motion taken back, the track's move, Motion again
+  const at = (k, u, v) => { const p = (q, o, a, d) => 0.5 + (a + d + ((q - 0.5 - o) / z + 0.5 - a) * k.s - 0.5) * z + o; return [p(u, X, ax, k.dx) * W, p(v, Y, ay, k.dy) * H]; };
+  const C = [[0, 0], [1, 0], [0, 1], [1, 1]], ex = (j, axis) => treeExpr(keys.map((k) => ({ t: k.t, v: at(k, C[j][0], C[j][1])[axis] })), T);
+  const op = Math.min(1, Math.max(0, m.opacity ?? 1)), out = `${L}t`;
+  g.push(`[${L}]scale=${W - 4}:${H - 4},pad=${W}:${H}:2:2:color=black,perspective=sense=destination:eval=frame:${C.map((_, j) => `x${j}='${ex(j, 0)}':y${j}='${ex(j, 1)}'`).join(':')}${m.invert ? ',negate' : ''}${op < 1 ? `,lut=c0=val*${op.toFixed(3)}` : ''}[${out}]`);
+  return out;
 }
 // a mask as a grey PNG of the output size in the work folder (made once per mask)
 const maskPngs = new Map();
@@ -393,7 +430,7 @@ function maskGraph(c, inL, g, mode) {
 // A shot is the same when its clip settings, its file, the frame size / rate and the encoder are the same: then the
 // piece rendered last time (job.segCache/<key>.mp4) is used again instead of being rendered from the camera file.
 const SEG_V = 3; // bump when segment() changes what it draws (2: frame-exact shot lengths, 3: square pixels at the end)
-const segKey = (c, label, mode, fixed) => crypto.createHash('sha1').update(JSON.stringify({ SEG_V, c, fixed, v1: label.startsWith('V1'), mode, W, H, F, preview: !!job.preview, SEG_ENC,
+const segKey = (c, label, mode, fixed) => crypto.createHash('sha1').update(JSON.stringify({ SEG_V, c, fixed, v1: label.startsWith('V1'), mode, W, H, F, preview: !!job.preview, SEG_ENC, hdr: HDR_OUT,
   m: c.mediaId ? media[c.mediaId] : null, px: proxyOf(c.mediaId), kb: S.kenburns, luts: job.luts || {} })).digest('hex').slice(0, 24);
 const CACHE_MB = job.segCacheMB || 30000;
 function trimCache() {
@@ -483,12 +520,12 @@ function segment(c, label, fixed = null) {
       // speed ramp: every source frame at T seconds is shown at the timeline time where the ramp reaches it
       // (the inverse of sourceAt, as a piecewise-linear curve with 64 pieces); fps then repeats / drops frames evenly
       const K = 64, keys = Array.from({ length: K + 1 }, (_, k) => ({ t: sourceAt({ ...c, in: 0 }, (dur * k) / K, dur), v: (dur * k) / K }));
-      g.push(`[0:v]${stab}setpts='(${keysExpr(keys, 'T')})/TB'${rate}[v0]`);
-    } else g.push(`[0:v]${stab}${c.reverse ? 'reverse,' : ''}setpts=(PTS-STARTPTS)/${speed}${rate}[v0]`); // (⏪ Reverse speed: the shot backwards)
+      g.push(`[0:v]${srcColor(m, src)}${stab}setpts='(${keysExpr(keys, 'T')})/TB'${rate}[v0]`);
+    } else g.push(`[0:v]${srcColor(m, src)}${stab}${c.reverse ? 'reverse,' : ''}setpts=(PTS-STARTPTS)/${speed}${rate}[v0]`); // (⏪ Reverse speed: the shot backwards)
     // Time interpolation (Clip Speed / Duration): 'blend' = frame blending (quick), true = optical flow (smoothest)
     // (🎛 Clip Attributes > Motion Estimation: how hard optical flow looks for the movement - Standard Better was the only one)
     if (smooth) smoothAfterFit = job.preview || c.smooth === 'blend' ? `minterpolate=fps=${F}:mi_mode=blend` : `minterpolate=fps=${F}:mi_mode=mci:${MOTION_EST[c.motionEst] || MOTION_EST.sbetter}`;
-    if (ramp) { /* ramped clips are silent (music carries them) */ } else if (m.hasAudio && !c.mute) aSrc = `[0:a]asetpts=PTS-STARTPTS,${c.reverse ? 'areverse,' : ''}${clipFx(c)}${speedAudio(c, speed) ? `${speedAudio(c, speed)},` : ''}${volumeFilter(c)},${AFMT}[a]`;
+    if (ramp) { /* ramped clips are silent (music carries them) */ } else if (m.hasAudio && !c.mute) aSrc = `[0:a]asetpts=PTS-STARTPTS,${c.reverse ? 'areverse,' : ''}${clipFx(c)}${speedAudio(c, speed) ? `${speedAudio(c, speed)},` : ''}${volumeFilter(c)}${clipPan(c)},${AFMT}[a]`;
   } else if (c.type === 'image') {
     const m = M(c.mediaId);
     dur = exact(clipDur(c, media));
@@ -524,7 +561,7 @@ function segment(c, label, fixed = null) {
   cur = vfxGraph(c, cur, g, `vx${segN}`, addMask, addAux);
   // ◐ Opacity mask on the main story: outside it is black (overlays get theirs in the final pass, over the shot below)
   if (c.omask?.shape && label.startsWith('V1') && (c.type === 'video' || c.type === 'image')) {
-    const mk = addMask(maskPng(c.omask));
+    const mk = maskLabel(c.omask, addMask, g);
     g.push(`[${cur}]split[om1][om2]`, `[om2]format=yuva420p[om3]`, `[om3][${mk}]alphamerge[om4]`, `[om1]drawbox=x=0:y=0:w=iw:h=ih:color=black:t=fill[om5]`, `[om5][om4]overlay=format=auto,format=yuv420p[vom]`);
     cur = 'vom';
   }
@@ -552,6 +589,7 @@ function segment(c, label, fixed = null) {
   // (square pixels whatever the path - a clip whose effects / interpolation left an odd pixel shape broke the join of
   // the main story: "parameters do not match" in concat / xfade)
   vf.push('setsar=1', 'format=yuv420p');
+  if (HDR_OUT && !(c.type === 'video' && M(c.mediaId)?.hdr)) vf.push(sdrToHlg());
   g.push(`[${cur}]${vf.join(',')}[v]`);
   if (!aSrc) { inputs.push('-f', 'lavfi', '-t', String(dur), '-i', 'anullsrc=r=48000:cl=stereo'); aSrc = `[1:a]${AFMT}[a]`; }
   g.push(aSrc);
@@ -748,7 +786,7 @@ let n = inputs.filter((x) => x === '-i').length, v = 'jvout';
 // (+ 🎛 the track's effect slots - trackState.aeffects, Audio page)
 const fxOf = (id) => { const f = [...fxFilters(ts[id]?.fx), ...aeffectFilters(ts[id]?.aeffects)]; return f.length ? `${f.join(',')},` : ''; };
 const v1Vol = !audible('V1') ? 0 : ts.V1?.volume ?? 1; // (🎚 + its volume keyframes, on the timeline's clock)
-const speechParts = [`[jaout]${fxOf('V1')}${v1Vol && ts.V1?.volKeys?.length ? `volume='${v1Vol}*(${keysExpr(ts.V1.volKeys, 't')})':eval=frame` : `volume=${v1Vol}`},${AFMT}[orig]`];
+const speechParts = [`[jaout]${fxOf('V1')}${v1Vol && ts.V1?.volKeys?.length ? `volume='${v1Vol}*(${keysExpr(ts.V1.volKeys, 't')})':eval=frame` : `volume=${v1Vol}`}${trackPan(ts.V1)},${AFMT}[orig]`];
 const speechLabels = ['orig'];
 
 // a mask picture as an input of the final pass -> its label
@@ -779,8 +817,9 @@ function pinnedOverlay(x, under, k) {
   const c = x.clip, st = x.start, en = x.end, len = en - st, m = M(c.mediaId), i = n++;
   if (c.type === 'video') {
     const sp = c.speed || 1, tin = Math.max(0, +c.in || 0);
-    inputs.push('-ss', String(tin), '-t', (len * sp + 0.1).toFixed(3), '-i', proxyOf(c.mediaId) || m.path);
-    g.push(`[${i}:v]setpts=(PTS-STARTPTS)/${sp},fps=${F}[pn${k}a]`);
+    const file = proxyOf(c.mediaId) || m.path;
+    inputs.push('-ss', String(tin), '-t', (len * sp + 0.1).toFixed(3), '-i', file);
+    g.push(`[${i}:v]${srcColor(m, file)}setpts=(PTS-STARTPTS)/${sp},fps=${F}[pn${k}a]`);
   } else {
     inputs.push(...STILL, '-framerate', String(F), '-t', (len + 0.1).toFixed(3), '-i', m.path);
     g.push(`[${i}:v]fps=${F}[pn${k}a]`);
@@ -790,10 +829,11 @@ function pinnedOverlay(x, under, k) {
   g.push(`[pn${k}a]format=yuva444p,scale=${W - 4}:${H - 4},setsar=1,pad=${W}:${H}:2:2:color=black@0,` +
     `perspective=sense=destination:eval=frame:${[0, 1, 2, 3].map((p) => `x${p}='${xy(p * 2)}':y${p}='${xy(p * 2 + 1)}'`).join(':')}` +
     `${op < 1 ? `,format=rgba,colorchannelmixer=aa=${op}` : ''},setpts=PTS-STARTPTS+${st.toFixed(3)}/TB[pn${k}]`);
-  g.push(`[${under}][pn${k}]overlay=eof_action=pass:format=auto:enable='between(t,${st.toFixed(3)},${en.toFixed(3)})',format=yuv420p[vo${k}]`);
+  const pk = hdrOv(g, `pn${k}`, c.type === 'video' && !!m.hdr);
+  g.push(`[${under}][${pk}]overlay=eof_action=pass:format=auto:enable='between(t,${st.toFixed(3)},${en.toFixed(3)})',format=yuv420p[vo${k}]`);
   if (c.type === 'video' && m.hasAudio && !ts[x.track]?.mute && !c.mute && (c.volume ?? 0) > 0 && (c.speed || 1) === 1) {
     const ms = Math.round(st * 1000);
-    g.push(`[${i}:a]${fxOf(x.track)}volume=${c.volume},adelay=${ms}|${ms},${AFMT}[v2a${k}]`);
+    g.push(`[${i}:a]${fxOf(x.track)}volume=${c.volume}${clipPan(c)},adelay=${ms}|${ms},${AFMT}[v2a${k}]`);
     speechLabels.push(`v2a${k}`);
   }
   return `vo${k}`;
@@ -810,11 +850,12 @@ function alphaOverlay(x, under, k) {
   else if (op < 1) f.push(`format=rgba,colorchannelmixer=aa=${op}`);
   if (c.fadeIn) f.push(`fade=t=in:st=0:d=${c.fadeIn}:alpha=1`);
   if (c.fadeOut) f.push(`fade=t=out:st=${Math.max(0, len - c.fadeOut).toFixed(3)}:d=${c.fadeOut}:alpha=1`);
-  g.push(`[${i}:v]${f.join(',')},setpts=PTS-STARTPTS+${st.toFixed(3)}/TB[al${k}]`);
-  g.push(`[${under}][al${k}]overlay=eof_action=pass:format=auto:enable='between(t,${st.toFixed(3)},${en.toFixed(3)})',format=yuv420p[vo${k}]`);
+  g.push(`[${i}:v]${c.type === 'video' ? srcColor(m, m.path) : ''}${f.join(',')},setpts=PTS-STARTPTS+${st.toFixed(3)}/TB[al${k}]`);
+  const ak = hdrOv(g, `al${k}`, c.type === 'video' && !!m.hdr);
+  g.push(`[${under}][${ak}]overlay=eof_action=pass:format=auto:enable='between(t,${st.toFixed(3)},${en.toFixed(3)})',format=yuv420p[vo${k}]`);
   if (m.hasAudio && !ts[x.track]?.mute && !c.mute && (c.volume ?? 1) > 0) {
     const ms = Math.round(st * 1000);
-    g.push(`[${i}:a]asetpts=PTS-STARTPTS,${sp !== 1 ? `${speedAudio(c, sp)},` : ''}${fxOf(x.track)}${volumeFilter(c)},atrim=0:${len.toFixed(3)},adelay=${ms}|${ms},${AFMT}[v2a${k}]`);
+    g.push(`[${i}:a]asetpts=PTS-STARTPTS,${sp !== 1 ? `${speedAudio(c, sp)},` : ''}${fxOf(x.track)}${volumeFilter(c)}${clipPan(c)},atrim=0:${len.toFixed(3)},adelay=${ms}|${ms},${AFMT}[v2a${k}]`);
     speechLabels.push(`v2a${k}`);
   }
   return `vo${k}`;
@@ -844,7 +885,7 @@ ovl.forEach((x, k) => {
   let keyF = key ? `${key},` : '', src = `${i}:v`;
   // ◐ Opacity mask: the shot below shows outside it (where Motion has put the picture)
   if (c.omask?.shape) {
-    const mk = finalMask(maskPng(movedMask(c.omask, c.transform)), en - st + 0.5);
+    const mk = maskLabel(c.omask, (file) => finalMask(file, en - st + 0.5), g, c.transform);
     g.push(`[${src}]${keyF}format=yuva420p[oma${k}]`, `[oma${k}][${mk}]alphamerge[omb${k}]`);
     src = `omb${k}`; keyF = '';
   }
@@ -870,7 +911,7 @@ ovl.forEach((x, k) => {
   v = `vo${k}`;
   if (!ts[x.track]?.mute && !c.mute && (c.volume ?? 0) > 0) {
     const ms = Math.round(st * 1000);
-    g.push(`[${i}:a]${fxOf(x.track)}volume=${c.volume},adelay=${ms}|${ms},${AFMT}[v2a${k}]`);
+    g.push(`[${i}:a]${fxOf(x.track)}volume=${c.volume}${clipPan(c)},adelay=${ms}|${ms},${AFMT}[v2a${k}]`);
     speechLabels.push(`v2a${k}`);
   }
 });
@@ -917,7 +958,10 @@ if (titles.length) {
       alpha: x.clip.anim === 'none' ? '' : `:alpha='if(lt(t,${(s + f).toFixed(3)}),(t-${s.toFixed(3)})/${f.toFixed(3)},if(gt(t,${(e - f).toFixed(3)}),(${e.toFixed(3)}-t)/${f.toFixed(3)},1))'`,
     });
   });
-  g.push(`[${v}]${tf.join(',')}[vt]`); v = 'vt';
+  // (🌈 an HDR export: the titles on a clear layer, lifted into HLG like the other SDR overlays, then laid on)
+  if (HDR_OUT) g.push(`color=c=black@0:s=${W}x${H}:r=${F}:d=${D.toFixed(3)},format=rgba,${tf.join(',')}[vtr]`, ...sdrToHlgAlpha('vtr', 'vtt'), `[${v}][vtt]overlay=eof_action=pass[vt]`);
+  else g.push(`[${v}]${tf.join(',')}[vt]`);
+  v = 'vt';
 }
 
 // 📊 motion graphics (baked by the editor at the edit's own frame size, transparent); a reframed export fits them in
@@ -945,7 +989,7 @@ ovl.filter((x) => x.clip.type === 'graphic').forEach((x, k) => {
     g.push(`[${o}]format=rgba[ged${k}]`, `[ged${k}][gal${k}]alphamerge[ge${k}]`); src = `ge${k}`;
   }
   if (x.clip.omask?.shape) {
-    const mk = finalMask(maskPng(movedMask(x.clip.omask, x.clip.transform)), x.end - x.start + 0.5);
+    const mk = maskLabel(x.clip.omask, (file) => finalMask(file, x.end - x.start + 0.5), g, x.clip.transform);
     g.push(`[${src}]scale=${W}:${H}:force_original_aspect_ratio=decrease,format=rgba,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black@0,setpts=PTS-STARTPTS,split[gma${k}][gmb${k}]`,
       `[gmb${k}]alphaextract[gmc${k}]`, `[gmc${k}][${mk}]blend=all_mode=multiply:shortest=1[gmd${k}]`, `[gma${k}][gmd${k}]alphamerge[gm${k}]`);
     src = `gm${k}`;
@@ -960,7 +1004,8 @@ ovl.filter((x) => x.clip.type === 'graphic').forEach((x, k) => {
     return;
   }
   g.push(`[${src}]scale=${W}:${H}:force_original_aspect_ratio=decrease,format=rgba,setpts=PTS-STARTPTS+${st}/TB[gx${k}]`);
-  g.push(`[${v}][gx${k}]overlay=x=(W-w)/2:y=(H-h)/2:eof_action=pass:enable='between(t,${st},${en})'[vg${k}]`); v = `vg${k}`;
+  const gk = hdrOv(g, `gx${k}`);
+  g.push(`[${v}][${gk}]overlay=x=(W-w)/2:y=(H-h)/2:eof_action=pass:enable='between(t,${st},${en})'[vg${k}]`); v = `vg${k}`;
 });
 
 if (project.logo?.mediaId && media[project.logo.mediaId]) {
@@ -968,7 +1013,7 @@ if (project.logo?.mediaId && media[project.logo.mediaId]) {
   inputs.push('-i', media[L.mediaId].path);
   const pos = { tl: `${m}:${m}`, tr: `W-w-${m}:${m}`, bl: `${m}:H-h-${m}`, br: `W-w-${m}:H-h-${m}` }[L.pos || 'tr'];
   g.push(`[${i}:v]scale=${Math.round(W * (L.scale ?? 0.12))}:-1,format=rgba,colorchannelmixer=aa=${L.opacity ?? 0.9}[lg]`);
-  g.push(`[${v}][lg]overlay=${pos}[vl]`); v = 'vl';
+  g.push(`[${v}][${hdrOv(g, 'lg')}]overlay=${pos}[vl]`); v = 'vl';
 }
 
 // Captions edited in the app (public/js/captions.js) win over a subtitles file
@@ -1006,8 +1051,8 @@ if (EX.burnTC || EX.burnName) {
 }
 function OWN0() { return ['wav', 'mp3', 'gif', 'png'].includes(EX.codec); }
 // 🌈 HDR (Sequence Settings › Working colour space): the export goes to Rec. 2100 - HLG or PQ (HDR10) - 10-bit; previews stay SDR
-const HDR = !job.preview && !OWN0() && ['hlg', 'pq'].includes(S.colorSpace) ? S.colorSpace : null;
-g.push(HDR ? `[${v}]zscale=tin=bt709:min=bt709:pin=bt709:rin=tv:t=${HDR === 'hlg' ? 'arib-std-b67' : 'smpte2084'}:m=bt2020nc:p=bt2020:r=tv:npl=203,format=yuv420p10le[vout]` : `[${v}]format=yuv420p[vout]`);
+const HDR = HDR_OUT; // (the picture is HLG by now - every shot and overlay was brought into it above)
+g.push(HDR ? `[${v}]${hlgOut(HDR)}[vout]` : `[${v}]format=yuv420p[vout]`);
 
 // Audio tracks: each clip trimmed, faded and placed at its start; A1 joins the speech bus, A2 is ducked under speech.
 function trackBus(id) {
@@ -1027,7 +1072,7 @@ function trackBus(id) {
       inputs.push('-ss', String(tin), '-t', String(len * speed), '-i', m.path);
       chain = `[${i}:a]asetpts=PTS-STARTPTS,${c.reverse ? 'areverse,' : ''}${clipFx(c)}${speed !== 1 ? `${speedAudio(c, speed)},` : ''}${AFMT}`;
     }
-    chain += `,${volumeFilter(c)}${fi ? `,afade=t=in:d=${fi}:curve=${fadeCurve(c.fadeInCurve)}` : ''}${fo ? `,afade=t=out:st=${Math.max(0, len - fo).toFixed(3)}:d=${fo}:curve=${fadeCurve(c.fadeOutCurve)}` : ''}`; // (🎚 Constant Gain / Power / Exponential)
+    chain += `,${volumeFilter(c)}${clipPan(c)}${fi ? `,afade=t=in:d=${fi}:curve=${fadeCurve(c.fadeInCurve)}` : ''}${fo ? `,afade=t=out:st=${Math.max(0, len - fo).toFixed(3)}:d=${fo}:curve=${fadeCurve(c.fadeOutCurve)}` : ''}`; // (🎚 Constant Gain / Power / Exponential)
     chain += `,adelay=${ms}|${ms}[${id}c${k}]`;
     g.push(chain);
     labels.push(`${id}c${k}`);
@@ -1036,7 +1081,7 @@ function trackBus(id) {
   const vol = ts[id]?.volume ?? 1;
   // 🎚 track volume keyframes (trackState.volKeys, timeline seconds - the bus runs on the timeline's clock), x the fader
   const auto = ts[id]?.volKeys?.length ? `volume='${vol}*(${keysExpr(ts[id].volKeys, 't')})':eval=frame` : `volume=${vol}`;
-  g.push(`${labels.map((l) => `[${l}]`).join('')}${labels.length > 1 ? `amix=inputs=${labels.length}:normalize=0,` : ''}${fxOf(id)}${auto}[${id}bus]`);
+  g.push(`${labels.map((l) => `[${l}]`).join('')}${labels.length > 1 ? `amix=inputs=${labels.length}:normalize=0,` : ''}${fxOf(id)}${auto}${trackPan(ts[id])}[${id}bus]`);
   return `${id}bus`;
 }
 // 🔗 a track carrying clips' own sound (linked [A] clips) joins the speech bus like the clip sound always did:

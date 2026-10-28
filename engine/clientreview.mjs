@@ -4,7 +4,11 @@
 // client sends, rate limits), kept apart so the tests can check them.
 // A link: { id, token, project, title, client, pw: { salt, hash } | null, expires, created, by, off,
 //   versions: [{ n, render, at, status: 'waiting' | 'changes' | 'approved', decidedBy, decidedAt }],
-//   comments: [{ id, v, t, text, by, at, parent, draw, team }] }
+//   comments: [{ id, v, t, text, by, at, parent, draw, team, done: { by, at } | null, fixedIn }],
+//   rating: { stars, text, by, at } | null }
+// 🔁 the feedback loop on every job: a client's comments are the change list; the team ticks each one when it is fixed,
+// the next version on the same link carries the ticked ones (fixedIn = that version - the client sees "Fixed in V3"),
+// the client approves, then rates the job (1-5 stars). jobState() is one project's place in that loop, for Home.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -70,7 +74,27 @@ export const latest = (l) => l.versions[l.versions.length - 1] || null;
 export function clientView(l) {
   return { title: l.title, client: l.client || '', expires: l.expires || null,
     versions: l.versions.map(({ n, at, status, decidedBy, decidedAt }) => ({ n, at, status, decidedBy: decidedBy || '', decidedAt: decidedAt || null })),
-    comments: l.comments.map(({ id, v, t, text, by, at, parent, draw, team }) => ({ id, v, t, text, by, at, parent: parent || null, draw: draw || null, team: !!team })) };
+    comments: l.comments.map(({ id, v, t, text, by, at, parent, draw, team, fixedIn }) => ({ id, v, t, text, by, at, parent: parent || null, draw: draw || null, team: !!team, fixedIn: fixedIn || null })),
+    rating: l.rating ? { stars: l.rating.stars, text: l.rating.text, at: l.rating.at } : null };
+}
+// a client comment that asks for something (not a reply, not a team note, not the Approve / Request changes line itself)
+export const isChange = (c) => !c.parent && !c.team && !/^(✅|✏️ Changes requested)/u.test(c.text);
+// the changes still to do on a link: asked for, not ticked by the team
+export const openChanges = (l) => l.comments.filter((c) => isChange(c) && !c.done);
+// one job (project) in the loop, from its newest live link: 'none' (nothing sent), 'waiting' (with the client),
+// 'changes' (asked for changes - open = how many still to do), 'approved' (stars once rated)
+export function jobState(links, now = Date.now()) {
+  const l = links.filter((x) => !expired(x, now)).sort((a, b) => (latest(b)?.at || b.created) - (latest(a)?.at || a.created))[0];
+  if (!l) return { state: 'none' };
+  const v = latest(l), open = openChanges(l).length;
+  const asked = v.status === 'changes' || openChanges(l).some((c) => c.v === v.n); // (comments on this version, even before they press Request changes)
+  const state = v.status === 'approved' ? 'approved' : asked ? 'changes' : 'waiting';
+  return { state, v: v.n, open, link: l.id, client: l.client || l.title, stars: l.rating?.stars || 0, at: v.decidedAt || v.at };
+}
+// 🧹 a rating: 1-5 whole stars and a short line
+export function cleanRating(b) {
+  const stars = Math.round(+b?.stars);
+  return stars >= 1 && stars <= 5 ? { stars, text: cleanText(b.text, 500) } : null;
 }
 // what the editor sees (the owner / team): everything but the password hash
 export function ownerView(l, url) {
@@ -121,6 +145,13 @@ export class ReviewStore {
   addVersion(l, render) {
     const r = renderName(render); if (!r) throw Object.assign(new Error('Pick a finished video'), { code: 400 });
     const v = { n: (latest(l)?.n || 0) + 1, render: r, at: Date.now(), status: 'waiting' };
+    for (const c of l.comments) if (c.done && !c.fixedIn) c.fixedIn = v.n; // (what the team ticked goes out as fixed in this version)
     l.versions.push(v); l.off = false; this.save(); return v;
+  }
+  // the team ticks / unticks a change; a change already sent as fixed stays fixed
+  setDone(l, id, done, by) {
+    const c = l.comments.find((x) => x.id === id && isChange(x)); if (!c) throw Object.assign(new Error('That comment is gone'), { code: 404 });
+    if (c.fixedIn) return c;
+    c.done = done ? { by: cleanName(by), at: Date.now() } : null; this.save(); return c;
   }
 }

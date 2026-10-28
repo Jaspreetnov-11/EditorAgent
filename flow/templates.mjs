@@ -7,7 +7,7 @@ const HELP = [
   '🤖 *Limelight bot* - likhiye:',
   '• *online* - abhi kaun editor par hai',
   '• *report* - aaj ka hisaab (kisne kitna kaam kiya, renders, editor ki sehat)',
-  '• kuch bhi aur poochhiye - jaise "is hafte sabse zyada kaam kisne kiya?" - Claude editor ke figures dekh kar jawab dega',
+  '• kuch bhi aur poochhiye - jaise "is hafte sabse zyada kaam kisne kiya?" - Limelight AI editor ke figures dekh kar jawab dega',
 ].join('\n');
 const CH = { telegram: { label: 'Telegram', owner: 'ownerTelegram', send: 'telegram.send' }, whatsapp: { label: 'WhatsApp', owner: 'ownerPhone', send: 'whatsapp.send' } };
 
@@ -24,7 +24,7 @@ const report = (ch) => ({
 });
 const chatbot = (ch) => ({
   name: `${CH[ch].label} chatbot (editor se baat)`,
-  note: `A ${CH[ch].label} message from ${CH[ch].owner}: "online", "report", "help" are answered from the editor at once; anything else goes to Claude, who answers from the editor's figures (it reads no files).`,
+  note: `A ${CH[ch].label} message from ${CH[ch].owner}: "online", "report", "help" are answered from the editor at once; anything else goes to Limelight AI, who answers from the editor's figures (it reads no files).`,
   flow: {
     trigger: { type: ch, from: `{{vars.${CH[ch].owner}}}`, match: '', groups: 'no' },
     steps: [

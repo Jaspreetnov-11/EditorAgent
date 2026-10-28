@@ -55,3 +55,13 @@ video { width: 100%; max-height: 64vh; display: block; background: #000; }
 .list .reply input { padding: 6px 8px; }
 .foot { margin-top: 18px; }
 @media (max-width: 560px) { body { padding-left: 12px; padding-right: 12px; } .decide .row button { flex: 1; } }
+/* 🔁 the feedback loop: what was fixed in this version, and the rating after approval */
+.fixed h2 { color: var(--green); }
+.fixed-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.fixed-list .who, .list .fix { color: var(--muted); font-size: 12px; }
+.list .fix { color: var(--green); }
+.ok-mark { color: var(--green); font-weight: 700; }
+.rate { border: 1px solid rgba(54,194,126,.35); }
+.stars { display: flex; gap: 4px; }
+.stars .star { background: none; border: 0; padding: 2px 4px; font-size: 30px; line-height: 1; color: #3a3a40; }
+.stars .star.on { color: var(--accent); }

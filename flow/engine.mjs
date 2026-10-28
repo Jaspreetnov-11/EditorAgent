@@ -11,7 +11,7 @@ import vm from 'node:vm';
 export const STEP_TYPES = {
   'limelight.report': { label: 'Editor: day report', fields: [['day', 'Day (YYYY-MM-DD, empty = today)']] },
   'limelight.online': { label: 'Editor: who is online', fields: [] },
-  'limelight.ask': { label: 'Editor: ask Claude', fields: [['question', 'Question', 'area']] },
+  'limelight.ask': { label: 'Editor: ask Limelight AI', fields: [['question', 'Question', 'area']] },
   'telegram.send': { label: 'Telegram: send', fields: [['to', 'To (chat ids, comma separated - shown on the Telegram page)'], ['text', 'Message', 'area']] },
   'whatsapp.send': { label: 'WhatsApp: send', fields: [['to', 'To (numbers with country code, or a group, comma separated)'], ['text', 'Message', 'area']] },
   text: { label: 'Text: write a message', fields: [['text', 'Text', 'area']] },

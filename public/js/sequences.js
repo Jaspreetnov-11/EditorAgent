@@ -134,11 +134,11 @@ export function openSequences() {
   const draw = () => {
     const list = seqList(S.project), stale = staleNested(), staleHere = usedHere(stale);
     const dur = (x) => { try { return fmt(totalDuration({ ...S.project, ...x.data }, S.mediaById)); } catch { return ''; } };
-    $('[data-seqbody]', dlg.el).innerHTML = `<p class="muted">One project, many timelines: the full film, a 30-second teaser, a 9:16 reel… Each has its own clips, frame shape, captions and look. Media is shared.<br>Opening one changes only your timeline; everyone else stays on their own sequence. Claude and edtool work on the <b>Team</b> sequence.</p>
+    $('[data-seqbody]', dlg.el).innerHTML = `<p class="muted">One project, many timelines: the full film, a 30-second teaser, a 9:16 reel… Each has its own clips, frame shape, captions and look. Media is shared.<br>Opening one changes only your timeline; everyone else stays on their own sequence. Limelight AI and edtool work on the <b>Team</b> sequence.</p>
       <div class="seq-list">${list.map((x) => `<div class="seq-row${x.open ? ' open' : ''}">
-        <span class="grow"><b>${esc(x.name)}</b>${x.open ? ' <span class="tag">open</span>' : ''}${x.id === sharedSeqId() ? ' <span class="tag" title="The team&#39;s main sequence: Claude, the server&#39;s Agent jobs and edtool work on this one">Team</span>' : ''}${(S.people || []).filter((p) => (p.seq || sharedSeqId()) === x.id).map((p) => ` <span class="tag" style="background:${esc(p.color)};color:#111">${esc(p.name)}</span>`).join('')}<br><span class="muted small">${esc(x.data.settings?.aspect || '')} · ${dur(x)} · ${Object.values(x.data.tracks || {}).flat().length} clips</span></span>
+        <span class="grow"><b>${esc(x.name)}</b>${x.open ? ' <span class="tag">open</span>' : ''}${x.id === sharedSeqId() ? ' <span class="tag" title="The team&#39;s main sequence: Limelight AI, the server&#39;s Agent jobs and edtool work on this one">Team</span>' : ''}${(S.people || []).filter((p) => (p.seq || sharedSeqId()) === x.id).map((p) => ` <span class="tag" style="background:${esc(p.color)};color:#111">${esc(p.name)}</span>`).join('')}<br><span class="muted small">${esc(x.data.settings?.aspect || '')} · ${dur(x)} · ${Object.values(x.data.tracks || {}).flat().length} clips</span></span>
         ${x.open ? '' : `<button class="small" data-open="${x.id}">Open</button><button class="small" data-nest="${x.id}" title="Put this whole sequence into the open timeline as one clip, at the playhead">Nest here</button>`}
-        ${x.id === sharedSeqId() ? '' : `<button class="small" data-team="${x.id}" title="Make this the team's main sequence: edtool and the server's Agent jobs work on it (the Assistant's Claude always works on the sequence you have open). Everyone on the team sequence switches to it too.">Make team sequence</button>`}
+        ${x.id === sharedSeqId() ? '' : `<button class="small" data-team="${x.id}" title="Make this the team's main sequence: edtool and the server's Agent jobs work on it (the Assistant's Limelight AI always works on the sequence you have open). Everyone on the team sequence switches to it too.">Make team sequence</button>`}
         <button class="icon-btn small" data-ren="${x.id}" title="Rename" aria-label="Rename ${esc(x.name)}">${ic('edit')}</button>
         ${list.length > 1 ? `<button class="icon-btn small" data-del="${x.id}" title="Delete this sequence" aria-label="Delete ${esc(x.name)}">${ic('trash')}</button>` : ''}</div>`).join('')}</div>
       ${staleHere.length ? `<div class="warns">Changed since nested: ${staleHere.map((m) => esc(m.name)).join(', ')} <button class="small" data-upd>Update nested</button></div>` : ''}
@@ -160,7 +160,7 @@ export function openSequences() {
       openSeq(S.project, d.team);
       S.sel.clear(); commit(`Team sequence: ${s.name}`);
       emit('seq'); emit('fit'); emit('change', {}); sendPresence(); draw();
-      toast(`"${s.name}" is now the team's main sequence - Claude will work on it too`);
+      toast(`"${s.name}" is now the team's main sequence - Limelight AI will work on it too`);
     }
     if (d.upd !== undefined) { dlg.close(); updateNested(); }
     if (d.ren) { if (renameSequence(d.ren)) draw(); }

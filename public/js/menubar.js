@@ -21,7 +21,7 @@ const MENUS = [
   ['Graphics and Titles', [['Type tool (write on the monitor)', 'k:typeTool'], ['New title card', 'title'], ['Title templates…', 'titles'], ['Presets page (intros, logo stings, lower thirds…)', 'p:presets'], ['Custom templates (MOGRT, logo animations)…', 'customtpl'], ['Captions', 'cc'], '-', ['Motion page', 'p:motion'], ['Nodes page', 'p:fusion'], ['VFX page (explosions, rain, sky, keying…)', 'p:vfx']]],
   ['View', [['Zoom in', 'k:zoomIn'], ['Zoom out', 'k:zoomOut'], ['Zoom to sequence', 'k:zoomFit'], '-', ['History', 'k:history'], ['Maximize panel', 'k:maximize'], ['Full screen', 'k:fullscreen'], '-', ['Workspaces…', 'a:workspace'], '-', ['Sound output (speakers / headphones)…', 'audioout']]],
   ['Window', [['Media', 'p:media'], ['Edit', 'p:edit'], ['Motion', 'p:motion'], ['Nodes', 'p:fusion'], ['VFX', 'p:vfx'], ['Color', 'p:color'], ['Audio', 'p:audio'], ['Labs', 'p:ai'], ['Presets', 'p:presets'], ['Deliver', 'p:deliver'], '-',
-    ['Effects', 'fx'], ['Effect Controls', 'ec'], ['Activity', 'a:activity'], ['Zones', 'a:zones'], ['Team', 'a:team'], ['Project chat', 'a:chat'], '-', ['Agent', 'a:agent'], ['Re-edit', 'a:reedit'], ['Assistant (Claude)', 'a:assistant']]],
+    ['Effects', 'fx'], ['Effect Controls', 'ec'], ['Activity', 'a:activity'], ['Zones', 'a:zones'], ['Team', 'a:team'], ['Project chat', 'a:chat'], '-', ['Agent', 'a:agent'], ['Re-edit', 'a:reedit'], ['Assistant (Limelight AI)', 'a:assistant']]],
   ['Help', [['Bhaiya - ask anything about the editor (F1)', 'a:help'], '-', ['Keyboard shortcuts…', 'k:shortcuts'], ['Ask the Assistant', 'a:assistant'], ['Agent report', 'a:report']]],
 ];
 

@@ -73,6 +73,12 @@ const ART = {
     <rect x="96" y="40" width="64" height="40" rx="4" opacity=".9"/><path d="M104 48h8M104 48v6M152 72h-8M152 72v-6" opacity=".6"/>
     <path d="M40 92c18-30 40-44 54-48" stroke-dasharray="3 6" opacity=".55"/><path d="M86 40l9 4-6 8" opacity=".75"/>
     <circle cx="40" cy="92" r="5" fill="currentColor" stroke="none" opacity=".6"/></svg>`,
+  // ✨ Vibe: the Labs timeline's lanes with a camera frame moving in over them
+  vibe: `<svg viewBox="0 0 220 120" aria-hidden="true"><g fill="currentColor"><rect x="8" y="64" width="70" height="14" rx="4" opacity=".5"/><rect x="82" y="64" width="46" height="14" rx="4" opacity=".28"/><rect x="132" y="64" width="80" height="14" rx="4" opacity=".42"/>
+    <rect x="30" y="84" width="96" height="14" rx="4" opacity=".32"/><rect x="130" y="84" width="52" height="14" rx="4" opacity=".55"/><rect x="8" y="104" width="204" height="10" rx="4" opacity=".14"/></g>
+    <path d="M118 56v62" stroke="currentColor" stroke-width="2"/><path d="M112 52h12l-6 7z" fill="currentColor"/>
+    <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 22V8h14M192 8h14v14" opacity=".5"/><rect x="128" y="12" width="56" height="34" rx="4" opacity=".9"/>
+    <path d="M40 42c18-20 44-28 80-26" stroke-dasharray="3 6" opacity=".55"/><path d="M112 10l9 6-7 7" opacity=".75"/></g><circle cx="40" cy="42" r="5" fill="currentColor" opacity=".6"/></svg>`,
   voice: `<svg viewBox="0 0 220 120" aria-hidden="true"><g fill="currentColor">${[14, 26, 44, 30, 60, 78, 52, 90, 64, 40, 70, 96, 58, 34, 48, 72, 38, 22, 30, 16].map((h, i) => `<rect x="${10 + i * 10.5}" y="${60 - h / 2}" width="5" height="${h}" rx="2.5" opacity="${(0.25 + (h / 96) * 0.6).toFixed(2)}"/>`).join('')}</g></svg>`,
   music: `<svg viewBox="0 0 220 120" aria-hidden="true"><g fill="currentColor">${[40, 66, 52, 84, 70, 46, 92, 60, 34, 76, 56, 42].map((h, i) => `<rect x="${14 + i * 16.5}" y="${108 - h}" width="10" height="${h}" rx="3" opacity="${(0.2 + (h / 92) * 0.55).toFixed(2)}"/>`).join('')}</g></svg>`,
 };
@@ -90,8 +96,7 @@ export function mountAI(el) {
     <section class="lab-sec">
       <div class="lab-sec-t"><h2>Studio</h2><span class="lab-rule"></span></div>
       <div class="lab-studio">
-        ${feat('work', 'reels', 'Labs timeline', 'Edit a Labs clip on its own timeline: templates, effects and AI, then put it back on the edit', 'big', '<span class="lab-pill" data-lcount></span>')}
-        ${feat('moves', 'dolly', 'Camera moves', 'Crash zoom, dolly, drone, arc, roll, bullet time and more: one click on the selected shots', 'big', `<span class="lab-pill">${TEMPLATES.length} moves</span>`)}
+        ${feat('vibe', 'dolly', 'Vibe', 'The Labs timeline and every camera move in one place: crash zoom, dolly, drone, arc, roll, bullet time - on a Labs clip or straight on the selected shots', 'big full', `<span class="lab-pill" data-lcount></span><span class="lab-pill">${TEMPLATES.length} moves</span>`)}
         ${feat('voice', 'clone', 'VoiceVerse', 'Clone a voice once, then any script spoken in it', 'mid', '<span class="lab-pill" data-vvst></span>')}
         ${feat('music', 'music', 'Music library', 'Ready music for every edit, from all projects', 'mid', '<span class="lab-pill" data-mcount></span>')}
       </div>
@@ -103,9 +108,11 @@ export function mountAI(el) {
       </div>
     </section>
     <div class="lab-scrim" data-win-close hidden></div>
-    ${win('moves', 'Camera moves', `<div class="lab-sec-h"><p class="lab-note" data-tplsel></p><button class="lab-link" data-a="untpl">Remove from selected</button></div>
-      <div class="lab-grid" data-tpls>${TEMPLATES.map((t) => `<button class="lab-tile" data-tpl="${t.id}"><span class="lab-tile-ic">${glyph(t.id)}</span><span class="lab-tile-t"><b>${esc(t.label)}</b><small>${esc(t.sub)}</small></span>${t.video ? '<i class="lab-tag">video</i>' : ''}</button>`).join('')}</div>`)}
-    ${win('work', 'Labs timeline', labsWorkHTML(), true)}
+    ${win('vibe', 'Vibe', `<div class="vibe">
+      <aside class="vibe-moves"><div class="vibe-mh"><b>Camera moves</b><span class="lab-pill">${TEMPLATES.length}</span></div><p class="lab-note" data-tplsel></p>
+        <div class="vibe-list" data-tpls>${TEMPLATES.map((t) => `<button class="lab-tile" data-tpl="${t.id}" title="${esc(t.sub)}"><span class="lab-tile-ic">${glyph(t.id)}</span><span class="lab-tile-t"><b>${esc(t.label)}</b><small>${esc(t.sub)}</small></span>${t.video ? '<i class="lab-tag">video</i>' : ''}</button>`).join('')}</div>
+        <button class="lab-link" data-a="untpl">Remove from selected</button></aside>
+      <div class="vibe-main">${labsWorkHTML()}</div></div>`, true)}
     ${win('voice', 'VoiceVerse', vvHTML())}
     ${win('music', 'Music library', `<div class="lab-sec-h"><input type="search" class="lab-find" data-mfind placeholder="Find music…" aria-label="Find music"><button class="lab-link" data-a="mcollect" title="Copy the music used in every project (A2, Music bins) into the library">From all projects</button><button class="lab-link" data-a="madd">Add music…</button><input type="file" accept="audio/*" multiple hidden data-mfile></div>
       <div class="lab-music" data-music><p class="lab-note">Loading…</p></div>`)}
@@ -131,20 +138,22 @@ export function mountAI(el) {
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.page === 'ai' && openWinId && !document.querySelector('dialog[open]')) closeWin(); });
 }
 // 🪟 each Labs tool opens in its own window over the page (one at a time; Esc / ✕ / outside closes it)
+// ✨ Vibe = the Labs timeline with the camera moves down its left side ('work' / 'moves' both open it)
 let openWinId = null;
 export function openWin(id) {
   if (!root) return;
   closeWin();
+  if (id === 'work' || id === 'moves') id = 'vibe';
   const w = root.querySelector(`[data-win="${id}"]`); if (!w) return;
   w.hidden = false; root.querySelector('.lab-scrim').hidden = false; openWinId = id;
   if (id === 'music') loadMusic();
   if (id === 'voice') vvWindow();
-  if (id === 'work') drawLabs();
+  if (id === 'vibe') { drawLabs(); drawSel(); }
 }
 function closeWin() {
   if (!root || !openWinId) return;
   root.querySelector(`[data-win="${openWinId}"]`).hidden = true; root.querySelector('.lab-scrim').hidden = true;
-  if (openWinId === 'work') stopLabs();
+  if (openWinId === 'vibe') stopLabs();
   if (openWinId === 'music') { mAudio.pause(); mPlaying = ''; }
   openWinId = null;
 }

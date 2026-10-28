@@ -106,7 +106,7 @@ export async function renderHome(el, openProject) {
   };
   el.ondblclick = (e) => { const card = e.target.closest('[data-open]'); if (card && !e.target.closest('button')) openProject(card.dataset.open); };
   try {
-    const [list0, health, me, pf0] = await Promise.all([api('GET', '/api/projects'), api('GET', '/api/health'), api('GET', '/api/me').catch(() => ({})), api('GET', '/api/project-folders').catch(() => null)]);
+    const [list0, health, me, pf0, loop] = await Promise.all([api('GET', '/api/projects'), api('GET', '/api/health'), api('GET', '/api/me').catch(() => ({})), api('GET', '/api/project-folders').catch(() => null), api('GET', '/api/clientreview/jobs').catch(() => ({}))]);
     pf = pf0 || { folders: [], map: {}, old: true };
     homeList = list0;
     // deleting / bringing back projects: the owner, on this computer
@@ -135,7 +135,7 @@ export async function renderHome(el, openProject) {
         + (owner ? navRow('all', 'All projects', list0.length, icon('folder')) : '')
         + navRow('shared', owner || me.local ? 'Shared' : 'Shared with me', list0.filter(isShared).length, ic('team')))
       + `<div class="hm-nsec">Folders${owner ? '<button class="hm-nadd" data-pfnew title="New folder">+</button>' : ''}</div>`
-      + pf.folders.map((f) => navRow(f.id, f.name, count(f.id), '<span class="hm-fi"></span>', `${who(f)}${owner ? `<span class="hm-nmore" data-pfedit="${f.id}" title="Rename / assign / delete">${ic('more')}</span>` : ''}`)).join('')
+      + pf.folders.map((f) => navRow(f.id, f.name, count(f.id), '<span class="hm-fi"></span>', `${owner ? `<span class="hm-nmore" data-pfedit="${f.id}" title="Rename / assign / delete">${ic('more')}</span>` : ''}`)).join('')
       + (pf.folders.length && (owner || count('none')) && !oneFolder ? navRow('none', 'Not in a folder', count('none'), '<span class="hm-fi none"></span>') : '')
       + (owner ? '<button class="hm-nrow hm-nnew" data-pfnew><span class="hm-plus">+</span><span class="hm-nlabel">New folder</span></button>' : '');
     $$('#hmTabs [data-pf]', el).forEach((b) => b.classList.toggle('on', b.dataset.pf === cur || (b.dataset.pf === 'recent' && cur === 'all')));
@@ -165,6 +165,10 @@ export async function renderHome(el, openProject) {
 
     // ---- the project picked: everything about it, Open, and what can be done with it ----
     const btns = (p) => `${mine(p) ? `<button data-share="${esc(p.name)}" title="Share with team members (they see it and can edit it with you)">${ic('team')} Share</button>` : ''}<button data-ptag="${esc(p.name)}" title="Tags (labels to find it by - client, kind of work, status…)">${ic('tag')} Tags</button>${me.role !== 'viewer' ? `<button data-ren="${esc(p.name)}" title="Rename project">${ic('edit')} Rename</button>` : ''}<button data-move="${esc(p.name)}" title="Move to a folder (or drag the card onto a folder at the left)">${icon('folderMove')} Move</button><button data-folder="${esc(p.name)}" title="Open project folder">${icon('folder')} Folder</button>${owner ? `<button class="hm-danger" data-del="${esc(p.name)}" title="Delete project (to the Recycle Bin, or for good)">${icon('trash')} Delete</button>` : ''}`;
+    // 🔁 the job's place in the client loop (Client review links): with the client, changes to do, approved (+ stars)
+    const loopPill = (p) => { const j = loop[p.name]; if (!j) return '';
+      const t = j.state === 'approved' ? `Approved V${j.v}${j.stars ? ` · ${'★'.repeat(j.stars)}` : ''}` : j.state === 'changes' ? (j.open ? `${j.open} change${j.open > 1 ? 's' : ''} to do · V${j.v}` : `Fixed - send V${j.v + 1}`) : `With client · V${j.v}`;
+      return `<span class="hm-loop ${j.state}" title="Client review: ${esc(j.client || '')} - Review in the editor shows the comments">${esc(t)}</span>`; };
     const byLine = (p) => (p.by && !mine(p) ? `shared by ${esc(p.by)}` : p.by ? esc(p.by) : '');
     pick = (name) => {
       homeSel = name;
@@ -223,13 +227,13 @@ export async function renderHome(el, openProject) {
       } else if (view === 'list') {
         const th = (k, l) => `<th${k ? ` class="hm-sortable${sort === k ? ' on' : ''}" data-hsort="${k}"` : ''}>${l}${sort === k ? ' ▾' : ''}</th>`;
         grid.innerHTML = list.length ? `<table class="hm-table"><thead><tr><th></th>${th('name', 'Name')}<th>Folder</th><th>Format</th>${th('length', 'Length')}<th>Clips</th>${th('edited', 'Edited')}<th>By</th><th></th></tr></thead><tbody>${list.map((p) => `<tr class="hm-row" ${attrs(p)}>
-          <td><div class="hm-tn" style="${bg(p)}"></div></td><td class="hm-tname"><b>${esc(p.name)}</b>${tagsOf(p).length ? `<span class="proj-tags">${tagChips(tagsOf(p))}</span>` : ''}</td>
+          <td><div class="hm-tn" style="${bg(p)}"></div></td><td class="hm-tname"><b>${esc(p.name)}</b>${loopPill(p)}${tagsOf(p).length ? `<span class="proj-tags">${tagChips(tagsOf(p))}</span>` : ''}</td>
           <td class="muted">${inF(p) ? esc(fname(inF(p))) : '-'}</td><td class="mono">${esc(p.aspect || '')}</td><td class="mono">${p.duration ? fmt(p.duration) : '-'}</td><td>${p.clips}</td>
           <td class="muted" title="${esc(new Date(p.modified).toLocaleString())}">${ago(p.modified)}</td><td class="muted">${byLine(p)}</td><td>${qa(p)}</td></tr>`).join('')}</tbody></table>` : '';
       } else {
         grid.innerHTML = list.map((p) => `<div class="hm-card" ${attrs(p)}>
           <div class="hm-th" style="${bg(p)}">${p.aspect ? `<span class="hm-asp">${esc(p.aspect)}</span>` : ''}${p.duration ? `<span class="hm-dur">${fmt(p.duration)}</span>` : ''}${qa(p)}</div>
-          <b class="hm-name">${esc(p.name)}</b>
+          <b class="hm-name">${esc(p.name)}</b>${loopPill(p)}
           <div class="hm-meta"><span>${p.clips} clips${where(p) ? ' · ' : ''}${where(p)}</span><span title="${esc(new Date(p.modified).toLocaleString())}">${ago(p.modified)}</span></div>
           ${p.by && !mine(p) ? `<small class="hm-by">${ic('team')} shared by ${esc(p.by)}</small>` : p.shared?.length ? `<small class="hm-by">${ic('team')} ${esc(p.shared.join(', '))}</small>` : ''}</div>`).join('');
       }

@@ -48,7 +48,7 @@ export const OPTIONS = [
 // chips that fill `box` (a textarea / input). quickOnly: only the ones the Assistant's Quick mode understands.
 export function promptChips(box, { quickOnly = false, groups = null } = {}) {
   const list = PROMPTS.filter(([g]) => !groups || groups.includes(g)).map(([g, ps]) => [g, ps.filter(([, k]) => !quickOnly || k === 'q')]).filter(([, ps]) => ps.length);
-  const el = h(`<div class="pg-chips">${list.map(([g, ps]) => `<div class="pg-row"><span class="pg-g">${esc(g)}</span>${ps.map(([p, k]) => `<button type="button" class="chip pg-chip" data-fill="${esc(p)}"${k === 'q' ? '' : ' data-claude'} title="${k === 'q' ? 'Click to put it in the box - works in Quick mode too' : 'Click to put it in the box - Claude does this one'}">${esc(p)}</button>`).join('')}</div>`).join('')}</div>`);
+  const el = h(`<div class="pg-chips">${list.map(([g, ps]) => `<div class="pg-row"><span class="pg-g">${esc(g)}</span>${ps.map(([p, k]) => `<button type="button" class="chip pg-chip" data-fill="${esc(p)}"${k === 'q' ? '' : ' data-claude'} title="${k === 'q' ? 'Click to put it in the box - works in Quick mode too' : 'Click to put it in the box - Limelight AI does this one'}">${esc(p)}</button>`).join('')}</div>`).join('')}</div>`);
   el.addEventListener('click', (e) => { const c = e.target.closest('[data-fill]'); if (c) fillBox(box(), c.dataset.fill); });
   return el;
 }
@@ -64,7 +64,7 @@ export function fillBox(box, text) {
 // the whole guide in a window: examples (click = into the box, when a box is given), tips, what each option does
 export function openPromptGuide({ box = null, quickOnly = false } = {}) {
   const body = h(`<div class="pg">
-    <p class="muted small">Type the way you talk - Hindi, Hinglish or English. ${box ? 'Click an example to put it in the box, then change the names or numbers.' : 'These work in the Assistant, Re-edit and the Agent\'s notes.'} <span class="pg-key"><i class="pg-dot"></i> = Claude does it (it looks at the footage)</span></p>
+    <p class="muted small">Type the way you talk - Hindi, Hinglish or English. ${box ? 'Click an example to put it in the box, then change the names or numbers.' : 'These work in the Assistant, Re-edit and the Agent\'s notes.'} <span class="pg-key"><i class="pg-dot"></i> = Limelight AI does it (it looks at the footage)</span></p>
     <h4>Examples</h4><div data-chips></div>
     <h4>A good brief</h4><ul class="pg-tips">${TIPS.map(([t, d]) => `<li><b>${esc(t)}</b> - ${esc(d)}</li>`).join('')}</ul>
     <details class="pg-opts"><summary><b>What each option does</b></summary><dl>${OPTIONS.map(([t, d]) => `<dt>${esc(t)}</dt><dd>${esc(d)}</dd>`).join('')}</dl></details>

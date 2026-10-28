@@ -2914,14 +2914,14 @@ async function gatherReport(day) {
 let reportAsking = Promise.resolve();
 function reportAsk(question, facts) {
   const exe = claudeExe();
-  if (!exe) throw err(503, 'Claude Code is not installed on the editor PC');
+  if (!exe) throw err(503, 'Limelight AI is not installed on the editor PC');
   const dir = path.join(os.tmpdir(), 'limelight-report-ask'); fs.mkdirSync(dir, { recursive: true });
   const prompt = `You answer the owner of Limelight (a video production office) on WhatsApp about their video editor and team, from these figures only (JSON, times in ms since 1970, durations in ms):\n${JSON.stringify(facts)}\n\nQuestion: ${question}\n\nAnswer short, in the language of the question (Hindi / Hinglish / English), plain text with WhatsApp *bold* at most, no tables. If the figures do not say, say so.`;
   const go = () => new Promise((ok, bad) => {
     const p = spawn(exe, ['-p', prompt, '--output-format', 'json', '--model', CLAUDE_BACKUP(), '--allowedTools', '', '--disallowedTools', 'Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,Task', '--permission-mode', 'default'], { cwd: dir, windowsHide: true });
     let out = ''; p.stdout.on('data', (x) => { out += x; }); p.on('error', bad);
     const t = setTimeout(() => { try { p.kill(); } catch {} }, 180e3);
-    p.on('close', () => { clearTimeout(t); try { const j = JSON.parse(out); if (j.is_error) return bad(err(502, String(j.result || 'Claude did not answer').slice(0, 300))); ok(String(j.result || '').trim()); } catch { bad(err(502, 'Claude did not answer')); } });
+    p.on('close', () => { clearTimeout(t); try { const j = JSON.parse(out); if (j.is_error) return bad(err(502, String(j.result || 'Limelight AI did not answer').slice(0, 300))); ok(String(j.result || '').trim()); } catch { bad(err(502, 'Limelight AI did not answer')); } });
   });
   const run = reportAsking.then(go, go); reportAsking = run.catch(() => {}); // (one question at a time)
   return run;
@@ -3122,6 +3122,9 @@ const nasBusyNow = () => [...farm.tasks.values()].filter((t) => t.state === 'tak
 // A PC listed here that does not report shows as "not connected" - a helper that stopped is seen, not just missing.
 const PC_NAMES = { '192.168.0.200': 'PC A', '192.168.0.205': 'PC B', '192.168.0.210': 'JASPREET' };
 const pcNames = () => ({ ...PC_NAMES, ...(config().perf?.names || {}) });
+// (PC B is no helper since 2026-10-28 - it runs Limelight AI, the bridge and the standby: not missed when it does not report.
+// config.perf.notHelpers: ["<ip>"] changes the list; a PC in it that does connect as a helper still shows)
+const notHelpers = () => new Set(config().perf?.notHelpers || ['192.168.0.205']);
 const ipOnly = (h) => String(h || '').replace(/^::ffff:/, '');
 async function perfView() {
   const wl = await workerStates(), h = healthSeries(), last = h.samples.at(-1) || {}, names = pcNames(), mine = lanIps();
@@ -3130,7 +3133,7 @@ async function perfView() {
   const helpers = farmWorkers().map((w) => ({ id: w.id, name: w.name, label: names[ipOnly(w.host)] || '', role: 'helper', host: ipOnly(w.host), cores: w.specs?.cores || 0, cpuName: w.specs?.cpu || '', live: w.live, hist: w.hist || [],
     work: { busy: w.busy || 0, slots: w.slots || 1, done: w.done || 0, failed: w.failed || 0, paused: !!w.paused, projects: [...helperOf].filter(([, x]) => x === w.id).length } }));
   const pcs = [me, ...helpers], seen = new Set([...mine, ...helpers.map((x) => x.host)]);
-  const missing = Object.entries(names).filter(([ip]) => !seen.has(ip)).map(([ip, label]) => ({ id: `off-${ip}`, label, name: ip, role: 'not connected', host: ip, live: null, hist: [], off: true }));
+  const skip = notHelpers(), missing = Object.entries(names).filter(([ip]) => !seen.has(ip) && !skip.has(ip)).map(([ip, label]) => ({ id: `off-${ip}`, label, name: ip, role: 'not connected', host: ip, live: null, hist: [], off: true }));
   // 🗄 the NAS: the drive the projects are on (else the backups'), its probe times and what reads it now
   const nd = (perf.live?.disks || []).filter((d) => d.net), root = (safetyCfg().dest || 'Z:').slice(0, 2).toUpperCase();
   const disk = nd.find((d) => d.root.toUpperCase() === root) || nd[0] || null;
@@ -3518,12 +3521,12 @@ function claudeExe() {
 let claudeAuth = { at: 0, ok: null, msg: '' };
 async function claudeStatus(force = false) {
   const exe = claudeExe();
-  if (!exe) return { available: false, reason: 'Claude Code is not installed on this computer (install the Claude app, or Claude Code)' };
+  if (!exe) return { available: false, reason: 'Limelight AI is not installed on this computer (set up Limelight AI on this PC)' };
   if (!force && claudeAuth.ok !== null && Date.now() - claudeAuth.at < (claudeAuth.ok ? 3600000 : 60000)) return { available: claudeAuth.ok, exe, reason: claudeAuth.msg };
   const r = await run(exe, ['-p', 'Reply with OK', '--output-format', 'json', '--max-turns', '1', '--model', 'haiku'], {});
   let j = {}; try { j = JSON.parse(r.stdout); } catch {}
   const ok = r.code === 0 && !j.is_error;
-  claudeAuth = { at: Date.now(), ok, msg: ok ? '' : String(j.result || r.stderr || 'Claude did not answer').slice(0, 300) };
+  claudeAuth = { at: Date.now(), ok, msg: ok ? '' : String(j.result || r.stderr || 'Limelight AI did not answer').slice(0, 300) };
   return { available: ok, exe, reason: claudeAuth.msg };
 }
 // kept narrow on purpose: read anything, write only its own edit files, run only the editor's own tool (engine/edtool.mjs)
@@ -3576,11 +3579,11 @@ function helpAsk(exe, q, sid) {
 }
 function claudeChat(name, message, reset, who = null, seq = '') {
   const exe = claudeExe();
-  if (!exe) throw err(400, 'Claude Code is not installed on this computer');
+  if (!exe) throw err(400, 'Limelight AI is not installed on this computer');
   const sfile = claudeSession(name, seq);
   fs.mkdirSync(path.dirname(sfile), { recursive: true });
   if (reset) fs.rmSync(sfile, { force: true });
-  try { aiSnap(name, `Claude: ${String(message).replace(/\s+/g, ' ').slice(0, 80)}`); } catch {}
+  try { aiSnap(name, `Limelight AI: ${String(message).replace(/\s+/g, ' ').slice(0, 80)}`); } catch {}
   return startTask('claude', async (job) => {
     const ev = (e) => { job.events.push({ at: Date.now(), ...e }); if (e.k === 'tool') job.stage = e.text; };
     const backup = CLAUDE_BACKUP(), main = CLAUDE_MAIN();
@@ -3638,7 +3641,7 @@ function claudeRun(exe, name, sfile, message, model, job, ev, seq = '') {
     p.on('error', (e) => bad(e));
     p.on('close', (code) => {
       if (final && !final.is_error) { ev({ k: 'done', text: final.result || '', turns: final.num_turns, cost: final.total_cost_usd }); return ok({ text: final.result || '', turns: final.num_turns }); }
-      const why = final?.result || errText.trim().split(/\r?\n/).pop() || `Claude stopped (code ${code})`;
+      const why = final?.result || errText.trim().split(/\r?\n/).pop() || `Limelight AI stopped (code ${code})`;
       if (/auth|login|oauth|expired/i.test(why) && !LIMIT_RE.test(why)) claudeAuth = { at: Date.now(), ok: false, msg: why };
       // (a used-up Opus limit is not shown as an error: the task carries on with the backup model)
       if (job.stopped || model === CLAUDE_BACKUP() || !LIMIT_RE.test(why)) ev({ k: 'error', text: why });
@@ -3659,10 +3662,10 @@ async function translateBatch(exe, texts, to, from, job) {
       if (!r.ok) { why = r.text; if (!LIMIT_RE.test(why)) throw new Error(why); break; }
       const got = parseTranslation(r.text, texts.length);
       if (got) return got;
-      why = 'Claude gave back a different number of lines - try again';
+      why = 'Limelight AI gave back a different number of lines - try again';
     }
   }
-  throw new Error(why || 'Claude could not translate');
+  throw new Error(why || 'Limelight AI could not translate');
 }
 function claudeAsk(exe, prompt, model, job) {
   return new Promise((ok) => {
@@ -3674,7 +3677,7 @@ function claudeAsk(exe, prompt, model, job) {
     p.on('error', (x) => ok({ ok: false, text: String(x?.message || x) }));
     p.on('close', (code) => {
       let j = {}; try { j = JSON.parse(out); } catch {}
-      ok(code === 0 && !j.is_error && j.result ? { ok: true, text: j.result } : { ok: false, text: String(j.result || e.trim().split(/\r?\n/).pop() || `Claude stopped (code ${code})`) });
+      ok(code === 0 && !j.is_error && j.result ? { ok: true, text: j.result } : { ok: false, text: String(j.result || e.trim().split(/\r?\n/).pop() || `Limelight AI stopped (code ${code})`) });
     });
     p.stdin.on('error', () => {});
     p.stdin.end(prompt, 'utf8');
@@ -4372,7 +4375,7 @@ const routes = {
     L.pj = pj; L.rev++; L.log = [];
     liveWrite(name, L, true);
     liveSend(L, { type: 'reset', rev: L.rev, project: L.pj, by: req.who?.name });
-    logActivity(name, { at: Date.now(), name: req.who?.name || 'Owner', label: String(q(u, 'label') || 'Replaced the whole edit (Agent / Claude / an older tab)').slice(0, 120), kind: 'replace' });
+    logActivity(name, { at: Date.now(), name: req.who?.name || 'Owner', label: String(q(u, 'label') || 'Replaced the whole edit (Agent / Limelight AI / an older tab)').slice(0, 120), kind: 'replace' });
     if (q(u, 'backup')) backup(name, q(u, 'backup') === 'force');
     return { ok: true, modified: pj.modified, rev: L.rev };
   },
@@ -4725,7 +4728,7 @@ const routes = {
     const b = await readJson(req), qn = String(b.q || '').trim().slice(0, 2000);
     if (!qn) throw err(400, 'Type a question');
     const exe = claudeExe();
-    if (!exe) throw err(400, 'The AI help needs Claude Code on the editor PC - the quick answers still work');
+    if (!exe) throw err(400, 'The AI help needs Limelight AI on the editor PC - the quick answers still work');
     return helpAsk(exe, qn, /^[\w-]{8,80}$/.test(String(b.sid || '')) ? b.sid : null);
   },
   // 🗺 map tiles for Motion's Map layer (public/js/geomap.js): fetched once from Esri's tile service, then from disk
@@ -5558,11 +5561,11 @@ const routes = {
         if (String(s.text || '').trim() && Number.isFinite(+s.start) && +s.end > +s.start) lines.push({ id: m.id, start: +s.start, end: +s.end, text: String(s.text).trim() });
       if (!lines.length) throw new Error('The transcripts have no spoken lines (music or silence only)');
       let quotes = null, by = 'rule';
-      job.stage = 'Asking Claude for the best lines…'; job.progress = 10;
+      job.stage = 'Asking Limelight AI for the best lines…'; job.progress = 10;
       const st = await claudeStatus();
       if (st.available) {
         try { quotes = await claudeQuotes(st.exe, lines, n, String(b.brief || '').slice(0, 500)); by = 'claude'; }
-        catch (e) { job.log.push(`Claude: ${e.message} - picked by the simple rule instead`); }
+        catch (e) { job.log.push(`Limelight AI: ${e.message} - picked by the simple rule instead`); }
       }
       quotes ||= ruleQuotes(lines, n);
       const out = { at: Date.now(), by, quotes };
@@ -6093,7 +6096,7 @@ const routes = {
     const to = String(b.to || ''), from = String(b.from || '');
     if (!CAPTION_LANGS[to]) throw err(400, 'Translate to English, Hindi or Hinglish');
     const exe = claudeExe();
-    if (!exe) throw err(400, 'Claude is not on this computer - translating captions needs it (install the Claude app)');
+    if (!exe) throw err(400, 'Limelight AI is not on this computer - translating captions needs it (set up Limelight AI on this PC)');
     return startTask('translate', async (job) => {
       const out = [], N = 40;
       for (let i = 0; i < lines.length; i += N) {
@@ -6202,7 +6205,7 @@ const routes = {
     const name = needProject(q(u, 'p')), id = String(q(u, 'id'));
     const x = readActivity(name, 3000).find((a) => a.id === id);
     if (!x) throw err(404, 'That change is no longer in the log');
-    if (!x.inv?.length) throw err(400, 'This change was too big to take back here - use ↶ AI (undo) for agent / Claude edits');
+    if (!x.inv?.length) throw err(400, 'This change was too big to take back here - use ↶ AI (undo) for agent / Limelight AI edits');
     const L = liveOf(name);
     applyOps(L.pj, x.inv);
     const label = `Undone: ${x.label} (${x.name})`;
@@ -6235,7 +6238,7 @@ const routes = {
     const seq = claudeSeq(name, b.seq);
     if (seq && !liveOf(name).pj.sequences?.[seq]) throw err(400, 'That sequence no longer exists');
     // one Claude at a time per sequence; people on other sequences of the same project can ask theirs meanwhile
-    if ([...jobs.values()].some((j) => j.kind === 'claude' && j.status === 'running' && j.project === name && (j.seq || '') === seq)) throw err(409, 'Claude is still working on the last message for this sequence - wait or press Stop');
+    if ([...jobs.values()].some((j) => j.kind === 'claude' && j.status === 'running' && j.project === name && (j.seq || '') === seq)) throw err(409, 'Limelight AI is still working on the last message for this sequence - wait or press Stop');
     const job = claudeChat(name, b.message, !!b.reset, { ...req.who, fromServer: fromServerPC(req) }, seq);
     return { id: job.id };
   },
@@ -6829,7 +6832,7 @@ const routes = {
     const to = String(b.to || '').slice(0, 40), from = String(b.from || '').slice(0, 40);
     if (!texts.length || !to) throw err(400, 'Nothing to translate');
     const exe = claudeExe();
-    if (!exe) throw err(400, 'Claude is not on this computer - translating needs it');
+    if (!exe) throw err(400, 'Limelight AI is not on this computer - translating needs it');
     return startTask('translate', async (job) => {
       const out = [];
       for (let i = 0; i < texts.length; i += 40) {
@@ -6837,7 +6840,7 @@ const routes = {
         job.stage = `Lines ${i + 1}-${i + part.length} of ${texts.length}`;
         const r = await claudeAsk(exe, `${translatePrompt(part, to, from)}\n\nThese lines will be DUBBED (spoken by a voice in place of the original): keep each about as long to say as the original line, natural spoken ${to}, written in its own script.`, CLAUDE_BACKUP(), job);
         const got = r.ok && parseTranslation(r.text, part.length);
-        if (!got) throw new Error(r.ok ? 'Claude gave back a different number of lines - try again' : r.text);
+        if (!got) throw new Error(r.ok ? 'Limelight AI gave back a different number of lines - try again' : r.text);
         out.push(...got); job.progress = Math.round(((i + part.length) / texts.length) * 100);
       }
       return { lines: out, to };
@@ -7221,7 +7224,7 @@ function fromThisPC(req) {
 const server = http.createServer((req, res) => {
   if (!fromThisPC(req)) return send(res, 403, { error: 'Open the editor from this computer (http://localhost:' + PORT + ') or the team link' });
   // (🛡 an editor's Claude - engine/edtool.mjs with its token: that editor, not the owner)
-  if (req.headers['x-vedit-claude'] !== undefined) { const who = claudeWho(req.headers['x-vedit-claude']); return who ? handle(req, res, who) : send(res, 403, { error: 'This Claude session is over - start it again from the editor' }); }
+  if (req.headers['x-vedit-claude'] !== undefined) { const who = claudeWho(req.headers['x-vedit-claude']); return who ? handle(req, res, who) : send(res, 403, { error: 'This Limelight AI session is over - start it again from the editor' }); }
   return req.url.startsWith('/review/') ? clientReview(req, res, new URL(req.url, 'http://x')) : handle(req, res, OWNER);
 });
 const listen = () => { if (!IS_WORKER) server.listen(PORT, '127.0.0.1'); };

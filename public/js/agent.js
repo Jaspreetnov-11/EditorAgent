@@ -166,7 +166,7 @@ export function understoodHTML(r, err, thinking = false) {
   if (!r) return '';
   const u = (r.understood || []).map((s) => `<span class="ag2-pill">${ic('check')}${esc(String(s).replace(/\.$/, ''))}</span>`).join('');
   const n = thinking ? `<span class="ag2-pill think" title="The local model is reading what the rules could not"><span class="ag2-spin"></span>Thinking about: ${esc(r.notes.join(', '))}</span>`
-    : (r.notes || []).map((s) => `<span class="ag2-pill off" title="Not turned into a setting - Claude reads it">${esc(s)}</span>`).join('');
+    : (r.notes || []).map((s) => `<span class="ag2-pill off" title="Not turned into a setting - Limelight AI reads it">${esc(s)}</span>`).join('');
   return u + n;
 }
 
@@ -335,7 +335,7 @@ export function openAgent(setBusy, { job = null, type = null, vo = null, music =
       <p class="muted small ag2-foot-note">The agent replaces V1 (main story), V2 titles, A1 voice-over and A2 music. Your logo and A3 sound effects stay. Ctrl+Z undoes it.</p>
     </details>
     <div class="ag-foot ag2-foot"><button type="button" data-a="plan" title="See the outline of the edit before it is made">${ic('chart')}Plan</button><span class="grow"></span><button type="button" data-close>Cancel</button>
-      <button type="button" data-a="claude" title="Claude makes the edit the way it edits in this folder: it looks at the footage, plans a story and checks its own work (slower)">${ic('sparkle')}Polish with Claude</button>
+      <button type="button" data-a="claude" title="Limelight AI makes the edit the way it edits in this folder: it looks at the footage, plans a story and checks its own work (slower)">${ic('sparkle')}Polish with Limelight AI</button>
       <button type="button" class="primary" data-a="make" title="The built-in agent on this PC">Make the edit</button></div>
   </div>`);
   const dlg = modal('Agent', body, { width: 980 });

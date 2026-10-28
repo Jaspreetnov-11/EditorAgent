@@ -69,7 +69,7 @@ async function project() {
   return v || shared;
 }
 // changes go as live ops (only the fields that changed), so someone else's edits on other sequences are never overwritten
-async function sendOps(ops, label = 'Claude') {
+async function sendOps(ops, label = 'Limelight AI') {
   const s = toShared(ops, seqMap);
   if (!s) die('that change cannot be made on this sequence');
   return s.length ? api('POST', `/api/live/ops?p=${enc(PROJ)}&client=claude`, { ops: s, label }) : { rev: null };
@@ -82,7 +82,7 @@ async function saveView(before, after, label) {
 }
 const seqArg = () => (seqMap ? { seq: seqMap.mine } : {});
 // ↶ AI undo: a copy of the edit before this change (the editor's Claude chat makes one per message instead)
-const snap = (label) => (process.env.VEDIT_NO_SNAP ? null : api('POST', `/api/aiundo/snap?p=${enc(PROJ)}`, { label: `Claude (edtool ${label})` }).catch(() => null));
+const snap = (label) => (process.env.VEDIT_NO_SNAP ? null : api('POST', `/api/aiundo/snap?p=${enc(PROJ)}`, { label: `Limelight AI (edtool ${label})` }).catch(() => null));
 const mediaList = async () => (await api('GET', `/api/media?p=${enc(PROJ)}`)).items;
 const ff = (args) => spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...args], { encoding: 'utf8' });
 const playFile = (m) => (m.kind === 'video' && m.proxy === 'ready' ? P('cache', 'proxies', `${m.id}.mp4`) : m.path);
@@ -179,7 +179,7 @@ async function cmdQuotes() {
     r = await waitJob(j.id, 'quotes');
   }
   const by = Object.fromEntries((await mediaList()).map((m) => [m.id, m]));
-  out(`${r.quotes.length} quotes (${r.by === 'claude' ? 'picked by Claude' : 'picked by a simple rule'}):`);
+  out(`${r.quotes.length} quotes (${r.by === 'claude' ? 'picked by Limelight AI' : 'picked by a simple rule'}):`);
   for (const x of r.quotes) out(`${x.mediaId} "${by[x.mediaId]?.name || '?'}" in=${r2(x.start)} out=${r2(x.end)} (${r2(x.end - x.start)}s)${x.why ? ` [${x.why}]` : ''}
     "${x.text}"`);
 }
@@ -287,7 +287,7 @@ async function cmdApply(f) {
   const items = await mediaList(), ids = new Set(items.map((m) => m.id));
   const bad = Object.values(pj.tracks).flat().filter((c) => c.mediaId && !ids.has(c.mediaId));
   if (bad.length) die(`${bad.length} clips point to media that is not in the project (e.g. ${bad[0].mediaId}) - use ids from "media"`);
-  await saveView(before, pj, 'Claude');
+  await saveView(before, pj, 'Limelight AI');
   const by = Object.fromEntries(items.map((m) => [m.id, m]));
   out(`applied - the edit is now ${r2(totalDuration(pj, by))}s, ${Object.entries(pj.tracks).filter(([, l]) => l.length).map(([k, l]) => `${k} ${l.length}`).join(', ')} (a backup of the version before was kept)`);
 }
@@ -316,7 +316,7 @@ async function cmdAgent(f) {
   if (r.settings) { if (r.settings.look) pj.settings.look = r.settings.look; if ('kenburns' in r.settings) pj.settings.kenburns = r.settings.kenburns; }
   if (r.refLooks) { const by = Object.fromEntries((await mediaList()).map((m) => [m.id, m])); placeRefLooks(pj, r.refLooks, by); arrangeLayers(pj, by); } // (🧱 V2 looks, V3 comps, V4 text)
   pj.agentReport = { at: Date.now(), ...r.report }; pj.agentOpts = o;
-  await saveView(before, pj, 'Claude (agent edit)');
+  await saveView(before, pj, 'Limelight AI (agent edit)');
   out(`agent edit applied: ${r.tracks.V1.length} shots, ${r.duration}s. ${r.report.warnings.join(' / ')}`);
   const weak = r.report.slots.filter((s) => s.weak).slice(0, 15);
   if (weak.length) out(`weak matches (clip id - sung/spoken text):\n${weak.map((s) => `  ${s.clipId} at ${s.start}s "${(s.text || '').slice(0, 60)}"`).join('\n')}`);
@@ -389,7 +389,7 @@ async function cmdRefLook(file) {
       else if ((t === 'dip' || t === 'fade') && setTransition(pj, by, i, t === 'dip' ? 'fadeblack' : 'fade', 0.4)) cuts++;
     });
   }
-  await saveView(before, pj, 'Claude (reference effects)');
+  await saveView(before, pj, 'Limelight AI (reference effects)');
   out(`${describeLooks(ref)}\n${layers.length ? `${layers.length} adjustment layer(s) on ${track}: ${layers.map((l) => `${r2(l.start)}-${r2(l.start + l.dur)}s ${l.name.replace('Ref look: ', '')}`).join(' | ')}` : 'no adjustment layers needed'}\n${cuts} cut effect(s) / transition(s) copied from the reference's cuts`);
 }
 // 🎞 Limelight Film over the whole edit (public/js/looks.js setFilmLayer)
@@ -402,7 +402,7 @@ async function cmdFilm(look) {
   for (const k of ['strength', 'grain', 'halation', 'bloom', 'vignette', 'weave', 'flicker']) if (flag(k) !== null) more[k] = Math.min(1, Math.max(0, +flag(k) || 0));
   if (['fine', 'medium', 'coarse'].includes(flag('grain-size'))) more.grainSize = flag('grain-size');
   const tr = setFilmLayer(pj, look === 'off' ? '' : look, by, more);
-  await saveView(before, pj, look === 'off' ? 'Claude (Limelight Film off)' : 'Claude (Limelight Film)');
+  await saveView(before, pj, look === 'off' ? 'Limelight AI (Limelight Film off)' : 'Limelight AI (Limelight Film)');
   out(look === 'off' ? 'Limelight Film taken away' : tr ? `Limelight Film "${FILM_STOCKS[look].label}" over the whole edit on ${tr}${Object.keys(more).length ? ` (${JSON.stringify(more)})` : ''}` : 'the timeline is empty - nothing to put it over');
 }
 async function cmdStyles() { const r = await api('GET', '/api/styles'); out(r.styles.map((x) => `${x.name}${x.name === r.default ? ' (default)' : ''}: ${x.summary}`).join('\n') || 'no saved styles'); }

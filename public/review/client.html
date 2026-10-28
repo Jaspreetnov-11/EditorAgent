@@ -28,6 +28,11 @@
   </div>
   <div id="bar" class="bar" title="Click to go there - dots are comments"><div id="barFill" class="bar-fill"></div></div>
 
+  <section id="fixed" class="card fixed" hidden>
+    <h2 id="fixedH">What changed</h2>
+    <ul id="fixedList" class="fixed-list"></ul>
+  </section>
+
   <div class="card add">
     <div class="row"><input id="name" maxlength="60" placeholder="Your name" aria-label="Your name" autocomplete="name"></div>
     <textarea id="text" rows="2" maxlength="2000" placeholder="Comment at this moment… (press C)" aria-label="Comment"></textarea>
@@ -40,6 +45,13 @@
     <textarea id="dtext" rows="2" maxlength="2000" placeholder="Anything to add? (optional)" aria-label="Message with your decision"></textarea>
     <div class="row"><button id="changes" class="ghost" type="button">Request changes</button><button id="approve" class="ok" type="button">Approve</button></div>
   </div>
+
+  <section id="rate" class="card rate" hidden>
+    <h2 id="rateH">How was working with us on this?</h2>
+    <div id="stars" class="stars" role="radiogroup" aria-label="Rating, 1 to 5 stars"></div>
+    <textarea id="rtext" rows="2" maxlength="500" placeholder="Anything we should do better next time? (optional)" aria-label="Your feedback"></textarea>
+    <div class="row"><span id="rdone" class="muted small grow"></span><button id="rsend" type="button">Send feedback</button></div>
+  </section>
 
   <h2 class="h">Comments <span id="count" class="muted"></span></h2>
   <ul id="list" class="list"></ul>

@@ -124,7 +124,7 @@ export function openReedit(setBusy, { focus = null, changes = {} } = {}) {
       <label class="ag2-keep"><span>Shots</span><select name="keep" aria-label="What to keep">${KEEPS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></label></div>
       <div data-chlist></div></section>
     <div class="ag-foot ag2-foot"><button type="button" data-a="plan" title="See the outline of the new edit before it is made">${ic('chart')}Plan</button><span class="grow"></span><button type="button" data-close>Cancel</button>
-      <button type="button" data-a="go" title="Claude re-edits it the way it edits in this folder: it looks at the footage and checks its own work (slower)">${ic('sparkle')}Polish with Claude</button>
+      <button type="button" data-a="go" title="Limelight AI re-edits it the way it edits in this folder: it looks at the footage and checks its own work (slower)">${ic('sparkle')}Polish with Limelight AI</button>
       <button type="button" class="primary" data-a="go" data-quick="1" title="The built-in agent on this PC: the shots that still fit stay">Re-edit</button></div>
   </div>`);
   const dlg = modal('Re-edit', body, { width: 980 });
@@ -288,7 +288,7 @@ export function openReedit(setBusy, { focus = null, changes = {} } = {}) {
     const items = [...(scope ? [[`${scope} - everything else stays as it is`, 'scope']] : []), ...fromWords.map((t) => [t, 'words']), ...said.map((t) => [t, 'words']), ...byHand.map((t) => [t, 'hand'])];
     body.querySelector('[data-chlist]').innerHTML = items.length
       ? `<ul>${items.map(([t, k]) => `<li class="${k}">${ic(k === 'scope' ? 'target' : k === 'words' ? 'chat' : 'edit')}<span>${esc(t)}</span></li>`).join('')}</ul>`
-      : `<p class="ag2-calm">${text ? 'Nothing in the settings yet - Claude reads your words; the built-in agent makes a fresh, better version.' : 'Nothing yet - write what should change, or change a setting.'}</p>`;
+      : `<p class="ag2-calm">${text ? 'Nothing in the settings yet - Limelight AI reads your words; the built-in agent makes a fresh, better version.' : 'Nothing yet - write what should change, or change a setting.'}</p>`;
   };
   const advSum = () => [STYLES.find(([v]) => v === f('editStyle').value)?.[1], `pace ${f('pace').value}`, f('look').value || 'no film look', f('subtitles').checked ? 'subtitles' : '',
     f('style').value === 'cinematic' ? 'dissolves' : 'cuts', scr.scenes?.length ? 'script' : '', +f('clipSpeed').value !== 1 ? `${f('clipSpeed').value}x` : ''].filter(Boolean).join(' · ');

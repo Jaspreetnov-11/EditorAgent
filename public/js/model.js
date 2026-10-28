@@ -782,6 +782,8 @@ export const KEYABLE = {
   'transform.rotation': { label: 'Rotation', def: 0 },
   opacity: { label: 'Opacity', def: 1 },
   volume: { label: 'Volume', def: 1 },
+  // 🎧 left / right: -1 = all left, 0 = centre, 1 = all right (Premiere's Panner; a stereo sound is balanced)
+  pan: { label: 'Pan', def: 0 },
   // where a Fill-framed picture is cut (0 = left / top edge, 1 = right / bottom): keyed by 🎯 Follow faces
   cropX: { label: 'Crop position ', def: 0.5 },
   cropY: { label: 'Crop position ', def: 0.5 },
@@ -883,6 +885,11 @@ export function propAt(c, path, t) {
   return v ?? KEYABLE[path]?.def;
 }
 export const hasKeys = (c, path) => !!c.keys?.[path]?.length;
+// 🎧 a track's pan at timeline time t: trackState.pan, or its pan keyframes (panKeys, timeline seconds) when it has them
+export const trackPanAt = (st, t) => Math.min(1, Math.max(-1, st?.panKeys?.length ? evalKeys(st.panKeys, t) : +st?.pan || 0));
+// pan -> [left, right] gains, as a balance (the far side turns down, the near side stays at full): the render and
+// the live mix use the same
+export const panGains = (p) => { const v = Math.min(1, Math.max(-1, +p || 0)); return [Math.min(1, 1 - v), Math.min(1, 1 + v)]; };
 
 // 📈 One bezier segment as an FFmpeg expression (`rest` = the expression after key b). Even handles: the exact cubic in
 // u; uneven ones (influence dragged): 24 points along the curve joined by straight lines - within a hair of evalKeys.
