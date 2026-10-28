@@ -24,7 +24,7 @@ if (Test-Path "$la\LimelightWatch\uptime.mjs") { $jobs['Limelight Office Watch']
 # 🚪 the office gateway (engine/gateway.mjs): https://editor.limelightcorp.in answers here and goes to the main editor, or to
 # this PC's standby editor while it has taken over. Its certificate is a copy of PC A's ssl\ (copied again after each renewal).
 $gw = "$la\LimelightGateway"
-if (Test-Path "$gw\gateway.mjs") { $jobs['Limelight Gateway'] = Loop 'gateway' "node ""$gw\gateway.mjs"" --main http://192.168.0.200:3100 --standby http://127.0.0.1:3100 --cert ""$gw\editor.limelightcorp.in.crt"" --key ""$gw\editor.limelightcorp.in.key"" >> ""$dir\gateway.log"" 2>&1" }
+if (Test-Path "$gw\gateway.mjs") { $jobs['Limelight Gateway'] = Loop 'gateway' "node ""$gw\gateway.mjs"" --main http://192.168.0.200:3100 --standby http://192.168.0.210:3100,http://127.0.0.1:3100 --cert ""$gw\editor.limelightcorp.in.crt"" --key ""$gw\editor.limelightcorp.in.key"" >> ""$dir\gateway.log"" 2>&1" }
 
 foreach ($k in $jobs.Keys) {
   $act = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument "`"$($jobs[$k])`""

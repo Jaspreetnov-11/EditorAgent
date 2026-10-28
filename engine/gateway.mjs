@@ -6,7 +6,9 @@
 // back (and stops answering) once the main editor has been up for 2 minutes. Streams (live edits) and uploads pass
 // straight through.
 //
-// Usage: node engine/gateway.mjs --main http://<main PC>:3100 --standby http://<standby PC>:3100
+// Usage: node engine/gateway.mjs --main http://<main PC>:3100 --standby http://<1st standby PC>:3100,http://<2nd>:3100
+//   --standby: the line of standby PCs in order, as engine/standby.mjs ranks them (JASPREET 1st, PC B 2nd) - the link goes
+//   to the first of them that runs the editor (only one does at a time), else to the main one.
 //          [--domain editor.limelightcorp.in] [--cert <file.crt> --key <file.key>] [--https 443] [--http 80]
 //   Without --cert / --key it answers plain HTTP on --http only (for a trial, or behind another HTTPS front).
 //   The certificate is the editor's own (ssl/<domain>.crt / .key on the main PC - copy it over after each renewal;
@@ -17,7 +19,7 @@ import fs from 'node:fs';
 
 const argv = process.argv.slice(2);
 const opt = (k, d) => { const i = argv.indexOf(`--${k}`); return i >= 0 ? argv[i + 1] : d; };
-const MAIN = opt('main'), STANDBY = opt('standby');
+const MAIN = opt('main'), STANDBYS = String(opt('standby') || '').split(',').map((x) => x.trim()).filter(Boolean);
 const DOMAIN = opt('domain', 'editor.limelightcorp.in'), CERT = opt('cert'), KEY = opt('key');
 const HTTPS_PORT = +opt('https', 443), HTTP_PORT = +opt('http', 80), EVERY = +opt('every', 5000);
 if (!MAIN) { console.log('Usage: node engine/gateway.mjs --main http://<main PC>:3100 --standby http://<standby PC>:3100 [--cert x.crt --key x.key]'); process.exit(1); }
@@ -27,9 +29,9 @@ const log = (m) => console.log(`${new Date().toLocaleTimeString()}  ${m}`);
 const alive = async (base) => { try { const r = await fetch(new URL('/team/ping', base), { signal: AbortSignal.timeout(3000) }); return r.ok && (await r.json()).ok === true; } catch { return false; } };
 let target = MAIN, mainUp = true;
 async function look() {
-  const [m, s] = await Promise.all([alive(MAIN), STANDBY ? alive(STANDBY) : false]);
-  const next = s ? STANDBY : MAIN;
-  if (next !== target) log(next === STANDBY ? `➡ the standby PC runs the editor - everyone goes to ${STANDBY}` : `➡ back to the main editor ${MAIN}`);
+  const [m, ...s] = await Promise.all([alive(MAIN), ...STANDBYS.map(alive)]);
+  const sb = STANDBYS[s.indexOf(true)], next = sb || MAIN;
+  if (next !== target) log(sb ? `➡ the standby PC runs the editor - everyone goes to ${sb}` : `➡ back to the main editor ${MAIN}`);
   if (m !== mainUp) log(m ? 'the main editor answers' : '⚠ the main editor does not answer');
   target = next; mainUp = m;
 }
