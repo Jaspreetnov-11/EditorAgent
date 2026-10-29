@@ -35,6 +35,11 @@ sequences (timelines) and renders. Projects live on the NAS (Z:). The page bar a
   music library, script to first cut, live same-day edit, archive search.
 - **Presets** - intros, logo stings, lower thirds, graphics templates (editable parameters).
 - **Deliver** - export: presets (YouTube, Instagram Reel 9:16, Master, ProRes...), render queue, render farm.
+- **Premiere / DaVinci in one click** - the **Pr** / **Dv** buttons at the top right of the editor (also File menu, and on
+  a project card on the Projects page) open this edit in Premiere Pro / DaVinci Resolve on your own PC (needs the
+  Limelight Editor app on that PC; footage stays linked on the NAS). Resolve: open any project, then Workspace > Scripts >
+  Limelight Timeline. Editor down? Every project folder has **Open in Premiere.cmd** / **Open in DaVinci.cmd** and the
+  XML in "Premiere - DaVinci" - updated by itself a minute after each save - double-click them.
 
 Other: Agent (AI makes an edit from a script / brief), Assistant (type what to change, Hinglish works), Re-edit,
 Review links for clients, Brand kit, Project chat 💬, History panel, Backups (File menu), Sequences (several timelines,

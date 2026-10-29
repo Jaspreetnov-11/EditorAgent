@@ -57,7 +57,7 @@ html.ui2 .tb-left, html.ui2 .tb-right { display: flex; align-items: center; gap:
    half the bar each, and the wider right half spread over the left: names, "editing" and Logout on top of each other) */
 html.ui2 .tb-left { flex: 1 1 auto; overflow: hidden; }
 html.ui2 .tb-right { flex: 0 0 auto; justify-content: flex-end; }
-html.ui2 .people, html.ui2 .me { white-space: nowrap; flex: none; }
+html.ui2 .people, html.ui2 .me:not(.as-msg) { white-space: nowrap; flex: none; }
 html.ui2 .brand { gap: 8px; font-weight: 500; color: var(--text); padding: 4px 6px; letter-spacing: .02em; }
 html.ui2 .brand b { font-weight: 700; }
 html.ui2 .logo-dot { width: 18px; height: 18px; border-radius: 5px; background: conic-gradient(from 210deg, var(--saffron), #ffd08a, var(--accent), #b07a2a, var(--saffron)); box-shadow: 0 0 12px -2px #d4a24c88; position: relative; }
@@ -687,6 +687,7 @@ html.ui2 .mo-num { color: #8fc1ff; }
 .menubar .mb-reload, .menubar .mb-export { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 10px; margin-left: 6px; font-size: 11.5px; border-radius: 4px; }
 .menubar .mb-reload { background: none; border: 1px solid var(--line-2); color: var(--text); }
 .menubar .mb-reload:hover { background: var(--panel-3); }
+.menubar .mb-nle { padding: 0 7px; font-weight: 700; letter-spacing: .02em; } /* 🎬 Pr / Dv: open in Premiere / DaVinci */
 .menubar .mb-reload .ico, .menubar .mb-export .ico { width: 13px; height: 13px; }
 /* (five tabs now - Tools, Media, Effects, CC, 📝 - fit the panel: less padding each, and they may shrink) */
 html.ui2 .pool-tabs .ptabs button { padding: 6px 5px; min-width: 0; flex: 1 1 auto; }

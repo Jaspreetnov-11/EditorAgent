@@ -39,6 +39,7 @@ html.touch .ws-split.h { height: 18px; margin-top: -6px; }
   html.tablet .menubar .mb-top { padding: 0 8px; }
   html.tablet .menubar .mb-reload { font-size: 0; padding: 0 8px; }
   html.tablet .menubar .mb-reload .ico { font-size: 13px; }
+  html.tablet .menubar .mb-nle { font-size: 11px; } /* (🎬 Pr / Dv keep their letters) */
   html.tablet .pagebar .pb-zoom { display: none; }
   html.tablet .pagebar button { padding: 0 12px; }
 }

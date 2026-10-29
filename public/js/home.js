@@ -98,6 +98,8 @@ export async function renderHome(el, openProject) {
     if (del) { e.stopPropagation(); return deleteProject(del.dataset.del, () => { homeSel = ''; renderHome(el, openProject); }); }
     const mv = e.target.closest('[data-move]');
     if (mv) { e.stopPropagation(); return moveMenu(mv, mv.dataset.move, () => renderHome(el, openProject)); }
+    const nle = e.target.closest('[data-nle]');
+    if (nle) { e.stopPropagation(); return import('./nleopen.js').then((x) => x.openInNle(nle.dataset.np, nle.dataset.nle)); } // 🎬
     if (e.target.closest('[data-folder]')) { e.stopPropagation(); const r = await api('POST', `/api/open-folder?p=${enc(e.target.closest('[data-folder]').dataset.folder)}`); toast(r.folder); return; }
     const op = e.target.closest('[data-openp]');
     if (op) return openProject(op.dataset.openp);
@@ -164,7 +166,7 @@ export async function renderHome(el, openProject) {
     sortSel.onchange = () => { store('ve-home-sort', sortSel.value); draw(); };
 
     // ---- the project picked: everything about it, Open, and what can be done with it ----
-    const btns = (p) => `${mine(p) ? `<button data-share="${esc(p.name)}" title="Share with team members (they see it and can edit it with you)">${ic('team')} Share</button>` : ''}<button data-ptag="${esc(p.name)}" title="Tags (labels to find it by - client, kind of work, status…)">${ic('tag')} Tags</button>${me.role !== 'viewer' ? `<button data-ren="${esc(p.name)}" title="Rename project">${ic('edit')} Rename</button>` : ''}<button data-move="${esc(p.name)}" title="Move to a folder (or drag the card onto a folder at the left)">${icon('folderMove')} Move</button><button data-folder="${esc(p.name)}" title="Open project folder">${icon('folder')} Folder</button>${owner ? `<button class="hm-danger" data-del="${esc(p.name)}" title="Delete project (to the Recycle Bin, or for good)">${icon('trash')} Delete</button>` : ''}`;
+    const btns = (p) => `${mine(p) ? `<button data-share="${esc(p.name)}" title="Share with team members (they see it and can edit it with you)">${ic('team')} Share</button>` : ''}<button data-ptag="${esc(p.name)}" title="Tags (labels to find it by - client, kind of work, status…)">${ic('tag')} Tags</button>${me.role !== 'viewer' ? `<button data-ren="${esc(p.name)}" title="Rename project">${ic('edit')} Rename</button>` : ''}<button data-move="${esc(p.name)}" title="Move to a folder (or drag the card onto a folder at the left)">${icon('folderMove')} Move</button><button data-folder="${esc(p.name)}" title="Open project folder">${icon('folder')} Folder</button><button data-nle="premiere" data-np="${esc(p.name)}" title="Open this edit in Adobe Premiere Pro on this PC (one click - the timeline XML from the project folder, footage from the NAS)">Pr Premiere</button><button data-nle="resolve" data-np="${esc(p.name)}" title="Open this edit in DaVinci Resolve on this PC">Dv DaVinci</button>${owner ? `<button class="hm-danger" data-del="${esc(p.name)}" title="Delete project (to the Recycle Bin, or for good)">${icon('trash')} Delete</button>` : ''}`;
     // 🔁 the job's place in the client loop (Client review links): with the client, changes to do, approved (+ stars)
     const loopPill = (p) => { const j = loop[p.name]; if (!j) return '';
       const t = j.state === 'approved' ? `Approved V${j.v}${j.stars ? ` · ${'★'.repeat(j.stars)}` : ''}` : j.state === 'changes' ? (j.open ? `${j.open} change${j.open > 1 ? 's' : ''} to do · V${j.v}` : `Fixed - send V${j.v + 1}`) : `With client · V${j.v}`;

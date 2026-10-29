@@ -110,6 +110,9 @@ namespace LimelightEditor
             var s = Settings.Load();
             try { Setup.Run(); } catch { } // (every start: shortcuts and limelight:// links point at this exe, wherever it is now)
             if (args.Contains("--setup")) return; // (an installer / IT: set up only, no window)
+            // 🎬 limelight://nle/premiere?f=<xml> (Open in Premiere / Open in DaVinci in the editor): that app on this PC, no window
+            var nle = args.FirstOrDefault(a => a.StartsWith("limelight://nle/", StringComparison.OrdinalIgnoreCase));
+            if (nle != null) { Nle.Open(nle); return; }
             var url = args.FirstOrDefault(a => a.StartsWith("http", StringComparison.OrdinalIgnoreCase));
             // the editor's own PC (or a standby running it): its own address - the owner's, no sign-in needed
             if (url == null && EditorHere()) s.Urls = new[] { "http://localhost:3000/" }.Concat(s.Urls).ToArray();
@@ -118,6 +121,110 @@ namespace LimelightEditor
             if (url == null && link != null) url = s.Urls[0].TrimEnd('/') + "/" + link.Substring("limelight:".Length).TrimStart('/');
             Application.Run(new EditorWindow(s, url));
         }
+    }
+
+    // 🎬 Open in Premiere / Open in DaVinci: the editor wrote the project's timeline XML in its folder (engine/nlfolder.mjs,
+    // "Premiere - DaVinci\<name>.xml", footage linked on the NAS) and links here. Only an .xml that is there is opened.
+    // Premiere Pro gets the file on its command line. Resolve (the free one cannot be driven from outside): our script goes
+    // into its Workspace > Scripts menu, the XML's path into %APPDATA%\Limelight\resolve-next.txt for it, Resolve starts,
+    // and fuscript tries the script for a minute (that opens it by itself in Resolve Studio).
+    static class Nle
+    {
+        public static void Open(string link)
+        {
+            var app = link.Substring("limelight://nle/".Length).Split('?', '/')[0].ToLowerInvariant();
+            var q = link.Contains("?") ? link.Substring(link.IndexOf('?') + 1) : "";
+            var f = q.Split('&').Where(x => x.StartsWith("f=")).Select(x => Uri.UnescapeDataString(x.Substring(2).Replace('+', ' '))).FirstOrDefault() ?? "";
+            if (!f.EndsWith(".xml", StringComparison.OrdinalIgnoreCase)) return;
+            if (!File.Exists(f)) { Say("The timeline file is not reachable from this PC:\n\n" + f + "\n\nIs the NAS (Z: drive) connected here?"); return; }
+            if (app == "premiere") Premiere(f);
+            else if (app == "resolve") Resolve(f);
+        }
+
+        static void Say(string text) => MessageBox.Show(text, "Limelight Editor", MessageBoxButtons.OK, MessageBoxIcon.Information, MessageBoxDefaultButton.Button1, MessageBoxOptions.DefaultDesktopOnly);
+
+        static string AppPath(string exe)
+        {
+            foreach (var hive in new[] { Microsoft.Win32.Registry.LocalMachine, Microsoft.Win32.Registry.CurrentUser })
+                try { using (var k = hive.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\" + exe)) { var p = k?.GetValue("") as string; if (!string.IsNullOrEmpty(p) && File.Exists(p.Trim('"'))) return p.Trim('"'); } } catch { }
+            return null;
+        }
+
+        static void Premiere(string xml)
+        {
+            var pf = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            var exe = (Directory.Exists(Path.Combine(pf, "Adobe")) ? Directory.GetDirectories(Path.Combine(pf, "Adobe"), "Adobe Premiere Pro*") : new string[0])
+                .OrderBy(d => d).Select(d => Path.Combine(d, "Adobe Premiere Pro.exe")).LastOrDefault(File.Exists) ?? AppPath("Adobe Premiere Pro.exe");
+            if (exe == null) { Say("Adobe Premiere Pro is not installed on this PC.\n\nOn a PC with Premiere: File > Import > \n" + xml); return; }
+            Process.Start(new ProcessStartInfo(exe, "\"" + xml + "\"") { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(xml) });
+        }
+
+        static void Resolve(string xml)
+        {
+            var pf = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            var dir = Path.Combine(pf, "Blackmagic Design", "DaVinci Resolve");
+            var exe = File.Exists(Path.Combine(dir, "Resolve.exe")) ? Path.Combine(dir, "Resolve.exe") : AppPath("Resolve.exe");
+            if (exe == null) { Say("DaVinci Resolve is not installed on this PC.\n\nOn a PC with Resolve: File > Import > Timeline > \n" + xml); return; }
+            var roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var scripts = Path.Combine(roaming, "Blackmagic Design", "DaVinci Resolve", "Support", "Fusion", "Scripts", "Utility");
+            var script = Path.Combine(scripts, "Limelight Timeline.lua");
+            var next = Path.Combine(roaming, "Limelight", "resolve-next.txt");
+            Directory.CreateDirectory(scripts); File.WriteAllText(script, ResolveScript.Replace("\r\n", "\n"), new UTF8Encoding(false));
+            Directory.CreateDirectory(Path.GetDirectoryName(next)); File.WriteAllText(next, xml, new UTF8Encoding(false));
+            try { Clipboard.SetText(xml); } catch { }
+            if (Process.GetProcessesByName("Resolve").Length == 0) Process.Start(new ProcessStartInfo(exe) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(exe) });
+            // (Resolve Studio takes scripts from outside: the timeline opens by itself once Resolve is up)
+            var fuscript = Path.Combine(Path.GetDirectoryName(exe), "fuscript.exe");
+            var tryIt = new System.Threading.Thread(() =>
+            {
+                for (var i = 0; i < 12 && File.Exists(next) && File.Exists(fuscript); i++)
+                {
+                    System.Threading.Thread.Sleep(5000);
+                    try { using (var p = Process.Start(new ProcessStartInfo(fuscript, "-l lua \"" + script + "\"") { UseShellExecute = false, CreateNoWindow = true })) p.WaitForExit(20000); } catch { }
+                }
+            }) { IsBackground = false };
+            tryIt.Start();
+            Say("DaVinci Resolve is opening.\n\nOpen any project (Untitled is fine), then:\n     Workspace > Scripts > Limelight Timeline\n\nThe timeline comes in as a new project, its clips linked from the NAS.\n(Or File > Import > Timeline - the XML's path is on the clipboard.)");
+        }
+
+        // (the same script as engine/nlfolder.mjs RESOLVE_LUA - keep the two in step)
+        const string ResolveScript = @"-- Limelight Timeline: opens the timeline the Limelight editor handed over (Open in DaVinci) as a new project.
+local resolve = resolve or (bmd and bmd.scriptapp and bmd.scriptapp(""Resolve"")) or (Resolve and Resolve())
+if not resolve then print(""Limelight: DaVinci Resolve is not reachable"") return end
+local list = os.getenv(""APPDATA"") .. ""\\Limelight\\resolve-next.txt""
+local f = io.open(list, ""r"")
+local xml = f and f:read(""*l"")
+if f then f:close() end
+if not xml or xml == """" then print(""Limelight: nothing to open - press Open in DaVinci in the editor, or the Open in DaVinci file in the project folder"") return end
+xml = xml:gsub(""^\239\187\191"", """"):gsub('^%s*""?', """"):gsub('""?%s*$', """")
+local x = io.open(xml, ""r"")
+if not x then print(""Limelight: cannot read "" .. xml) return end
+local s = x:read(""*a"")
+x:close()
+local name = s:match(""<sequence[^>]*><name>(.-)</name>"") or ""Limelight""
+name = name:gsub(""&amp;"", ""&""):gsub(""&lt;"", ""<""):gsub(""&gt;"", "">""):gsub(""&quot;"", '""')
+local tb = tonumber(s:match(""<timebase>(%d+)</timebase>"")) or 25
+local fps = tostring(tb)
+if s:match(""<ntsc>(%a+)</ntsc>"") == ""TRUE"" then fps = string.format(""%.3f"", tb * 1000 / 1001):gsub(""0+$"", """") end
+local w, h = s:match(""<width>(%d+)</width>""), s:match(""<height>(%d+)</height>"")
+local pm = resolve:GetProjectManager()
+if pm:GetCurrentProject() then pm:SaveProject() end
+local pname, n = name, 1
+local proj = pm:CreateProject(pname)
+while not proj and n < 50 do n = n + 1; pname = name .. "" "" .. n; proj = pm:CreateProject(pname) end
+proj = proj or pm:GetCurrentProject()
+if not proj then print(""Limelight: could not make a project"") return end
+proj:SetSetting(""timelineFrameRate"", fps)
+proj:SetSetting(""timelinePlaybackFrameRate"", fps)
+if w and h then proj:SetSetting(""timelineResolutionWidth"", w); proj:SetSetting(""timelineResolutionHeight"", h) end
+local tl = proj:GetMediaPool():ImportTimelineFromFile(xml, { timelineName = name, importSourceClips = true })
+if not tl then print(""Limelight: Resolve could not import "" .. xml) return end
+proj:SetCurrentTimeline(tl)
+resolve:OpenPage(""edit"")
+pm:SaveProject()
+os.remove(list)
+print(""Limelight: opened "" .. name .. "" (project "" .. pname .. "")"")
+";
     }
 
     // 🖥 the editor opens here by default (not enforced): this PC's Desktop and Start menu shortcuts start this exe, and

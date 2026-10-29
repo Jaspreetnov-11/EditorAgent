@@ -502,7 +502,7 @@ label.btn:hover, .btn:hover { border-color: var(--accent); }
 .as-quick { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
 .as-quick .chip { width: auto; padding: 3px 10px; font-size: 12px; }
 .as-log { flex: 1; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
-.as-msg { max-width: 92%; padding: 8px 11px; border-radius: 10px; font-size: 13px; line-height: 1.45; }
+.as-msg { flex-shrink: 0; white-space: normal; overflow-wrap: anywhere; max-width: 92%; padding: 8px 11px; border-radius: 10px; font-size: 13px; line-height: 1.45; }
 .as-msg.me { align-self: flex-end; background: #ff99332a; border: 1px solid #ff993355; }
 .as-msg.ai { align-self: flex-start; background: var(--panel-2); }
 .as-in { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); }
@@ -767,10 +767,10 @@ select.kfe { font-size: 10px; padding: 0 2px; height: 18px; width: auto; max-wid
 .bt-q { max-height: 30vh; overflow: auto; }
 .ap-studio { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 6px 12px; background: var(--panel); border-radius: 8px; margin: 6px 0; }
 .ro-banner { background: #3a2410; color: #ffd2a3; padding: 6px 14px; font-size: 13px; border-bottom: 1px solid #5a3a18; }
-.me { font-size: 12px; color: var(--muted); white-space: nowrap; flex: none; display: inline-flex; align-items: center; gap: 2px; } .me a { color: var(--accent); text-decoration: none; margin-left: 4px; }
+.me:not(.as-msg) { font-size: 12px; color: var(--muted); white-space: nowrap; flex: none; display: inline-flex; align-items: center; gap: 2px; } .me a { color: var(--accent); text-decoration: none; margin-left: 4px; }
 .me[hidden] { display: none; }
 /* the Logout button next to the signed-in name */
-.me { gap: 8px; }
+.me:not(.as-msg) { gap: 8px; }
 .me .me-out { display: inline-flex; align-items: center; gap: 5px; margin-left: 0; padding: 3px 10px; border: 1px solid var(--line-2, #3a3a40); border-radius: 6px;
   color: var(--text, #e6e6ea); background: var(--panel-2, #1c1c20); font-size: 12px; font-weight: 600; line-height: 1.2; }
 .me .me-out:hover { color: #fff; background: #b3261e; border-color: #d4433a; }

@@ -6,7 +6,7 @@ import { S, commit, findClip, on, emit, layout } from './store.js';
 import { api, enc } from './api.js';
 import { ASPECTS, uid, clipDur, trackList, addTrack, parseTime, fmt, BLEND_MODES } from './model.js';
 import { $, $$, esc, toast, modal, fieldsHTML, bindFields } from './ui.js';
-import { GFX, gfxFields, newGraphic, drawGraphic, gfxKey, setGfxAssets, setGfxVideo, gfxReady, setFontLoader, brandOf, PINS, pinOk, rtimeOk, rtimeOf } from './graphics.js';
+import { GFX, gfxFields, newGraphic, drawGraphic, gfxKey, textLayout, textXf, setGfxAssets, setGfxVideo, gfxReady, setFontLoader, brandOf, PINS, pinOk, rtimeOk, rtimeOf } from './graphics.js';
 import { compVideos } from './motion.js';
 import { onGeoLoad, geoPending, geoIdle } from './geomap.js';
 import { fusionVideos } from './fusion.js';
@@ -123,7 +123,7 @@ setFontLoader((fam) => ensureFont(fam, () => emit('mix')));
 // the style / alignment buttons set their key at once (bindTextPanel).
 const WEIGHTS = [[300, 'Light'], [400, 'Regular'], [500, 'Medium'], [600, 'Semibold'], [700, 'Bold'], [800, 'Extra Bold'], [900, 'Black']];
 const ALIGN_IC = { left: '<svg viewBox="0 0 16 16"><path d="M2 3h12M2 6.5h8M2 10h12M2 13.5h8"/></svg>', center: '<svg viewBox="0 0 16 16"><path d="M2 3h12M4 6.5h8M2 10h12M4 13.5h8"/></svg>', right: '<svg viewBox="0 0 16 16"><path d="M2 3h12M6 6.5h8M2 10h12M6 13.5h8"/></svg>' };
-const txOpen = new Set(['appear']); // (folded sections stay as the editor left them)
+const txOpen = new Set(['appear', 'xform']); // (folded sections stay as the editor left them)
 function textPanel(g) {
   const w = g.weight || (g.bold === false ? 400 : 700), on = (b) => (b ? ' aria-pressed="true"' : ' aria-pressed="false"');
   const num = (k, v, step, title, ic, min = '', max = '') => `<label class="tx-num" title="${title}"><i>${ic}</i><input type="number" data-k="${k}" data-type="num" step="${step}" min="${min}" max="${max}" value="${v}"></label>`;
@@ -141,8 +141,42 @@ function textPanel(g) {
       <div class="tx-line"><label class="tx-chk"><input type="checkbox" data-k="stroke" data-type="check"${g.stroke ? ' checked' : ''}> Stroke</label><input type="color" list="brandSw" data-k="strokeColor" value="${esc(g.strokeColor || '#000000')}">${num('strokeW', g.strokeW ?? 6, 1, 'Stroke width', '⎯', 1, 40)}</div>
       <div class="tx-line"><label class="tx-chk"><input type="checkbox" data-k="bg" data-type="check"${g.bg ? ' checked' : ''}> Background</label><input type="color" list="brandSw" data-k="bgColor" value="${esc(g.bgColor || '#000000')}">${num('bgOpacity', g.bgOpacity ?? 0.6, 0.05, 'Background opacity (0 - 1)', '◐', 0, 1)}</div>
       <div class="tx-line"><label class="tx-chk"><input type="checkbox" data-k="shadow" data-type="check"${g.shadow ? ' checked' : ''}> Shadow</label></div>`)}
-    ${sec('xform', 'Align and Transform', `<div class="tx-line">${num('x', g.x ?? 50, 0.5, 'Position across (% of the frame)', 'X', -20, 120)}${num('y', g.y ?? 50, 0.5, 'Position down (% of the frame)', 'Y', -20, 120)}</div>
-      <div class="fgrid tx-resp">${fieldsHTML(respFields(g), g)}</div>`)}`;
+    ${sec('xform', `Align and Transform<button type="button" class="link small tx-reset" data-txreset title="Reset the transform">↺</button>`, xformRows(g))}
+      <div class="fgrid tx-resp">${fieldsHTML(respFields(g), g)}</div>`;
+}
+// Align and Transform, as in Premiere: Position / Anchor point in the sequence's pixels, Scale %, Rotation °, Opacity %.
+// Stored on the graphic: x / y (% of the frame, the anchor point's place), ax / ay (% of the frame), sx / sy, rot, opa.
+const XF_ALIGN = [['l', 'Align left', 'M2 2v12M4 4h8v3H4zM4 9h5v3H4z'], ['c', 'Align horizontal centre', 'M8 2v12M3 4h10v3H3zM5 9h6v3H5z'], ['r', 'Align right', 'M14 2v12M4 4h8v3H4zM7 9h5v3H7z'],
+  ['t', 'Align top', 'M2 2h12M4 4v8h3V4zM9 4v5h3V4z'], ['m', 'Align vertical centre', 'M2 8h12M4 3v10h3V3zM9 5v6h3V5z'], ['b', 'Align bottom', 'M2 14h12M4 4v8h3V4zM9 7v5h3V7z']];
+function xformRows(g) {
+  const [W, H] = frameSize(), r = (v) => Math.round(v), link = g.slink !== false;
+  const f = (k, v, step, title, unit = '', dis = false) => `<label class="tx-num" title="${title}"><input type="number" data-txf="${k}" step="${step}" value="${r(v)}"${dis ? ' disabled' : ''}><i>${unit}</i></label>`;
+  return `<div class="tx-xf">
+    <span class="tx-l">Align</span><div class="tx-tg tx-xal">${XF_ALIGN.map(([k, t, d]) => `<button type="button" data-txal="${k}" title="${t} (to the video frame)"><svg viewBox="0 0 16 16"><path d="${d}"/></svg></button>`).join('')}</div>
+    <span class="tx-l">Position</span><div>${f('x', ((g.x ?? 50) / 100) * W, 1, 'Position X (pixels)', 'X')}${f('y', ((g.y ?? 50) / 100) * H, 1, 'Position Y (pixels)', 'Y')}</div>
+    <span class="tx-l">Anchor point</span><div>${f('ax', ((+g.ax || 0) / 100) * W, 1, 'Anchor point X (pixels from the centre of the text)', 'X')}${f('ay', ((+g.ay || 0) / 100) * H, 1, 'Anchor point Y (pixels from the centre of the text)', 'Y')}</div>
+    <span class="tx-l">Scale</span><div>${f('sx', g.sx ?? 100, 1, link ? 'Scale' : 'Scale width', '%')}<button type="button" class="icon-btn tx-link" data-txlink aria-pressed="${link}" title="${link ? 'Uniform scale (click to scale width and height apart)' : 'Width and height apart (click to link)'}">${link ? '🔗' : '⛓'}</button>${f('sy', link ? g.sx ?? 100 : g.sy ?? 100, 1, 'Scale height', '%', link)}</div>
+    <span class="tx-l">Rotation</span><div>${f('rot', +g.rot || 0, 1, 'Rotation (degrees)', '°')}</div>
+    <span class="tx-l">Opacity</span><div>${f('opa', g.opa ?? 100, 1, 'Opacity', '%')}</div>
+  </div>`;
+}
+// a value from the panel into the graphic (pixels back to % of the frame)
+function setXf(x, k, n) {
+  const [W, H] = frameSize();
+  if (!Number.isFinite(n)) return;
+  if (k === 'x' || k === 'ax') x[k] = +((n / W) * 100).toFixed(3);
+  else if (k === 'y' || k === 'ay') x[k] = +((n / H) * 100).toFixed(3);
+  else if (k === 'opa') x.opa = Math.min(100, Math.max(0, n));
+  else if (k === 'sx' || k === 'sy') x[k] = Math.max(0, n);
+  else x[k] = n;
+}
+// ⇤ Align to the frame: the text block's (scaled) edge on the frame's edge, or its centre on the middle
+function alignText(x, k) {
+  const [W, H] = frameSize(), ctx = document.createElement('canvas').getContext('2d');
+  const L = textLayout(ctx, W, H, { ...x, pin: undefined }), t = textXf(x), pad = x.bg ? L.px * 0.28 : 0;
+  const hw = ((L.w + pad * 2) * t.sx) / 2, hh = ((L.h + pad * 1.2) * t.sy) / 2, ax = (t.ax * W / 100) * t.sx, ay = (t.ay * H / 100) * t.sy;
+  if ('lcr'.includes(k)) x.x = +(((k === 'l' ? hw : k === 'r' ? W - hw : W / 2) + ax) / W * 100).toFixed(3);
+  else x.y = +(((k === 't' ? hh : k === 'b' ? H - hh : H / 2) + ay) / H * 100).toFixed(3);
 }
 export function gfxInspector(c) {
   const g = c.gfx || {};
@@ -177,6 +211,23 @@ function bindTextPanel(box, id, render) {
   box.querySelectorAll('[data-txa]').forEach((b) => b.addEventListener('click', () => { const x = g(); if (!x) return; x.align = b.dataset.txa; commit('Text: align'); emit('live'); render(); }));
   box.querySelectorAll('[data-txsec]').forEach((d) => d.addEventListener('toggle', () => (d.open ? txOpen.add(d.dataset.txsec) : txOpen.delete(d.dataset.txsec))));
   box.querySelector('[data-k="weight"]')?.addEventListener('change', (e) => { const x = g(); if (x) x.bold = +e.target.value >= 600; });
+  // Align and Transform
+  box.querySelectorAll('[data-txf]').forEach((inp) => {
+    const k = inp.dataset.txf;
+    inp.addEventListener('input', () => { const x = g(); if (!x) return; setXf(x, k, parseFloat(inp.value)); emit('live'); });
+    inp.addEventListener('change', () => { const x = g(); if (!x) return; setXf(x, k, parseFloat(inp.value)); commit(`Text: ${inp.title}`, `gfx-${id}-${k}`); emit('live'); if (k === 'sx') render(); });
+  });
+  box.querySelectorAll('[data-txal]').forEach((b) => b.addEventListener('click', () => { const x = g(); if (!x) return; alignText(x, b.dataset.txal); commit(`Text: ${b.title}`); emit('live'); render(); }));
+  box.querySelector('[data-txlink]')?.addEventListener('click', () => {
+    const x = g(); if (!x) return;
+    if (x.slink === false) { delete x.slink; delete x.sy; } else { x.slink = false; x.sy = x.sx ?? 100; }
+    commit('Text: scale link'); render();
+  });
+  box.querySelector('[data-txreset]')?.addEventListener('click', (e) => {
+    e.preventDefault(); e.stopPropagation(); const x = g(); if (!x) return;
+    for (const k of ['ax', 'ay', 'sx', 'sy', 'slink', 'rot', 'opa']) delete x[k];
+    x.x = 50; x.y = 50; commit('Text: reset transform'); emit('live'); render();
+  });
 }
 export function bindGfxInspector(root, id, render) {
   const box = root.querySelector('.isec');

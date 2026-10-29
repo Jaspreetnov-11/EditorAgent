@@ -1,7 +1,7 @@
 // 🎬 motion graphics (Phase 19): every template, every style, Hindi and English, wide and tall frames - drawn from the
 // first frame to the last without an error, nothing drawn at NaN, and the typewriter never cuts a Hindi letter apart.
 import { test, assert, eq as same } from './harness.mjs';
-import { GFX, drawGraphic, newGraphic, gfxFields, brandTheme, gfxKey, textLayout } from '../public/js/graphics.js';
+import { GFX, drawGraphic, newGraphic, gfxFields, brandTheme, gfxKey, textLayout, textXf } from '../public/js/graphics.js';
 
 // a stand-in for a canvas 2D context: records text drawn and checks every number it gets
 function fakeCtx() {
@@ -84,4 +84,16 @@ test('a brand colour change gives a new bake key (the render does not reuse the 
   const g = { ...newGraphic('lower3'), theme: 'brand', brand: { primary: '#000000', accent: '#ffffff', text: '#ffffff' } };
   const k1 = gfxKey(g, 1920, 1080, 30, 5), k2 = gfxKey({ ...g, brand: { ...g.brand, primary: '#111111' } }, 1920, 1080, 30, 5);
   assert(k1 !== k2, 'keys differ');
+});
+
+test('Type tool text: Align and Transform (scale, linked or apart, rotation, opacity, anchor) - off at its defaults, drawn without NaN', () => {
+  const g = newGraphic('text');
+  same(textXf(g).on, false, 'defaults change nothing');
+  const t = textXf({ ...g, sx: 50, sy: 200, rot: 90, opa: 150, ax: 5 });
+  same([t.on, t.sx, t.sy, +t.rot.toFixed(4), t.opa, t.ax], [true, 0.5, 0.5, 1.5708, 1, 5], 'linked scale: height follows width; opacity kept to 100%');
+  same(textXf({ ...g, sx: 50, sy: 200, slink: false }).sy, 2, 'unlinked: height apart');
+  const ctx = fakeCtx();
+  drawGraphic(ctx, 1920, 1080, { ...g, sx: 80, rot: -30, opa: 40, ax: 2, ay: -3 }, 1, 5);
+  same(ctx.bad, [], 'no NaN'); assert(ctx.texts.length, 'text drawn');
+  assert(gfxKey(g, 1920, 1080, 30, 5) !== gfxKey({ ...g, rot: 10 }, 1920, 1080, 30, 5), 'a transform change bakes again');
 });

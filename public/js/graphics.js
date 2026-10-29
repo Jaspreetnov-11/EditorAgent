@@ -324,6 +324,14 @@ const DRAW = {
   // T Type tool text: fill, optional stroke, shadow and a background box behind the block
   text(ctx, W, H, g) {
     const L = textLayout(ctx, W, H, g), pad = L.px * 0.28;
+    // Align and Transform (Premiere's): Position is where the anchor point sits; the block turns / scales around it.
+    // ax / ay: anchor from the block's centre (% of the frame), sx / sy: scale %, rot: degrees, opa: opacity %
+    const tf = textXf(g);
+    if (tf.on) {
+      ctx.globalAlpha *= tf.opa;
+      ctx.translate(L.cx, L.cy); ctx.rotate(tf.rot); ctx.scale(tf.sx, tf.sy);
+      ctx.translate(-L.cx - (tf.ax * W) / 100, -L.cy - (tf.ay * H) / 100);
+    }
     if (g.bg) {
       ctx.save(); ctx.globalAlpha *= Math.min(1, Math.max(0, g.bgOpacity ?? 0.6)); ctx.fillStyle = g.bgColor || '#000000';
       rr(ctx, L.x - pad, L.y - pad * 0.6, L.w + pad * 2, L.h + pad * 1.2, pad * 0.5); ctx.fill(); ctx.restore();
@@ -790,6 +798,13 @@ export function textLayout(ctx, W, H, g) {
   const p0 = pinBox(box(L), W, H, g), M = Math.abs(p0.k - 1) > 1e-6 ? textLayoutAt(ctx, W, H, g, p0.k) : L;
   const p = pinBox(box(M), W, H, g, { scale: false }), dx = p.x + pad - M.x, dy = p.y + pad * 0.6 - M.y;
   return { ...M, x: M.x + dx, y: M.y + dy, cx: M.cx + dx, cy: M.cy + dy };
+}
+// T a Type tool text's Align and Transform (all at their defaults: on = false, nothing changes)
+export function textXf(g) {
+  const sx = (g.sx ?? 100) / 100, sy = (g.slink === false ? g.sy ?? 100 : g.sx ?? 100) / 100;
+  const t = { sx, sy, rot: ((+g.rot || 0) * Math.PI) / 180, opa: Math.min(1, Math.max(0, (g.opa ?? 100) / 100)), ax: +g.ax || 0, ay: +g.ay || 0 };
+  t.on = t.sx !== 1 || t.sy !== 1 || !!t.rot || t.opa !== 1 || !!t.ax || !!t.ay;
+  return t;
 }
 function textLayoutAt(ctx, W, H, g, s = 1) {
   const k = (Math.min(W, H) / 1080) * s, px = Math.max(4, (+g.size || 90) * k), lh = px * (+g.lead || 1.2);

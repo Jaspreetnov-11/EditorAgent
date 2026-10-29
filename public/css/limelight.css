@@ -155,7 +155,7 @@ html.ui2[data-look="limelight"] dialog { border-top-color: transparent !importan
 html.ui2[data-look="limelight"] .toast { background: var(--glass); backdrop-filter: blur(14px); border-color: transparent; border-left: 2px solid var(--accent); border-radius: 12px; box-shadow: 0 0 0 1px var(--hair-2) inset, 0 14px 40px -12px #000; }
 
 /* ---------- signed-in chip and the Logout button ---------- */
-html.ui2[data-look="limelight"] .me:not([hidden]) { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 4px 0 12px; border-radius: 99px; background: #121215; box-shadow: 0 0 0 1px var(--hair) inset; font-size: 12px; color: var(--text); }
+html.ui2[data-look="limelight"] .me:not([hidden]):not(.as-msg) { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 4px 0 12px; border-radius: 99px; background: #121215; box-shadow: 0 0 0 1px var(--hair) inset; font-size: 12px; color: var(--text); }
 html.ui2[data-look="limelight"] .me .me-out { height: 22px; padding: 0 10px 0 8px; border: 0; border-radius: 99px; background: #1d1d21; box-shadow: 0 0 0 1px var(--hair) inset; color: var(--text); font-weight: 600; }
 html.ui2[data-look="limelight"] .me .me-out:hover { background: #e5484d; color: #fff; box-shadow: none; }
 html.ui2[data-look="limelight"] .jobchip:not(.qchip) { background: #0f0f11; border-color: transparent; box-shadow: 0 0 0 1px var(--hair) inset; border-radius: 99px; }
@@ -328,6 +328,19 @@ html.ui2 .timeline .tl-bar .tl-tc { margin-left: auto; }
 .tx-line input[type="color"] { width: 34px; height: 24px; padding: 0; border-radius: 5px; }
 .tx-chk { display: inline-flex; align-items: center; gap: 6px; min-width: 100px; font-size: 12.5px; }
 .tx-l { min-width: 100px; }
+/* Align and Transform: label | values, like Premiere's Essential Graphics */
+.tx-xf { display: grid; grid-template-columns: 62px minmax(0, 1fr); align-items: center; gap: 7px 6px; }
+.tx-xf .tx-l { min-width: 0; font-size: 11.5px; line-height: 1.2; }
+.tx-xf > div { display: flex; align-items: center; gap: 4px 6px; flex-wrap: wrap; }
+.tx-xf .tx-xal { flex-wrap: wrap; }
+.tx-xf .tx-num { gap: 3px; }
+.tx-xf .tx-num i { min-width: 0; text-align: left; }
+.tx-xf .tx-num input { width: 50px; padding-left: 4px; padding-right: 2px; }
+.tx-xf .tx-num input:disabled { opacity: .5; }
+.tx-xal button { min-width: 24px; padding: 0 3px; }
+.tx-link { width: 24px; height: 24px; font-size: 12px; }
+.tx-link[aria-pressed="false"] { opacity: .55; }
+.tx-reset { float: right; font-size: 14px; }
 
 /* 🧭 Effect Controls sections (inspector.js sumHTML): an icon, the name with its status tag, a line on what it is for */
 #inspector .isec > summary { display: flex; align-items: center; gap: 10px; padding-top: 8px; padding-bottom: 8px; }

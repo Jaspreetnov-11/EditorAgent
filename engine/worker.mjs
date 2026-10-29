@@ -57,6 +57,7 @@ const FFPROBE = opt('ffprobe', FFMPEG === 'ffmpeg' ? 'ffprobe' : path.join(path.
 const NAME = opt('name', os.hostname());
 const ID_FILE = path.join(os.tmpdir(), 'vedit-worker-id.txt');
 let ID = null; try { ID = fs.readFileSync(ID_FILE, 'utf8').trim() || null; } catch {}
+if (ID && !/^[0-9a-z-]{4,20}$/i.test(ID)) ID = null; // (a file left as NUL bytes by a power cut: the editor gives a new id)
 const H = { 'x-farm-token': TOKEN };
 const url = (p) => new URL(p, BASE).href;
 const src = (p) => `${url(p)}?t=${encodeURIComponent(TOKEN)}`;

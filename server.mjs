@@ -3386,11 +3386,13 @@ function startFarm() {
         return serveFile(req, res, path.join(ROOT, ...rel.split('/')));
       }
       if (req.method === 'POST' && u.pathname === '/farm/hello') {
-        const b = await readJson(req), id = String(b.id || crypto.randomBytes(5).toString('hex')).slice(0, 20);
+        // (an id that is not plain letters - a helper's id file left as NUL bytes by a power cut - gets a new one: several
+        // PCs with that same broken id were taken for one PC)
+        const b = await readJson(req), id = /^[0-9a-z-]{4,20}$/i.test(String(b.id || '')) ? String(b.id) : crypto.randomBytes(5).toString('hex');
         const old = farm.workers.get(id);
         // (🖥 a helper PC also says what it is - an older worker.mjs only renders shots)
         const sp = b.specs && typeof b.specs === 'object' ? { cores: Math.max(1, Math.min(512, +b.specs.cores || 1)), cpu: String(b.specs.cpu || '').slice(0, 80), ramGB: Math.max(0, Math.min(4096, +b.specs.ramGB || 0)),
-          gpu: String(b.specs.gpu || '').slice(0, 80), nvenc: !!b.specs.nvenc, ffprobe: !!b.specs.ffprobe, render: !!b.specs.render, whisper: !!b.specs.whisper, torch: !!b.specs.torch, cv2: !!b.specs.cv2 } : null;
+          gpu: String(b.specs.gpu || '').slice(0, 80), nvenc: !!b.specs.nvenc, ffprobe: !!b.specs.ffprobe, render: !!b.specs.render, whisper: !!b.specs.whisper, torch: !!b.specs.torch, cv2: !!b.specs.cv2, vision2: !!b.specs.vision2 } : null;
         farm.workers.set(id, { ...old, id, name: String(b.name || 'Worker').slice(0, 40), host: req.socket.remoteAddress, slots: Math.max(1, Math.min(8, +b.slots || 1)), specs: sp, load: Math.max(0, Math.min(100, Math.round(+b.load || 0))), paused: !!b.paused, seen: Date.now(), busy: old?.busy || 0, done: old?.done || 0, failed: old?.failed || 0,
           live: cleanLive(b.live) || old?.live || null, hist: old?.hist || [] });
         { const w = farm.workers.get(id); if (b.live && w.live) addPoint(w.hist, w.live); } // (📊 the owner's Performance view: its last hour)
@@ -3798,6 +3800,41 @@ function liveWrite(name, L, now = false) {
     writeJSON(f, L.pj); try { L.mtime = fs.statSync(f).mtimeMs; } catch {} // (💾 NAS down: kept in PendingSaves)
   };
   if (now) go(); else L.timer = setTimeout(() => { try { go(true); } catch (e) { logCrash('live save', e); } }, 400);
+  nleSoon(name);
+}
+
+// 🎬 the project folder's own Premiere / DaVinci hand-off (engine/nlfolder.mjs: Open in Premiere.cmd, Open in
+// DaVinci.cmd, "Premiere - DaVinci\<name>.xml"), rewritten 45 s after the last save - so it opens from the folder even
+// while the editor is down. In a child process (title PNGs are drawn with ffmpeg), one at a time per project.
+const nleState = new Map(); // project -> { timer, busy: Promise, again }
+function nleSoon(name, wait = 45e3) {
+  if (process.env.VEDIT_NO_NLE) return;
+  const s = nleState.get(name) || {}; nleState.set(name, s);
+  clearTimeout(s.timer);
+  s.timer = setTimeout(() => { s.timer = null; nleWrite(name).catch((e) => logCrash('nle folder', `${name}: ${e.message}`)); }, wait);
+  s.timer.unref?.();
+}
+async function nleWrite(name) {
+  const s = nleState.get(name) || {}; nleState.set(name, s);
+  if (s.busy) { s.again = true; return s.busy; }
+  s.busy = (async () => {
+    try {
+      do {
+        s.again = false;
+        const pj = live.get(name)?.pj || readJSON(P(name, 'project.json'));
+        if (!Object.values(pj.tracks || {}).flat().length) return null;
+        const items = mediaDb(name).items, job = path.join(os.tmpdir(), `limelight-nle-${crypto.randomUUID()}.json`);
+        fs.writeFileSync(job, JSON.stringify({ project: pj, media: Object.fromEntries(items.map((m) => [m.id, m])), dir: projDir(name),
+          subtitlesPath: pj.subtitles?.file ? P(name, 'subs', path.basename(pj.subtitles.file)) : null }));
+        const r = await run(process.execPath, [path.join(ROOT, 'engine', 'nlfolder.mjs'), job]);
+        fs.rmSync(job, { force: true });
+        if (r.code !== 0) throw new Error(r.stderr.trim().split(/\r?\n/).pop() || `exit ${r.code}`);
+        s.last = JSON.parse(r.stdout);
+      } while (s.again);
+      return s.last;
+    } finally { s.busy = null; }
+  })();
+  return s.busy;
 }
 const livePeople = (L) => [...L.subs.entries()].map(([client, x]) => ({ client, name: x.who.name, role: x.who.role, color: x.color, ...x.at }));
 const livePresence = (L) => liveSend(L, { type: 'presence', people: livePeople(L) });
@@ -5975,6 +6012,17 @@ const routes = {
       if (missing.length) res.notes = [`${missing.length} file${missing.length > 1 ? 's were' : ' was'} not found on this computer and could not be copied: ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? '…' : ''}`, ...res.notes];
       return res;
     }, { project: name });
+  },
+  // 🎬 Open in Premiere / Open in DaVinci: the project folder's hand-off written now (nleWrite) -> { xml, folder, clips,
+  // notes }; the page then opens limelight://nle/<app>?f=<xml> - Limelight Editor.exe on the user's own PC starts the app
+  'POST /api/nle/open': async (req, res, u) => {
+    const name = needProject(q(u, 'p'));
+    clearTimeout(nleState.get(name)?.timer);
+    const pj = live.get(name)?.pj || readJSON(P(name, 'project.json'));
+    if (!Object.values(pj.tracks || {}).flat().length) throw err(400, 'The timeline is empty');
+    const r = await nleWrite(name);
+    if (!r) throw err(400, 'The timeline is empty');
+    return r;
   },
   'GET /api/exports': (req, res, u) => {
     const dir = P(needProject(q(u, 'p')), 'output');
