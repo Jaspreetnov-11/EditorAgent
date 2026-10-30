@@ -36,7 +36,8 @@ try {
       $proj = Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 -Method Post -ContentType 'application/json' -Body '{"name":"Smoke"}' 'http://127.0.0.1:3989/api/projects'
       if ($proj.StatusCode -ne 200) { throw 'the new release cannot make a project' }
     } finally {
-      & taskkill.exe /PID $p.Id /T /F 2>$null | Out-Null
+      # (a helper process of the trial editor that has already ended makes taskkill complain - not a failed release)
+      try { & taskkill.exe /PID $p.Id /T /F 2>&1 | Out-Null } catch {}
       Start-Sleep 1
       Remove-Item -Recurse -Force $data -ErrorAction SilentlyContinue
     }
