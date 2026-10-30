@@ -73,7 +73,10 @@
 import { deviceMode } from '/js/phonecore.js';
 const q = new URLSearchParams(location.search);
 let pick = q.get('ui') || ''; try { pick ||= localStorage.getItem('ve-device') || ''; } catch {}
-const tabs = window.top === window && !q.has('tab') && !q.has('notabs') && deviceMode({ w: innerWidth, h: innerHeight, coarse: matchMedia('(pointer: coarse)').matches, pick }) === 'desktop';
+// (in the Limelight workspace the editor is in its frame - another site's page: the tabs are wanted there too; an editor
+// framed by its own page is one of these tabs already)
+const framedByOther = window.top !== window && (() => { try { return !parent.location.href; } catch { return true; } })();
+const tabs = (window.top === window || framedByOther) && !q.has('tab') && !q.has('notabs') && deviceMode({ w: innerWidth, h: innerHeight, coarse: matchMedia('(pointer: coarse)').matches, pick }) === 'desktop';
 import(tabs ? '/js/tabs.js' : '/js/main.js');
 </script>
 <script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});</script>

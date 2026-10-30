@@ -19,7 +19,9 @@ export async function openInNle(proj, app, { save } = {}) {
   if (!old) { const a = document.createElement('a'); a.href = `limelight://nle/${app}?f=${encodeURIComponent(r.xml)}`; a.click(); }
   const copy = () => navigator.clipboard?.writeText(r.xml).then(() => toast('Path copied'), () => {});
   modal(`${esc(APPS[app])}`, `${old ? `<p><b>This Limelight Editor app is too old for one-click opening</b> (needs 1.4) - get the new one from the Limelight Kit, or open the file below by hand.</p>`
-    : `<p><b>${esc(APPS[app])} is opening on this PC</b> with the timeline (${r.clips} clips, footage from the NAS).</p>`}
+    : `<p><b>${esc(APPS[app])} is opening on this PC</b> with the timeline (${r.clips} clips).</p>
+      <p class="muted">${v && v < 105 ? 'Footage from the NAS - the new Limelight Editor app (1.5) copies it onto this PC first, so nothing is offline.'
+        : 'The Limelight Editor app (1.5 or newer) copies the footage onto this PC first - a window shows how far it is. A big project takes a while the first time; after that only new or changed files are copied.'}</p>`}
     ${app === 'resolve' ? `<ol class="dv-steps"><li>In Resolve open any project (Untitled is fine).</li><li><b>Workspace → Scripts → Limelight Timeline</b> - the timeline comes in as a new project.</li></ol>
       <p class="muted">Or File → Import → Timeline and pick the XML below.</p>` : ''}
     <p class="muted">Not opening? The Limelight Editor app must be on this PC (it handles the link). The same files are always in the project folder - double-click <b>Open in ${app === 'resolve' ? 'DaVinci' : 'Premiere'}.cmd</b> there, even when the editor is down:</p>

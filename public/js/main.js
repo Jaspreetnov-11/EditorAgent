@@ -66,7 +66,7 @@ const app = $('#app');
 app.innerHTML = '<div id="home"></div><div id="editor" hidden></div>';
 const homeEl = $('#home'), editorEl = $('#editor');
 // (Labs took Audio's place in the page bar - the Audio page opens from Window > Audio)
-const PAGES = [['media', 'Media'], ['edit', 'Edit'], ['motion', 'Motion'], ['fusion', 'Nodes'], ['vfx', 'VFX'], ['color', 'Color'], ['ai', 'Labs'], ['presets', 'Presets'], ['deliver', 'Deliver']];
+const PAGES = [['media', 'Media'], ['edit', 'Edit'], ['motion', 'Motion'], ['fusion', 'Nodes'], ['vfx', 'VFX'], ['color', 'Color'], ['audio', 'Audio'], ['ai', 'Labs'], ['presets', 'Presets'], ['deliver', 'Deliver']];
 
 // 🧰 Tools tab (before Media): what used to crowd the top bar, as big labelled tiles in a few groups. Every tile keeps
 // its data-a, so the click handler below, the menus (runMenu 'a:') and whoAmI (Team / Mazbooti) find it as before.

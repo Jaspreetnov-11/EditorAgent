@@ -2,6 +2,7 @@
 // gain, limiter, live meter, fader, mute/solo; music ducking controls; master loudness target + EBU R128 measurement.
 import { ic } from './lineicons.js';
 import { STUDIO_HTML, studio } from './audiostudio.js';
+import { BEAT_HTML, mountBeat, showBeat, stopBeat } from './beatmaker.js';
 import { S, on, emit, commit, duration, layout, findClip } from './store.js';
 import { AFX, AFX_CATS, newAudioEffect } from './audioeffects.js';
 import { api, enc, watchJob } from './api.js';
@@ -36,10 +37,12 @@ export function mountAudio(el) {
       <span class="ap-result" id="apResult"></span>
     </div>
     ${STUDIO_HTML}
+    ${BEAT_HTML}
     <div class="ap-mixer" id="apMixer"></div>
     <div class="panel ap-clipmix"><div class="sh"><b>Clip mixer</b> <small>the clip under the playhead on each track</small></div><div id="apClips"></div></div>
     <p class="muted ap-note">Live preview plays EQ, compressor, gain and limiter. Noise reduction, de-essing and music ducking are applied in renders and in <b>Measure final loudness</b>. Start playback once (Space) to light up the meters.</p>
   </div>`;
+  mountBeat($('#bmRoot', el));
   el.addEventListener('click', onClick);
   el.addEventListener('click', (e) => { const b = e.target.closest('[data-st]'); if (b) studio(b.dataset.st, b); });
   $('#apTarget', el).onchange = (e) => { S.project.settings.loudness = e.target.value === 'off' ? 'off' : +e.target.value; commit('Loudness target'); };
@@ -47,8 +50,8 @@ export function mountAudio(el) {
   on('playhead', () => { if (S.page === 'audio') { $('#apTC', root).textContent = fmtTC(S.playhead, S.project.settings.fps); renderClipMixer(); } });
 }
 
-export function showAudio() { renderMixer(); startMeters(); }
-export function hideAudio() { cancelAnimationFrame(raf); }
+export function showAudio() { renderMixer(); startMeters(); showBeat(); }
+export function hideAudio() { cancelAnimationFrame(raf); stopBeat(); }
 
 function st(id) { const ts = S.project.trackState; ts[id] = ts[id] || {}; return ts[id]; }
 

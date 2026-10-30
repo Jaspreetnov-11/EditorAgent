@@ -2084,3 +2084,19 @@ html.ui2 .viewer .vw-row { display: none; }
 .pf-who { font-size: 10.5px; color: var(--muted); display: flex; align-items: center; gap: 4px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pf-who svg { width: 11px; height: 11px; flex: none; }
 .pf-assign { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; max-height: 300px; overflow: auto; }
+
+/* 🥁 Beat maker (Audio page) */
+.bm { margin: 6px 0; padding: 10px 12px; border-radius: 10px; }
+.bm-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.bm-head small { color: var(--muted); }
+.bm-grid { display: flex; flex-direction: column; gap: 4px; overflow-x: auto; }
+.bm-row { display: grid; grid-template-columns: 92px 70px 1fr; align-items: center; gap: 8px; }
+.bm-row.muted { opacity: .45; }
+.bm-name { text-align: left; font-weight: 600; border-left: 3px solid var(--c); padding: 4px 8px; }
+.bm-vol { width: 70px; accent-color: var(--c); }
+.bm-steps { display: grid; grid-template-columns: repeat(16, minmax(22px, 1fr)); gap: 3px; }
+.bm-step { height: 26px; min-width: 22px; padding: 0; border-radius: 5px; border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.05); cursor: pointer; }
+.bm-step.beat { background: rgba(255,255,255,.09); }
+.bm-step:nth-child(4n) { margin-right: 4px; }
+.bm-step.on { background: var(--c); border-color: var(--c); box-shadow: 0 0 10px -2px var(--c); }
+.bm-step.now { outline: 2px solid #fff; outline-offset: -2px; }

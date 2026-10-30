@@ -141,11 +141,20 @@ const MUSIC_EXT = /\.(mp3|wav|m4a|aac|ogg|flac|opus)$/i;
 // 🎓 every editor's style (templates + LUTs), learnt from their own timeline edits: Library/styles/editors/<name>.json
 const STYLES = createStyles(path.join(DATA === ROOT ? LIB : path.join(DATA, 'Library'), 'styles', 'editors'));
 // one track of Library/music by its file name only (never a path elsewhere)
-function musicFile(name) {
+function musicFile(name, who) {
   const f = path.join(MUSICLIB, path.basename(String(name || '')));
   if (!MUSIC_EXT.test(f) || !fs.existsSync(f)) throw err(404, 'This music is no longer in the Library');
+  if (who && !libMine(who, { by: musicBy()[path.basename(f)] })) throw err(404, 'This music is no longer in the Library');
   return f;
 }
+// 👤 the Library is each editor's own: presets, templates and music they add carry their name ("by") and only they see
+// them; the owner sees everyone's. The ones from before (no name) stay shared with everyone.
+const libAll = (who) => !who || who.local || who.role === 'owner';
+const libMine = (who, x) => libAll(who) || !x?.by || String(x.by).toLowerCase() === String(whoName(who)).toLowerCase();
+// (who added which music file: Library/music-owners.json, file name -> editor)
+const MUSIC_BY = () => path.join(LIB, 'music-owners.json');
+const musicBy = () => readJSON(MUSIC_BY(), {});
+const setMusicBy = (file, by) => { const m = musicBy(); m[file] = by; writeJSON(MUSIC_BY(), m); };
 // a template's import (upload or path) as a job; a failed one leaves nothing behind
 function templateTask(src, orig, id, { name = '', fps = 30, by = '', temp = false } = {}) {
   const dir = path.join(GFXLIB, id);
@@ -2943,6 +2952,12 @@ async function reportDoor(req, res, u) {
   } catch (e) { return send(res, e.code >= 400 && e.code < 600 ? e.code : 500, { error: e.message }); }
 }
 const cookieOf = (req, k) => (new RegExp(`(?:^|; )${k}=([^;]+)`).exec(req.headers.cookie || '') || [])[1];
+// (read again at most every 30 s: putting the file in, or taking it out, needs no restart)
+let wsKey = { at: 0, v: '' };
+function workspaceKey() {
+  if (Date.now() - wsKey.at > 30e3) { let v = ''; try { v = fs.readFileSync(path.join(DATA, 'workspace.key'), 'utf8').trim(); } catch {} wsKey = { at: Date.now(), v }; }
+  return wsKey.v.length >= 32 ? wsKey.v : '';
+}
 function startTeam() {
   if (teamServer) return Promise.resolve();
   const srv = http.createServer(async (req, res) => {
@@ -2976,6 +2991,13 @@ function startTeam() {
     if (u.pathname === '/team/logout') { sessions.delete(sessKey(cookieOf(req, 've_sess'))); res.writeHead(302, { 'Set-Cookie': 've_sess=; Path=/; Max-Age=0', Location: '/' }); return res.end(); }
     let s = sessions.get(sessKey(cookieOf(req, 've_sess')));
     if (s && Date.now() - (s.at || 0) >= SESS_MS) { sessions.delete(sessKey(cookieOf(req, 've_sess'))); s = null; } // (30 days, like the cookie - not only at a restart)
+    // 🔑 Lighthouse (the office workspace) vouches for who this is with the key in <data>/workspace.key: no second
+    // sign-in. Only a team member of that name gets in, with their own role; no key file - nobody is vouched for.
+    if (!s && req.headers['x-lh-edit']) {
+      const key = workspaceKey(), n = String(req.headers['x-lh-edit']).trim().toLowerCase();
+      const w = key && sameSecret(String(req.headers['x-lh-key'] || ''), key) && (teamCfg().users || []).find((x) => x.name.toLowerCase() === n);
+      if (w) s = { name: w.name, role: w.role, at: Date.now() };
+    }
     // a user removed (or demoted) by the owner loses access at once
     const usr = s && (teamCfg().users || []).find((x) => x.name === s.name);
     if (!s || !usr) {
@@ -4376,7 +4398,8 @@ const routes = {
     let imported = 0;
     // from a template (Library/templates): its settings, look, captions style, logo, titles and adjustment layers
     if (b.template) {
-      const t = readJSON(path.join(LIB, 'templates', `${safeName(b.template)}.json`), null);
+      let t = readJSON(path.join(LIB, 'templates', `${safeName(b.template)}.json`), null);
+      if (t && !libMine(req.who, t)) t = null; // (👤 someone else's template)
       if (t) {
         const pj = readJSON(P(name, 'project.json'));
         Object.assign(pj, { settings: { ...pj.settings, ...t.settings }, trackState: { ...pj.trackState, ...t.trackState }, ...(t.captions ? { captions: t.captions } : {}), ...(t.brand ? { brand: t.brand } : {}) });
@@ -6514,22 +6537,30 @@ const routes = {
     }, { project: name });
   },
   // ---- Library (shared by every project): presets, brand kit, project templates - in <app>/Library ----
-  'GET /api/library': () => ({ presets: readJSON(path.join(LIB, 'presets.json'), { fx: [], captions: [] }), brand: readJSON(path.join(LIB, 'brand.json'), {}),
-    templates: fs.readdirSync(path.join(LIB, 'templates')).filter((f) => f.endsWith('.json')).map((f) => ({ name: path.parse(f).name, ...pick(readJSON(path.join(LIB, 'templates', f), {}), ['aspect', 'saved']) })) }),
-  // { kind: 'fx' | 'captions', item: { id, name, data } } adds or replaces; { kind, id, remove: true } deletes
+  'GET /api/library': (req) => {
+    const p = readJSON(path.join(LIB, 'presets.json'), { fx: [], captions: [] }), mine = (l) => (l || []).filter((x) => libMine(req.who, x));
+    return { presets: { ...p, fx: mine(p.fx), captions: mine(p.captions) }, brand: readJSON(path.join(LIB, 'brand.json'), {}),
+      templates: fs.readdirSync(path.join(LIB, 'templates')).filter((f) => f.endsWith('.json')).map((f) => ({ name: path.parse(f).name, ...pick(readJSON(path.join(LIB, 'templates', f), {}), ['aspect', 'saved', 'by']) }))
+        .filter((t) => libMine(req.who, t)) };
+  },
+  // { kind: 'fx' | 'captions', item: { id, name, data } } adds or replaces; { kind, id, remove: true } deletes - only
+  // one's own (the owner: any); the answer is the presets this editor sees
   'PUT /api/library/presets': async (req) => {
     const b = await readJson(req), f = path.join(LIB, 'presets.json'), all = readJSON(f, { fx: [], captions: [] });
     if (!['fx', 'captions'].includes(b.kind)) throw err(400, 'unknown preset kind');
-    const list = (all[b.kind] ||= []).filter((x) => x.id !== (b.item?.id ?? b.id));
-    if (!b.remove) list.push({ ...b.item, saved: Date.now() });
+    const id = b.item?.id ?? b.id, old = (all[b.kind] || []).find((x) => x.id === id);
+    if (old && old.by && !libMine(req.who, old)) throw err(403, `This preset is ${old.by}'s`);
+    const list = (all[b.kind] ||= []).filter((x) => x.id !== id);
+    if (!b.remove) list.push({ ...b.item, by: old?.by || whoName(req.who), saved: Date.now() });
     all[b.kind] = list; writeJSON(f, all);
-    return all;
+    return { ...all, fx: all.fx.filter((x) => libMine(req.who, x)), captions: (all.captions || []).filter((x) => libMine(req.who, x)) };
   },
   'PUT /api/library/brand': async (req) => { const b = await readJson(req); writeJSON(path.join(LIB, 'brand.json'), { ...b, saved: Date.now() }); return b; },
   // 🎵 ready-made music (Library/music): the list, a track to listen to (?name=), and a track into a project's Media
-  'GET /api/library/music': () => fs.readdirSync(MUSICLIB).filter((f) => MUSIC_EXT.test(f)).sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))
-    .map((f) => ({ name: f, title: path.parse(f).name.replace(/[_-]+/g, ' ').trim(), size: fs.statSync(path.join(MUSICLIB, f)).size })),
-  'GET /api/library/music/file': (req, res, u) => serveFile(req, res, musicFile(q(u, 'name'))),
+  'GET /api/library/music': (req) => { const by = musicBy(); return fs.readdirSync(MUSICLIB).filter((f) => MUSIC_EXT.test(f) && libMine(req.who, { by: by[f] }))
+    .sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))
+    .map((f) => ({ name: f, title: path.parse(f).name.replace(/[_-]+/g, ' ').trim(), size: fs.statSync(path.join(MUSICLIB, f)).size, by: by[f] || '' })); },
+  'GET /api/library/music/file': (req, res, u) => serveFile(req, res, musicFile(q(u, 'name'), req.who)),
   // 🎵 every project's music into the library (Labs › Music library › From all projects): audio on A2 (Music), in a
   // Music bin or imports/music, or any 30 s - 15 min track - not voice-overs, dubs, sound effects or recorder files.
   // A file already there with the same name and size is skipped; a different one of the same name keeps the project's name.
@@ -6559,7 +6590,8 @@ const routes = {
           to = `${path.parse(base).name} (${safeName(name).slice(0, 40)})${path.extname(base)}`;
           if (have.has(to.toLowerCase())) { same++; continue; }
         }
-        try { await fs.promises.copyFile(m.path, path.join(MUSICLIB, to)); have.set(to.toLowerCase(), to); copied++; } catch { missing++; }
+        // (a track collected from a project is its maker's)
+        try { await fs.promises.copyFile(m.path, path.join(MUSICLIB, to)); have.set(to.toLowerCase(), to); setMusicBy(to, projectAccess(name).owner || ''); copied++; } catch { missing++; }
       }
     }
     return { projects: names.length, found, copied, same, missing };
@@ -6568,14 +6600,17 @@ const routes = {
   'POST /api/library/music/add': (req, res, u) => new Promise((ok, bad) => {
     const name = path.basename(String(q(u, 'name') || '')).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_');
     if (!MUSIC_EXT.test(name)) { req.resume(); return bad(err(400, 'Music files only (mp3, wav, m4a, aac, ogg, flac)')); }
-    const to = path.join(MUSICLIB, name), up = `${to}.up-${Date.now()}`, out = fs.createWriteStream(up);
+    const to = path.join(MUSICLIB, name), up = `${to}.up-${Date.now()}`;
+    // (someone else's track of the same name is not replaced)
+    if (fs.existsSync(to) && !libMine(req.who, { by: musicBy()[name] })) { req.resume(); return bad(err(409, 'A track of this name is in someone else\'s library - rename yours')); }
+    const out = fs.createWriteStream(up);
     req.pipe(out);
     req.on('error', (e) => { fs.rmSync(up, { force: true }); bad(e); });
-    out.on('finish', () => { try { fs.renameSync(up, to); ok({ name, title: path.parse(name).name.replace(/[_-]+/g, ' ').trim() }); } catch (e) { fs.rmSync(up, { force: true }); bad(e); } });
+    out.on('finish', () => { try { fs.renameSync(up, to); setMusicBy(name, whoName(req.who)); ok({ name, title: path.parse(name).name.replace(/[_-]+/g, ' ').trim() }); } catch (e) { fs.rmSync(up, { force: true }); bad(e); } });
   }),
   // { name } -> copied into imports/music/ (a render on a helper PC finds it there), in Media (bin "Music"), read
   'POST /api/library/music/use': async (req, res, u) => {
-    const name = needProject(q(u, 'p')), b = await readJson(req), src = musicFile(b.name), to = P(name, 'imports', 'music', path.basename(src));
+    const name = needProject(q(u, 'p')), b = await readJson(req), src = musicFile(b.name, req.who), to = P(name, 'imports', 'music', path.basename(src));
     if (!fs.existsSync(to)) { fs.mkdirSync(path.dirname(to), { recursive: true }); fs.copyFileSync(src, to); }
     const it = addMediaFile(name, to, { bin: 'Music' }) || mediaDb(name).items.find((m) => m.path.toLowerCase() === path.resolve(to).toLowerCase());
     saveMedia(name, true);
@@ -6627,13 +6662,19 @@ const routes = {
     const name = needProject(q(u, 'p')), b = await readJson(req), pj = readJSON(P(name, 'project.json'));
     const tname = safeName(b.name || `${name} template`), pathOf = (id) => mediaItem(name, id)?.path || null;
     const keep = (c) => c.type === 'title' || c.type === 'adjust';
-    const t = { saved: Date.now(), aspect: pj.settings.aspect, settings: pj.settings, trackState: pj.trackState, logo: pj.logo?.mediaId ? { ...pj.logo, path: pathOf(pj.logo.mediaId) } : null,
+    const old = readJSON(path.join(LIB, 'templates', `${tname}.json`), null);
+    if (old?.by && !libMine(req.who, old)) throw err(409, `"${tname}" is ${old.by}'s template - pick another name`);
+    const t = { saved: Date.now(), by: old?.by || whoName(req.who), aspect: pj.settings.aspect, settings: pj.settings, trackState: pj.trackState, logo: pj.logo?.mediaId ? { ...pj.logo, path: pathOf(pj.logo.mediaId) } : null,
       captions: pj.captions ? { on: pj.captions.on, style: pj.captions.style, cues: [] } : null, brand: pj.brand || null,
       tracks: Object.fromEntries(Object.entries(pj.tracks).map(([id, l]) => [id, id === 'V1' ? [] : l.filter(keep)])) };
     writeJSON(path.join(LIB, 'templates', `${tname}.json`), t);
     return { name: tname };
   },
-  'POST /api/library/template/delete': async (req) => { const b = await readJson(req); fs.rmSync(path.join(LIB, 'templates', `${safeName(b.name)}.json`), { force: true }); return { ok: true }; },
+  'POST /api/library/template/delete': async (req) => {
+    const b = await readJson(req), f = path.join(LIB, 'templates', `${safeName(b.name)}.json`), t = readJSON(f, null);
+    if (t?.by && !libMine(req.who, t)) throw err(403, `This template is ${t.by}'s`);
+    fs.rmSync(f, { force: true }); return { ok: true };
+  },
   // 🎞 Custom templates (Library/graphics): MOGRTs, logo animations, videos with transparency, image sequences - kept
   // once for everyone (engine/gfxlib.mjs). A MOGRT's After Effects comp is not rendered again: its rendered video is used.
   'GET /api/library/graphics': () => GL.listTemplates(GFXLIB),
